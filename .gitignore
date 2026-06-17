@@ -1,0 +1,21 @@
+# Build Artifacts
+build/
+bin/
+*.o
+*.a
+*.so
+test_*
+genesis_app
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project specific
+docs/architecture/*.html
