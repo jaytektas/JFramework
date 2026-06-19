@@ -16,6 +16,33 @@
 namespace Genesis {
 
 // ============================================================================
+// AiBusHook — zero-dependency bridge from widgets to the AI outbound bus.
+// Set once at application startup via AiBusHook::install(); widgets call
+// AiBusHook::emit() without needing to include GenesisComponents.h.
+// ============================================================================
+
+struct AiBusHook {
+    /** Called by widgets when the user triggers an interaction. */
+    static inline std::function<void(uint32_t nodeId,
+                                     const char* signal,
+                                     const char* value)> emit;
+
+    /** Install the live connection to the real bus.  Called from GApplication ctor. */
+    static void install(std::function<void(uint32_t, const char*, const char*)> fn) {
+        emit = std::move(fn);
+    }
+
+    /** Helpers for common signal names (avoids magic strings at call sites). */
+    static constexpr const char* kClick       = "click";
+    static constexpr const char* kToggled     = "toggled";
+    static constexpr const char* kChecked     = "checked";
+    static constexpr const char* kUnchecked   = "unchecked";
+    static constexpr const char* kTextChanged = "text_changed";
+    static constexpr const char* kSelected    = "selected";
+    static constexpr const char* kValueChanged= "value_changed";
+};
+
+// ============================================================================
 // Widget states
 // ============================================================================
 
@@ -390,7 +417,11 @@ public:
 
     AISemanticNode getSemanticNode() const override { return {"Button", m_label, "", true}; }
     bool executeSemanticAction(const std::string& a) override {
-        if (a == "click") { onClicked.emit(); return true; }
+        if (a == "click") {
+            onClicked.emit();
+            if (AiBusHook::emit) AiBusHook::emit(m_nodeId, AiBusHook::kClick, m_label.c_str());
+            return true;
+        }
         return false;
     }
 
@@ -416,7 +447,15 @@ public:
         l.minHeight = h;
     }
 
-    void setToggled(bool v) { if (m_toggled != v) { m_toggled = v; m_graph.invalidateNode(m_nodeId, DirtySelf); onToggled.emit(v); } }
+    void setToggled(bool v) {
+        if (m_toggled != v) {
+            m_toggled = v;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            onToggled.emit(v);
+            if (AiBusHook::emit)
+                AiBusHook::emit(m_nodeId, AiBusHook::kToggled, m_toggled ? "true" : "false");
+        }
+    }
     bool isToggled() const { return m_toggled; }
 
     void handleMousePress(float mx, float my) override {
@@ -481,7 +520,15 @@ public:
     }
 
     void setChecked(bool v) {
-        if (m_checked != v) { m_checked = v; m_graph.invalidateNode(m_nodeId, DirtySelf); onStateChanged.emit(v); }
+        if (m_checked != v) {
+            m_checked = v;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            onStateChanged.emit(v);
+            if (AiBusHook::emit)
+                AiBusHook::emit(m_nodeId,
+                                m_checked ? AiBusHook::kChecked : AiBusHook::kUnchecked,
+                                m_checked ? "true" : "false");
+        }
     }
     bool isChecked() const { return m_checked; }
 
@@ -776,7 +823,13 @@ public:
     }
 
     void setText(const std::string& t) {
-        if (m_text != t) { m_text = t; m_graph.invalidateNode(m_nodeId, DirtySelf); onTextChanged.emit(t); }
+        if (m_text != t) {
+            m_text = t;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            onTextChanged.emit(t);
+            if (AiBusHook::emit)
+                AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+        }
     }
     const std::string& text()        const { return m_text; }
     const std::string& placeholder() const { return m_placeholder; }

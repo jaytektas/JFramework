@@ -60,9 +60,60 @@ void test_inbound_commands() {
     std::cout << "test_inbound_commands passed" << std::endl;
 }
 
+void test_publish_signal() {
+    SharedBusMemory sharedMem;
+    AiControlBus bus;
+    bus.attach(&sharedMem);
+
+    // Initially: seq must be 0 after attach
+    assert(sharedMem.outboundSignal.signalSeq.load() == 0);
+    assert(sharedMem.outboundSignal.targetId == 0xFFFFFFFFu);
+
+    // Publish a click signal
+    bus.publishSignal(42, "click", "Primary Action");
+    assert(sharedMem.outboundSignal.signalSeq.load() == 1);
+    assert(sharedMem.outboundSignal.targetId == 42);
+    assert(std::string(sharedMem.outboundSignal.signalName)  == "click");
+    assert(std::string(sharedMem.outboundSignal.signalValue) == "Primary Action");
+
+    // Publish another — sequence must increment
+    bus.publishSignal(7, "checked", "true");
+    assert(sharedMem.outboundSignal.signalSeq.load() == 2);
+    assert(sharedMem.outboundSignal.targetId == 7);
+    assert(std::string(sharedMem.outboundSignal.signalName)  == "checked");
+
+    // Value overflow protection: very long value must not overflow the 64-byte field
+    std::string longVal(200, 'x');
+    bus.publishSignal(1, "text_changed", longVal);
+    assert(sharedMem.outboundSignal.signalSeq.load() == 3);
+    // signalValue is 64 bytes; last byte must be '\0'
+    assert(sharedMem.outboundSignal.signalValue[63] == '\0');
+
+    std::cout << "test_publish_signal passed" << std::endl;
+}
+
+void test_outbound_initial_state() {
+    SharedBusMemory sharedMem{};
+    AiControlBus bus;
+    bus.attach(&sharedMem);
+
+    // After attach the outbound channel must be zeroed
+    assert(sharedMem.outboundSignal.signalSeq.load()   == 0);
+    assert(sharedMem.outboundSignal.targetId           == 0xFFFFFFFFu);
+    assert(sharedMem.outboundSignal.signalName[0]      == '\0');
+    assert(sharedMem.outboundSignal.signalValue[0]     == '\0');
+
+    // Version bump: we must be at ABI version 4
+    assert(sharedMem.version == 4u);
+
+    std::cout << "test_outbound_initial_state passed" << std::endl;
+}
+
 int main() {
     test_telemetry_sync();
     test_inbound_commands();
+    test_publish_signal();
+    test_outbound_initial_state();
     std::cout << "All tests passed!" << std::endl;
     return 0;
 }

@@ -230,6 +230,10 @@ public:
     // Dispatch a semantic action from the AI bus to a target by id, on the UI thread.
     // Returns 1 = handled, 0 = action not understood, -1 = no such target.
     int dispatchAiAction(uint32_t targetId, const std::string& action) {
+        // System-level actions addressed to the magic id 0xFFFFFFFF (broadcast / inject).
+        if (targetId == 0xFFFFFFFFu)
+            return handleSystemAction(action);
+
         if (targetId >= kDockAiIdBase) {                 // a docked panel
             uint32_t want = targetId - kDockAiIdBase, idx = 0;
             std::string title;
@@ -333,6 +337,99 @@ public:
             if (w->getNodeId() == targetId)
                 return w->executeSemanticAction(action) ? 1 : 0;
         return -1;
+    }
+
+    // --------------------------------------------------------------------------
+    // System-level actions (targetId == 0xFFFFFFFF)
+    //
+    //   inject:<type>:<panel>:<label>
+    //       Dynamically create a widget in <panel> at runtime.
+    //       <type> is one of: button, label, checkbox, lineedit
+    //       <panel> must match an existing dock panel title.
+    //       <label> is the display text / placeholder.
+    //
+    //   remove_widget:<nodeId>
+    //       Remove a previously injected widget by node id.
+    //
+    // --------------------------------------------------------------------------
+    int handleSystemAction(const std::string& action) {
+        // ---- inject:<type>:<panel>:<label> ----
+        if (action.rfind("inject:", 0) == 0) {
+            // parse the three colon-delimited fields after "inject:"
+            std::string rest = action.substr(7);
+            auto split2 = rest.find(':');
+            if (split2 == std::string::npos) return 0;
+            std::string type  = rest.substr(0, split2);
+            rest = rest.substr(split2 + 1);
+            auto split3 = rest.find(':');
+            std::string panel = (split3 == std::string::npos) ? rest : rest.substr(0, split3);
+            std::string label = (split3 == std::string::npos) ? "" : rest.substr(split3 + 1);
+
+            Panel* p = panelByTitle(panel);
+            if (!p) {
+                std::cerr << "[AI-inject] unknown panel '" << panel << "'\n";
+                return 0;
+            }
+
+            // Save the current panel context then temporarily redirect into target panel.
+            Panel* savedPanel     = m_curPanel;
+            NodeId savedContainer = m_curContainer;
+            m_curPanel     = p;
+            m_curContainer = p->root;
+
+            Widget* injected = nullptr;
+            if (type == "button" || type == "Button") {
+                injected = add<Button>(m_graph, label.empty() ? "Button" : label, 200.0f, 36.0f);
+            } else if (type == "label" || type == "Label") {
+                injected = add<Label>(m_graph, label.empty() ? "Label" : label, 300.0f, 20.0f);
+            } else if (type == "checkbox" || type == "CheckBox") {
+                injected = add<CheckBox>(m_graph, label.empty() ? "CheckBox" : label, 280.0f, 22.0f);
+            } else if (type == "lineedit" || type == "LineEdit") {
+                injected = add<LineEdit>(m_graph, label.empty() ? "Enter text..." : label, 320.0f, 32.0f);
+            } else {
+                std::cerr << "[AI-inject] unknown widget type '" << type << "'\n";
+                m_curPanel = savedPanel; m_curContainer = savedContainer;
+                return 0;
+            }
+
+            // Restore context.
+            m_curPanel     = savedPanel;
+            m_curContainer = savedContainer;
+
+            // Invalidate layout so the panel reflows on the next frame.
+            m_graph.invalidateNode(p->root, DirtySelf);
+
+            std::cout << "[AI-inject] '" << type << "' (id=" << injected->getNodeId()
+                      << ") added to panel '" << panel << "' label='" << label << "'\n";
+            return 1;
+        }
+
+        // ---- remove_widget:<nodeId> ----
+        if (action.rfind("remove_widget:", 0) == 0) {
+            uint32_t nid = 0;
+            try { nid = static_cast<uint32_t>(std::stoul(action.substr(14))); }
+            catch (...) { return 0; }
+
+            // Find which panel owns this widget and remove it.
+            for (auto& p : m_panels) {
+                auto it = std::find_if(p.widgets.begin(), p.widgets.end(),
+                    [nid](Widget* w){ return w->getNodeId() == nid; });
+                if (it != p.widgets.end()) {
+                    p.widgets.erase(it);
+                    // Remove from master ownership list too.
+                    m_widgets.erase(
+                        std::remove_if(m_widgets.begin(), m_widgets.end(),
+                            [nid](const std::unique_ptr<Widget>& w){ return w->getNodeId() == nid; }),
+                        m_widgets.end());
+                    m_graph.invalidateNode(p.root, DirtySelf);
+                    std::cout << "[AI-remove] widget id=" << nid << " removed from panel '" << p.title << "'\n";
+                    return 1;
+                }
+            }
+            return -1;
+        }
+
+        return 0;  // unrecognised system action
     }
 
     void handleMouse(float x, float y, bool pressed, bool released) {

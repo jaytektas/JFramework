@@ -1,0 +1,313 @@
+Start testing: Jun 19 23:39 AEST
+----------------------------------------------------------
+1/15 Testing: test_signal
+1/15 Test: test_signal
+Command: "/home/jay/workspace/jaygui/test_signal"
+Directory: /home/jay/workspace/jaygui
+"test_signal" start time: Jun 19 23:39 AEST
+Output:
+----------------------------------------------------------
+test_basic_signal passed
+test_lambda_signal passed
+test_raii_disconnection passed
+All tests passed!
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"test_signal" end time: Jun 19 23:39 AEST
+"test_signal" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/15 Testing: test_application
+2/15 Test: test_application
+Command: "/home/jay/workspace/jaygui/test_application"
+Directory: /home/jay/workspace/jaygui
+"test_application" start time: Jun 19 23:39 AEST
+Output:
+----------------------------------------------------------
+[INFO][Core] Engine core heartbeat successfully initialized.
+[INFO][Core] Engine core heartbeat loop tearing down gracefully.
+test_application_loop passed
+[INFO][Core] Engine core heartbeat successfully initialized.
+[INFO][Core] Engine core heartbeat loop tearing down gracefully.
+test_task_dispatching passed
+All tests passed!
+<end of output>
+Test time =   0.20 sec
+----------------------------------------------------------
+Test Passed.
+"test_application" end time: Jun 19 23:39 AEST
+"test_application" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/15 Testing: test_scenegraph
+3/15 Test: test_scenegraph
+Command: "/home/jay/workspace/jaygui/test_scenegraph"
+Directory: /home/jay/workspace/jaygui
+"test_scenegraph" start time: Jun 19 23:39 AEST
+Output:
+----------------------------------------------------------
+test_simple_layout passed
+test_row_layout passed
+test_flex_grow passed
+test_align_stretch passed
+test_justify_center passed
+test_margin passed
+test_nested_positions passed
+All tests passed!
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"test_scenegraph" end time: Jun 19 23:39 AEST
+"test_scenegraph" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/15 Testing: test_primitives
+4/15 Test: test_primitives
+Command: "/home/jay/workspace/jaygui/test_primitives"
+Directory: /home/jay/workspace/jaygui
+"test_primitives" start time: Jun 19 23:39 AEST
+Output:
+----------------------------------------------------------
+test_primitive_packing passed
+test_memory_alignment passed
+test_draw_order passed
+All tests passed!
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"test_primitives" end time: Jun 19 23:39 AEST
+"test_primitives" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/15 Testing: test_gpuhal
+5/15 Test: test_gpuhal
+Command: "/home/jay/workspace/jaygui/test_gpuhal"
+Directory: /home/jay/workspace/jaygui
+"test_gpuhal" start time: Jun 19 23:39 AEST
+Output:
+----------------------------------------------------------
+test_gpuhal_factory passed
+test_gpuhal_lifecycle passed
+All tests passed!
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"test_gpuhal" end time: Jun 19 23:39 AEST
+"test_gpuhal" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/15 Testing: test_aicontrolbus
+6/15 Test: test_aicontrolbus
+Command: "/home/jay/workspace/jaygui/test_aicontrolbus"
+Directory: /home/jay/workspace/jaygui
+"test_aicontrolbus" start time: Jun 19 23:39 AEST
+Output:
+----------------------------------------------------------
+[INFO][AI] AI Control Bus attached to memory block successfully.
+test_telemetry_sync passed
+[INFO][AI] AI Control Bus attached to memory block successfully.
+test_inbound_commands passed
+[INFO][AI] AI Control Bus attached to memory block successfully.
+test_publish_signal passed
+[INFO][AI] AI Control Bus attached to memory block successfully.
+test_outbound_initial_state passed
+All tests passed!
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"test_aicontrolbus" end time: Jun 19 23:39 AEST
+"test_aicontrolbus" time elapsed: 00:00:00
+----------------------------------------------------------
+
+7/15 Testing: test_widgets
+7/15 Test: test_widgets
+Command: "/home/jay/workspace/jaygui/test_widgets"
+Directory: /home/jay/workspace/jaygui
+"test_widgets" start time: Jun 19 23:39 AEST
+Output:
+----------------------------------------------------------
+test_button_interaction passed
+test_widget_rendering passed
+test_slider_logic passed
+test_combobox_logic passed
+All tests passed!
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"test_widgets" end time: Jun 19 23:39 AEST
+"test_widgets" time elapsed: 00:00:00
+----------------------------------------------------------
+
+8/15 Testing: test_fontengine
+8/15 Test: test_fontengine
+Command: "/home/jay/workspace/jaygui/test_fontengine"
+Directory: /home/jay/workspace/jaygui
+"test_fontengine" start time: Jun 19 23:39 AEST
+Output:
+----------------------------------------------------------
+[INFO][Graphics] FontEngine: loaded /usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf
+test_font_load_system: loaded /usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf
+test_font_load_system passed
+[INFO][Graphics] FontEngine: loaded /usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf
+[INFO][Graphics] FontEngine: atlas 512x256 at 14px, 199 glyphs
+test_atlas_build: 199 glyphs, lineHeight=14
+test_atlas_build passed
+[INFO][Graphics] FontEngine: loaded /usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf
+[INFO][Graphics] FontEngine: atlas 512x256 at 14px, 199 glyphs
+test_text_measure: 'Hello'=29.4487 'Hi'=11.7395
+test_text_measure passed
+All FontEngine tests passed!
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"test_fontengine" end time: Jun 19 23:39 AEST
+"test_fontengine" time elapsed: 00:00:00
+----------------------------------------------------------
+
+9/15 Testing: test_style
+9/15 Test: test_style
+Command: "/home/jay/workspace/jaygui/test_style"
+Directory: /home/jay/workspace/jaygui
+"test_style" start time: Jun 19 23:39 AEST
+Output:
+----------------------------------------------------------
+test_style_inheritance passed
+All tests passed!
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"test_style" end time: Jun 19 23:39 AEST
+"test_style" time elapsed: 00:00:00
+----------------------------------------------------------
+
+10/15 Testing: test_invalidation
+10/15 Test: test_invalidation
+Command: "/home/jay/workspace/jaygui/test_invalidation"
+Directory: /home/jay/workspace/jaygui
+"test_invalidation" start time: Jun 19 23:39 AEST
+Output:
+----------------------------------------------------------
+test_invalidation_skipping passed
+All tests passed!
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"test_invalidation" end time: Jun 19 23:39 AEST
+"test_invalidation" time elapsed: 00:00:00
+----------------------------------------------------------
+
+11/15 Testing: test_assets
+11/15 Test: test_assets
+Command: "/home/jay/workspace/jaygui/test_assets"
+Directory: /home/jay/workspace/jaygui
+"test_assets" start time: Jun 19 23:39 AEST
+Output:
+----------------------------------------------------------
+[INFO][Assets] Background loading initiated for asset: test.font
+Asynchronous asset pipeline structure verified.
+<end of output>
+Test time =   0.20 sec
+----------------------------------------------------------
+Test Passed.
+"test_assets" end time: Jun 19 23:39 AEST
+"test_assets" time elapsed: 00:00:00
+----------------------------------------------------------
+
+12/15 Testing: test_window
+12/15 Test: test_window
+Command: "/home/jay/workspace/jaygui/test_window"
+Directory: /home/jay/workspace/jaygui
+"test_window" start time: Jun 19 23:39 AEST
+Output:
+----------------------------------------------------------
+[GENESIS] Hello World Window Logical Bootstrapping: PASSED
+[GENESIS] Window bounds: 400x300
+[INFO][Platform] LinuxPlatformWindow created: Parent Window, parentWindow: 0, style: 0
+[INFO][Platform] XCB window created (400x300 @ 100,100, style=0, DPI scale 1)
+[INFO][Platform] LinuxPlatformWindow created: Child Window, parentWindow: 12582912, style: 1
+[INFO][Platform] XCB window created (200x150 @ 150,150, style=1, DPI scale 1)
+[GENESIS] Window Transient Layering Hint Verification: PASSED
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"test_window" end time: Jun 19 23:39 AEST
+"test_window" time elapsed: 00:00:00
+----------------------------------------------------------
+
+13/15 Testing: test_components
+13/15 Test: test_components
+Command: "/home/jay/workspace/jaygui/test_components"
+Directory: /home/jay/workspace/jaygui
+"test_components" start time: Jun 19 23:39 AEST
+Output:
+----------------------------------------------------------
+[INFO][AI] AI Control Bus attached to memory block successfully.
+[INFO][AI] AI Control Bus shared segment '/genesis_ai_bus' created (229632 bytes).
+[INFO][Widgets] Showing main window application surface: Genesis Main Performance Deck
+[INFO][Core] Engine core heartbeat successfully initialized.
+[INFO][Core] Engine core heartbeat loop tearing down gracefully.
+[GENESIS RUNTIME] Application exited with code: 0
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"test_components" end time: Jun 19 23:39 AEST
+"test_components" time elapsed: 00:00:00
+----------------------------------------------------------
+
+14/15 Testing: test_controls_foundation
+14/15 Test: test_controls_foundation
+Command: "/home/jay/workspace/jaygui/test_controls_foundation"
+Directory: /home/jay/workspace/jaygui
+"test_controls_foundation" start time: Jun 19 23:39 AEST
+Output:
+----------------------------------------------------------
+test_button_interaction passed
+test_slider_interaction passed
+test_ai_semantics passed
+All Controls Foundation tests passed!
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"test_controls_foundation" end time: Jun 19 23:39 AEST
+"test_controls_foundation" time elapsed: 00:00:00
+----------------------------------------------------------
+
+15/15 Testing: test_dock_options
+15/15 Test: test_dock_options
+Command: "/home/jay/workspace/jaygui/test_dock_options"
+Directory: /home/jay/workspace/jaygui
+"test_dock_options" start time: Jun 19 23:39 AEST
+Output:
+----------------------------------------------------------
+test_default_options passed
+test_local_overrides passed
+test_dynamic_registry_updates passed
+Root node children count: 2
+Root node handleRects count: 1
+Handle 0: x=129.333, y=0, w=6, h=200
+getHoverCursor(122.f, 100.f): 1
+test_behavioral_options passed
+test_layout_mutations passed
+All dock options tests passed successfully!
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"test_dock_options" end time: Jun 19 23:39 AEST
+"test_dock_options" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Jun 19 23:39 AEST

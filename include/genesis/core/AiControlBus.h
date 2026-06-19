@@ -26,7 +26,7 @@ namespace Genesis {
 
 constexpr uint32_t MaxBusNodes      = 2048;
 constexpr uint32_t SharedMagicCookie = 0x47454E53; // "GENS"
-constexpr uint32_t SharedBusVersion  = 3;          // bump on ABI change
+constexpr uint32_t SharedBusVersion  = 4;          // bump on ABI change
 constexpr char     DefaultBusName[]  = "/genesis_ai_bus";
 
 /**
@@ -89,6 +89,16 @@ struct alignas(16) AiActionRequest {
 };
 
 /**
+ * @brief Outbound signal notification from the app to the AI agent.
+ */
+struct alignas(16) AiSignalNotification {
+    std::atomic<uint32_t> signalSeq{0};   // app bumps to publish a new signal
+    uint32_t targetId{0xFFFFFFFF};
+    char     signalName[32]{0};           // e.g. "click", "checked", "text_changed"
+    char     signalValue[64]{0};          // e.g. "", "checked"/"unchecked", textbox text
+};
+
+/**
  * @brief Complete shared-memory layout representing the physical IPC segment.
  *
  * Concurrency: `generation` is a seqlock — the writer bumps it odd before a publish
@@ -105,6 +115,7 @@ struct alignas(64) SharedBusMemory {
     AiNodeDescriptor nodes[MaxBusNodes];
     AiVirtualInput  inboundCommand;   // legacy pixel/key channel
     AiActionRequest inboundAction;    // semantic act-by-id channel
+    AiSignalNotification outboundSignal; // outbound event notification channel
 };
 
 /** Safe fixed-buffer string copy for descriptor fields. */
@@ -170,6 +181,10 @@ public:
         m_sharedRegion->generation.store(0, std::memory_order_release);
         m_sharedRegion->telemetryFrameCounter.store(0, std::memory_order_release);
         m_sharedRegion->nodeCount = 0;
+        m_sharedRegion->outboundSignal.signalSeq.store(0, std::memory_order_release);
+        m_sharedRegion->outboundSignal.targetId = 0xFFFFFFFF;
+        m_sharedRegion->outboundSignal.signalName[0] = '\0';
+        m_sharedRegion->outboundSignal.signalValue[0] = '\0';
         qCInfo(LogAiBus) << "AI Control Bus attached to memory block successfully." << std::endl;
     }
 
@@ -287,6 +302,16 @@ public:
         if (!m_sharedRegion) return;
         m_sharedRegion->inboundAction.resultCode = result;
         m_sharedRegion->inboundAction.ackSeq.store(seq, std::memory_order_release);
+    }
+
+    /** App side: publish a signal (event notification) onto the AI control bus. */
+    void publishSignal(uint32_t targetId, std::string_view name, std::string_view value) {
+        if (!m_sharedRegion) return;
+        m_sharedRegion->outboundSignal.targetId = targetId;
+        aiSetField(m_sharedRegion->outboundSignal.signalName, sizeof(m_sharedRegion->outboundSignal.signalName), name);
+        aiSetField(m_sharedRegion->outboundSignal.signalValue, sizeof(m_sharedRegion->outboundSignal.signalValue), value);
+        uint32_t seq = m_sharedRegion->outboundSignal.signalSeq.load(std::memory_order_relaxed) + 1;
+        m_sharedRegion->outboundSignal.signalSeq.store(seq, std::memory_order_release);
     }
 
     /**

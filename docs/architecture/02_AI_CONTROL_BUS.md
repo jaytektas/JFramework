@@ -1,83 +1,129 @@
 # 02. AI Control Bus ("Inside-Out" Integration)
 
-Modern applications must be as native to AI agents as they are to humans. Standard GUI toolkits bolt on accessibility APIs (like UIAutomation or AT-SPI) which are slow, string-heavy, and prone to state desync. 
+Modern applications must be as native to AI agents as they are to humans. Standard GUI
+toolkits bolt on accessibility APIs (like UIAutomation or AT-SPI) which are slow,
+string-heavy, and prone to state desync.
 
-This toolkit features the **AI Control Bus (AICB)**, designed from day one.
+This toolkit features the **AI Control Bus (AICB)**, designed from day one — a
+bidirectional, zero-copy, lock-free shared-memory channel between the running application
+and any external AI agent.
+
+---
 
 ## Core Concepts
 
 ### 1. The Synchronized State Tree (SST)
-The UI Scene Graph is stored using a Data-Oriented Design (DOD) approach (arrays of structs). 
-- Every widget and layout node exists in a contiguous block of memory.
-- The AI Bus provides a structured schema (akin to an Abstract Syntax Tree) directly mapping to this memory.
-- **Speed:** An AI system can parse the entire state of a complex UI (thousands of elements) in microseconds via shared memory, rather than querying elements via IPC strings.
+Every widget exists in a contiguous scene-graph array.  The AI bus mirrors that array as
+a flat `AiNodeDescriptor[]` snapshot — structured schema, no IPC strings, no round-trips.
+An agent can parse a complex UI (thousands of controls) in microseconds.
 
 ### 2. Semantic Typing
-Every Control has a strongly typed Semantic Interface.
-- A human sees a custom rendered 3D toggle switch.
-- The AI sees `Control::Toggle{id: 402, state: Boolean::True, purpose: "EnableDarkTheme"}`.
-- All controls demand a `purpose` string and data-binding upon creation. An application will not compile/run properly in debug mode without these, enforcing AI-readability.
+Every control exposes a strongly typed semantic interface:
+- Human sees a custom toggle switch.
+- AI sees `role="ToggleButton" name="Dark Mode" value="true" flags=EVIF`.
+- No pixel access. No screenshots. Identity + meaning, always.
 
-### 3. High-Speed Action Pathways
-When an AI drives the application, it bypasses the Human Event Queue (mouse moves, clicks).
-- The AI injects commands directly into the **Action Dispatcher**.
-- Example: Instead of simulating mouse movement to X:400, Y:200 and sending a `Mouse_Down`, the AI issues `ExecuteAction(ControlID: 402, Action::Toggle)`.
-- The GUI engine recognizes AI actions and can (optionally) render a visual confirmation (e.g., a ripple effect) to inform a human observer what the AI just did.
+### 3. Bidirectional, Lock-Free Channels
 
-### 4. Layout Constraints Modification
-AI isn't just a user; it's a co-creator.
-- The AI Control Bus allows AI agents to stream structural UI modifications on the fly.
-- An AI can append new `Views`, alter `LayoutConstraints`, or bind new data streams to the application without a re-compile.
+| Channel | Direction | Purpose |
+|---|---|---|
+| `nodes[AiNodeDescriptor]` | App → Agent | Live semantic tree (READ) |
+| `inboundAction` | Agent → App | Semantic act-by-id (WRITE) |
+| `outboundSignal` | App → Agent | User-interaction events (LISTEN) |
 
-## Architectural Implementation Details
-The AICB is implemented via a lock-free Ring Buffer shared between the UI thread and a dedicated AI integration thread. External agents (running in separate processes, Python, or local LLMs) connect via a high-performance Named Pipe or Shared Memory segment defined in `Layer 4`.
+All cross-process fields are lock-free atomics; reads are wait-free via the seqlock.
+
+### 4. Runtime Co-Development (Live Injection)
+An AI agent can **inject** new widgets into a running application with no recompile:
+- `inject:button:Console:Run Analysis` — adds a button to the Console panel live.
+- `inject:lineedit:Properties:API key` — adds an input field.
+- `remove_widget:<nodeId>` — removes any previously-injected control.
+
+When satisfied with the live layout, a developer can compile it in as a permanent feature.
 
 ---
 
-## Implementation (current) — authoritative reference
+## Implementation — authoritative reference
 
-> This section documents what is actually built today and supersedes the speculative
-> notes above where they differ. Source: `include/genesis/core/AiControlBus.h`.
+> Source: `include/genesis/core/AiControlBus.h`, version **4**.
 
 ### Transport
-- A real **POSIX shared-memory segment** named **`/genesis_ai_bus`** (`shm_open` + `mmap`),
-  created by `GApplication` at startup. If shm is unavailable it falls back to an
-  in-process pool (tests/headless stay green). The segment is unlinked on clean exit and
-  defensively re-unlinked on launch (no leaks).
-- An external agent in any language maps the segment read-only (to observe) or read-write
-  (to drive). No sockets, no X, no screenshots.
+- **POSIX shared-memory segment** named **`/genesis_ai_bus`** (`shm_open` + `mmap`).
+- Created by `GApplication` at startup; unlinked on exit; defensively re-unlinked on relaunch.
+- Any language that can `mmap` and read packed atomics can connect (C, C++, Rust, Python ctypes).
+- Read-only mapping → observe. Read-write mapping → drive.
 
 ### Memory layout (`SharedBusMemory`)
 | field | purpose |
 |---|---|
 | `magicCookie` = `0x47454E53` ("GENS") | readers validate before trusting the segment |
-| `version` (currently **3**) | ABI gate — readers must match |
-| `generation` (atomic u64) | **seqlock**: odd while the app is publishing, even when stable |
+| `version` = **4** | ABI gate — readers must match |
+| `generation` (atomic u64) | **seqlock**: odd while publishing, even when stable |
 | `telemetryFrameCounter` (atomic u64) | monotonic publish id |
-| `nodeCount`, `nodes[AiNodeDescriptor]` | the semantic tree (READ channel) |
+| `nodeCount`, `nodes[AiNodeDescriptor]` | semantic tree (READ channel) |
 | `inboundCommand` (`AiVirtualInput`) | legacy pixel/key channel |
-| `inboundAction` (`AiActionRequest`) | **semantic act-by-id channel** |
+| `inboundAction` (`AiActionRequest`) | semantic act-by-id channel (Agent→App) |
+| `outboundSignal` (`AiSignalNotification`) | user-event channel (App→Agent) |
 
 ### READ — the semantic tree
-Each `AiNodeDescriptor` is POD/blittable: `id`, `role` (e.g. `"Button"`, `"Slider"`,
-`"DockPanel"`), `name` (label), `value` (live: `"checked"`, `"0.90"`, `"1440p"`…),
-`stateFlags` (`AiEnabled|AiVisible|AiInteractable|AiFocused|AiPressed`), and geometry.
+Each `AiNodeDescriptor` is POD/blittable: `id`, `role`, `name`, `value`, `stateFlags`,
+geometry.  Read a **consistent, lock-free snapshot** with the seqlock:
 
-Read a **consistent, lock-free snapshot** with the seqlock: load `generation` (retry if
-odd), copy `nodeCount`+`nodes`, re-load `generation`; if unchanged the snapshot is torn-free.
-`AiControlBus::snapshot()` implements this for C++ callers. The app re-publishes whenever the
-UI changes (event-driven) plus a ~1 s idle heartbeat.
+```c
+do {
+    g1 = atomic_load(bus->generation);      // retry while odd (write in progress)
+    if (g1 & 1) continue;
+    copy nodeCount and nodes[];
+    g2 = atomic_load(bus->generation);
+} while (g1 != g2);
+```
+
+`AiControlBus::snapshot()` implements this for C++ callers.
 
 ### ACT — semantic action, by identity not pixels
-`AiActionRequest` is a **single-slot request/ack RPC**:
-1. Agent writes `targetId` + `action` (a string), then bumps `requestSeq` (release).
-2. The app, **on the UI thread**, `pollAction()`s, dispatches to the widget via
-   `executeSemanticAction(action)`, writes `resultCode`, and sets `ackSeq = requestSeq`.
-3. Agent waits for `ackSeq`, reads `resultCode` (`1` = handled, `0` = action not understood,
-   `-1` = no such target), then re-reads the tree to verify the new state.
+Single-slot request/ack RPC via `inboundAction`:
+1. Agent: write `targetId` + `action`, bump `requestSeq` (release).
+2. App (UI thread): `pollAction()`, dispatch, write `resultCode`, set `ackSeq = requestSeq`.
+3. Agent: wait for `ackSeq`, check `resultCode` (`1`=OK, `0`=not-understood, `-1`=no-target),
+   re-read tree to verify.
 
-The action vocabulary **is the widgets' own** — no separate command schema:
+`AiControlBus::submitActionBlocking()` implements steps 1-3 for agent-side C++.
 
+### LISTEN — outbound signal channel (new in v4)
+When a **user** interacts with a widget (click, toggle, text-change…) the app automatically
+publishes a non-blocking signal via `outboundSignal`:
+
+```c
+// App side (automatic — wired in GApplication ctor via AiBusHook):
+bus.publishSignal(nodeId, "click", "Primary Action");
+
+// Agent side — poll for new signals:
+uint32_t lastSeq = 0;
+while (true) {
+    uint32_t seq = atomic_load(bus->outboundSignal.signalSeq);
+    if (seq != lastSeq) {
+        lastSeq = seq;
+        // read targetId, signalName, signalValue
+    }
+    sleep_ms(5);
+}
+```
+
+Agents can use `genesis_ai_agent --watch-signals` to stream events to stdout.
+
+### SYSTEM — broadcast / inject actions (targetId = `0xFFFFFFFF`)
+
+Addressed to the magic broadcast id `0xFFFFFFFF`, these bypass the widget tree entirely:
+
+| action | effect |
+|---|---|
+| `inject:<type>:<panel>:<label>` | Dynamically create a widget in the named panel |
+| `remove_widget:<nodeId>` | Remove a widget by scene-graph node id |
+
+`<type>` is one of: `button`, `label`, `checkbox`, `lineedit`.  
+Panel name must match an existing dock panel title (e.g. `Console`, `Properties`).
+
+### Widget action vocabulary
 | role | actions |
 |---|---|
 | Button | `click` |
@@ -89,25 +135,38 @@ The action vocabulary **is the widgets' own** — no separate command schema:
 | LineEdit | `set_text:<string>` |
 | ComboBox | `select:<item-label>` |
 | TabBar | `select_tab:<index>` |
-| DockPanel | `activate` |
-
-Node ids at/above `0x40000000` are **docked panels** (synthetic ids offset past scene-graph
-node ids); below that they are widget scene-graph node ids.
+| DockPanel (id ≥ `0x40000000`) | `activate`, `float`, `set_width:<px>`, `set_height:<px>`, `move_to:<pos>[:<target>]` |
+| **(system broadcast)** | `inject:<type>:<panel>:<label>`, `remove_widget:<id>` |
 
 ### Concurrency & stability
-- All cross-process fields are lock-free atomics; reads are wait-free via the seqlock and are
-  safe from any thread or process. **Writes (publish) and command dispatch happen on the UI
-  thread**, keeping widget mutation thread-correct under the app's worker-thread model.
+- Reads are wait-free; writes/dispatch happen on the UI thread — widget mutation is always
+  thread-correct.
 - Versioned ABI, bounds-checked dispatch, fixed-size string fields, result codes — a
-  malformed or stale reader/agent cannot corrupt the app.
+  malformed or stale agent cannot corrupt the app.
 
 ### Tools (`tools/`)
-- **`genesis_ai_probe`** — dumps the live semantic tree (read channel).
-- **`genesis_ai_agent`** — finds controls by role/label, acts by id, verifies by read-back.
-  Scripted demo, or `--role R --find L --do ACTION`.
+| binary | purpose |
+|---|---|
+| `genesis_ai_probe` | Dump live semantic tree |
+| `genesis_ai_agent` | Full featured agent: find→act→verify, inject, watch signals |
+
+```sh
+build/genesis_ai_probe                                      # snapshot
+build/genesis_ai_agent                                      # scripted demo
+build/genesis_ai_agent --tree                               # dump semantic tree
+build/genesis_ai_agent --role Button --find "Primary" --do click
+build/genesis_ai_agent --inject "button:Console:Run Analysis"
+build/genesis_ai_agent --remove 42
+build/genesis_ai_agent --watch-signals                      # live event stream
+```
 
 ### Extending
-A widget joins the AI surface by implementing `IAIState::getSemanticNode()`
-(role/label/value/interactable) and `executeSemanticAction()`. The app bridges those into
-descriptors in `ControlsCatalog::collectAiNodes()` / dispatches in `dispatchAiAction()`.
-See **`AGENTS.md`** at the repo root for the agent-author quick start.
+A widget joins the AI surface by implementing:
+- `IAIState::getSemanticNode()` — role/label/value/interactable.
+- `executeSemanticAction(action)` — dispatch vocab.
+
+Automatic signal emission is provided by `AiBusHook` (set once in `GApplication`'s ctor)
+— no widget needs to know about the bus directly.  The app bridges descriptors in
+`ControlsCatalog::collectAiNodes()` / dispatches in `dispatchAiAction()`.
+
+See **`AGENTS.md`** at the repo root for the agent quick-start loop.

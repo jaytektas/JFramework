@@ -11,6 +11,7 @@
 #include "ApplicationCore.h"
 #include "SceneGraph.h"
 #include "AiControlBus.h"
+#include "BaseWidgets.h"   // for AiBusHook installation
 
 namespace { inline constexpr auto& LogWidget = Genesis::Log::Widgets; }
 
@@ -47,16 +48,28 @@ public:
         // in-process pool if POSIX shm is unavailable (keeps tests & headless robust).
         if (!m_aiBus.createSegment())
             m_aiBus.attach(&m_fallbackMemoryPool);
+
+        // Wire every widget's user-interaction callbacks to the outbound AI signal bus so
+        // an external agent can watch live events (clicks, text changes, toggles, etc.).
+        AiBusHook::install([this](uint32_t nodeId, const char* sig, const char* val) {
+            m_aiBus.publishSignal(nodeId, sig, val);
+        });
     }
 
     virtual ~GApplication() {
+        AiBusHook::install(nullptr);  // uninstall so no dangling calls after destruction
         s_instance = nullptr;
     }
 
     static GApplication* instance() noexcept { return s_instance; }
-    SceneGraph& sceneGraph() noexcept { return m_sceneGraph; }
-    AiControlBus& aiBus() noexcept { return m_aiBus; }
+    SceneGraph&   sceneGraph()  noexcept { return m_sceneGraph; }
+    AiControlBus& aiBus()       noexcept { return m_aiBus; }
     Core::Application& runtimeLoop() noexcept { return m_runtimeLoop; }
+
+    /** Convenience: forward a user-interaction signal to the AI bus. */
+    void publishSignal(uint32_t nodeId, const char* signal, const char* value) {
+        m_aiBus.publishSignal(nodeId, signal, value);
+    }
 
     int exec(std::unique_ptr<Core::PlatformWindow> nativeWindow) {
         return m_runtimeLoop.run(std::move(nativeWindow));

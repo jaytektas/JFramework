@@ -1,0 +1,16 @@
+test_signal 22 6.89152e-05
+test_application 22 0.0092447
+test_scenegraph 22 6.72866e-05
+test_primitives 22 6.09096e-05
+test_gpuhal 22 6.19416e-05
+test_aicontrolbus 22 8.10624e-05
+test_widgets 22 8.65554e-05
+test_fontengine 22 0.000221891
+test_style 22 5.76012e-05
+test_invalidation 22 5.32012e-05
+test_assets 22 0.00915692
+test_window 21 0.00011552
+test_components 22 0.00236379
+test_controls_foundation 22 6.72743e-05
+test_dock_options 2 0.000630604
+---
