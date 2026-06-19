@@ -10,37 +10,11 @@
 #include "Signal.h"
 #include "SceneGraph.h"
 #include "TranslationEngine.h"
+#include "AiBusHook.h"          // zero-dependency AI bus bridge
 #include "../graphics/RenderPrimitive.h"
 #include "../graphics/FontEngine.h"
 
 namespace Genesis {
-
-// ============================================================================
-// AiBusHook — zero-dependency bridge from widgets to the AI outbound bus.
-// Set once at application startup via AiBusHook::install(); widgets call
-// AiBusHook::emit() without needing to include GenesisComponents.h.
-// ============================================================================
-
-struct AiBusHook {
-    /** Called by widgets when the user triggers an interaction. */
-    static inline std::function<void(uint32_t nodeId,
-                                     const char* signal,
-                                     const char* value)> emit;
-
-    /** Install the live connection to the real bus.  Called from GApplication ctor. */
-    static void install(std::function<void(uint32_t, const char*, const char*)> fn) {
-        emit = std::move(fn);
-    }
-
-    /** Helpers for common signal names (avoids magic strings at call sites). */
-    static constexpr const char* kClick       = "click";
-    static constexpr const char* kToggled     = "toggled";
-    static constexpr const char* kChecked     = "checked";
-    static constexpr const char* kUnchecked   = "unchecked";
-    static constexpr const char* kTextChanged = "text_changed";
-    static constexpr const char* kSelected    = "selected";
-    static constexpr const char* kValueChanged= "value_changed";
-};
 
 // ============================================================================
 // Widget states
@@ -961,6 +935,94 @@ public:
 
 private:
     int m_min, m_max, m_value;
+};
+
+// ============================================================================
+// PopupItem — a flat, borderless, full-width clickable text row.
+//
+// The standard building block for popup list content (combo-boxes, menus,
+// tree-pickers, etc.).  It has no border and no background of its own;
+// the containing PopupWindow supplies the backdrop.  On hover it shows a
+// subtle tint so the user knows it is interactive.
+//
+// onActivated fires on mouse-release while the cursor is inside.
+// ============================================================================
+
+class PopupItem : public Control {
+public:
+    Core::Signal<> onActivated;
+
+    PopupItem(SceneGraph& graph, const std::string& label,
+              float width = 200.f, float itemHeight = 28.f)
+        : Control(graph, "PopupItem"), m_label(label)
+    {
+        auto& l = m_graph.getLayout(m_nodeId);
+        l.boundingBox.width  = width;
+        l.boundingBox.height = itemHeight;
+        l.minWidth  = TextHelper::hasAtlas()
+                        ? (TextHelper::measureWidth(label) + 24.f)
+                        : width;
+        l.minHeight = itemHeight;
+    }
+
+    void setLabel(const std::string& s) {
+        m_label = s;
+        auto& l = m_graph.getLayout(m_nodeId);
+        l.minWidth = TextHelper::hasAtlas()
+                       ? (TextHelper::measureWidth(s) + 24.f)
+                       : l.boundingBox.width;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+    const std::string& label() const { return m_label; }
+
+    void handleMouseRelease(float mx, float my) override {
+        if (m_state == WidgetState::Pressed && isPointInside(mx, my)) {
+            onClicked.emit();
+            onActivated.emit();
+        }
+        Control::handleMouseRelease(mx, my);
+    }
+
+    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+
+        // Hover highlight — subtle tint only; no border, no solid fill at rest.
+        if (m_state == WidgetState::Hovered || m_state == WidgetState::Pressed) {
+            uint8_t hi[4] = {255, 255, 255, 18};
+            buf.pushRectangle(b.x, b.y, b.width, b.height, hi, 3.0f);
+        }
+
+        // Label text
+        if (TextHelper::hasAtlas()) {
+            uint8_t tc[4] = {220, 220, 228, 230};
+            float ty = b.y + (b.height - TextHelper::lineHeight()) * 0.5f;
+            TextHelper::pushText(buf, b.x + 10.f, ty, tr(m_label), tc,
+                                 b.width - 16.f);
+        } else {
+            // Fallback: coloured bar representing the text
+            uint8_t tc[4] = {200, 200, 210, 180};
+            float bw = TextHelper::hasAtlas()
+                       ? TextHelper::measureWidth(m_label)
+                       : b.width * 0.6f;
+            buf.pushRectangle(b.x + 10.f, b.y + (b.height - 6.f) * 0.5f,
+                              bw, 6.f, tc, 2.f);
+        }
+    }
+
+    AISemanticNode getSemanticNode() const override {
+        return {"PopupItem", m_label, "", true};
+    }
+    bool executeSemanticAction(const std::string& a) override {
+        if (a == "click" || a == "activate") {
+            onClicked.emit();
+            onActivated.emit();
+            return true;
+        }
+        return false;
+    }
+
+private:
+    std::string m_label;
 };
 
 // ============================================================================

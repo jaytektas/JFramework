@@ -12,7 +12,7 @@
 #include <genesis/graphics/FontEngine.h>
 #include <genesis/platforms/linux/LinuxPlatformWindow.h>
 #include <genesis/platforms/linux/FloatingDockWindow.h>
-#include <genesis/platforms/linux/PopupListWindow.h>
+#include <genesis/platforms/linux/PopupWindow.h>
 
 #include <iostream>
 #include <vector>
@@ -792,14 +792,23 @@ int main() {
     Genesis::FloatingDockOptions g_dockOptions;
     catalog->dockHost().setLivePreviewEnabled(g_dockOptions.livePreviewEnabled);
     std::vector<FloatingDockWindow> floatingDocks;
-    std::unique_ptr<PopupListWindow> activePopup;
+    std::unique_ptr<PopupWindow> activePopup;
     ComboBox* activePopupComboBox = nullptr;
 
     catalog->onComboBoxPopupRequested = [&](ComboBox* cb) {
+        // Toggle: clicking the same combo while its popup is open closes it.
+        if (activePopup && activePopupComboBox == cb) {
+            activePopup->destroySurface(*hal);
+            activePopup.reset();
+            activePopupComboBox = nullptr;
+            return;
+        }
+        // Different combo (or no popup): close any existing popup first.
         if (activePopup) {
             activePopup->destroySurface(*hal);
             activePopup.reset();
         }
+
         NodeId cbNode = cb->getNodeId();
         const auto& bb = app.sceneGraph().getLayoutConst(cbNode).boundingBox;
 
@@ -807,11 +816,31 @@ int main() {
         int sy = window->screenY() + static_cast<int>(bb.y + bb.height);
 
         uint32_t popupW = static_cast<uint32_t>(bb.width);
-        uint32_t popupH = static_cast<uint32_t>(cb->items().size() * 28.0f + 8.0f);
 
-        activePopup = std::make_unique<PopupListWindow>(
-            cb->items(), sx, sy, popupW, popupH, *hal, window->nativeWindow()
-        );
+        // Build the popup: one PopupItem per combo option, borderless.
+        auto popup = std::make_unique<PopupWindow>(
+            sx, sy, popupW, 8 /*placeholder height, computed below*/,
+            *hal, PopupWindow::Style::Borderless, window->nativeWindow());
+
+        const auto& items = cb->items();
+        for (int i = 0; i < static_cast<int>(items.size()); ++i) {
+            auto* pi = popup->add<PopupItem>(
+                items[i],
+                static_cast<float>(popupW), 28.f);
+
+            // Capture by value: i and cb are stable for the popup's lifetime.
+            pi->onActivated.connect([cb, i, &activePopup, &activePopupComboBox, &hal]() {
+                cb->setCurrentIndex(i);
+                if (activePopup) {
+                    activePopup->destroySurface(*hal);
+                    activePopup.reset();
+                }
+                activePopupComboBox = nullptr;
+            });
+        }
+
+        popup->computeNaturalHeight();
+        activePopup = std::move(popup);
         activePopupComboBox = cb;
     };
 
@@ -1130,14 +1159,7 @@ int main() {
         // ---- Active popup update ----
         if (activePopup) {
             auto res = activePopup->pollEvents();
-            if (res.type == PopupListWindow::PollResult::Type::Selected) {
-                if (activePopupComboBox) {
-                    activePopupComboBox->setCurrentIndex(res.selectedIndex);
-                }
-                activePopup->destroySurface(*hal);
-                activePopup.reset();
-                activePopupComboBox = nullptr;
-            } else if (res.type == PopupListWindow::PollResult::Type::Dismissed) {
+            if (res.type == PopupWindow::PollResult::Type::Dismissed) {
                 activePopup->destroySurface(*hal);
                 activePopup.reset();
                 activePopupComboBox = nullptr;

@@ -11,7 +11,7 @@
 #include "ApplicationCore.h"
 #include "SceneGraph.h"
 #include "AiControlBus.h"
-#include "BaseWidgets.h"   // for AiBusHook installation
+#include "AiBusHook.h"    // lightweight hook; does NOT drag in BaseWidgets/FontEngine/stb
 
 namespace { inline constexpr auto& LogWidget = Genesis::Log::Widgets; }
 
