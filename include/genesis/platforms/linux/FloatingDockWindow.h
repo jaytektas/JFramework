@@ -97,7 +97,17 @@ public:
         float topOffset = isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f;
         m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(winW), static_cast<float>(winH) - topOffset});
 
-        DockRegistry::instance().registerHost(*m_dockHost, screenX, screenY, winW, winH);
+        float minW = m_dockHost->minWidthNeeded();
+        float minH = m_dockHost->minHeightNeeded() + topOffset;
+        if (static_cast<float>(m_winW) < minW || static_cast<float>(m_winH) < minH) {
+            m_winW = std::max(m_winW, static_cast<uint32_t>(std::ceil(minW)));
+            m_winH = std::max(m_winH, static_cast<uint32_t>(std::ceil(minH)));
+            m_window->setSize(m_winW, m_winH);
+            m_needsSurfaceResize = true;
+            m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(m_winW), static_cast<float>(m_winH) - topOffset});
+        }
+
+        DockRegistry::instance().registerHost(*m_dockHost, screenX, screenY, m_winW, m_winH);
     }
 
     // Construct from a TornTabState (TabBar tear-off path).
@@ -201,12 +211,24 @@ public:
 
         // Keep bounds current if WM moved or resized the window, or if we are actively resizing
         if (m_state == State::Idle || m_state == State::Resizing) {
-            if (m_state == State::Idle && (m_window->width() != m_winW || m_window->height() != m_winH)) {
-                m_winW = m_window->width();
-                m_winH = m_window->height();
-                m_needsSurfaceResize = true;
-            }
             float topOffset = isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f;
+            int kMinWidth = static_cast<int>(std::ceil(m_dockHost->minWidthNeeded()));
+            int kMinHeight = static_cast<int>(std::ceil(m_dockHost->minHeightNeeded() + topOffset));
+
+            if (m_state == State::Idle) {
+                uint32_t targetW = m_window->width();
+                uint32_t targetH = m_window->height();
+                if (static_cast<int>(targetW) < kMinWidth || static_cast<int>(targetH) < kMinHeight) {
+                    targetW = std::max(targetW, static_cast<uint32_t>(kMinWidth));
+                    targetH = std::max(targetH, static_cast<uint32_t>(kMinHeight));
+                    m_window->setSize(targetW, targetH);
+                }
+                if (targetW != m_winW || targetH != m_winH) {
+                    m_winW = targetW;
+                    m_winH = targetH;
+                    m_needsSurfaceResize = true;
+                }
+            }
             m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(m_winW), static_cast<float>(m_winH) - topOffset});
             DockRegistry::instance().updateBounds(*m_dockHost, m_window->screenX(), m_window->screenY(), m_winW, m_winH);
         }
@@ -286,8 +308,8 @@ public:
             int newW = static_cast<int>(m_startWinW);
             int newH = static_cast<int>(m_startWinH);
 
-            constexpr int kMinWidth = 180;
-            constexpr int kMinHeight = 120;
+            int kMinWidth = static_cast<int>(std::ceil(m_dockHost->minWidthNeeded()));
+            int kMinHeight = static_cast<int>(std::ceil(m_dockHost->minHeightNeeded() + (isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f)));
 
             switch (m_resizeDir) {
                 case ResizeDir::Right:

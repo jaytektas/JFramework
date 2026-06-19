@@ -570,6 +570,13 @@ int main() {
         {
             uint32_t newW = window->width();
             uint32_t newH = window->height();
+            uint32_t minW = static_cast<uint32_t>(std::ceil(catalog->dockHost().minWidthNeeded()));
+            uint32_t minH = static_cast<uint32_t>(std::ceil(catalog->dockHost().minHeightNeeded()));
+            if (newW > 0 && newH > 0 && (newW < minW || newH < minH)) {
+                newW = std::max(newW, minW);
+                newH = std::max(newH, minH);
+                window->setSize(newW, newH);
+            }
             if (newW > 0 && newH > 0 && (newW != curW || newH != curH)) {
                 curW = newW;
                 curH = newH;

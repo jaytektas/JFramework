@@ -342,6 +342,16 @@ public:
     static constexpr float ARROW_SZ     = 32.0f;  // drop indicator icon size
     static constexpr float BTN_SZ       = 14.0f;  // close button size on tabs
 
+    float minWidthNeeded() const {
+        if (m_nodes.empty()) return 48.f;
+        return _minWidthOfNode(rootId());
+    }
+
+    float minHeightNeeded() const {
+        if (m_nodes.empty()) return 48.f;
+        return _minHeightOfNode(rootId());
+    }
+
     // --- Construction ---
 
     DockHost() { _allocNode(); }  // root SplitNode(Horizontal)
@@ -595,10 +605,26 @@ public:
                                        ? (cursor - m_handleDrag.startCursor) / total : 0.f;
                     float wa = m_handleDrag.startWeightA + delta;
                     float wb = m_handleDrag.startWeightB - delta;
-                    // Keep both children above a small minimum fraction.
-                    float minFrac = 0.05f;
+                    // Keep both children above their minimum sizes.
                     float sum = wa + wb;
-                    wa = std::clamp(wa, minFrac, sum - minFrac);
+                    float minFrac_a = 0.05f;
+                    float minFrac_b = 0.05f;
+                    bool horiz = (sp->splitDir == SplitDir::Horizontal);
+                    float totalDim = horiz ? sp->rect.width : sp->rect.height;
+                    float handleSpace = HANDLE_HALF * 2.0f;
+                    float usable = std::max(0.f, totalDim - handleSpace * static_cast<float>(sp->children.size() - 1));
+                    if (usable > 0.f) {
+                        float minVal_a = horiz ? _minWidthOfNode(sp->children[a]) : _minHeightOfNode(sp->children[a]);
+                        float minVal_b = horiz ? _minWidthOfNode(sp->children[b]) : _minHeightOfNode(sp->children[b]);
+                        minFrac_a = minVal_a / usable;
+                        minFrac_b = minVal_b / usable;
+                    }
+                    if (minFrac_a + minFrac_b > sum) {
+                        float totalMin = minFrac_a + minFrac_b;
+                        minFrac_a = (minFrac_a / totalMin) * sum;
+                        minFrac_b = (minFrac_b / totalMin) * sum;
+                    }
+                    wa = std::clamp(wa, minFrac_a, sum - minFrac_b);
                     wb = sum - wa;
                     sp->weights[a] = wa;
                     sp->weights[b] = wb;
@@ -804,6 +830,67 @@ private:
     // ----------------------------------------------------------------------
     // Arena management
     // ----------------------------------------------------------------------
+
+    float _minWidthOfNode(DockNodeId id) const {
+        const DockNode* n = node(id);
+        if (!n) return 48.f;
+        if (n->type == DockNode::Type::Leaf) {
+            int tabCount = static_cast<int>(n->tabs.size());
+            if (tabCount == 0) return 48.f;
+            if (tabCount == 1) {
+                float lw = TextHelper::hasAtlas() ? TextHelper::measureWidth(n->tabs[0]->title()) : 50.f;
+                return lw + 50.f;
+            }
+            float maxLw = 0.f;
+            for (int i = 0; i < tabCount; ++i) {
+                float lw = TextHelper::hasAtlas() ? TextHelper::measureWidth(n->tabs[i]->title()) : 50.f;
+                if (lw > maxLw) maxLw = lw;
+            }
+            return static_cast<float>(tabCount) * (maxLw + 16.f) + 30.f;
+        }
+        bool horiz = (n->splitDir == SplitDir::Horizontal);
+        float sum = 0.f;
+        float maxVal = 0.f;
+        for (DockNodeId childId : n->children) {
+            float childMin = _minWidthOfNode(childId);
+            if (horiz) {
+                sum += childMin;
+            } else {
+                if (childMin > maxVal) maxVal = childMin;
+            }
+        }
+        if (horiz) {
+            float handleSpace = 6.0f; // HANDLE_HALF * 2
+            sum += handleSpace * static_cast<float>(n->children.size() - 1);
+            return sum;
+        }
+        return maxVal;
+    }
+
+    float _minHeightOfNode(DockNodeId id) const {
+        const DockNode* n = node(id);
+        if (!n) return 48.f;
+        if (n->type == DockNode::Type::Leaf) {
+            return TAB_BAR_SZ + 40.f;
+        }
+        bool horiz = (n->splitDir == SplitDir::Horizontal);
+        float sum = 0.f;
+        float maxVal = 0.f;
+        for (DockNodeId childId : n->children) {
+            float childMin = _minHeightOfNode(childId);
+            if (horiz) {
+                if (childMin > maxVal) maxVal = childMin;
+            } else {
+                sum += childMin;
+            }
+        }
+        if (!horiz) {
+            float handleSpace = 6.0f; // HANDLE_HALF * 2
+            sum += handleSpace * static_cast<float>(n->children.size() - 1);
+            return sum;
+        }
+        return maxVal;
+    }
 
     DockNodeId _allocNode() {
         DockNodeId id{m_nextId++};
