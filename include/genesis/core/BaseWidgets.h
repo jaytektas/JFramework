@@ -914,10 +914,16 @@ private:
 // ComboBox
 // ============================================================================
 
+enum class ComboBoxMode {
+    Cycling,
+    Popup
+};
+
 class ComboBox : public Control {
 public:
     Core::Signal<int>         onIndexChanged;
     Core::Signal<std::string> onTextChanged;
+    Core::Signal<ComboBox*>   onPopupRequested;
 
     ComboBox(SceneGraph& graph, std::vector<std::string> items = {},
              float w = 200.0f, float h = 36.0f)
@@ -946,10 +952,19 @@ public:
         return (m_currentIndex >= 0 && m_currentIndex < (int)m_items.size())
                ? m_items[m_currentIndex] : "";
     }
+    const std::vector<std::string>& items() const { return m_items; }
+
+    ComboBoxMode mode() const { return m_mode; }
+    void setMode(ComboBoxMode mode) { m_mode = mode; }
 
     void handleMousePress(float mx, float my) override {
-        if (isPointInside(mx, my) && !m_items.empty())
-            setCurrentIndex((m_currentIndex + 1) % (int)m_items.size());
+        if (isPointInside(mx, my) && !m_items.empty()) {
+            if (m_mode == ComboBoxMode::Cycling) {
+                setCurrentIndex((m_currentIndex + 1) % (int)m_items.size());
+            } else if (m_mode == ComboBoxMode::Popup) {
+                onPopupRequested.emit(this);
+            }
+        }
     }
 
     void populateRenderPrimitives(PrimitiveBuffer& buf) override {
@@ -1004,6 +1019,7 @@ private:
 
     std::vector<std::string> m_items;
     int m_currentIndex{-1};
+    ComboBoxMode m_mode{ComboBoxMode::Cycling};
 };
 
 // ============================================================================

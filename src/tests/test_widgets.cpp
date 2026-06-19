@@ -60,10 +60,45 @@ void test_slider_logic() {
     std::cout << "test_slider_logic passed" << std::endl;
 }
 
+void test_combobox_logic() {
+    SceneGraph graph;
+    ComboBox cb(graph, {"OptA", "OptB", "OptC"});
+    
+    assert(cb.mode() == ComboBoxMode::Cycling);
+    cb.setCurrentIndex(0);
+    assert(cb.currentText() == "OptA");
+    
+    // Setup bounding box for inside checks
+    auto& layout = graph.getLayout(cb.getNodeId());
+    layout.boundingBox = {0, 0, 100, 30};
+    
+    // Cycling mode test
+    cb.handleMousePress(10.f, 10.f);
+    assert(cb.currentIndex() == 1);
+    assert(cb.currentText() == "OptB");
+    
+    // Popup mode test
+    cb.setMode(ComboBoxMode::Popup);
+    assert(cb.mode() == ComboBoxMode::Popup);
+    
+    bool popupRequested = false;
+    cb.onPopupRequested.connect([&popupRequested, &cb](ComboBox* source) {
+        popupRequested = (source == &cb);
+    });
+    
+    cb.handleMousePress(10.f, 10.f);
+    assert(popupRequested == true);
+    // Index should not have changed in popup mode until callback sets it
+    assert(cb.currentIndex() == 1);
+    
+    std::cout << "test_combobox_logic passed" << std::endl;
+}
+
 int main() {
     test_button_interaction();
     test_widget_rendering();
     test_slider_logic();
+    test_combobox_logic();
     std::cout << "All tests passed!" << std::endl;
     return 0;
 }

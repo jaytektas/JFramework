@@ -12,6 +12,7 @@
 #include <genesis/graphics/FontEngine.h>
 #include <genesis/platforms/linux/LinuxPlatformWindow.h>
 #include <genesis/platforms/linux/FloatingDockWindow.h>
+#include <genesis/platforms/linux/PopupListWindow.h>
 
 #include <iostream>
 #include <vector>
@@ -31,6 +32,8 @@ class ControlsCatalog {
 public:
     // AI node ids at/above this base are docked panels (offset past scene-graph node ids).
     static constexpr uint32_t kDockAiIdBase = 0x40000000u;
+
+    std::function<void(ComboBox*)> onComboBoxPopupRequested;
 
     explicit ControlsCatalog(SceneGraph& graph, uint32_t winW, uint32_t winH)
         : m_graph(graph), m_winW(winW), m_winH(winH) { buildUI(); }
@@ -320,8 +323,21 @@ private:
 
         beginPanel("Output");
         section("Display");
-        add<ComboBox>(m_graph, std::vector<std::string>{"1080p", "1440p", "4K", "8K"}, 200.0f, 34.0f)->setCurrentIndex(1);
-        add<ComboBox>(m_graph, std::vector<std::string>{"60 Hz", "120 Hz", "144 Hz", "240 Hz"}, 200.0f, 34.0f)->setCurrentIndex(2);
+        {
+            auto cb1 = add<ComboBox>(m_graph, std::vector<std::string>{"1080p", "1440p", "4K", "8K"}, 200.0f, 34.0f);
+            cb1->setCurrentIndex(1);
+            cb1->setMode(ComboBoxMode::Popup);
+            cb1->onPopupRequested.connect([this](ComboBox* cb) {
+                if (onComboBoxPopupRequested) onComboBoxPopupRequested(cb);
+            });
+
+            auto cb2 = add<ComboBox>(m_graph, std::vector<std::string>{"60 Hz", "120 Hz", "144 Hz", "240 Hz"}, 200.0f, 34.0f);
+            cb2->setCurrentIndex(2);
+            cb2->setMode(ComboBoxMode::Popup);
+            cb2->onPopupRequested.connect([this](ComboBox* cb) {
+                if (onComboBoxPopupRequested) onComboBoxPopupRequested(cb);
+            });
+        }
         add<GroupBox>(m_graph, "Render Settings", 340.0f, 90.0f);
 
         beginPanel("Assets");
@@ -537,6 +553,28 @@ int main() {
     Genesis::FloatingDockOptions g_dockOptions;
     catalog->dockHost().setLivePreviewEnabled(g_dockOptions.livePreviewEnabled);
     std::vector<FloatingDockWindow> floatingDocks;
+    std::unique_ptr<PopupListWindow> activePopup;
+    ComboBox* activePopupComboBox = nullptr;
+
+    catalog->onComboBoxPopupRequested = [&](ComboBox* cb) {
+        if (activePopup) {
+            activePopup->destroySurface(*hal);
+            activePopup.reset();
+        }
+        NodeId cbNode = cb->getNodeId();
+        const auto& bb = app.sceneGraph().getLayoutConst(cbNode).boundingBox;
+
+        int sx = window->screenX() + static_cast<int>(bb.x);
+        int sy = window->screenY() + static_cast<int>(bb.y + bb.height);
+
+        uint32_t popupW = static_cast<uint32_t>(bb.width);
+        uint32_t popupH = static_cast<uint32_t>(cb->items().size() * 28.0f + 8.0f);
+
+        activePopup = std::make_unique<PopupListWindow>(
+            cb->items(), sx, sy, popupW, popupH, *hal, window->nativeWindow()
+        );
+        activePopupComboBox = cb;
+    };
 
     std::cout << "[GENESIS] Catalog running. Tab/Shift-Tab cycles focus. Close window to exit.\n";
     std::cout << "[HOTKEYS] Tweak drag options at runtime:\n";
@@ -805,6 +843,25 @@ int main() {
             ++it;
         }
 
+        // ---- Active popup update ----
+        if (activePopup) {
+            auto res = activePopup->pollEvents();
+            if (res.type == PopupListWindow::PollResult::Type::Selected) {
+                if (activePopupComboBox) {
+                    activePopupComboBox->setCurrentIndex(res.selectedIndex);
+                }
+                activePopup->destroySurface(*hal);
+                activePopup.reset();
+                activePopupComboBox = nullptr;
+            } else if (res.type == PopupListWindow::PollResult::Type::Dismissed) {
+                activePopup->destroySurface(*hal);
+                activePopup.reset();
+                activePopupComboBox = nullptr;
+            } else {
+                activePopup->render(*hal, buffer);
+            }
+        }
+
         // ---- Inline-only drop (no floating docks in flight) ----
         if (released && floatingDocks.empty())
             catalog->dockHost().tryCommitDrop();
@@ -851,7 +908,7 @@ int main() {
 
         bool activity = keyActivity || pressed || released || mouseMoved || resized
                         || wantScreenshot || aiActed || wheel != 0.0f || !floatingDocks.empty()
-                        || catalog->isAnimating();
+                        || activePopup || catalog->isAnimating();
         if (activity) redrawFrames = 4;        // render now + a short settle tail
 
         bool doRender = (redrawFrames > 0);
@@ -888,6 +945,11 @@ int main() {
     for (auto& fd : floatingDocks)
         fd.destroySurface(*hal);
     floatingDocks.clear();
+
+    if (activePopup) {
+        activePopup->destroySurface(*hal);
+        activePopup.reset();
+    }
 
     hal->waitIdle();
     a11y.stop();
