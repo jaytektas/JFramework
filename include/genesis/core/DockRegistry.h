@@ -27,6 +27,11 @@ class DockHost;
 //   // At shutdown:
 //   DockRegistry::instance().unregisterHost(host);
 // ============================================================================
+struct DockOptions {
+    std::optional<float> handleHoverPad;
+    std::optional<bool>  enforceMinSizes;
+    std::optional<bool>  showResizeCursors;
+};
 
 class DockRegistry {
 public:
@@ -34,6 +39,9 @@ public:
         static DockRegistry reg;
         return reg;
     }
+
+    DockOptions& defaultOptions() { return m_defaultOptions; }
+    const DockOptions& defaultOptions() const { return m_defaultOptions; }
 
     struct Entry {
         DockHost* host{nullptr};
@@ -85,7 +93,12 @@ public:
     const std::vector<Entry>& entries() const { return m_entries; }
 
 private:
-    DockRegistry() = default;
+    DockRegistry() {
+        m_defaultOptions.handleHoverPad = 4.0f;
+        m_defaultOptions.enforceMinSizes = true;
+        m_defaultOptions.showResizeCursors = true;
+    }
+    DockOptions m_defaultOptions;
     std::vector<Entry> m_entries;
 };
 

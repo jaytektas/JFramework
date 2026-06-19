@@ -27,6 +27,7 @@
 
 #include "BaseWidgets.h"   // Colors, Rect, PrimitiveBuffer, TextHelper
 #include "DockWidget.h"    // DockWidget
+#include "DockRegistry.h"
 
 namespace Genesis {
 
@@ -342,12 +343,31 @@ public:
     static constexpr float ARROW_SZ     = 32.0f;  // drop indicator icon size
     static constexpr float BTN_SZ       = 14.0f;  // close button size on tabs
 
+    float handleHoverPad() const {
+        if (m_options.handleHoverPad.has_value()) return *m_options.handleHoverPad;
+        return DockRegistry::instance().defaultOptions().handleHoverPad.value_or(4.0f);
+    }
+    bool enforceMinSizes() const {
+        if (m_options.enforceMinSizes.has_value()) return *m_options.enforceMinSizes;
+        return DockRegistry::instance().defaultOptions().enforceMinSizes.value_or(true);
+    }
+    bool showResizeCursors() const {
+        if (m_options.showResizeCursors.has_value()) return *m_options.showResizeCursors;
+        return DockRegistry::instance().defaultOptions().showResizeCursors.value_or(true);
+    }
+
+    void setOptions(const DockOptions& options) { m_options = options; }
+    DockOptions& options() { return m_options; }
+    const DockOptions& options() const { return m_options; }
+
     float minWidthNeeded() const {
+        if (!enforceMinSizes()) return 48.f;
         if (m_nodes.empty()) return 48.f;
         return _minWidthOfNode(rootId());
     }
 
     float minHeightNeeded() const {
+        if (!enforceMinSizes()) return 48.f;
         if (m_nodes.empty()) return 48.f;
         return _minHeightOfNode(rootId());
     }
@@ -355,6 +375,7 @@ public:
     enum class HoverCursor : uint8_t { Default, Horiz, Vert };
 
     HoverCursor getHoverCursor(float mx, float my) const {
+        if (!showResizeCursors()) return HoverCursor::Default;
         if (m_handleDrag.active) {
             const DockNode* sp = node(m_handleDrag.parentSplit);
             if (sp) {
@@ -365,7 +386,7 @@ public:
             if (n.type != DockNode::Type::Split) continue;
             for (int i = 0; i < static_cast<int>(n.handleRects.size()); ++i) {
                 const Rect& h = n.handleRects[i];
-                float hitPad = 4.0f;
+                float hitPad = handleHoverPad();
                 float hx = h.x - (n.splitDir == SplitDir::Horizontal ? hitPad : 0.f);
                 float hw = h.width + (n.splitDir == SplitDir::Horizontal ? hitPad * 2.f : 0.f);
                 float hy = h.y - (n.splitDir == SplitDir::Vertical ? hitPad : 0.f);
@@ -637,11 +658,15 @@ public:
                     float sum = wa + wb;
                     float minFrac_a = 0.05f;
                     float minFrac_b = 0.05f;
+                    if (!enforceMinSizes()) {
+                        minFrac_a = 0.0f;
+                        minFrac_b = 0.0f;
+                    }
                     bool horiz = (sp->splitDir == SplitDir::Horizontal);
                     float totalDim = horiz ? sp->rect.width : sp->rect.height;
                     float handleSpace = HANDLE_HALF * 2.0f;
                     float usable = std::max(0.f, totalDim - handleSpace * static_cast<float>(sp->children.size() - 1));
-                    if (usable > 0.f) {
+                    if (usable > 0.f && enforceMinSizes()) {
                         float minVal_a = horiz ? _minWidthOfNode(sp->children[a]) : _minHeightOfNode(sp->children[a]);
                         float minVal_b = horiz ? _minWidthOfNode(sp->children[b]) : _minHeightOfNode(sp->children[b]);
                         minFrac_a = minVal_a / usable;
@@ -669,7 +694,7 @@ public:
                 if (n.type != DockNode::Type::Split) continue;
                 for (int i = 0; i < static_cast<int>(n.handleRects.size()); ++i) {
                     const Rect& h = n.handleRects[i];
-                    float hitPad = 4.0f;
+                    float hitPad = handleHoverPad();
                     float hx = h.x - (n.splitDir == SplitDir::Horizontal ? hitPad : 0.f);
                     float hw = h.width + (n.splitDir == SplitDir::Horizontal ? hitPad * 2.f : 0.f);
                     float hy = h.y - (n.splitDir == SplitDir::Vertical ? hitPad : 0.f);
@@ -1620,6 +1645,8 @@ private:
         float       startX{0.f}, startY{0.f};
         bool        active{false};
     } m_titleDrag{};
+
+    DockOptions m_options;
 };
 
 } // namespace Genesis
