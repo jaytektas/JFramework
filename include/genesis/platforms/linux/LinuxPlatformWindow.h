@@ -233,6 +233,8 @@ public:
                     if (b->detail == 4) { m_wheelY += 1.0f; break; }
                     if (b->detail == 5) { m_wheelY -= 1.0f; break; }
                     if (b->detail == XCB_BUTTON_INDEX_1) {
+                        m_mouseX = static_cast<float>(b->event_x);
+                        m_mouseY = static_cast<float>(b->event_y);
                         m_pendingPress = true;
                         m_altDown = (b->state & XCB_MOD_MASK_1) != 0;
                         // Grab pointer so we keep receiving MotionNotify and
@@ -251,6 +253,8 @@ public:
                 case XCB_BUTTON_RELEASE: {
                     auto* b = reinterpret_cast<xcb_button_release_event_t*>(ev);
                     if (b->detail == XCB_BUTTON_INDEX_1) {
+                        m_mouseX = static_cast<float>(b->event_x);
+                        m_mouseY = static_cast<float>(b->event_y);
                         m_pendingRelease = true;
                         xcb_ungrab_pointer(m_connection, XCB_CURRENT_TIME);
                         xcb_flush(m_connection);
