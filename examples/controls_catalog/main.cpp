@@ -340,63 +340,26 @@ private:
         DockNodeId rightPanel = m_dockHost->addSplit(m_dockHost->rootId(), SplitDir::Vertical, 0.78f);
         DockNodeId topRight   = m_dockHost->addSplit(rightPanel, SplitDir::Horizontal, 0.42f);
 
-        DockNodeId propsLeaf   = m_dockHost->addLeaf(topRight, "props-zone",   0.50f);
-        // "inspect-zone" only accepts docks tagged "inspector" — enforced by leaf affinity.
-        DockNodeId inspectLeaf = m_dockHost->addLeaf(topRight, "inspect-zone", 0.50f,
-            DockAffinityRule{{"inspector"}, {}});
-        // "output-group" only accepts docks tagged "output-group".
-        DockNodeId outputLeaf  = m_dockHost->addLeaf(rightPanel, "output-group", 0.58f,
-            DockAffinityRule{{"output-group"}, {}});
+        DockNodeId propsLeaf   = m_dockHost->addLeaf(topRight,   "props-zone",   0.50f);
+        DockNodeId inspectLeaf = m_dockHost->addLeaf(topRight,   "inspect-zone", 0.50f);
+        DockNodeId outputLeaf  = m_dockHost->addLeaf(rightPanel, "output-group", 0.58f);
 
-        // ---- Properties: all drops, tabifiable, floatable, min 130×90 ----
-        auto propsDock = std::make_unique<DockWidget>("Properties", 0.f, 0.f, 260.f, 200.f);
-        propsDock->setTag("props");
-        propsDock->setMinSize(130.f, 90.f);
-        // default: floatable=true, tabifiable=true, allowedDrops=All
-        m_dockHost->insertDock(propsDock.get(), propsLeaf);
-        m_inlineDocks.push_back(std::move(propsDock));
-
-        // ---- Inspector: NOT tabifiable (solo), floatable, tag="inspector" ----
-        auto inspectDock = std::make_unique<DockWidget>("Inspector", 0.f, 0.f, 260.f, 200.f);
-        inspectDock->setTag("inspector");
-        inspectDock->setTabifiable(false);   // must always be alone in its leaf
-        inspectDock->setMinSize(150.f, 100.f);
-        // (blue badge in title bar signals solo-mode)
-        m_dockHost->insertDock(inspectDock.get(), inspectLeaf);
-        m_inlineDocks.push_back(std::move(inspectDock));
-
-        // ---- Console: tabifiable, floatable, rejects "inspect-zone" leaf ----
-        auto consoleDock = std::make_unique<DockWidget>("Console", 0.f, 0.f, 260.f, 160.f);
-        consoleDock->setTag("output-group");
-        consoleDock->setMinSize(120.f, 80.f);
-        consoleDock->setRejectLeafLabels({"inspect-zone"});
-        m_dockHost->insertDock(consoleDock.get(), outputLeaf);
-        m_inlineDocks.push_back(std::move(consoleDock));
-
-        // ---- Output: NOT floatable (anchored), tabifiable, "output-group" only ----
-        auto outputDock = std::make_unique<DockWidget>("Output", 0.f, 0.f, 260.f, 160.f);
-        outputDock->setTag("output-group");
-        outputDock->setFloatable(false);     // cannot be torn out
-        outputDock->setAcceptLeafLabels({"output-group"});  // refuses other leaves
-        // (amber badge in title bar signals locked)
-        m_dockHost->insertDock(outputDock.get(), outputLeaf);
-        m_inlineDocks.push_back(std::move(outputDock));
-
-        // ---- Navigator: Left/Right/Center only, no Top/Bottom splits, maxW=280 ----
-        auto navDock = std::make_unique<DockWidget>("Navigator", 0.f, 0.f, 200.f, 300.f);
-        navDock->setTag("nav");
-        navDock->setAllowedDrops(DockWidget::kDropLeft | DockWidget::kDropRight | DockWidget::kDropCenter);
-        navDock->setMaxSize(280.f, 1e9f);
-        navDock->setMinSize(120.f, 80.f);
-        m_dockHost->insertDock(navDock.get(), navLeaf);
-        m_inlineDocks.push_back(std::move(navDock));
-
-        // ---- Assets: all drops, tabifiable, floatable, min 160×100 ----
-        auto assetDock = std::make_unique<DockWidget>("Assets", 0.f, 0.f, 200.f, 280.f);
-        assetDock->setTag("assets");
-        assetDock->setMinSize(160.f, 100.f);
-        m_dockHost->insertDock(assetDock.get(), assetLeaf);
-        m_inlineDocks.push_back(std::move(assetDock));
+        // All panels are floatable, tabifiable, and accept drops everywhere, so any panel
+        // can be re-docked anywhere after floating.  (The constraint API — affinity,
+        // allowedDrops, setFloatable/Tabifiable, min/max size — still exists; this demo
+        // just keeps it permissive for free-form docking.)
+        auto makeDock = [&](const char* title, float w, float h, DockNodeId leaf) {
+            auto d = std::make_unique<DockWidget>(title, 0.f, 0.f, w, h);
+            d->setMinSize(120.f, 80.f);
+            m_dockHost->insertDock(d.get(), leaf);
+            m_inlineDocks.push_back(std::move(d));
+        };
+        makeDock("Properties", 260.f, 200.f, propsLeaf);
+        makeDock("Inspector",  260.f, 200.f, inspectLeaf);
+        makeDock("Console",    260.f, 160.f, outputLeaf);
+        makeDock("Output",     260.f, 160.f, outputLeaf);
+        makeDock("Navigator",  200.f, 300.f, navLeaf);
+        makeDock("Assets",     200.f, 280.f, assetLeaf);
 
         m_dockHost->computeLayout({0.f, 0.f,
             static_cast<float>(m_winW), static_cast<float>(m_winH)});
