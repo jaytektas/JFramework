@@ -199,9 +199,9 @@ public:
         const bool release = m_window->consumeRelease();
         (void)release;
 
-        // Keep bounds current if WM moved or resized the window
-        if (m_state == State::Idle) {
-            if (m_window->width() != m_winW || m_window->height() != m_winH) {
+        // Keep bounds current if WM moved or resized the window, or if we are actively resizing
+        if (m_state == State::Idle || m_state == State::Resizing) {
+            if (m_state == State::Idle && (m_window->width() != m_winW || m_window->height() != m_winH)) {
                 m_winW = m_window->width();
                 m_winH = m_window->height();
                 m_needsSurfaceResize = true;
