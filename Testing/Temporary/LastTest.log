@@ -1,10 +1,10 @@
-Start testing: Jun 20 02:45 AEST
+Start testing: Jun 20 02:49 AEST
 ----------------------------------------------------------
 1/15 Testing: test_signal
 1/15 Test: test_signal
 Command: "/home/jay/workspace/jaygui/test_signal"
 Directory: /home/jay/workspace/jaygui
-"test_signal" start time: Jun 20 02:45 AEST
+"test_signal" start time: Jun 20 02:49 AEST
 Output:
 ----------------------------------------------------------
 test_basic_signal passed
@@ -15,7 +15,7 @@ All tests passed!
 Test time =   0.00 sec
 ----------------------------------------------------------
 Test Passed.
-"test_signal" end time: Jun 20 02:45 AEST
+"test_signal" end time: Jun 20 02:49 AEST
 "test_signal" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -23,7 +23,7 @@ Test Passed.
 2/15 Test: test_application
 Command: "/home/jay/workspace/jaygui/test_application"
 Directory: /home/jay/workspace/jaygui
-"test_application" start time: Jun 20 02:45 AEST
+"test_application" start time: Jun 20 02:49 AEST
 Output:
 ----------------------------------------------------------
 [INFO][Core] Engine core heartbeat successfully initialized.
@@ -37,7 +37,7 @@ All tests passed!
 Test time =   0.20 sec
 ----------------------------------------------------------
 Test Passed.
-"test_application" end time: Jun 20 02:45 AEST
+"test_application" end time: Jun 20 02:50 AEST
 "test_application" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -45,7 +45,7 @@ Test Passed.
 3/15 Test: test_scenegraph
 Command: "/home/jay/workspace/jaygui/test_scenegraph"
 Directory: /home/jay/workspace/jaygui
-"test_scenegraph" start time: Jun 20 02:45 AEST
+"test_scenegraph" start time: Jun 20 02:50 AEST
 Output:
 ----------------------------------------------------------
 test_simple_layout passed
@@ -60,7 +60,7 @@ All tests passed!
 Test time =   0.00 sec
 ----------------------------------------------------------
 Test Passed.
-"test_scenegraph" end time: Jun 20 02:45 AEST
+"test_scenegraph" end time: Jun 20 02:50 AEST
 "test_scenegraph" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -68,7 +68,7 @@ Test Passed.
 4/15 Test: test_primitives
 Command: "/home/jay/workspace/jaygui/test_primitives"
 Directory: /home/jay/workspace/jaygui
-"test_primitives" start time: Jun 20 02:45 AEST
+"test_primitives" start time: Jun 20 02:50 AEST
 Output:
 ----------------------------------------------------------
 test_primitive_packing passed
@@ -79,7 +79,7 @@ All tests passed!
 Test time =   0.00 sec
 ----------------------------------------------------------
 Test Passed.
-"test_primitives" end time: Jun 20 02:45 AEST
+"test_primitives" end time: Jun 20 02:50 AEST
 "test_primitives" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -87,7 +87,7 @@ Test Passed.
 5/15 Test: test_gpuhal
 Command: "/home/jay/workspace/jaygui/test_gpuhal"
 Directory: /home/jay/workspace/jaygui
-"test_gpuhal" start time: Jun 20 02:45 AEST
+"test_gpuhal" start time: Jun 20 02:50 AEST
 Output:
 ----------------------------------------------------------
 test_gpuhal_factory passed
@@ -97,7 +97,7 @@ All tests passed!
 Test time =   0.00 sec
 ----------------------------------------------------------
 Test Passed.
-"test_gpuhal" end time: Jun 20 02:45 AEST
+"test_gpuhal" end time: Jun 20 02:50 AEST
 "test_gpuhal" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -105,7 +105,7 @@ Test Passed.
 6/15 Test: test_aicontrolbus
 Command: "/home/jay/workspace/jaygui/test_aicontrolbus"
 Directory: /home/jay/workspace/jaygui
-"test_aicontrolbus" start time: Jun 20 02:45 AEST
+"test_aicontrolbus" start time: Jun 20 02:50 AEST
 Output:
 ----------------------------------------------------------
 [INFO][AI] AI Control Bus attached to memory block successfully.
@@ -121,7 +121,7 @@ All tests passed!
 Test time =   0.00 sec
 ----------------------------------------------------------
 Test Passed.
-"test_aicontrolbus" end time: Jun 20 02:45 AEST
+"test_aicontrolbus" end time: Jun 20 02:50 AEST
 "test_aicontrolbus" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -129,7 +129,7 @@ Test Passed.
 7/15 Test: test_widgets
 Command: "/home/jay/workspace/jaygui/test_widgets"
 Directory: /home/jay/workspace/jaygui
-"test_widgets" start time: Jun 20 02:45 AEST
+"test_widgets" start time: Jun 20 02:50 AEST
 Output:
 ----------------------------------------------------------
 test_button_interaction passed
@@ -141,7 +141,7 @@ All tests passed!
 Test time =   0.00 sec
 ----------------------------------------------------------
 Test Passed.
-"test_widgets" end time: Jun 20 02:45 AEST
+"test_widgets" end time: Jun 20 02:50 AEST
 "test_widgets" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -149,7 +149,7 @@ Test Passed.
 8/15 Test: test_fontengine
 Command: "/home/jay/workspace/jaygui/test_fontengine"
 Directory: /home/jay/workspace/jaygui
-"test_fontengine" start time: Jun 20 02:45 AEST
+"test_fontengine" start time: Jun 20 02:50 AEST
 Output:
 ----------------------------------------------------------
 [INFO][Graphics] FontEngine: loaded /usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf
@@ -168,7 +168,7 @@ All FontEngine tests passed!
 Test time =   0.00 sec
 ----------------------------------------------------------
 Test Passed.
-"test_fontengine" end time: Jun 20 02:45 AEST
+"test_fontengine" end time: Jun 20 02:50 AEST
 "test_fontengine" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -176,7 +176,7 @@ Test Passed.
 9/15 Test: test_style
 Command: "/home/jay/workspace/jaygui/test_style"
 Directory: /home/jay/workspace/jaygui
-"test_style" start time: Jun 20 02:45 AEST
+"test_style" start time: Jun 20 02:50 AEST
 Output:
 ----------------------------------------------------------
 test_style_inheritance passed
@@ -185,7 +185,7 @@ All tests passed!
 Test time =   0.00 sec
 ----------------------------------------------------------
 Test Passed.
-"test_style" end time: Jun 20 02:45 AEST
+"test_style" end time: Jun 20 02:50 AEST
 "test_style" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -193,7 +193,7 @@ Test Passed.
 10/15 Test: test_invalidation
 Command: "/home/jay/workspace/jaygui/test_invalidation"
 Directory: /home/jay/workspace/jaygui
-"test_invalidation" start time: Jun 20 02:45 AEST
+"test_invalidation" start time: Jun 20 02:50 AEST
 Output:
 ----------------------------------------------------------
 test_invalidation_skipping passed
@@ -202,7 +202,7 @@ All tests passed!
 Test time =   0.00 sec
 ----------------------------------------------------------
 Test Passed.
-"test_invalidation" end time: Jun 20 02:45 AEST
+"test_invalidation" end time: Jun 20 02:50 AEST
 "test_invalidation" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -210,7 +210,7 @@ Test Passed.
 11/15 Test: test_assets
 Command: "/home/jay/workspace/jaygui/test_assets"
 Directory: /home/jay/workspace/jaygui
-"test_assets" start time: Jun 20 02:45 AEST
+"test_assets" start time: Jun 20 02:50 AEST
 Output:
 ----------------------------------------------------------
 [INFO][Assets] Background loading initiated for asset: test.font
@@ -219,7 +219,7 @@ Asynchronous asset pipeline structure verified.
 Test time =   0.20 sec
 ----------------------------------------------------------
 Test Passed.
-"test_assets" end time: Jun 20 02:45 AEST
+"test_assets" end time: Jun 20 02:50 AEST
 "test_assets" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -227,7 +227,7 @@ Test Passed.
 12/15 Test: test_window
 Command: "/home/jay/workspace/jaygui/test_window"
 Directory: /home/jay/workspace/jaygui
-"test_window" start time: Jun 20 02:45 AEST
+"test_window" start time: Jun 20 02:50 AEST
 Output:
 ----------------------------------------------------------
 [GENESIS] Hello World Window Logical Bootstrapping: PASSED
@@ -241,7 +241,7 @@ Output:
 Test time =   0.00 sec
 ----------------------------------------------------------
 Test Passed.
-"test_window" end time: Jun 20 02:45 AEST
+"test_window" end time: Jun 20 02:50 AEST
 "test_window" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -249,7 +249,7 @@ Test Passed.
 13/15 Test: test_components
 Command: "/home/jay/workspace/jaygui/test_components"
 Directory: /home/jay/workspace/jaygui
-"test_components" start time: Jun 20 02:45 AEST
+"test_components" start time: Jun 20 02:50 AEST
 Output:
 ----------------------------------------------------------
 [INFO][AI] AI Control Bus attached to memory block successfully.
@@ -262,7 +262,7 @@ Output:
 Test time =   0.05 sec
 ----------------------------------------------------------
 Test Passed.
-"test_components" end time: Jun 20 02:45 AEST
+"test_components" end time: Jun 20 02:50 AEST
 "test_components" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -270,7 +270,7 @@ Test Passed.
 14/15 Test: test_controls_foundation
 Command: "/home/jay/workspace/jaygui/test_controls_foundation"
 Directory: /home/jay/workspace/jaygui
-"test_controls_foundation" start time: Jun 20 02:45 AEST
+"test_controls_foundation" start time: Jun 20 02:50 AEST
 Output:
 ----------------------------------------------------------
 test_button_interaction passed
@@ -281,7 +281,7 @@ All Controls Foundation tests passed!
 Test time =   0.00 sec
 ----------------------------------------------------------
 Test Passed.
-"test_controls_foundation" end time: Jun 20 02:45 AEST
+"test_controls_foundation" end time: Jun 20 02:50 AEST
 "test_controls_foundation" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -289,7 +289,7 @@ Test Passed.
 15/15 Test: test_dock_options
 Command: "/home/jay/workspace/jaygui/test_dock_options"
 Directory: /home/jay/workspace/jaygui
-"test_dock_options" start time: Jun 20 02:45 AEST
+"test_dock_options" start time: Jun 20 02:50 AEST
 Output:
 ----------------------------------------------------------
 test_default_options passed
@@ -306,8 +306,8 @@ All dock options tests passed successfully!
 Test time =   0.00 sec
 ----------------------------------------------------------
 Test Passed.
-"test_dock_options" end time: Jun 20 02:45 AEST
+"test_dock_options" end time: Jun 20 02:50 AEST
 "test_dock_options" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-End testing: Jun 20 02:45 AEST
+End testing: Jun 20 02:50 AEST

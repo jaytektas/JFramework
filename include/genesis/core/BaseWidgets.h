@@ -79,6 +79,9 @@ public:
         }
     }
 
+    virtual bool isFocusable() const { return false; }
+    bool hitTest(float mx, float my) const { return isPointInside(mx, my); }
+
     // Render primitive emission — subclasses paint into the shared buffer
     virtual void populateRenderPrimitives(PrimitiveBuffer& buf) = 0;
 
@@ -118,6 +121,8 @@ public:
     Core::Signal<bool> onFocusChanged;
 
     Control(SceneGraph& graph, const std::string& name) : Widget(graph, name) {}
+
+    bool isFocusable() const override { return true; }
 
     void handleMouseMove(float mx, float my) override {
         if (m_state == WidgetState::Disabled) return;
@@ -372,7 +377,10 @@ public:
         const uint8_t* fill = Colors::Surface2;
         if (m_state == WidgetState::Hovered) fill = Colors::Surface3;
         if (m_state == WidgetState::Pressed) fill = Colors::Accent;
-        buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f, 1.0f, Colors::Border);
+        bool focused = (m_state == WidgetState::Focused);
+        buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f,
+                          focused ? 1.5f : 1.0f,
+                          focused ? Colors::Accent : Colors::Border);
 
         if (TextHelper::hasAtlas()) {
             std::string txt = tr(m_label);
@@ -515,7 +523,10 @@ public:
         float boxSz = b.height;
         // Box
         const uint8_t* fill = m_checked ? Colors::Accent : Colors::Surface1;
-        buf.pushRectangle(b.x, b.y, boxSz, boxSz, fill, 4.0f, 1.5f, Colors::Border);
+        bool focused = (m_state == WidgetState::Focused);
+        buf.pushRectangle(b.x, b.y, boxSz, boxSz, fill, 4.0f,
+                          focused ? 2.0f : 1.5f,
+                          focused ? Colors::Accent : Colors::Border);
         // Tick mark when checked — two overlapping rects form a checkmark shape
         if (m_checked) {
             uint8_t white[4] = {255, 255, 255, 220};
@@ -582,7 +593,10 @@ public:
         float borderW = 1.5f;
         // Outer circle (use extreme radius for perfect circle)
         const uint8_t* ring = m_selected ? Colors::Accent : Colors::Surface1;
-        buf.pushRectangle(b.x, b.y, r, r, ring, r * 0.5f, borderW, Colors::Border);
+        bool focused = (m_state == WidgetState::Focused);
+        buf.pushRectangle(b.x, b.y, r, r, ring, r * 0.5f,
+                          focused ? 2.0f : borderW,
+                          focused ? Colors::Accent : Colors::Border);
         // Inner fill dot when selected
         if (m_selected) {
             float dot = r * 0.42f, offset = (r - dot) * 0.5f;
@@ -667,7 +681,10 @@ public:
         float thumbX = b.x + fillW - thumbW * 0.5f;
         thumbX = std::clamp(thumbX, b.x, b.x + b.width - thumbW);
         const uint8_t* tc = (m_state == WidgetState::Pressed) ? Colors::AccentPress : Colors::TextPrimary;
-        buf.pushRectangle(thumbX, b.y, thumbW, thumbH, tc, thumbW * 0.5f);
+        bool focused = (m_state == WidgetState::Focused);
+        buf.pushRectangle(thumbX, b.y, thumbW, thumbH, tc, thumbW * 0.5f,
+                          focused ? 1.5f : 0.0f,
+                          focused ? Colors::Accent : Colors::Border);
     }
 
     AISemanticNode getSemanticNode() const override {
@@ -809,8 +826,7 @@ public:
     const std::string& placeholder() const { return m_placeholder; }
 
     void handleMousePress(float mx, float my) override {
-        if (isPointInside(mx, my)) { setState(WidgetState::Focused); }
-        else if (m_state == WidgetState::Focused) { setState(WidgetState::Normal); }
+        if (isPointInside(mx, my)) { onClicked.emit(); }
     }
 
     void populateRenderPrimitives(PrimitiveBuffer& buf) override {
@@ -1073,11 +1089,14 @@ public:
     void setMode(ComboBoxMode mode) { m_mode = mode; }
 
     void handleMousePress(float mx, float my) override {
-        if (isPointInside(mx, my) && !m_items.empty()) {
-            if (m_mode == ComboBoxMode::Cycling) {
-                setCurrentIndex((m_currentIndex + 1) % (int)m_items.size());
-            } else if (m_mode == ComboBoxMode::Popup) {
-                onPopupRequested.emit(this);
+        if (isPointInside(mx, my)) {
+            onClicked.emit();
+            if (!m_items.empty()) {
+                if (m_mode == ComboBoxMode::Cycling) {
+                    setCurrentIndex((m_currentIndex + 1) % (int)m_items.size());
+                } else if (m_mode == ComboBoxMode::Popup) {
+                    onPopupRequested.emit(this);
+                }
             }
         }
     }
@@ -1087,7 +1106,10 @@ public:
         float arrowW = b.height * 0.75f;
         const uint8_t* fill = (m_state == WidgetState::Hovered) ? Colors::Surface3 : Colors::Surface2;
         // Main box
-        buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f, 1.0f, Colors::Border);
+        bool focused = (m_state == WidgetState::Focused);
+        buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f,
+                          focused ? 1.5f : 1.0f,
+                          focused ? Colors::Accent : Colors::Border);
         // Arrow area
         buf.pushRectangle(b.x + b.width - arrowW, b.y + 1.0f, arrowW - 1.0f, b.height - 2.0f,
                           Colors::Surface3, 5.0f);

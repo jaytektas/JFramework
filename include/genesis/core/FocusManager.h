@@ -4,8 +4,7 @@
 #include <algorithm>
 #include "Signal.h"
 
-// Forward declared to avoid circular include; Widget is in BaseWidgets.h
-namespace Genesis { class Widget; }
+#include "BaseWidgets.h"
 
 namespace Genesis {
 
@@ -58,7 +57,16 @@ public:
 
     void setFocus(Widget* w) {
         if (m_focused == w) return;
+        Widget* old = m_focused;
         m_focused = w;
+        if (old) {
+            if (old->getState() == WidgetState::Focused) {
+                old->setState(WidgetState::Normal);
+            }
+        }
+        if (m_focused) {
+            m_focused->setState(WidgetState::Focused);
+        }
         onFocusChanged.emit(w);
     }
 

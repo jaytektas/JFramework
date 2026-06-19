@@ -18,6 +18,7 @@
 #include <vector>
 #include <memory>
 #include <chrono>
+#include <type_traits>
 #include <thread>
 #include <cmath>
 #include <algorithm>
@@ -36,8 +37,8 @@ public:
     std::function<void(ComboBox*)> onComboBoxPopupRequested;
     std::function<void(const std::string&)> onFloatPanelRequested;
 
-    explicit ControlsCatalog(SceneGraph& graph, uint32_t winW, uint32_t winH)
-        : m_graph(graph), m_winW(winW), m_winH(winH) { buildUI(); }
+    explicit ControlsCatalog(SceneGraph& graph, FocusManager& focus, uint32_t winW, uint32_t winH)
+        : m_graph(graph), m_focus(focus), m_winW(winW), m_winH(winH) { buildUI(); }
 
     void update(float dt) {
         if (m_animPaused) return;          // frozen → nothing changes → no redraw needed
@@ -435,13 +436,20 @@ public:
     void handleMouse(float x, float y, bool pressed, bool released) {
         // Route to the controls of currently-visible docked panels only.  Floated panels
         // receive input through handleFloatingPanelInput (in their own window's coords).
+        bool hitAny = false;
         for (auto& p : m_panels) {
             if (!p.visible) continue;
             for (Widget* w : p.widgets) {
                 w->handleMouseMove(x, y);
-                if (pressed)  w->handleMousePress(x, y);
+                if (pressed) {
+                    w->handleMousePress(x, y);
+                    if (w->hitTest(x, y)) hitAny = true;
+                }
                 if (released) w->handleMouseRelease(x, y);
             }
+        }
+        if (pressed && !hitAny) {
+            m_focus.setFocus(nullptr);
         }
     }
 
@@ -484,10 +492,17 @@ public:
     void handleFloatingPanelInput(const std::string& title, float x, float y, bool press, bool release) {
         Panel* p = panelByTitle(title);
         if (!p) return;
+        bool hitAny = false;
         for (Widget* wt : p->widgets) {
             wt->handleMouseMove(x, y);
-            if (press)   wt->handleMousePress(x, y);
+            if (press) {
+                wt->handleMousePress(x, y);
+                if (wt->hitTest(x, y)) hitAny = true;
+            }
             if (release) wt->handleMouseRelease(x, y);
+        }
+        if (press && !hitAny) {
+            m_focus.setFocus(nullptr);
         }
     }
 
@@ -702,6 +717,14 @@ private:
         m_graph.addChild(m_curContainer, ptr->getNodeId());
         if (m_curPanel) m_curPanel->widgets.push_back(ptr);
         m_widgets.push_back(std::move(w));
+
+        if constexpr (std::is_base_of_v<Control, T>) {
+            m_focus.registerWidget(ptr);
+            ptr->onClicked.connect([this, ptr]() {
+                m_focus.setFocus(ptr);
+            });
+        }
+
         return ptr;
     }
 
@@ -711,6 +734,7 @@ private:
     }
 
     SceneGraph& m_graph;
+    FocusManager& m_focus;
     uint32_t    m_winW, m_winH;
     std::vector<std::unique_ptr<Widget>> m_widgets;
     std::vector<Panel> m_panels;
@@ -769,7 +793,7 @@ int main() {
 
     GApplication app;
     Genesis::FocusManager focus;
-    auto catalog = std::make_unique<ControlsCatalog>(app.sceneGraph(), W, H);
+    auto catalog = std::make_unique<ControlsCatalog>(app.sceneGraph(), focus, W, H);
 
     // Register the main dock host so FloatingDockWindows can find it by cursor pos.
     DockRegistry::instance().registerHost(
