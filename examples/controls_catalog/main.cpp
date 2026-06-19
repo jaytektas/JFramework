@@ -34,6 +34,7 @@ public:
     static constexpr uint32_t kDockAiIdBase = 0x40000000u;
 
     std::function<void(ComboBox*)> onComboBoxPopupRequested;
+    std::function<void(const std::string&)> onFloatPanelRequested;
 
     explicit ControlsCatalog(SceneGraph& graph, uint32_t winW, uint32_t winH)
         : m_graph(graph), m_winW(winW), m_winH(winH) { buildUI(); }
@@ -173,6 +174,59 @@ public:
         }
     }
 
+    bool adjustNodeDimension(DockNodeId leafId, bool horizontal, float desiredPixels) {
+        if (!m_dockHost) return false;
+        DockNodeId curr = leafId;
+        while (curr.valid()) {
+            DockNode* cNode = m_dockHost->node(curr);
+            if (!cNode) break;
+            DockNodeId parentId = cNode->parent;
+            if (!parentId.valid()) break;
+            DockNode* parent = m_dockHost->node(parentId);
+            SplitDir targetDir = horizontal ? SplitDir::Horizontal : SplitDir::Vertical;
+            if (parent->splitDir == targetDir) {
+                int idx = -1;
+                for (int i = 0; i < static_cast<int>(parent->children.size()); ++i) {
+                    if (parent->children[i] == curr) { idx = i; break; }
+                }
+                if (idx == -1) return false;
+                
+                float totalDim = horizontal ? parent->rect.width : parent->rect.height;
+                float handleSpace = DockHost::HANDLE_HALF * 2.0f;
+                float usable = std::max(0.f, totalDim - handleSpace * static_cast<float>(parent->children.size() - 1));
+                if (usable <= 0.f) return false;
+                
+                float w_new = desiredPixels / usable;
+                w_new = std::clamp(w_new, 0.01f, 0.99f);
+                float w_old = parent->weights[idx];
+                
+                parent->weights[idx] = w_new;
+                float remaining_new = 1.0f - w_new;
+                float remaining_old = 1.0f - w_old;
+                if (remaining_old > 1e-4f) {
+                    float scale = remaining_new / remaining_old;
+                    for (int i = 0; i < static_cast<int>(parent->weights.size()); ++i) {
+                        if (i != idx) parent->weights[i] *= scale;
+                    }
+                } else {
+                    float each = remaining_new / static_cast<float>(parent->weights.size() - 1);
+                    for (int i = 0; i < static_cast<int>(parent->weights.size()); ++i) {
+                        if (i != idx) parent->weights[i] = each;
+                    }
+                }
+                float sum = 0.f;
+                for (float w : parent->weights) sum += w;
+                if (sum > 1e-6f) {
+                    for (float& w : parent->weights) w /= sum;
+                }
+                m_dockHost->computeLayout(m_dockHost->hostRect());
+                return true;
+            }
+            curr = parentId;
+        }
+        return false;
+    }
+
     // Dispatch a semantic action from the AI bus to a target by id, on the UI thread.
     // Returns 1 = handled, 0 = action not understood, -1 = no such target.
     int dispatchAiAction(uint32_t targetId, const std::string& action) {
@@ -184,7 +238,95 @@ public:
                     if (idx++ == want) title = d->title();
                 });
             if (title.empty()) return -1;
+            
             if (action == "activate") return m_dockHost->activatePanelByTitle(title) ? 1 : 0;
+
+            if (action == "float") {
+                if (onFloatPanelRequested) {
+                    onFloatPanelRequested(title);
+                    return 1;
+                }
+                return 0;
+            }
+
+            if (action.rfind("set_width:", 0) == 0) {
+                float px = 0.f;
+                try { px = std::stof(action.substr(10)); } catch (...) { return 0; }
+                DockWidget* dw = nullptr;
+                m_dockHost->forEachDockPanel([&](const DockWidget* d, const Rect&, bool, int) {
+                    if (d->title() == title) dw = const_cast<DockWidget*>(d);
+                });
+                if (!dw) return 0;
+                DockNodeId leafId = m_dockHost->findDock(dw);
+                if (!leafId.valid()) return 0;
+                return adjustNodeDimension(leafId, true, px) ? 1 : 0;
+            }
+
+            if (action.rfind("set_height:", 0) == 0) {
+                float px = 0.f;
+                try { px = std::stof(action.substr(11)); } catch (...) { return 0; }
+                DockWidget* dw = nullptr;
+                m_dockHost->forEachDockPanel([&](const DockWidget* d, const Rect&, bool, int) {
+                    if (d->title() == title) dw = const_cast<DockWidget*>(d);
+                });
+                if (!dw) return 0;
+                DockNodeId leafId = m_dockHost->findDock(dw);
+                if (!leafId.valid()) return 0;
+                return adjustNodeDimension(leafId, false, px) ? 1 : 0;
+            }
+
+            if (action.rfind("move_to:", 0) == 0) {
+                std::string sub = action.substr(8);
+                size_t colon = sub.find(':');
+                std::string posStr = (colon == std::string::npos) ? sub : sub.substr(0, colon);
+                std::string targetTitle = (colon == std::string::npos) ? "" : sub.substr(colon + 1);
+
+                DropPos pos = DropPos::Center;
+                if (posStr == "left")        pos = DropPos::Left;
+                else if (posStr == "right")  pos = DropPos::Right;
+                else if (posStr == "top")    pos = DropPos::Top;
+                else if (posStr == "bottom") pos = DropPos::Bottom;
+                else if (posStr == "center") pos = DropPos::Center;
+                else return 0;
+
+                DockWidget* sourceWidget = nullptr;
+                m_dockHost->forEachDockPanel([&](const DockWidget* d, const Rect&, bool, int) {
+                    if (d->title() == title) sourceWidget = const_cast<DockWidget*>(d);
+                });
+                if (!sourceWidget) return 0;
+
+                if (!targetTitle.empty()) {
+                    DockWidget* targetWidget = nullptr;
+                    m_dockHost->forEachDockPanel([&](const DockWidget* d, const Rect&, bool, int) {
+                        if (d->title() == targetTitle) targetWidget = const_cast<DockWidget*>(d);
+                    });
+                    if (!targetWidget) return 0;
+
+                    DockNodeId targetLeaf = m_dockHost->findDock(targetWidget);
+                    if (!targetLeaf.valid()) return 0;
+
+                    m_dockHost->removeDock(sourceWidget);
+                    if (pos == DropPos::Center) {
+                        m_dockHost->insertDock(sourceWidget, targetLeaf);
+                    } else {
+                        DockNodeId newLeaf = m_dockHost->splitLeaf(targetLeaf, pos);
+                        m_dockHost->insertDock(sourceWidget, newLeaf);
+                    }
+                } else {
+                    DockNodeId targetLeaf = m_dockHost->edgeLeaf();
+                    if (!targetLeaf.valid()) return 0;
+
+                    m_dockHost->removeDock(sourceWidget);
+                    if (pos == DropPos::Center) {
+                        m_dockHost->insertDock(sourceWidget, targetLeaf);
+                    } else {
+                        DockNodeId newLeaf = m_dockHost->splitLeaf(targetLeaf, pos);
+                        m_dockHost->insertDock(sourceWidget, newLeaf);
+                    }
+                }
+                m_dockHost->computeLayout(m_dockHost->hostRect());
+                return 1;
+            }
             return 0;
         }
         for (auto& w : m_widgets)
@@ -574,6 +716,51 @@ int main() {
             cb->items(), sx, sy, popupW, popupH, *hal, window->nativeWindow()
         );
         activePopupComboBox = cb;
+    };
+
+    catalog->onFloatPanelRequested = [&](const std::string& title) {
+        DockWidget* dw = nullptr;
+        catalog->dockHost().forEachDockPanel([&](const DockWidget* d, const Rect&, bool, int) {
+            if (d->title() == title) dw = const_cast<DockWidget*>(d);
+        });
+        if (!dw) return;
+
+        DockNodeId loc = catalog->dockHost().findDock(dw);
+        Rect r = catalog->dockHost().node(loc)->rect;
+
+        int sx = window->screenX() + static_cast<int>(r.x);
+        int sy = window->screenY() + static_cast<int>(r.y);
+
+        catalog->dockHost().removeDock(dw);
+
+        DockWidget moved = std::move(*dw);
+        moved.setPosition(0.f, 0.f);
+        moved.setSize(r.width, r.height);
+
+        int offX = static_cast<int>(r.width) / 2;
+        int offY = static_cast<int>(r.height) / 2;
+
+        floatingDocks.emplace_back(
+            std::move(moved),
+            sx, sy,
+            static_cast<uint32_t>(r.width), static_cast<uint32_t>(r.height),
+            offX, offY,
+            *hal, /*initialDrag=*/false, g_dockOptions, window->nativeWindow()
+        );
+
+        {
+            ControlsCatalog* cat = catalog.get();
+            auto& newFd = floatingDocks.back();
+            DockHost* hostPtr = &newFd.dockHost();
+            newFd.setContentRenderHost([cat, hostPtr](PrimitiveBuffer& b) {
+                cat->renderHostFloatingPanels(*hostPtr, b);
+            });
+            newFd.setContentInputHost([cat, hostPtr](float x, float y, bool pr, bool rl) {
+                cat->handleHostFloatingPanelsInput(*hostPtr, x, y, pr, rl);
+            });
+        }
+
+        catalog->removeInlineDock(dw);
     };
 
     std::cout << "[GENESIS] Catalog running. Tab/Shift-Tab cycles focus. Close window to exit.\n";

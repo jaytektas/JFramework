@@ -871,6 +871,10 @@ public:
         return _restoreNode(snap.root, rootId(), InvalidDockNodeId, resolver);
     }
 
+    DockNodeId splitLeaf(DockNodeId leafId, DropPos pos) { return _splitLeaf(leafId, pos); }
+    DockNodeId edgeLeaf() const { return _edgeLeaf(); }
+    Rect hostRect() const { return m_hostRect; }
+
 private:
     // ----------------------------------------------------------------------
     // Drop target state — declared before any use in member functions.

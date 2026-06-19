@@ -105,11 +105,43 @@ void test_behavioral_options() {
     std::cout << "test_behavioral_options passed\n";
 }
 
+void test_layout_mutations() {
+    DockHost host;
+    
+    // Add two leaf nodes under root split
+    host.setRootSplit(SplitDir::Horizontal);
+    DockNodeId leafA = host.addLeaf(host.rootId(), "A", 0.5f);
+    DockNodeId leafB = host.addLeaf(host.rootId(), "B", 0.5f);
+    
+    host.computeLayout({0.f, 0.f, 206.f, 200.f}); // total horizontal split width including 6px handle: 206
+    
+    // Split leafA vertically to verify splitLeaf
+    DockNodeId leafA_split = host.splitLeaf(leafA, DropPos::Bottom);
+    assert(leafA_split.valid());
+
+    // Verify edgeLeaf
+    DockNodeId edge = host.edgeLeaf();
+    assert(edge.valid());
+
+    // Verify dynamic weight modification sizing math
+    DockNode* parent = host.node(host.rootId());
+    assert(parent->splitDir == SplitDir::Horizontal);
+    parent->weights[0] = 0.8f;
+    parent->weights[1] = 0.2f;
+    host.computeLayout({0.f, 0.f, 206.f, 200.f});
+    
+    assert(host.node(parent->children[0])->rect.width == 160.f);
+    assert(host.node(parent->children[1])->rect.width == 40.f);
+
+    std::cout << "test_layout_mutations passed\n";
+}
+
 int main() {
     test_default_options();
     test_local_overrides();
     test_dynamic_registry_updates();
     test_behavioral_options();
+    test_layout_mutations();
     std::cout << "All dock options tests passed successfully!\n";
     return 0;
 }
