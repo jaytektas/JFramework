@@ -155,6 +155,9 @@ public:
                 }
                 case XCB_BUTTON_PRESS: {
                     auto* b = reinterpret_cast<xcb_button_press_event_t*>(ev);
+                    // Buttons 4/5 are vertical wheel; 6/7 horizontal. Accumulate a delta.
+                    if (b->detail == 4) { m_wheelY += 1.0f; break; }
+                    if (b->detail == 5) { m_wheelY -= 1.0f; break; }
                     if (b->detail == XCB_BUTTON_INDEX_1) {
                         m_pendingPress = true;
                         // Grab pointer so we keep receiving MotionNotify and
@@ -224,6 +227,7 @@ public:
     float mouseY() const { return m_mouseY; }
     bool  consumePress()   { bool v = m_pendingPress;   m_pendingPress   = false; return v; }
     bool  consumeRelease() { bool v = m_pendingRelease; m_pendingRelease = false; return v; }
+    float consumeWheel()   { float v = m_wheelY; m_wheelY = 0.0f; return v; }  // +up / -down notches
 
     // ---- Keyboard events (consume-once queue) ----
     bool hasKeyEvents() const { return !m_keyQueue.empty(); }
@@ -440,6 +444,7 @@ private:
     uint32_t m_height{0};
     float m_mouseX{0.0f};
     float m_mouseY{0.0f};
+    float m_wheelY{0.0f};
     bool  m_pendingPress{false};
     bool  m_pendingRelease{false};
     bool  m_closeRequested{false};

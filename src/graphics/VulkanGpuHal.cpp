@@ -406,20 +406,42 @@ public:
         uint32_t textCursor = 0;
 
         using Kind = PrimitiveBuffer::DrawCommand::Kind;
+        using Clip = PrimitiveBuffer::ClipRect;
+        auto sameClip = [](const Clip& a, const Clip& b) {
+            return a.enabled == b.enabled && a.x == b.x && a.y == b.y && a.w == b.w && a.h == b.h;
+        };
+
         size_t i = 0;
         while (i < cmds.size()) {
-            if (cmds[i].kind == Kind::Rect) {
-                size_t j = i;
-                while (j < cmds.size() && cmds[j].kind == Kind::Rect) ++j;
-                _drawSdfBatch(cmds, i, j);
-                i = j;
-            } else {
-                size_t j = i;
-                while (j < cmds.size() && cmds[j].kind == Kind::Text) ++j;
-                if (m_atlasUploaded) textCursor = _drawTextBatch(cmds, i, j, textCursor);
-                i = j;
-            }
+            const Kind k    = cmds[i].kind;
+            const Clip clip = cmds[i].clip;
+            // Batch consecutive commands that share both pipeline kind AND clip rect.
+            size_t j = i;
+            while (j < cmds.size() && cmds[j].kind == k && sameClip(cmds[j].clip, clip)) ++j;
+
+            _applyScissor(clip);
+            if (k == Kind::Rect)            _drawSdfBatch(cmds, i, j);
+            else if (m_atlasUploaded)       textCursor = _drawTextBatch(cmds, i, j, textCursor);
+            i = j;
         }
+    }
+
+    // Set the dynamic scissor from a clip rect (clamped to the surface), or full window.
+    void _applyScissor(const PrimitiveBuffer::ClipRect& clip) {
+        VkRect2D sc;
+        if (clip.enabled) {
+            float x  = std::max(0.0f, clip.x);
+            float y  = std::max(0.0f, clip.y);
+            float rr = std::min(static_cast<float>(m_act->extent.width),  clip.x + clip.w);
+            float bb = std::min(static_cast<float>(m_act->extent.height), clip.y + clip.h);
+            sc.offset = { static_cast<int32_t>(x), static_cast<int32_t>(y) };
+            sc.extent = { static_cast<uint32_t>(std::max(0.0f, rr - x)),
+                          static_cast<uint32_t>(std::max(0.0f, bb - y)) };
+        } else {
+            sc.offset = {0, 0};
+            sc.extent = m_act->extent;
+        }
+        vkCmdSetScissor(m_act->cmdBuf, 0, 1, &sc);
     }
 
     void captureNextFrame(const char* path, GpuSurfaceId sid = kPrimarySurface) override {
@@ -487,8 +509,7 @@ private:
 
         VkViewport vp{0,0,(float)m_act->extent.width,(float)m_act->extent.height,0,1};
         vkCmdSetViewport(m_act->cmdBuf, 0, 1, &vp);
-        VkRect2D sc{{0,0}, m_act->extent};
-        vkCmdSetScissor(m_act->cmdBuf, 0, 1, &sc);
+        // Scissor is set by the caller (drawPrimitives) from the batch's clip rect.
 
         for (size_t k = from; k < to; ++k) {
             GpuPrimitiveInstance copy = cmds[k].rect;
@@ -536,8 +557,7 @@ private:
         vkCmdBindPipeline(m_act->cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textPipeline);
         VkViewport vp{0,0,(float)m_act->extent.width,(float)m_act->extent.height,0,1};
         vkCmdSetViewport(m_act->cmdBuf, 0, 1, &vp);
-        VkRect2D sc{{0,0}, m_act->extent};
-        vkCmdSetScissor(m_act->cmdBuf, 0, 1, &sc);
+        // Scissor is set by the caller (drawPrimitives) from the batch's clip rect.
 
         vkCmdBindDescriptorSets(m_act->cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 m_textPipeLayout, 0, 1, &m_textDescSet, 0, nullptr);

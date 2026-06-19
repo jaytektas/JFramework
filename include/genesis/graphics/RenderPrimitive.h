@@ -4,6 +4,7 @@
 #include <string>
 #include <cstdint>
 #include <iostream>
+#include <algorithm>
 
 #include <genesis/core/muted_logging_mock.h>
 namespace { inline constexpr auto& LogGraphicsEngine = Genesis::Log::Graphics; }
@@ -63,12 +64,19 @@ public:
         std::vector<TextVertex> verts;
     };
 
+    // Scissor/clip rectangle in window pixels.  enabled=false means "no clip" (full window).
+    struct ClipRect {
+        float x{0.0f}, y{0.0f}, w{0.0f}, h{0.0f};
+        bool  enabled{false};
+    };
+
     // ---- Unified draw command ----
     struct DrawCommand {
         enum class Kind : uint8_t { Rect, Text };
         Kind             kind{Kind::Rect};
         GpuPrimitiveInstance rect{};
         TextCall             text{};
+        ClipRect             clip{};   // active clip when this command was recorded
     };
 
     // ---- Push API ----
@@ -90,6 +98,7 @@ public:
         cmd.rect.borderRadius  = radius;
         cmd.rect.borderWidth   = bWidth;
         cmd.rect.primitiveType = static_cast<uint32_t>(PrimitiveType::Rectangle);
+        cmd.clip = currentClip();
         m_commands.push_back(std::move(cmd));
     }
 
@@ -97,17 +106,33 @@ public:
         DrawCommand cmd;
         cmd.kind = DrawCommand::Kind::Text;
         cmd.text = std::move(call);
+        cmd.clip = currentClip();
         m_commands.push_back(std::move(cmd));
     }
+
+    // ---- Clip stack: scopes subsequent draws to a rectangle (nested clips intersect) ----
+    void pushClip(float x, float y, float w, float h) {
+        ClipRect c{x, y, w, h, true};
+        if (!m_clipStack.empty()) {
+            const ClipRect& p = m_clipStack.back();
+            float x1 = std::max(c.x, p.x), y1 = std::max(c.y, p.y);
+            float x2 = std::min(c.x + c.w, p.x + p.w), y2 = std::min(c.y + c.h, p.y + p.h);
+            c.x = x1; c.y = y1; c.w = std::max(0.0f, x2 - x1); c.h = std::max(0.0f, y2 - y1);
+        }
+        m_clipStack.push_back(c);
+    }
+    void popClip() { if (!m_clipStack.empty()) m_clipStack.pop_back(); }
+    ClipRect currentClip() const { return m_clipStack.empty() ? ClipRect{} : m_clipStack.back(); }
 
     // ---- Read API ----
 
     const std::vector<DrawCommand>& getCommands() const { return m_commands; }
 
-    void clear() { m_commands.clear(); }
+    void clear() { m_commands.clear(); m_clipStack.clear(); }
 
 private:
     std::vector<DrawCommand> m_commands;
+    std::vector<ClipRect>    m_clipStack;
 };
 
 } // namespace Genesis

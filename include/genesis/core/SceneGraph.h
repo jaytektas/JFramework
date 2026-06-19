@@ -16,7 +16,30 @@ using NodeId = uint32_t;
 constexpr NodeId InvalidNodeId = 0xFFFFFFFF;
 
 enum class FlexDirection { Row, Column };
-enum class JustifyContent { FlexStart, Center, SpaceBetween };
+enum class JustifyContent { FlexStart, Center, FlexEnd, SpaceBetween, SpaceAround };
+// Cross-axis alignment of children within a container.
+enum class AlignItems { Start, Center, End, Stretch };
+
+/**
+ * @brief Per-side edge values (padding / margin).  Implicitly constructs/assigns from a
+ *        single float so `layout.padding = 12.0f` still means "12 on all sides".
+ */
+struct Edges {
+    float left{0.0f}, top{0.0f}, right{0.0f}, bottom{0.0f};
+    Edges() = default;
+    Edges(float all) : left(all), top(all), right(all), bottom(all) {}
+    Edges(float h, float v) : left(h), top(v), right(h), bottom(v) {}
+    Edges(float l, float t, float r, float b) : left(l), top(t), right(r), bottom(b) {}
+    Edges& operator=(float all) { left = top = right = bottom = all; return *this; }
+    float horizontal() const { return left + right; }
+    float vertical()   const { return top + bottom; }
+    // Main / cross axis helpers, resolved against a flex direction.
+    float mainLeading (FlexDirection d) const { return d == FlexDirection::Row ? left : top; }
+    float mainTrailing(FlexDirection d) const { return d == FlexDirection::Row ? right : bottom; }
+    float mainSum     (FlexDirection d) const { return d == FlexDirection::Row ? horizontal() : vertical(); }
+    float crossLeading(FlexDirection d) const { return d == FlexDirection::Row ? top : left; }
+    float crossSum    (FlexDirection d) const { return d == FlexDirection::Row ? vertical() : horizontal(); }
+};
 
 /**
  * @brief Bitmask flags for the layout invalidation vector.
@@ -48,12 +71,15 @@ struct Constraints {
  * @brief Pure Layout Node Properties. 
  */
 struct LayoutComponent {
-    FlexDirection direction{FlexDirection::Column};
-    JustifyContent justifyContent{JustifyContent::FlexStart};
-    float flexGrow{0.0f};
-    float padding{0.0f};   // inset on all four sides
-    float gap{0.0f};       // space inserted between consecutive children
-    float margin{0.0f};
+    FlexDirection  direction{FlexDirection::Column};
+    JustifyContent justifyContent{JustifyContent::FlexStart};  // main-axis distribution
+    AlignItems     alignItems{AlignItems::Start};              // cross-axis for children
+    // Per-child override of the parent's alignItems (-1 = inherit, else AlignItems value).
+    int            alignSelf{-1};
+    float          flexGrow{0.0f};   // share of leftover main-axis space this node claims
+    Edges          padding{};        // inner inset (per-side; float = all sides)
+    Edges          margin{};         // outer spacing (per-side; float = all sides)
+    float          gap{0.0f};        // space inserted between consecutive children
 
     // Calculated output geometry bounds
     Rect boundingBox;
@@ -73,9 +99,13 @@ public:
     /**
      * @brief Instantiates a node flatly inside the memory arena.
      */
+    // Global layout defaults applied to every new node — set these once at startup for
+    // app-wide spacing/alignment, then override any individual node locally via getLayout().
+    LayoutComponent& defaultLayout() { return m_defaultLayout; }
+
     NodeId createNode(const std::string& debugName = "") {
         NodeId id = static_cast<NodeId>(m_layouts.size());
-        m_layouts.emplace_back(LayoutComponent{});
+        m_layouts.emplace_back(m_defaultLayout);   // inherit global defaults; override locally
         m_hierarchy.emplace_back(HierarchyComponent{InvalidNodeId, {}, debugName});
         m_dirtyFlags.emplace_back(DirtySelf); // New nodes start dirty
         return id;
@@ -129,71 +159,157 @@ public:
      */
     void computeLayout(NodeId nodeId, const Constraints& constraints) {
         if (nodeId >= m_layouts.size()) return;
-
         if (m_dirtyFlags[nodeId] == Clean) return;
+        // Two phases keep nested layouts correct: size the whole subtree bottom-up, then
+        // position it top-down from this node's current origin.
+        _measure(nodeId, constraints);
+        auto& bb = m_layouts[nodeId].boundingBox;
+        _arrange(nodeId, bb.x, bb.y);
+        _markCleanRec(nodeId);
+    }
 
-        auto& layout = m_layouts[nodeId];
-        const auto& children = m_hierarchy[nodeId].childrenIds;
+    // clamp that never asserts: if an upstream constraint inverts (max < min), the min
+    // bound wins.  Keeps a degenerate panel size from aborting the whole app.
+    static float clampF(float v, float lo, float hi) {
+        if (hi < lo) hi = lo;
+        return v < lo ? lo : (v > hi ? hi : v);
+    }
 
-        layout.boundingBox.width  = constraints.minWidth;
-        layout.boundingBox.height = constraints.minHeight;
+    // --- Phase 1: size the subtree (bottom-up). Applies flexGrow + cross-axis stretch. ---
+    void _measure(NodeId nodeId, const Constraints& c) {
+        auto& L = m_layouts[nodeId];
+        const auto& kids = m_hierarchy[nodeId].childrenIds;
+        const FlexDirection d = L.direction;
+        const bool row = (d == FlexDirection::Row);
+        auto mainOf  = [&](const Rect& r){ return row ? r.width  : r.height; };
+        auto crossOf = [&](const Rect& r){ return row ? r.height : r.width;  };
 
-        if (children.empty()) {
-            m_dirtyFlags[nodeId] = Clean;
+        if (kids.empty()) {
+            L.boundingBox.width  = clampF(L.boundingBox.width,  c.minWidth,  c.maxWidth);
+            L.boundingBox.height = clampF(L.boundingBox.height, c.minHeight, c.maxHeight);
             return;
         }
 
-        const float pad = layout.padding;
-        const float gap = layout.gap;
-        const size_t n  = children.size();
+        const Edges& pad = L.padding;
+        const float  gap = L.gap;
+        const size_t n   = kids.size();
 
-        // --- Measure pass ---
-        float accumulatedMain = 2.0f * pad;
-        float maxCross = 0.0f;
-
+        float usedMain = 0.0f, maxCross = 0.0f, totalGrow = 0.0f;
         for (size_t i = 0; i < n; ++i) {
-            NodeId childId = children[i];
-            auto& childLayout = m_layouts[childId];
-            Constraints childConstraints{
-                childLayout.boundingBox.width,  constraints.maxWidth  - 2.0f * pad,
-                childLayout.boundingBox.height, constraints.maxHeight - 2.0f * pad
+            auto& cl = m_layouts[kids[i]];
+            float availW = std::max(0.0f, c.maxWidth  - pad.horizontal() - cl.margin.horizontal());
+            float availH = std::max(0.0f, c.maxHeight - pad.vertical()   - cl.margin.vertical());
+            // A child wants its intrinsic size but must fit the available space — clamp the
+            // min bound to avail so an oversized control shrinks instead of asserting.
+            Constraints cc{
+                std::min(cl.boundingBox.width,  availW), availW,
+                std::min(cl.boundingBox.height, availH), availH
             };
-            computeLayout(childId, childConstraints);
-
-            if (layout.direction == FlexDirection::Row) {
-                accumulatedMain += childLayout.boundingBox.width;
-                maxCross = std::max(maxCross, childLayout.boundingBox.height);
-            } else {
-                accumulatedMain += childLayout.boundingBox.height;
-                maxCross = std::max(maxCross, childLayout.boundingBox.width);
-            }
-            if (i < n - 1) accumulatedMain += gap;
+            _measure(kids[i], cc);
+            usedMain += mainOf(cl.boundingBox) + cl.margin.mainSum(d);
+            maxCross  = std::max(maxCross, crossOf(cl.boundingBox) + cl.margin.crossSum(d));
+            totalGrow += cl.flexGrow;
+            if (i + 1 < n) usedMain += gap;
         }
 
-        if (layout.direction == FlexDirection::Row) {
-            layout.boundingBox.width  = std::clamp(accumulatedMain, constraints.minWidth,  constraints.maxWidth);
-            layout.boundingBox.height = std::clamp(maxCross + 2.0f * pad, constraints.minHeight, constraints.maxHeight);
-        } else {
-            layout.boundingBox.height = std::clamp(accumulatedMain, constraints.minHeight, constraints.maxHeight);
-            layout.boundingBox.width  = std::clamp(maxCross + 2.0f * pad, constraints.minWidth,  constraints.maxWidth);
-        }
+        float selfMain  = clampF(usedMain + pad.mainSum(d),
+                                     row ? c.minWidth  : c.minHeight, row ? c.maxWidth  : c.maxHeight);
+        float selfCross = clampF(maxCross + pad.crossSum(d),
+                                     row ? c.minHeight : c.minWidth,  row ? c.maxHeight : c.maxWidth);
+        if (row) { L.boundingBox.width = selfMain; L.boundingBox.height = selfCross; }
+        else     { L.boundingBox.height = selfMain; L.boundingBox.width = selfCross; }
 
-        // --- Position pass (padding offset + gap between children) ---
-        float currentPos = pad;
-        for (NodeId childId : children) {
-            auto& childLayout = m_layouts[childId];
-            if (layout.direction == FlexDirection::Row) {
-                childLayout.boundingBox.x = layout.boundingBox.x + currentPos;
-                childLayout.boundingBox.y = layout.boundingBox.y + pad;
-                currentPos += childLayout.boundingBox.width + gap;
-            } else {
-                childLayout.boundingBox.x = layout.boundingBox.x + pad;
-                childLayout.boundingBox.y = layout.boundingBox.y + currentPos;
-                currentPos += childLayout.boundingBox.height + gap;
+        // flexGrow — distribute leftover main-axis space; re-measure grown containers.
+        float innerMain = selfMain - pad.mainSum(d);
+        float freeMain  = innerMain - usedMain;
+        if (freeMain > 0.5f && totalGrow > 0.0f) {
+            for (NodeId k : kids) {
+                auto& cl = m_layouts[k];
+                if (cl.flexGrow <= 0.0f) continue;
+                float nm = mainOf(cl.boundingBox) + freeMain * (cl.flexGrow / totalGrow);
+                if (row) cl.boundingBox.width = nm; else cl.boundingBox.height = nm;
+                if (!m_hierarchy[k].childrenIds.empty()) {
+                    float w = cl.boundingBox.width, h = cl.boundingBox.height;
+                    _measure(k, Constraints{w, w, h, h});
+                }
             }
         }
 
+        // cross-axis Stretch — fill the container's inner cross extent.
+        float innerCross = selfCross - pad.crossSum(d);
+        for (NodeId k : kids) {
+            auto& cl = m_layouts[k];
+            AlignItems a = cl.alignSelf >= 0 ? static_cast<AlignItems>(cl.alignSelf) : L.alignItems;
+            if (a == AlignItems::Stretch) {
+                float t = std::max(0.0f, innerCross - cl.margin.crossSum(d));
+                if (row) cl.boundingBox.height = t; else cl.boundingBox.width = t;
+                if (!m_hierarchy[k].childrenIds.empty()) {
+                    float w = cl.boundingBox.width, h = cl.boundingBox.height;
+                    _measure(k, Constraints{w, w, h, h});
+                }
+            }
+        }
+    }
+
+    // --- Phase 2: position the subtree (top-down). Applies justifyContent + align + margins. ---
+    void _arrange(NodeId nodeId, float x, float y) {
+        auto& L = m_layouts[nodeId];
+        L.boundingBox.x = x;
+        L.boundingBox.y = y;
+        const auto& kids = m_hierarchy[nodeId].childrenIds;
+        if (kids.empty()) return;
+
+        const FlexDirection d = L.direction;
+        const bool row = (d == FlexDirection::Row);
+        const Edges& pad = L.padding;
+        const float  gap = L.gap;
+        const size_t n   = kids.size();
+        auto mainOf  = [&](const Rect& r){ return row ? r.width  : r.height; };
+        auto crossOf = [&](const Rect& r){ return row ? r.height : r.width;  };
+
+        float innerMain  = (row ? L.boundingBox.width  : L.boundingBox.height) - pad.mainSum(d);
+        float innerCross = (row ? L.boundingBox.height : L.boundingBox.width)  - pad.crossSum(d);
+
+        float used = 0.0f;
+        for (size_t i = 0; i < n; ++i) {
+            auto& cl = m_layouts[kids[i]];
+            used += mainOf(cl.boundingBox) + cl.margin.mainSum(d);
+            if (i + 1 < n) used += gap;
+        }
+        float remaining = innerMain - used;
+        float startOff  = pad.mainLeading(d);
+        float between   = gap;
+        if (remaining > 0.5f) {
+            switch (L.justifyContent) {
+                case JustifyContent::FlexStart:    break;
+                case JustifyContent::Center:       startOff += remaining * 0.5f; break;
+                case JustifyContent::FlexEnd:      startOff += remaining; break;
+                case JustifyContent::SpaceBetween: if (n > 1) between += remaining / (n - 1); break;
+                case JustifyContent::SpaceAround:  { float s = remaining / n; startOff += s * 0.5f; between += s; } break;
+            }
+        }
+
+        float originMain  = row ? L.boundingBox.x : L.boundingBox.y;
+        float originCross = row ? L.boundingBox.y : L.boundingBox.x;
+        float cursor = originMain + startOff;
+        for (size_t i = 0; i < n; ++i) {
+            NodeId k = kids[i];
+            auto& cl = m_layouts[k];
+            AlignItems a = cl.alignSelf >= 0 ? static_cast<AlignItems>(cl.alignSelf) : L.alignItems;
+            float crossPos  = originCross + pad.crossLeading(d) + cl.margin.crossLeading(d);
+            float crossFree = innerCross - cl.margin.crossSum(d) - crossOf(cl.boundingBox);
+            if      (a == AlignItems::Center) crossPos += std::max(0.0f, crossFree) * 0.5f;
+            else if (a == AlignItems::End)    crossPos += std::max(0.0f, crossFree);
+
+            cursor += cl.margin.mainLeading(d);
+            _arrange(k, row ? cursor : crossPos, row ? crossPos : cursor);
+            cursor += mainOf(cl.boundingBox) + cl.margin.mainTrailing(d) + between;
+        }
+    }
+
+    void _markCleanRec(NodeId nodeId) {
         m_dirtyFlags[nodeId] = Clean;
+        for (NodeId k : m_hierarchy[nodeId].childrenIds) _markCleanRec(k);
     }
 
 private:
@@ -203,6 +319,7 @@ private:
         std::string name;
     };
 
+    LayoutComponent              m_defaultLayout{};   // global defaults for new nodes
     std::vector<LayoutComponent> m_layouts;
     std::vector<HierarchyComponent> m_hierarchy;
     std::vector<uint8_t> m_dirtyFlags;

@@ -9,6 +9,7 @@
 #include <genesis/platforms/linux/LinuxPlatformWindow.h>
 
 #include <memory>
+#include <functional>
 
 namespace Genesis {
 
@@ -185,6 +186,8 @@ public:
                 m_state    = State::HeaderDrag;
                 m_dragOffX = static_cast<int>(m_window->mouseX());
                 m_dragOffY = static_cast<int>(m_window->mouseY());
+            } else if (m_contentInput) {
+                m_contentInput(m_window->mouseX(), m_window->mouseY(), press, !btnDown && m_wasDown);
             } else {
                 m_dock.handleMouse(m_window->mouseX(), m_window->mouseY(), press, !btnDown && m_wasDown);
             }
@@ -202,10 +205,16 @@ public:
     void render(GpuHal& hal, PrimitiveBuffer& buf) {
         buf.clear();
         m_dock.populateRenderPrimitives(buf);
+        if (m_contentRender)
+            m_contentRender(buf, static_cast<float>(m_winW), static_cast<float>(m_winH));
         auto frame = hal.beginFrame(m_surface);
         hal.drawPrimitives(buf);
         hal.submitAndPresentFrame(frame);
     }
+
+    // Wire the floated panel's content (rendered/driven by the catalog) into this window.
+    void setContentRender(std::function<void(PrimitiveBuffer&, float, float)> fn) { m_contentRender = std::move(fn); }
+    void setContentInput (std::function<void(float, float, bool, bool)> fn)       { m_contentInput  = std::move(fn); }
 
     // -------------------------------------------------------------------------
     // Destroy the Vulkan surface.  Call before erasing this object.
@@ -248,6 +257,11 @@ private:
     GpuSurfaceId m_surface{kPrimarySurface};
     DockWidget   m_dock;
     uint32_t     m_winW{kDefaultW}, m_winH{kDefaultH};
+
+    // Optional: render & drive the floated panel's catalog content inside this window.
+    // Coordinates are window-local; the content area sits below the title bar.
+    std::function<void(PrimitiveBuffer&, float, float)> m_contentRender;
+    std::function<void(float, float, bool, bool)>       m_contentInput;
 
     State m_state{State::Idle};
     bool  m_shouldClose{false};

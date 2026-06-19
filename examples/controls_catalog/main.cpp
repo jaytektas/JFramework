@@ -50,15 +50,61 @@ public:
     bool animationPaused() const { return m_animPaused; }
 
     void render(PrimitiveBuffer& buf) {
-        for (auto& w : m_widgets)
-            if (w->isVisible()) w->populateRenderPrimitives(buf);
+        // 1. Dock chrome (panel backgrounds, tab bars, borders) as the base layer.
+        if (m_dockHost) m_dockHost->populateRenderPrimitives(buf);
 
-        if (m_tearableTab) m_tearableTab->populateDragGhost(buf);
-
-        if (m_dockHost) {
-            m_dockHost->populateRenderPrimitives(buf);
-            m_dockHost->populateOverlay(buf);
+        // 2. Each visible panel's content, clipped + scrolled within its viewport.
+        for (auto& p : m_panels) {
+            if (!p.visible) continue;
+            buf.pushClip(p.viewport.x, p.viewport.y, p.viewport.width, p.viewport.height);
+            for (Widget* w : p.widgets)
+                if (w->isVisible()) w->populateRenderPrimitives(buf);
+            buf.popClip();
         }
+
+        // 3. Drag ghost + dock drop overlay on top of everything.
+        if (m_tearableTab) m_tearableTab->populateDragGhost(buf);
+        if (m_dockHost)    m_dockHost->populateOverlay(buf);
+    }
+
+    // Per-frame: place each docked panel's content at its content area, lay it out at the
+    // panel width (controls stretch), measure height, clamp scroll, and apply the wheel.
+    void updateDockContent(float wheelDelta, float mouseX, float mouseY) {
+        for (auto& p : m_panels) p.visible = false;
+        if (!m_dockHost) return;
+        const float TB = DockHost::TAB_BAR_SZ;
+        m_dockHost->forEachDockPanel(
+            [&](const DockWidget* dock, const Rect& rect, bool active, int tabCount) {
+                if (tabCount > 1 && !active) return;          // only the active tab shows
+                Panel* p = panelByTitle(dock->title());
+                if (!p) return;
+                Rect content{ rect.x, rect.y + TB, rect.width, std::max(0.0f, rect.height - TB) };
+                p->viewport = content;
+                p->visible  = true;
+
+                if (wheelDelta != 0.0f &&
+                    mouseX >= content.x && mouseX < content.x + content.width &&
+                    mouseY >= content.y && mouseY < content.y + content.height) {
+                    p->scrollY -= wheelDelta * 40.0f;
+                }
+
+                auto& L = m_graph.getLayout(p->root);
+                Constraints cc{ content.width, content.width, 0.0f, 100000.0f };
+                m_graph.invalidateNode(p->root, DirtySelf);
+                L.boundingBox.x = content.x;
+                L.boundingBox.y = content.y;
+                m_graph.computeLayout(p->root, cc);
+                p->contentH = m_graph.getLayoutConst(p->root).boundingBox.height;
+
+                float maxScroll = std::max(0.0f, p->contentH - content.height);
+                p->scrollY = std::clamp(p->scrollY, 0.0f, maxScroll);
+                if (p->scrollY != 0.0f) {                      // re-place with scroll applied
+                    m_graph.invalidateNode(p->root, DirtySelf);
+                    L.boundingBox.x = content.x;
+                    L.boundingBox.y = content.y - p->scrollY;
+                    m_graph.computeLayout(p->root, cc);
+                }
+            });
     }
 
     // Build the semantic snapshot the AI side sees: per widget its role, label,
@@ -131,10 +177,42 @@ public:
     }
 
     void handleMouse(float x, float y, bool pressed, bool released) {
-        for (auto& w : m_widgets) {
-            w->handleMouseMove(x, y);
-            if (pressed)  w->handleMousePress(x, y);
-            if (released) w->handleMouseRelease(x, y);
+        // Route to the controls of currently-visible docked panels only.  Floated panels
+        // receive input through handleFloatingPanelInput (in their own window's coords).
+        for (auto& p : m_panels) {
+            if (!p.visible) continue;
+            for (Widget* w : p.widgets) {
+                w->handleMouseMove(x, y);
+                if (pressed)  w->handleMousePress(x, y);
+                if (released) w->handleMouseRelease(x, y);
+            }
+        }
+    }
+
+    // Render a floated panel's content into a floating window (window-local coords).
+    void renderFloatingPanel(const std::string& title, PrimitiveBuffer& buf, float w, float h) {
+        Panel* p = panelByTitle(title);
+        if (!p) return;
+        const float TB = DockHost::TAB_BAR_SZ;
+        Rect content{ 0.0f, TB, w, std::max(0.0f, h - TB) };
+        auto& L = m_graph.getLayout(p->root);
+        m_graph.invalidateNode(p->root, DirtySelf);
+        L.boundingBox.x = content.x;
+        L.boundingBox.y = content.y;
+        m_graph.computeLayout(p->root, Constraints{content.width, content.width, 0.0f, 100000.0f});
+        buf.pushClip(content.x, content.y, content.width, content.height);
+        for (Widget* wt : p->widgets) if (wt->isVisible()) wt->populateRenderPrimitives(buf);
+        buf.popClip();
+    }
+
+    // Drive a floated panel's content (window-local coords).
+    void handleFloatingPanelInput(const std::string& title, float x, float y, bool press, bool release) {
+        Panel* p = panelByTitle(title);
+        if (!p) return;
+        for (Widget* wt : p->widgets) {
+            wt->handleMouseMove(x, y);
+            if (press)   wt->handleMousePress(x, y);
+            if (release) wt->handleMouseRelease(x, y);
         }
     }
 
@@ -170,76 +248,61 @@ public:
 
 private:
     void buildUI() {
-        m_rootId = m_graph.createNode("CatalogRoot");
-        auto& root = m_graph.getLayout(m_rootId);
-        root.direction = FlexDirection::Column;
-        root.padding   = 20.0f;
-        root.gap       = 10.0f;
-
+        // ---- Content, grouped into dock panels (each is a scrollable flex column) ----
+        beginPanel("Navigator");
         section("Navigation");
-        add<TabBar>(m_graph, std::vector<std::string>{"Overview", "Controls", "Themes", "Settings"}, 680.0f, 34.0f);
-        spacer(6.0f);
+        add<TabBar>(m_graph, std::vector<std::string>{"Overview", "Controls", "Themes", "Settings"}, 200.0f, 34.0f);
+        section("Actions");
+        add<Button>(m_graph, "Primary Action", 200.0f, 36.0f);
+        add<Button>(m_graph, "Secondary",      160.0f, 36.0f);
+        add<ToggleButton>(m_graph, "Dark Mode", 180.0f, 34.0f);
+        add<ToggleButton>(m_graph, "Auto-save", 180.0f, 34.0f)->setToggled(true);
 
-        section("Basic Controls");
-        add<Label>(m_graph, "Genesis UI Toolkit — Zero-dependency, AI-native", 480.0f, 20.0f);
-        spacer(4.0f);
-        add<Button>(m_graph, "Primary Action",  200.0f, 36.0f);
-        add<Button>(m_graph, "Secondary",       160.0f, 36.0f);
-        spacer(4.0f);
-        add<ToggleButton>(m_graph, "Dark Mode",  180.0f, 34.0f);
-        add<ToggleButton>(m_graph, "Auto-save",  180.0f, 34.0f)->setToggled(true);
-        spacer(4.0f);
+        beginPanel("Properties");
+        section("Toggles");
         add<CheckBox>(m_graph, "Enable hardware acceleration", 320.0f, 22.0f)->setChecked(true);
         add<CheckBox>(m_graph, "Show tooltips",                280.0f, 22.0f);
-
-        spacer(4.0f);
+        separator();
+        section("Backend");
         add<RadioButton>(m_graph, "Vulkan backend",  260.0f, 22.0f)->setSelected(true);
         add<RadioButton>(m_graph, "Metal backend",   260.0f, 22.0f);
-        add<RadioButton>(m_graph, "Software (lvp)", 260.0f, 22.0f);
+        add<RadioButton>(m_graph, "Software (lvp)",  260.0f, 22.0f);
 
-        separator();
-
-        section("Input Controls");
-        add<LineEdit>(m_graph, "Search widgets...", 340.0f, 32.0f);
-        add<LineEdit>(m_graph, "API endpoint URL", 340.0f, 32.0f);
-        spacer(4.0f);
-        add<SpinBox>(m_graph, 0, 255, 160.0f, 32.0f)->setValue(42);
-        add<SpinBox>(m_graph, 0, 100, 160.0f, 32.0f)->setValue(75);
-        spacer(4.0f);
-        add<ComboBox>(m_graph, std::vector<std::string>{"1080p", "1440p", "4K", "8K"}, 200.0f, 34.0f)->setCurrentIndex(1);
-        add<ComboBox>(m_graph, std::vector<std::string>{"60 Hz", "120 Hz", "144 Hz", "240 Hz"}, 200.0f, 34.0f)->setCurrentIndex(2);
-
-        separator();
-
-        section("Range & Feedback");
+        beginPanel("Inspector");
+        section("Range");
         add<Slider>(m_graph, 340.0f, 24.0f)->setValue(0.65f);
         add<Slider>(m_graph, 340.0f, 24.0f)->setValue(0.30f);
-        spacer(4.0f);
         m_progressBar = add<ProgressBar>(m_graph, 340.0f, 14.0f);
         add<ProgressBar>(m_graph, 340.0f, 14.0f)->setProgress(1.0f);
-        spacer(4.0f);
         add<ScrollBar>(m_graph, 340.0f, 14.0f, 0.25f)->setScrollPosition(0.35f);
+        section("Steppers");
+        add<SpinBox>(m_graph, 0, 255, 160.0f, 32.0f)->setValue(42);
+        add<SpinBox>(m_graph, 0, 100, 160.0f, 32.0f)->setValue(75);
 
-        separator();
+        beginPanel("Console");
+        section("Filters");
+        add<LineEdit>(m_graph, "Search widgets...", 340.0f, 32.0f);
+        add<LineEdit>(m_graph, "API endpoint URL", 340.0f, 32.0f);
+        add<Label>(m_graph, "Genesis UI Toolkit — Zero-dependency, AI-native", 460.0f, 20.0f);
 
-        section("Containers");
+        beginPanel("Output");
+        section("Display");
+        add<ComboBox>(m_graph, std::vector<std::string>{"1080p", "1440p", "4K", "8K"}, 200.0f, 34.0f)->setCurrentIndex(1);
+        add<ComboBox>(m_graph, std::vector<std::string>{"60 Hz", "120 Hz", "144 Hz", "240 Hz"}, 200.0f, 34.0f)->setCurrentIndex(2);
         add<GroupBox>(m_graph, "Render Settings", 340.0f, 90.0f);
 
-        separator();
-
-        section("Tear-off Tabs — drag a tab downward to detach");
+        beginPanel("Assets");
+        section("Tear-off Tabs — drag a tab down to detach");
         {
             auto tb = std::make_unique<TabBar>(m_graph,
-                std::vector<std::string>{"Properties", "Console", "Assets"},
-                480.0f, 34.0f);
+                std::vector<std::string>{"Properties", "Console", "Assets"}, 300.0f, 34.0f);
             tb->setTearable(true);
             m_tearableTab = tb.get();
-            m_graph.addChild(m_rootId, tb->getNodeId());
+            m_graph.addChild(m_curContainer, tb->getNodeId());
+            m_curPanel->widgets.push_back(tb.get());
             m_widgets.push_back(std::move(tb));
         }
-
-        Constraints constraints{720.0f, 720.0f, 0.0f, 10000.0f};
-        m_graph.computeLayout(m_rootId, constraints);
+        add<GroupBox>(m_graph, "Asset Browser", 340.0f, 120.0f);
 
         // ====================================================================
         // Dock zone management — 3-column layout exercising every constraint.
@@ -339,37 +402,70 @@ private:
             static_cast<float>(m_winW), static_cast<float>(m_winH)});
     }
 
+    // A dock panel's scrollable content: a flex-column root + the widgets it owns-by-ref,
+    // its scroll offset, measured content height, and on-screen viewport this frame.
+    struct Panel {
+        std::string          title;
+        NodeId               root{InvalidNodeId};
+        std::vector<Widget*> widgets;        // non-owning; rendered clipped to viewport
+        float                scrollY{0.0f};
+        float                contentH{0.0f};
+        Rect                 viewport{};     // dock content area (set each frame)
+        bool                 visible{false};
+    };
+
+    // Begin filling a dock panel by title.  Subsequent add()/section()/spacer() go here.
+    void beginPanel(const std::string& title) {
+        NodeId root = m_graph.createNode("PanelContent:" + title);
+        auto& L = m_graph.getLayout(root);
+        L.direction  = FlexDirection::Column;
+        L.padding    = 14.0f;
+        L.gap        = 8.0f;
+        L.alignItems = AlignItems::Stretch;   // controls fill the panel width
+        m_panels.push_back(Panel{title, root, {}, 0.f, 0.f, {}, false});
+        m_curPanel     = &m_panels.back();
+        m_curContainer = root;
+    }
+
     void section(const std::string& name) {
-        auto* lbl = add<Label>(m_graph, name, 300.0f, 18.0f);
-        (void)lbl;
+        add<Label>(m_graph, name, 300.0f, 18.0f);
     }
 
     void separator() {
-        spacer(4.0f);
-        add<Separator>(m_graph, Separator::Orientation::Horizontal, 680.0f);
-        spacer(4.0f);
+        spacer(2.0f);
+        add<Separator>(m_graph, Separator::Orientation::Horizontal, 300.0f);
+        spacer(2.0f);
     }
 
     void spacer(float h) {
         NodeId id = m_graph.createNode("Spacer");
         auto& l = m_graph.getLayout(id);
         l.boundingBox.width = 1.0f; l.boundingBox.height = h;
-        m_graph.addChild(m_rootId, id);
+        m_graph.addChild(m_curContainer, id);
     }
 
     template<typename T, typename... Args>
     T* add(Args&&... args) {
         auto w = std::make_unique<T>(std::forward<Args>(args)...);
         T* ptr = w.get();
-        m_graph.addChild(m_rootId, ptr->getNodeId());
+        m_graph.addChild(m_curContainer, ptr->getNodeId());
+        if (m_curPanel) m_curPanel->widgets.push_back(ptr);
         m_widgets.push_back(std::move(w));
         return ptr;
+    }
+
+    Panel* panelByTitle(const std::string& t) {
+        for (auto& p : m_panels) if (p.title == t) return &p;
+        return nullptr;
     }
 
     SceneGraph& m_graph;
     uint32_t    m_winW, m_winH;
     NodeId      m_rootId{InvalidNodeId};
     std::vector<std::unique_ptr<Widget>> m_widgets;
+    std::vector<Panel> m_panels;
+    NodeId      m_curContainer{InvalidNodeId};
+    Panel*      m_curPanel{nullptr};
     ProgressBar* m_progressBar{nullptr};
     TabBar*      m_tearableTab{nullptr};
 
@@ -475,6 +571,10 @@ int main() {
         DockRegistry::instance().updateBounds(
             catalog->dockHost(), window->screenX(), window->screenY(), curW, curH);
 
+        // ---- Place dock-panel content at its area (handles scroll wheel) ----
+        float wheel = window->consumeWheel();
+        catalog->updateDockContent(wheel, window->mouseX(), window->mouseY());
+
         // ---- Keyboard ----
         bool wantScreenshot = false;
         bool keyActivity    = false;
@@ -525,6 +625,21 @@ int main() {
                     static_cast<uint32_t>(r.width), static_cast<uint32_t>(r.height),
                     offX, offY,
                     *hal, /*initialDrag=*/true);
+
+                // The floated panel carries its catalog content: render & drive it in the
+                // floating window so it stays fully functional while detached.
+                {
+                    ControlsCatalog* cat = catalog.get();
+                    std::string title = floatingDocks.back().dock().title();
+                    floatingDocks.back().setContentRender(
+                        [cat, title](PrimitiveBuffer& b, float w, float h) {
+                            cat->renderFloatingPanel(title, b, w, h);
+                        });
+                    floatingDocks.back().setContentInput(
+                        [cat, title](float x, float y, bool pr, bool rl) {
+                            cat->handleFloatingPanelInput(title, x, y, pr, rl);
+                        });
+                }
 
                 catalog->removeInlineDock(dw);
             }
@@ -601,7 +716,7 @@ int main() {
         lastMouseX = mx; lastMouseY = my;
 
         bool activity = keyActivity || pressed || released || mouseMoved || resized
-                        || wantScreenshot || aiActed || !floatingDocks.empty()
+                        || wantScreenshot || aiActed || wheel != 0.0f || !floatingDocks.empty()
                         || catalog->isAnimating();
         if (activity) redrawFrames = 4;        // render now + a short settle tail
 
