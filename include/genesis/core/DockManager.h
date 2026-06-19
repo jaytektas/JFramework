@@ -839,14 +839,21 @@ private:
             if (tabCount == 0) return 48.f;
             if (tabCount == 1) {
                 float lw = TextHelper::hasAtlas() ? TextHelper::measureWidth(n->tabs[0]->title()) : 50.f;
-                return lw + 50.f;
+                float contentMinW = n->tabs[0]->minW();
+                return std::max(lw + 50.f, contentMinW);
             }
             float maxLw = 0.f;
+            float maxWidgetMinW = 0.f;
             for (int i = 0; i < tabCount; ++i) {
                 float lw = TextHelper::hasAtlas() ? TextHelper::measureWidth(n->tabs[i]->title()) : 50.f;
                 if (lw > maxLw) maxLw = lw;
+                if (n->tabs[i]) {
+                    float w = n->tabs[i]->minW();
+                    if (w > maxWidgetMinW) maxWidgetMinW = w;
+                }
             }
-            return static_cast<float>(tabCount) * (maxLw + 16.f) + 30.f;
+            float tabsMinW = static_cast<float>(tabCount) * (maxLw + 16.f) + 30.f;
+            return std::max(tabsMinW, maxWidgetMinW);
         }
         bool horiz = (n->splitDir == SplitDir::Horizontal);
         float sum = 0.f;
@@ -871,7 +878,15 @@ private:
         const DockNode* n = node(id);
         if (!n) return 48.f;
         if (n->type == DockNode::Type::Leaf) {
-            return TAB_BAR_SZ + 40.f;
+            int tabCount = static_cast<int>(n->tabs.size());
+            float maxWidgetMinH = 40.f;
+            for (int i = 0; i < tabCount; ++i) {
+                if (n->tabs[i]) {
+                    float h = n->tabs[i]->minH();
+                    if (h > maxWidgetMinH) maxWidgetMinH = h;
+                }
+            }
+            return TAB_BAR_SZ + maxWidgetMinH;
         }
         bool horiz = (n->splitDir == SplitDir::Horizontal);
         float sum = 0.f;

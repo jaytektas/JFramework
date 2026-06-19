@@ -98,6 +98,11 @@ public:
                 }
 
                 auto& L = m_graph.getLayout(p->root);
+                m_graph.computeMinSize(p->root);
+                float panelMinW = m_graph.getLayoutConst(p->root).minWidth;
+                float panelMinH = m_graph.getLayoutConst(p->root).minHeight;
+                const_cast<DockWidget*>(dock)->setMinSize(panelMinW, panelMinH);
+
                 Constraints cc{ content.width, content.width, 0.0f, 100000.0f };
                 m_graph.invalidateNode(p->root, DirtySelf);
                 L.boundingBox.x = content.x;

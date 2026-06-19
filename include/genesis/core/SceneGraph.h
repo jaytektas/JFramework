@@ -80,6 +80,8 @@ struct LayoutComponent {
     Edges          padding{};        // inner inset (per-side; float = all sides)
     Edges          margin{};         // outer spacing (per-side; float = all sides)
     float          gap{0.0f};        // space inserted between consecutive children
+    float          minWidth{0.0f};
+    float          minHeight{0.0f};
 
     // Calculated output geometry bounds
     Rect boundingBox;
@@ -157,9 +159,17 @@ public:
      * @brief Linear Single-Pass Constraint Layout Solver with Invalidation skipping.
      * Respects padding (inset on all sides) and gap (space between children).
      */
+    void computeMinSize(NodeId nodeId) {
+        if (nodeId >= m_layouts.size()) return;
+        _computeMinSize(nodeId);
+    }
+
     void computeLayout(NodeId nodeId, const Constraints& constraints) {
         if (nodeId >= m_layouts.size()) return;
         if (m_dirtyFlags[nodeId] == Clean) return;
+        
+        _computeMinSize(nodeId);
+
         // Two phases keep nested layouts correct: size the whole subtree bottom-up, then
         // position it top-down from this node's current origin.
         _measure(nodeId, constraints);
@@ -185,8 +195,8 @@ public:
         auto crossOf = [&](const Rect& r){ return row ? r.height : r.width;  };
 
         if (kids.empty()) {
-            L.boundingBox.width  = clampF(L.boundingBox.width,  c.minWidth,  c.maxWidth);
-            L.boundingBox.height = clampF(L.boundingBox.height, c.minHeight, c.maxHeight);
+            L.boundingBox.width  = clampF(L.boundingBox.width,  std::max(c.minWidth, L.minWidth),  c.maxWidth);
+            L.boundingBox.height = clampF(L.boundingBox.height, std::max(c.minHeight, L.minHeight), c.maxHeight);
             return;
         }
 
@@ -201,9 +211,11 @@ public:
             float availH = std::max(0.0f, c.maxHeight - pad.vertical()   - cl.margin.vertical());
             // A child wants its intrinsic size but must fit the available space — clamp the
             // min bound to avail so an oversized control shrinks instead of asserting.
+            float childMinW = std::max(cl.minWidth, std::min(cl.boundingBox.width, availW));
+            float childMinH = std::max(cl.minHeight, std::min(cl.boundingBox.height, availH));
             Constraints cc{
-                std::min(cl.boundingBox.width,  availW), availW,
-                std::min(cl.boundingBox.height, availH), availH
+                childMinW, availW,
+                childMinH, availH
             };
             _measure(kids[i], cc);
             usedMain += mainOf(cl.boundingBox) + cl.margin.mainSum(d);
@@ -305,6 +317,44 @@ public:
             _arrange(k, row ? cursor : crossPos, row ? crossPos : cursor);
             cursor += mainOf(cl.boundingBox) + cl.margin.mainTrailing(d) + between;
         }
+    }
+
+    void _computeMinSize(NodeId nodeId) {
+        auto& L = m_layouts[nodeId];
+        const auto& kids = m_hierarchy[nodeId].childrenIds;
+        if (kids.empty()) {
+            return;
+        }
+
+        const FlexDirection d = L.direction;
+        const bool row = (d == FlexDirection::Row);
+        const Edges& pad = L.padding;
+        const float  gap = L.gap;
+        const size_t n   = kids.size();
+
+        float kidsMinMain = 0.f;
+        float kidsMinCross = 0.f;
+        for (size_t i = 0; i < n; ++i) {
+            NodeId kid = kids[i];
+            _computeMinSize(kid);
+            auto& cl = m_layouts[kid];
+
+            float clMinMain = row ? cl.minWidth : cl.minHeight;
+            float clMinCross = row ? cl.minHeight : cl.minWidth;
+
+            kidsMinMain += clMinMain + (row ? cl.margin.horizontal() : cl.margin.vertical());
+            kidsMinCross = std::max(kidsMinCross, clMinCross + (row ? cl.margin.vertical() : cl.margin.horizontal()));
+            if (i + 1 < n) kidsMinMain += gap;
+        }
+
+        float totalMinMain = kidsMinMain + pad.mainSum(d);
+        float totalMinCross = kidsMinCross + pad.crossSum(d);
+
+        float computedMinW = row ? totalMinMain : totalMinCross;
+        float computedMinH = row ? totalMinCross : totalMinMain;
+
+        L.minWidth = std::max(L.minWidth, computedMinW);
+        L.minHeight = std::max(L.minHeight, computedMinH);
     }
 
     void _markCleanRec(NodeId nodeId) {

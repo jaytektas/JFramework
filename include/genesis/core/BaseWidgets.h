@@ -323,6 +323,8 @@ public:
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
+        l.minWidth = TextHelper::hasAtlas() ? TextHelper::measureWidth(m_text) : w;
+        l.minHeight = h;
     }
 
     void setText(const std::string& t) { m_text = t; m_graph.invalidateNode(m_nodeId, DirtySelf); }
@@ -360,6 +362,8 @@ public:
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
+        l.minWidth = TextHelper::hasAtlas() ? (TextHelper::measureWidth(m_label) + 24.f) : w;
+        l.minHeight = h;
     }
 
     void populateRenderPrimitives(PrimitiveBuffer& buf) override {
@@ -408,6 +412,8 @@ public:
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
+        l.minWidth = TextHelper::hasAtlas() ? (TextHelper::measureWidth(m_label) + 24.f) : w;
+        l.minHeight = h;
     }
 
     void setToggled(bool v) { if (m_toggled != v) { m_toggled = v; m_graph.invalidateNode(m_nodeId, DirtySelf); onToggled.emit(v); } }
@@ -470,6 +476,8 @@ public:
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
+        l.minWidth = TextHelper::hasAtlas() ? (TextHelper::measureWidth(m_label) + 28.f) : w;
+        l.minHeight = h;
     }
 
     void setChecked(bool v) {
@@ -534,6 +542,8 @@ public:
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
+        l.minWidth = TextHelper::hasAtlas() ? (TextHelper::measureWidth(m_label) + 28.f) : w;
+        l.minHeight = h;
     }
 
     void setSelected(bool v) {
@@ -596,6 +606,8 @@ public:
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
+        l.minWidth = 50.0f;
+        l.minHeight = h;
     }
 
     void setValue(float v) {
@@ -662,6 +674,8 @@ public:
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
+        l.minWidth = 50.0f;
+        l.minHeight = h;
     }
 
     void setProgress(float p) { m_progress = std::clamp(p, 0.0f, 1.0f); m_graph.invalidateNode(m_nodeId, DirtySelf); }
@@ -697,6 +711,8 @@ public:
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
+        l.minWidth = 40.0f;
+        l.minHeight = h;
     }
 
     void setScrollPosition(float p) {
@@ -755,6 +771,8 @@ public:
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
+        l.minWidth = 60.0f;
+        l.minHeight = h;
     }
 
     void setText(const std::string& t) {
@@ -832,6 +850,8 @@ public:
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
+        l.minWidth = 60.0f;
+        l.minHeight = h;
     }
 
     void setValue(int v) {
@@ -905,9 +925,13 @@ public:
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
+        _updateMinSize();
     }
 
-    void addItem(const std::string& item) { m_items.push_back(item); }
+    void addItem(const std::string& item) {
+        m_items.push_back(item);
+        _updateMinSize();
+    }
     void setCurrentIndex(int i) {
         int c = (m_items.empty()) ? -1 : std::clamp(i, 0, (int)m_items.size()-1);
         if (m_currentIndex != c) {
@@ -967,6 +991,17 @@ public:
     }
 
 private:
+    void _updateMinSize() {
+        auto& l = m_graph.getLayout(m_nodeId);
+        float maxItemW = 0.f;
+        for (const auto& item : m_items) {
+            float lw = TextHelper::hasAtlas() ? TextHelper::measureWidth(tr(item)) : 40.f;
+            if (lw > maxItemW) maxItemW = lw;
+        }
+        l.minWidth = maxItemW + 36.0f;
+        l.minHeight = m_graph.getLayoutConst(m_nodeId).boundingBox.height;
+    }
+
     std::vector<std::string> m_items;
     int m_currentIndex{-1};
 };
@@ -1003,12 +1038,14 @@ public:
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
         if (!m_tabs.empty()) m_activeIndex = 0;
+        _updateMinSize();
     }
 
     void addTab(const std::string& label, NodeId contentNode = InvalidNodeId) {
         m_tabs.push_back(label);
         m_contentNodes.push_back(contentNode);
         if (m_activeIndex < 0) m_activeIndex = 0;
+        _updateMinSize();
     }
 
     void setActiveTab(int i) {
@@ -1049,6 +1086,7 @@ public:
         if (m_activeIndex >= clampedIdx) m_activeIndex++;
         setActiveTab(clampedIdx);
         m_graph.invalidateNode(m_nodeId, DirtySelf);
+        _updateMinSize();
     }
 
     // Draw a translucent ghost tab at the current drag position (call from render loop)
@@ -1173,6 +1211,17 @@ public:
     }
 
 private:
+    void _updateMinSize() {
+        auto& l = m_graph.getLayout(m_nodeId);
+        float totalTextW = 0.0f;
+        for (const auto& tab : m_tabs) {
+            float lw = TextHelper::hasAtlas() ? TextHelper::measureWidth(tr(tab)) : 50.0f;
+            totalTextW += lw + 24.0f;
+        }
+        l.minWidth = totalTextW + 8.0f;
+        l.minHeight = m_graph.getLayoutConst(m_nodeId).boundingBox.height;
+    }
+
     void _emitTear(int idx) {
         if (idx < 0 || idx >= (int)m_tabs.size()) return;
 
@@ -1184,6 +1233,7 @@ private:
         if (idx < (int)m_contentNodes.size()) m_contentNodes.erase(m_contentNodes.begin() + idx);
         m_activeIndex = m_tabs.empty() ? -1 : std::clamp(m_activeIndex, 0, (int)m_tabs.size()-1);
         m_graph.invalidateNode(m_nodeId, DirtySelf);
+        _updateMinSize();
 
         // Build TornTabState with a re-attach closure bound to this TabBar
         TornTabState state;
