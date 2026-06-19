@@ -660,6 +660,12 @@ int main() {
         catalog->update(dt);
 
         // ---- DockHost mouse routing (inline docks) ----
+        PlatformCursor pc = PlatformCursor::Default;
+        auto hc = catalog->dockHost().getHoverCursor(window->mouseX(), window->mouseY());
+        if (hc == DockHost::HoverCursor::Horiz)      pc = PlatformCursor::ResizeLeftRight;
+        else if (hc == DockHost::HoverCursor::Vert)  pc = PlatformCursor::ResizeUpDown;
+        window->setCursor(pc);
+
         if (auto ev = catalog->dockHost().handleMouse(
                 window->mouseX(), window->mouseY(), pressed, released))
         {

@@ -444,6 +444,11 @@ public:
                 case ResizeDir::BottomRight: pc = PlatformCursor::ResizeBottomRight;break;
                 default:                     pc = PlatformCursor::Default;          break;
             }
+            if (pc == PlatformCursor::Default) {
+                auto hc = m_dockHost->getHoverCursor(mx, my);
+                if (hc == DockHost::HoverCursor::Horiz)      pc = PlatformCursor::ResizeLeftRight;
+                else if (hc == DockHost::HoverCursor::Vert)  pc = PlatformCursor::ResizeUpDown;
+            }
             m_window->setCursor(pc);
 
             if (hoverDir != ResizeDir::None && press) {

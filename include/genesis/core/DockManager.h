@@ -352,6 +352,34 @@ public:
         return _minHeightOfNode(rootId());
     }
 
+    enum class HoverCursor : uint8_t { Default, Horiz, Vert };
+
+    HoverCursor getHoverCursor(float mx, float my) const {
+        if (m_handleDrag.active) {
+            const DockNode* sp = node(m_handleDrag.parentSplit);
+            if (sp) {
+                return (sp->splitDir == SplitDir::Horizontal) ? HoverCursor::Horiz : HoverCursor::Vert;
+            }
+        }
+        for (const auto& n : m_nodes) {
+            if (n.type != DockNode::Type::Split) continue;
+            for (int i = 0; i < static_cast<int>(n.handleRects.size()); ++i) {
+                const Rect& h = n.handleRects[i];
+                float hitPad = 4.0f;
+                float hx = h.x - (n.splitDir == SplitDir::Horizontal ? hitPad : 0.f);
+                float hw = h.width + (n.splitDir == SplitDir::Horizontal ? hitPad * 2.f : 0.f);
+                float hy = h.y - (n.splitDir == SplitDir::Vertical ? hitPad : 0.f);
+                float hh = h.height + (n.splitDir == SplitDir::Vertical ? hitPad * 2.f : 0.f);
+                if (mx >= hx && mx <= hx + hw &&
+                    my >= hy && my <= hy + hh)
+                {
+                    return (n.splitDir == SplitDir::Horizontal) ? HoverCursor::Horiz : HoverCursor::Vert;
+                }
+            }
+        }
+        return HoverCursor::Default;
+    }
+
     // --- Construction ---
 
     DockHost() { _allocNode(); }  // root SplitNode(Horizontal)
@@ -641,8 +669,13 @@ public:
                 if (n.type != DockNode::Type::Split) continue;
                 for (int i = 0; i < static_cast<int>(n.handleRects.size()); ++i) {
                     const Rect& h = n.handleRects[i];
-                    if (mx >= h.x && mx <= h.x + h.width &&
-                        my >= h.y && my <= h.y + h.height)
+                    float hitPad = 4.0f;
+                    float hx = h.x - (n.splitDir == SplitDir::Horizontal ? hitPad : 0.f);
+                    float hw = h.width + (n.splitDir == SplitDir::Horizontal ? hitPad * 2.f : 0.f);
+                    float hy = h.y - (n.splitDir == SplitDir::Vertical ? hitPad : 0.f);
+                    float hh = h.height + (n.splitDir == SplitDir::Vertical ? hitPad * 2.f : 0.f);
+                    if (mx >= hx && mx <= hx + hw &&
+                        my >= hy && my <= hy + hh)
                     {
                         m_handleDrag.parentSplit = n.id;
                         m_handleDrag.handleIdx   = i;
