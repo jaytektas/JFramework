@@ -183,9 +183,14 @@ public:
             // Detect title-bar grab → HeaderDrag.
             // The title bar is the top TAB_BAR_SZ logical pixels.
             if (press && m_window->mouseY() < DockHost::TAB_BAR_SZ + 4.f) {
-                m_state    = State::HeaderDrag;
-                m_dragOffX = static_cast<int>(m_window->mouseX());
-                m_dragOffY = static_cast<int>(m_window->mouseY());
+                // Title bar: let the dock detect a close-button click first; only start a
+                // window drag if the press wasn't on the close button.
+                m_dock.handleMouse(m_window->mouseX(), m_window->mouseY(), press, false);
+                if (!m_dock.closeRequested()) {
+                    m_state    = State::HeaderDrag;
+                    m_dragOffX = static_cast<int>(m_window->mouseX());
+                    m_dragOffY = static_cast<int>(m_window->mouseY());
+                }
             } else if (m_contentInput) {
                 m_contentInput(m_window->mouseX(), m_window->mouseY(), press, !btnDown && m_wasDown);
             } else {
