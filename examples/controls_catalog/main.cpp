@@ -424,7 +424,6 @@ private:
 
     SceneGraph& m_graph;
     uint32_t    m_winW, m_winH;
-    NodeId      m_rootId{InvalidNodeId};
     std::vector<std::unique_ptr<Widget>> m_widgets;
     std::vector<Panel> m_panels;
     NodeId      m_curContainer{InvalidNodeId};

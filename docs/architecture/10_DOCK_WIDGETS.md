@@ -129,11 +129,25 @@ Snaps the dock flush to any window edge within `SNAP_DIST` (14 px).
 
 ---
 
+## Panel content
+
+A dock panel is just a frame; its *content* is supplied by the application. In the controls
+catalog each panel owns a flex-column container of widgets (`ControlsCatalog::Panel`). Every
+frame, `updateDockContent` places that container at the panel's content area, lays it out at
+the panel width (controls **stretch**), **clips** it to the panel, and applies wheel
+**scroll** for overflow — see [11_LAYOUT_ENGINE.md](11_LAYOUT_ENGINE.md). When a panel is
+floated, the same content is rendered and driven inside the floating window via
+`FloatingDockWindow`'s content render/input callbacks, so it stays fully functional detached.
+
+Per-dock constraints (`setFloatable`/`setTabifiable`, `setAllowedDrops`, leaf
+`DockAffinityRule`, accept/reject leaf labels, min/max size) are enforced by the host on every
+drop. The demo keeps them permissive for free-form docking, but the API is unchanged.
+
 ## Roadmap
 
+- **Floating dock hosts (nesting)** — make every `FloatingDockWindow` a full `DockHost`
+  registered with `DockRegistry`, so docks can be dragged *into* a float to tabify/split
+  (honoring each dock's options) and `return-to-dock-on-close` falls out naturally. This
+  unifies main-window and floating docking into one symmetric model.
 - **Resize handles** — drag bottom/right/corner to resize the dock
-- **Dock-to-dock snapping** — snap edge-to-edge between two floating docks
-- **Nested tear-off** — dock contains a TabBar, allowing tabs within a dock
 - **Persistence** — serialize dock positions/sizes to/from JSON layout file
-- **Multi-window** — each DockWidget becomes its own OS window
-  (requires per-dock `LinuxPlatformWindow` + Vulkan swapchain)
