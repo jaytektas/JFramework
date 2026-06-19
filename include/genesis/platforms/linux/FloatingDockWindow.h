@@ -201,6 +201,11 @@ public:
 
         // Keep bounds current if WM moved or resized the window
         if (m_state == State::Idle) {
+            if (m_window->width() != m_winW || m_window->height() != m_winH) {
+                m_winW = m_window->width();
+                m_winH = m_window->height();
+                m_needsSurfaceResize = true;
+            }
             float topOffset = isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f;
             m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(m_winW), static_cast<float>(m_winH) - topOffset});
             DockRegistry::instance().updateBounds(*m_dockHost, m_window->screenX(), m_window->screenY(), m_winW, m_winH);
@@ -271,9 +276,166 @@ public:
             return PollResult{};
         }
 
+        case State::Resizing: {
+            auto [gx, gy] = m_window->globalCursorPos();
+            int dx = gx - m_startMouseX;
+            int dy = gy - m_startMouseY;
+
+            int newX = m_startWinX;
+            int newY = m_startWinY;
+            int newW = static_cast<int>(m_startWinW);
+            int newH = static_cast<int>(m_startWinH);
+
+            constexpr int kMinWidth = 180;
+            constexpr int kMinHeight = 120;
+
+            switch (m_resizeDir) {
+                case ResizeDir::Right:
+                    newW = std::max(kMinWidth, static_cast<int>(m_startWinW) + dx);
+                    break;
+                case ResizeDir::Bottom:
+                    newH = std::max(kMinHeight, static_cast<int>(m_startWinH) + dy);
+                    break;
+                case ResizeDir::Left: {
+                    int potentialW = static_cast<int>(m_startWinW) - dx;
+                    if (potentialW >= kMinWidth) {
+                        newW = potentialW;
+                        newX = m_startWinX + dx;
+                    } else {
+                        newW = kMinWidth;
+                        newX = m_startWinX + (static_cast<int>(m_startWinW) - kMinWidth);
+                    }
+                    break;
+                }
+                case ResizeDir::Top: {
+                    int potentialH = static_cast<int>(m_startWinH) - dy;
+                    if (potentialH >= kMinHeight) {
+                        newH = potentialH;
+                        newY = m_startWinY + dy;
+                    } else {
+                        newH = kMinHeight;
+                        newY = m_startWinY + (static_cast<int>(m_startWinH) - kMinHeight);
+                    }
+                    break;
+                }
+                case ResizeDir::TopLeft: {
+                    int potentialW = static_cast<int>(m_startWinW) - dx;
+                    if (potentialW >= kMinWidth) {
+                        newW = potentialW;
+                        newX = m_startWinX + dx;
+                    } else {
+                        newW = kMinWidth;
+                        newX = m_startWinX + (static_cast<int>(m_startWinW) - kMinWidth);
+                    }
+                    int potentialH = static_cast<int>(m_startWinH) - dy;
+                    if (potentialH >= kMinHeight) {
+                        newH = potentialH;
+                        newY = m_startWinY + dy;
+                    } else {
+                        newH = kMinHeight;
+                        newY = m_startWinY + (static_cast<int>(m_startWinH) - kMinHeight);
+                    }
+                    break;
+                }
+                case ResizeDir::TopRight: {
+                    newW = std::max(kMinWidth, static_cast<int>(m_startWinW) + dx);
+                    int potentialH = static_cast<int>(m_startWinH) - dy;
+                    if (potentialH >= kMinHeight) {
+                        newH = potentialH;
+                        newY = m_startWinY + dy;
+                    } else {
+                        newH = kMinHeight;
+                        newY = m_startWinY + (static_cast<int>(m_startWinH) - kMinHeight);
+                    }
+                    break;
+                }
+                case ResizeDir::BottomLeft: {
+                    int potentialW = static_cast<int>(m_startWinW) - dx;
+                    if (potentialW >= kMinWidth) {
+                        newW = potentialW;
+                        newX = m_startWinX + dx;
+                    } else {
+                        newW = kMinWidth;
+                        newX = m_startWinX + (static_cast<int>(m_startWinW) - kMinWidth);
+                    }
+                    newH = std::max(kMinHeight, static_cast<int>(m_startWinH) + dy);
+                    break;
+                }
+                case ResizeDir::BottomRight:
+                    newW = std::max(kMinWidth, static_cast<int>(m_startWinW) + dx);
+                    newH = std::max(kMinHeight, static_cast<int>(m_startWinH) + dy);
+                    break;
+                default:
+                    break;
+            }
+
+            if (newW != static_cast<int>(m_winW) || newH != static_cast<int>(m_winH)) {
+                m_window->setSize(static_cast<uint32_t>(newW), static_cast<uint32_t>(newH));
+                m_winW = static_cast<uint32_t>(newW);
+                m_winH = static_cast<uint32_t>(newH);
+                m_needsSurfaceResize = true;
+            }
+            if (newX != m_window->screenX() || newY != m_window->screenY()) {
+                m_window->setPosition(newX, newY);
+            }
+
+            DockRegistry::instance().updateBounds(*m_dockHost, m_window->screenX(), m_window->screenY(), m_winW, m_winH);
+
+            if (!btnDown) {
+                m_state = State::Idle;
+                m_window->setCursor(PlatformCursor::Default);
+            }
+            return PollResult{};
+        }
+
         case State::Idle: {
             float mx = m_window->mouseX();
             float my = m_window->mouseY();
+
+            // Determine hover / resize zones
+            constexpr float kResizeBorder = 8.0f;
+            bool left   = mx < kResizeBorder;
+            bool right  = mx > static_cast<float>(m_winW) - kResizeBorder;
+            bool top    = my < kResizeBorder;
+            bool bottom = my > static_cast<float>(m_winH) - kResizeBorder;
+
+            ResizeDir hoverDir = ResizeDir::None;
+            if (left && top)          hoverDir = ResizeDir::TopLeft;
+            else if (right && top)    hoverDir = ResizeDir::TopRight;
+            else if (left && bottom)  hoverDir = ResizeDir::BottomLeft;
+            else if (right && bottom) hoverDir = ResizeDir::BottomRight;
+            else if (left)            hoverDir = ResizeDir::Left;
+            else if (right)           hoverDir = ResizeDir::Right;
+            else if (top)             hoverDir = ResizeDir::Top;
+            else if (bottom)          hoverDir = ResizeDir::Bottom;
+
+            // Set corresponding cursor
+            PlatformCursor pc = PlatformCursor::Default;
+            switch (hoverDir) {
+                case ResizeDir::Left:
+                case ResizeDir::Right:       pc = PlatformCursor::ResizeLeftRight; break;
+                case ResizeDir::Top:
+                case ResizeDir::Bottom:      pc = PlatformCursor::ResizeUpDown;    break;
+                case ResizeDir::TopLeft:     pc = PlatformCursor::ResizeTopLeft;    break;
+                case ResizeDir::TopRight:    pc = PlatformCursor::ResizeTopRight;   break;
+                case ResizeDir::BottomLeft:  pc = PlatformCursor::ResizeBottomLeft; break;
+                case ResizeDir::BottomRight: pc = PlatformCursor::ResizeBottomRight;break;
+                default:                     pc = PlatformCursor::Default;          break;
+            }
+            m_window->setCursor(pc);
+
+            if (hoverDir != ResizeDir::None && press) {
+                m_state = State::Resizing;
+                m_resizeDir = hoverDir;
+                m_startWinW = m_winW;
+                m_startWinH = m_winH;
+                m_startWinX = m_window->screenX();
+                m_startWinY = m_window->screenY();
+                auto [gx, gy] = m_window->globalCursorPos();
+                m_startMouseX = gx;
+                m_startMouseY = gy;
+                return PollResult{};
+            }
 
             bool altDrag = m_window->isAltDown() && press;
             bool titleBarDrag = isGlobalTitleBarVisible() && press && my < kGlobalTitleH;
@@ -344,6 +506,10 @@ public:
     // Render the dock into this window's private GPU surface.
     // -------------------------------------------------------------------------
     void render(GpuHal& hal, PrimitiveBuffer& buf) {
+        if (m_needsSurfaceResize) {
+            hal.resizeSurface(m_surface, m_winW, m_winH);
+            m_needsSurfaceResize = false;
+        }
         buf.clear();
 
         bool hasTitle = isGlobalTitleBarVisible();
@@ -430,7 +596,18 @@ public:
     }
 
 private:
-    enum class State { InitialDrag, Idle, HeaderDrag };
+    enum class State { InitialDrag, Idle, HeaderDrag, Resizing };
+    enum class ResizeDir : uint8_t {
+        None,
+        Left,
+        Right,
+        Top,
+        Bottom,
+        TopLeft,
+        TopRight,
+        BottomLeft,
+        BottomRight
+    };
 
     void _clearAllHostDrags() {
         for (const auto& e : DockRegistry::instance().entries())
@@ -457,6 +634,12 @@ private:
     bool  m_wasDown{false};
     int   m_dragOffX{0}, m_dragOffY{0};
     FloatingDockOptions m_options;
+
+    ResizeDir m_resizeDir{ResizeDir::None};
+    bool      m_needsSurfaceResize{false};
+    uint32_t  m_startWinW{0}, m_startWinH{0};
+    int       m_startWinX{0}, m_startWinY{0};
+    int       m_startMouseX{0}, m_startMouseY{0};
 };
 
 } // namespace Genesis

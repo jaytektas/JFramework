@@ -28,6 +28,16 @@ namespace Genesis {
 // ---------------------------------------------------------------------------
 enum class PlatformWindowStyle : uint8_t { Normal, Borderless, Popup };
 
+enum class PlatformCursor : uint8_t {
+    Default,
+    ResizeLeftRight,
+    ResizeUpDown,
+    ResizeTopLeft,
+    ResizeTopRight,
+    ResizeBottomLeft,
+    ResizeBottomRight
+};
+
 /**
  * @brief Concrete Linux platform window backed by XCB.
  *
@@ -164,6 +174,18 @@ public:
         free(protocols_r);
         free(delete_r);
 
+        // Load standard cursors from cursor font
+        m_cursorFont = xcb_generate_id(m_connection);
+        xcb_open_font(m_connection, m_cursorFont, 6, "cursor");
+
+        m_cursorDefault  = _createFontCursor(68);  // left_ptr
+        m_cursorHoriz    = _createFontCursor(108); // sb_h_double_arrow
+        m_cursorVert     = _createFontCursor(116); // sb_v_double_arrow
+        m_cursorTopLeft  = _createFontCursor(134); // top_left_corner
+        m_cursorTopRight = _createFontCursor(136); // top_right_corner
+        m_cursorBotLeft  = _createFontCursor(12);  // bottom_left_corner
+        m_cursorBotRight = _createFontCursor(14);  // bottom_right_corner
+
         xcb_map_window(m_connection, m_windowId);
         xcb_flush(m_connection);
 
@@ -176,6 +198,14 @@ public:
     ~LinuxPlatformWindow() override {
         if (m_syms) { xcb_key_symbols_free(m_syms); m_syms = nullptr; }
         if (m_connection) {
+            xcb_free_cursor(m_connection, m_cursorDefault);
+            xcb_free_cursor(m_connection, m_cursorHoriz);
+            xcb_free_cursor(m_connection, m_cursorVert);
+            xcb_free_cursor(m_connection, m_cursorTopLeft);
+            xcb_free_cursor(m_connection, m_cursorTopRight);
+            xcb_free_cursor(m_connection, m_cursorBotLeft);
+            xcb_free_cursor(m_connection, m_cursorBotRight);
+            xcb_close_font(m_connection, m_cursorFont);
             xcb_destroy_window(m_connection, m_windowId);
             xcb_disconnect(m_connection);
         }
@@ -308,6 +338,26 @@ public:
                                     leaderAtom, XCB_ATOM_WINDOW, 32, 1, &parent);
             }
             _applyWindowType("_NET_WM_WINDOW_TYPE_NORMAL");
+            xcb_flush(m_connection);
+        }
+    }
+
+    void setCursor(PlatformCursor shape) {
+        if (m_currentCursor == shape) return;
+        m_currentCursor = shape;
+        xcb_cursor_t cursorId = 0;
+        switch (shape) {
+            case PlatformCursor::Default:           cursorId = m_cursorDefault; break;
+            case PlatformCursor::ResizeLeftRight:   cursorId = m_cursorHoriz;   break;
+            case PlatformCursor::ResizeUpDown:      cursorId = m_cursorVert;    break;
+            case PlatformCursor::ResizeTopLeft:     cursorId = m_cursorTopLeft; break;
+            case PlatformCursor::ResizeTopRight:    cursorId = m_cursorTopRight;break;
+            case PlatformCursor::ResizeBottomLeft:  cursorId = m_cursorBotLeft; break;
+            case PlatformCursor::ResizeBottomRight: cursorId = m_cursorBotRight;break;
+        }
+        if (cursorId != 0) {
+            uint32_t values[] = { cursorId };
+            xcb_change_window_attributes(m_connection, m_windowId, XCB_CW_CURSOR, values);
             xcb_flush(m_connection);
         }
     }
@@ -511,6 +561,25 @@ private:
     bool  m_pendingRelease{false};
     bool  m_closeRequested{false};
     bool  m_altDown{false};
+
+    xcb_font_t   m_cursorFont{0};
+    xcb_cursor_t m_cursorDefault{0};
+    xcb_cursor_t m_cursorHoriz{0};
+    xcb_cursor_t m_cursorVert{0};
+    xcb_cursor_t m_cursorTopLeft{0};
+    xcb_cursor_t m_cursorTopRight{0};
+    xcb_cursor_t m_cursorBotLeft{0};
+    xcb_cursor_t m_cursorBotRight{0};
+    PlatformCursor m_currentCursor{PlatformCursor::Default};
+
+    xcb_cursor_t _createFontCursor(uint16_t shape) {
+        xcb_cursor_t cid = xcb_generate_id(m_connection);
+        xcb_create_glyph_cursor(m_connection, cid, m_cursorFont, m_cursorFont,
+                                shape, shape + 1,
+                                0, 0, 0,
+                                65535, 65535, 65535);
+        return cid;
+    }
 
     std::deque<KeyEvent> m_keyQueue;
 };
