@@ -7,11 +7,21 @@
 #include <cstdint>
 #include <iostream>
 #include "SceneGraph.h"
-
 namespace Genesis {
 
 /**
+ * @brief Normalized RGBA8 linear color primitive.
+ */
+struct Color {
+    uint8_t r, g, b, a;
+    bool operator==(const Color& other) const {
+        return r == other.r && g == other.g && b == other.b && a == other.a;
+    }
+};
+
+/**
  * @brief Type-safe style property key.
+...
  * Encapsulates a unique ID and the expected value type.
  */
 template<typename T>

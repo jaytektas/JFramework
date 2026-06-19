@@ -7,12 +7,8 @@
 #include <iostream>
 #include <algorithm>
 
-// --- Qt/Custom Logging Integration Mock ---
-#ifndef qCWarning
-#define qCWarning(category) std::cerr << "[WARNING] "
-struct MockCategoryLayout {};
-inline MockCategoryLayout LogLayoutEngine;
-#endif
+#include <genesis/core/muted_logging_mock.h>
+namespace { inline constexpr auto& LogLayoutEngine = Genesis::Log::Layout; }
 
 namespace Genesis {
 
@@ -55,9 +51,10 @@ struct LayoutComponent {
     FlexDirection direction{FlexDirection::Column};
     JustifyContent justifyContent{JustifyContent::FlexStart};
     float flexGrow{0.0f};
-    float padding{0.0f};
+    float padding{0.0f};   // inset on all four sides
+    float gap{0.0f};       // space inserted between consecutive children
     float margin{0.0f};
-    
+
     // Calculated output geometry bounds
     Rect boundingBox;
 };
@@ -128,33 +125,39 @@ public:
 
     /**
      * @brief Linear Single-Pass Constraint Layout Solver with Invalidation skipping.
+     * Respects padding (inset on all sides) and gap (space between children).
      */
     void computeLayout(NodeId nodeId, const Constraints& constraints) {
         if (nodeId >= m_layouts.size()) return;
-        
-        // Performance Optimization: Skip entirely if sub-tree is clean
+
         if (m_dirtyFlags[nodeId] == Clean) return;
 
         auto& layout = m_layouts[nodeId];
         const auto& children = m_hierarchy[nodeId].childrenIds;
 
-        // Base assignment
-        layout.boundingBox.width = constraints.minWidth;
+        layout.boundingBox.width  = constraints.minWidth;
         layout.boundingBox.height = constraints.minHeight;
 
         if (children.empty()) {
             m_dirtyFlags[nodeId] = Clean;
-            return; 
+            return;
         }
 
-        float accumulatedMain = 0.0f;
+        const float pad = layout.padding;
+        const float gap = layout.gap;
+        const size_t n  = children.size();
+
+        // --- Measure pass ---
+        float accumulatedMain = 2.0f * pad;
         float maxCross = 0.0f;
 
-        for (NodeId childId : children) {
+        for (size_t i = 0; i < n; ++i) {
+            NodeId childId = children[i];
             auto& childLayout = m_layouts[childId];
-            Constraints childConstraints{childLayout.boundingBox.width, constraints.maxWidth, 
-                                         childLayout.boundingBox.height, constraints.maxHeight};
-            
+            Constraints childConstraints{
+                childLayout.boundingBox.width,  constraints.maxWidth  - 2.0f * pad,
+                childLayout.boundingBox.height, constraints.maxHeight - 2.0f * pad
+            };
             computeLayout(childId, childConstraints);
 
             if (layout.direction == FlexDirection::Row) {
@@ -164,32 +167,32 @@ public:
                 accumulatedMain += childLayout.boundingBox.height;
                 maxCross = std::max(maxCross, childLayout.boundingBox.width);
             }
+            if (i < n - 1) accumulatedMain += gap;
         }
 
         if (layout.direction == FlexDirection::Row) {
-            layout.boundingBox.width = std::clamp(accumulatedMain, constraints.minWidth, constraints.maxWidth);
-            layout.boundingBox.height = std::clamp(maxCross, constraints.minHeight, constraints.maxHeight);
+            layout.boundingBox.width  = std::clamp(accumulatedMain, constraints.minWidth,  constraints.maxWidth);
+            layout.boundingBox.height = std::clamp(maxCross + 2.0f * pad, constraints.minHeight, constraints.maxHeight);
         } else {
             layout.boundingBox.height = std::clamp(accumulatedMain, constraints.minHeight, constraints.maxHeight);
-            layout.boundingBox.width = std::clamp(maxCross, constraints.minWidth, constraints.maxWidth);
+            layout.boundingBox.width  = std::clamp(maxCross + 2.0f * pad, constraints.minWidth,  constraints.maxWidth);
         }
 
-        float currentPos = 0.0f;
+        // --- Position pass (padding offset + gap between children) ---
+        float currentPos = pad;
         for (NodeId childId : children) {
             auto& childLayout = m_layouts[childId];
-            
             if (layout.direction == FlexDirection::Row) {
                 childLayout.boundingBox.x = layout.boundingBox.x + currentPos;
-                childLayout.boundingBox.y = layout.boundingBox.y;
-                currentPos += childLayout.boundingBox.width;
+                childLayout.boundingBox.y = layout.boundingBox.y + pad;
+                currentPos += childLayout.boundingBox.width + gap;
             } else {
-                childLayout.boundingBox.x = layout.boundingBox.x;
+                childLayout.boundingBox.x = layout.boundingBox.x + pad;
                 childLayout.boundingBox.y = layout.boundingBox.y + currentPos;
-                currentPos += childLayout.boundingBox.height;
+                currentPos += childLayout.boundingBox.height + gap;
             }
         }
 
-        // Sub-tree is now clean
         m_dirtyFlags[nodeId] = Clean;
     }
 

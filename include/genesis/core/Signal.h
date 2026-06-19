@@ -8,13 +8,7 @@
 #include <concepts>
 #include "muted_logging_mock.h"
 
-// --- Qt/Custom Logging Integration Mock ---
-#ifndef qCDebug
-#define qCDebug(category) std::cout << "[DEBUG] "
-#define qCWarning(category) std::cerr << "[WARNING] "
-struct MockCategorySignal {};
-inline MockCategorySignal LogUIEvent;
-#endif
+namespace { inline constexpr auto& LogUIEvent = Genesis::Log::Signal; }
 
 namespace Core {
 

@@ -10,13 +10,8 @@
 #include <concepts>
 #include <thread>
 
-// --- Qt/Custom Logging Integration Mock ---
-#ifndef qCInfo
-#define qCInfo(category) std::cout << "[INFO] "
-#define qCCritical(category) std::cerr << "[CRITICAL] "
-struct MockCategoryCore {};
-inline MockCategoryCore LogEngineCore;
-#endif
+#include <genesis/core/muted_logging_mock.h>
+namespace { inline constexpr auto& LogEngineCore = Genesis::Log::Core; }
 
 namespace Core {
 

@@ -62,7 +62,7 @@ public:
 
         m_loadSlider->onValueChanged.connect([this](float val) {
             m_targetLoad = val;
-            qCInfo(LogWidgetSystem) << "System Target Load Adjusted: " << (val * 100.0f) << "%" << std::endl;
+            qCInfo(Genesis::Log::Widgets) << "System Target Load Adjusted: " << (val * 100.0f) << "%" << std::endl;
         });
 
         // 4. Reset Button
@@ -71,8 +71,8 @@ public:
         m_graph.getLayout(m_resetBtn->getNodeId()).boundingBox = {0, 0, 200, 50};
 
         m_resetBtn->onClicked.connect([this]() {
-            m_loadSlider->setNormalizedValue(0.5f);
-            qCInfo(LogWidgetSystem) << "Performance Metrics Reset to Baseline." << std::endl;
+            m_loadSlider->setValue(0.5f);
+            qCInfo(Genesis::Log::Widgets) << "Performance Metrics Reset to Baseline." << std::endl;
         });
     }
 

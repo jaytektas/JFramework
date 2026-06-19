@@ -1,11 +1,33 @@
-# Build Artifacts
+# Build directories
 build/
 bin/
+
+# In-source CMake artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+
+# Compiled objects / libraries
 *.o
 *.a
 *.so
-test_*
-genesis_app
+
+# Built example / tool binaries (repo root, no extension)
+/genesis_controls_catalog
+/genesis_dock_window_styles
+/genesis_performance_panel
+/genesis_ai_probe
+/genesis_ai_agent
+/GenesisPlatformHost
+/genesis_app
+
+# Captures / scratch
+*.ppm
+
+# Claude session data
+.claude/
 
 # OS files
 .DS_Store
@@ -17,5 +39,8 @@ Thumbs.db
 *.swp
 *.swo
 
-# Project specific
+# Generated docs
 docs/architecture/*.html
+
+# In-source test binaries (root only)
+/test_*

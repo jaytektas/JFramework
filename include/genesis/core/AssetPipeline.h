@@ -10,19 +10,8 @@
 #include <future>
 #include "ApplicationCore.h"
 
-// --- Custom Logging Integration ---
-#ifndef qCInfo
-#define qCInfo(category) std::cout << "[INFO] "
-#endif
-
-#ifndef qCWarning
-#define qCWarning(category) std::cerr << "[WARNING] "
-#endif
-
-#ifndef LogAssetPipeline
-struct MockCategoryAssets { };
-inline MockCategoryAssets LogAssetPipeline;
-#endif
+#include <genesis/core/muted_logging_mock.h>
+namespace { inline constexpr auto& LogAssetPipeline = Genesis::Log::Assets; }
 
 namespace Genesis {
 

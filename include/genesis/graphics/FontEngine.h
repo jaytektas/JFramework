@@ -1,154 +1,204 @@
 #pragma once
 
-#include <vector>
-#include <cstdint>
 #include <string>
+#include <vector>
 #include <unordered_map>
-#include <iostream>
 #include <fstream>
-#include <memory>
+#include <cstring>
+#include <cmath>
+#include <cstdint>
+#include <genesis/core/muted_logging_mock.h>
 
-// --- Custom Logging Integration Mock ---
-#ifndef qCCritical
-#define qCCritical(category) std::cerr << "[CRITICAL] "
-#define qCWarning(category) std::cerr << "[WARNING] "
-struct MockCategoryFont {};
-inline MockCategoryFont LogFontEngine;
-#endif
+// stb_truetype: implementation compiled once in FontEngine.cpp
+#define STB_TRUETYPE_IMPLEMENTATION
+#include <stb_truetype.h>
 
 namespace Genesis {
 
-/**
- * @brief Binary OpenType / TrueType Big-Endian Scalar Reader utility.
- */
-class FontByteReader {
-public:
-    static uint16_t readU16(const uint8_t* buffer, size_t offset) {
-        return (static_cast<uint16_t>(buffer[offset]) << 8) | buffer[offset + 1];
-    }
-    
-    static uint32_t readU32(const uint8_t* buffer, size_t offset) {
-        return (static_cast<uint32_t>(buffer[offset]) << 24) |
-               (static_cast<uint32_t>(buffer[offset + 1]) << 16) |
-               (static_cast<uint32_t>(buffer[offset + 2]) << 8)  |
-               buffer[offset + 3];
-    }
+/** Per-glyph metrics in both pixel space and normalised atlas UV space. */
+struct GlyphInfo {
+    // Atlas UV (0..1)
+    float u0, v0, u1, v1;
+    // Size in pixels
+    float pixelW, pixelH;
+    // Bearing from pen position
+    float bearingX, bearingY;
+    // Horizontal advance
+    float advanceX;
+};
+
+/** CPU-side result from FontEngine::buildAtlas().  Upload to GPU once. */
+struct FontAtlas {
+    std::vector<uint8_t> bitmap;      // R8 grayscale, row-major
+    uint32_t width  {512};
+    uint32_t height {256};
+    float    pixelSize{0.0f};         // the size baked into this atlas
+    float    ascent{0.0f};
+    float    descent{0.0f};
+    float    lineHeight{0.0f};
+    std::unordered_map<uint32_t, GlyphInfo> glyphs; // codepoint → info
+    bool valid{false};
 };
 
 /**
- * @brief Individual glyph spacing metrics for layout text alignment calculations.
- */
-struct GlyphMetrics {
-    uint32_t glyphIndex{0};
-    int32_t advanceWidth{0};
-    int32_t leftSideBearing{0};
-    float atlasU0{0.0f}, atlasV0{0.0f}; // MSDF Texture space coordinates
-    float atlasU1{0.0f}, atlasV1{0.0f};
-};
-
-/**
- * @brief Zero-Dependency TrueType/OpenType table parser and MSDF coordinate manager.
+ * @brief FontEngine — loads a TTF, rasterises a glyph atlas via stb_truetype.
+ *
+ * Usage:
+ *   FontEngine fe;
+ *   fe.loadFromFile("/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf");
+ *   auto atlas = fe.buildAtlas(14.0f);   // bake at 14 px
+ *   // upload atlas.bitmap to GPU as R8 texture, then call measureText / layout
  */
 class FontEngine {
 public:
-    FontEngine() : m_isInitialized(false) {}
+    FontEngine()  = default;
     ~FontEngine() = default;
 
-    // Enforce strict framework resource isolation rules; reject raw copies
-    FontEngine(const FontEngine&) = delete;
+    FontEngine(const FontEngine&)            = delete;
     FontEngine& operator=(const FontEngine&) = delete;
 
-    /**
-     * @brief Parses core true-type tables directly out of a raw byte sequence array buffer.
-     */
-    bool loadFontFromMemory(const uint8_t* fontBuffer, size_t bufferSize) {
-        if (!fontBuffer || bufferSize < 12) {
-            qCCritical(LogFontEngine) << "Invalid or truncated font buffer context presented." << std::endl;
+    // ---- Loading ----
+
+    bool loadFromFile(const std::string& path) {
+        std::ifstream f(path, std::ios::binary | std::ios::ate);
+        if (!f.is_open()) {
+            qCWarning(Genesis::Log::Graphics) << "FontEngine: cannot open " << path << "\n";
             return false;
         }
+        auto sz = static_cast<size_t>(f.tellg());
+        f.seekg(0);
+        m_fontData.resize(sz);
+        f.read(reinterpret_cast<char*>(m_fontData.data()), sz);
 
-        // 1. Validate Offset Subtable Header Magic
-        uint32_t scalerType = FontByteReader::readU32(fontBuffer, 0);
-        // 0x00010000 for TrueType, 0x4F54544F ('OTTO') for OpenType CFF, 0x74727565 ('true') for TrueType
-        if (scalerType != 0x00010000 && scalerType != 0x74727565 && scalerType != 0x4F54544F) {
-            qCCritical(LogFontEngine) << "Unsupported font structure type signature parsed: " << std::hex << scalerType << std::endl;
+        int offset = stbtt_GetFontOffsetForIndex(m_fontData.data(), 0);
+        if (!stbtt_InitFont(&m_info, m_fontData.data(), offset)) {
+            qCWarning(Genesis::Log::Graphics) << "FontEngine: stbtt_InitFont failed for " << path << "\n";
+            m_fontData.clear();
             return false;
         }
-
-        uint16_t numTables = FontByteReader::readU16(fontBuffer, 4);
-        size_t tableOffset = 12;
-
-        // 2. Parse structural records out of the Table Directory
-        for (uint16_t i = 0; i < numTables; ++i) {
-            if (tableOffset + 16 > bufferSize) break;
-
-            char tag[5] = {
-                static_cast<char>(fontBuffer[tableOffset]),
-                static_cast<char>(fontBuffer[tableOffset + 1]),
-                static_cast<char>(fontBuffer[tableOffset + 2]),
-                static_cast<char>(fontBuffer[tableOffset + 3]),
-                '\0'
-            };
-
-            uint32_t offset = FontByteReader::readU32(fontBuffer, tableOffset + 8);
-            uint32_t length = FontByteReader::readU32(fontBuffer, tableOffset + 12);
-
-            m_fontTables[std::string(tag)] = TableRecord{offset, length};
-            tableOffset += 16;
-        }
-
-        // Verify required tables for basic layout are registered
-        // cmap is always required. glyf/loca are for TrueType outlines. CFF is for OpenType CFF.
-        if (!m_fontTables.count("cmap")) {
-            qCCritical(LogFontEngine) << "Missing essential functional table (cmap) inside target file." << std::endl;
-            return false;
-        }
-
-        m_isInitialized = true;
+        m_loaded = true;
+        m_path   = path;
+        qCInfo(Genesis::Log::Graphics) << "FontEngine: loaded " << path << "\n";
         return true;
     }
 
-    /**
-     * @brief Resolves a Unicode character points into an index and extracts font spacing.
-     */
-    bool getGlyphMetrics(uint32_t codepoint, GlyphMetrics& outMetrics) const {
-        if (!m_isInitialized) return false;
-
-        auto it = m_glyphCache.find(codepoint);
-        if (it != m_glyphCache.end()) {
-            outMetrics = it->second;
-            return true;
-        }
-
-        // Placeholder for future cmap table lookup implementation
+    /** Auto-detect a usable system font. */
+    bool loadSystemFont() {
+        static const char* kCandidates[] = {
+            "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans.ttf",
+            nullptr
+        };
+        for (const char** p = kCandidates; *p; ++p)
+            if (loadFromFile(*p)) return true;
+        qCWarning(Genesis::Log::Graphics) << "FontEngine: no system font found\n";
         return false;
     }
 
-    /**
-     * @brief Analytical generation engine loop creating 3-channel MSDF texture maps.
-     */
-    void generateMsdfAtlas(std::vector<uint8_t>& outAtlasRgb, uint32_t width, uint32_t height) {
-        outAtlasRgb.resize(width * height * 3, 0);
+    bool isLoaded() const { return m_loaded; }
+    const std::string& path() const { return m_path; }
 
-        if (!m_isInitialized) {
-            qCWarning(LogFontEngine) << "Cannot generate MSDF map bounds over uninitialized structures." << std::endl;
-            return;
-        }
+    // ---- Atlas building ----
+
+    /**
+     * Rasterise all printable ASCII (32-126) + Latin-1 Supplement (160-255)
+     * into a tightly-packed R8 atlas.  Call once per desired pixel size.
+     */
+    FontAtlas buildAtlas(float pixelSize, uint32_t atlasW = 512, uint32_t atlasH = 256) const {
+        FontAtlas atlas;
+        if (!m_loaded) return atlas;
+
+        atlas.width     = atlasW;
+        atlas.height    = atlasH;
+        atlas.pixelSize = pixelSize;
+        atlas.bitmap.assign(atlasW * atlasH, 0);
+
+        float scale = stbtt_ScaleForPixelHeight(&m_info, pixelSize);
+
+        int ascent, descent, lineGap;
+        stbtt_GetFontVMetrics(&m_info, &ascent, &descent, &lineGap);
+        atlas.ascent     = ascent     * scale;
+        atlas.descent    = descent    * scale;
+        atlas.lineHeight = (ascent - descent + lineGap) * scale;
+
+        // Simple shelf packer
+        uint32_t penX = 1, penY = 1, shelfH = 0;
+
+        auto packRange = [&](uint32_t from, uint32_t to) {
+            for (uint32_t cp = from; cp <= to; ++cp) {
+                int w, h, xoff, yoff;
+                uint8_t* bmp = stbtt_GetCodepointBitmap(
+                    &m_info, 0.0f, scale, static_cast<int>(cp), &w, &h, &xoff, &yoff);
+                if (!bmp) {
+                    // Whitespace: no pixels, but we still need the advance width
+                    int adv, lsb;
+                    stbtt_GetCodepointHMetrics(&m_info, static_cast<int>(cp), &adv, &lsb);
+                    GlyphInfo gi{};
+                    gi.advanceX = adv * scale;
+                    atlas.glyphs[cp] = gi;
+                    continue;
+                }
+
+                if (penX + w + 1 >= atlasW) { penX = 1; penY += shelfH + 1; shelfH = 0; }
+                if (penY + h + 1 >= atlasH) { stbtt_FreeBitmap(bmp, nullptr); continue; }
+
+                // Blit into atlas
+                for (int row = 0; row < h; ++row)
+                    std::memcpy(&atlas.bitmap[(penY + row) * atlasW + penX],
+                                bmp + row * w, static_cast<size_t>(w));
+
+                GlyphInfo gi{};
+                gi.u0 = static_cast<float>(penX)   / atlasW;
+                gi.v0 = static_cast<float>(penY)   / atlasH;
+                gi.u1 = static_cast<float>(penX+w) / atlasW;
+                gi.v1 = static_cast<float>(penY+h) / atlasH;
+                gi.pixelW   = static_cast<float>(w);
+                gi.pixelH   = static_cast<float>(h);
+                gi.bearingX = static_cast<float>(xoff);
+                gi.bearingY = static_cast<float>(yoff);
+
+                int adv, lsb;
+                stbtt_GetCodepointHMetrics(&m_info, static_cast<int>(cp), &adv, &lsb);
+                gi.advanceX = adv * scale;
+
+                atlas.glyphs[cp] = gi;
+                shelfH = std::max(shelfH, static_cast<uint32_t>(h));
+                penX += static_cast<uint32_t>(w) + 1;
+                stbtt_FreeBitmap(bmp, nullptr);
+            }
+        };
+
+        packRange(32, 126);   // printable ASCII
+        packRange(160, 255);  // Latin-1 supplement
+        packRange(0x2018, 0x201F); // typographic quotes
+
+        atlas.valid = true;
+        qCInfo(Genesis::Log::Graphics) << "FontEngine: atlas " << atlasW << "x" << atlasH
+                                        << " at " << pixelSize << "px, "
+                                        << atlas.glyphs.size() << " glyphs\n";
+        return atlas;
     }
 
-    bool hasTable(const std::string& tag) const {
-        return m_fontTables.count(tag) > 0;
+    // ---- Text metrics ----
+
+    /** Measure rendered pixel width of a UTF-8 string using the given atlas. */
+    float measureWidth(const std::string& text, const FontAtlas& atlas) const {
+        float x = 0.0f;
+        for (unsigned char c : text) {
+            auto it = atlas.glyphs.find(c);
+            if (it != atlas.glyphs.end()) x += it->second.advanceX;
+        }
+        return x;
     }
 
 private:
-    struct TableRecord {
-        uint32_t offset{0};
-        uint32_t length{0};
-    };
-
-    std::unordered_map<std::string, TableRecord> m_fontTables;
-    mutable std::unordered_map<uint32_t, GlyphMetrics> m_glyphCache;
-    bool m_isInitialized;
+    bool           m_loaded{false};
+    std::string    m_path;
+    std::vector<uint8_t> m_fontData;
+    stbtt_fontinfo m_info{};
 };
 
 } // namespace Genesis

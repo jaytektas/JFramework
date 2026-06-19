@@ -1,46 +1,120 @@
 # 04. Controls & Widget Catalog
 
-While no code is borrowed, the taxonomy of GUI controls follows industry standards (inspired by Qt, GTK, and web frameworks) to ensure intuitive usage for both developers and AI.
+Genesis replaces Qt widgets with a zero-dependency, data-oriented alternative.
+Every widget is a C++ class that writes into a `PrimitiveBuffer`; there is no
+retained-mode scene, no virtual DOM, and no MOC.  All widgets inherit the AI
+semantic interface automatically.
+
+---
+
+## Status key
+| Symbol | Meaning |
+|--------|---------|
+| ✅ | Implemented with SDF fallback rendering |
+| 🔜 | Planned — spec complete |
+| 📋 | On roadmap |
+
+---
 
 ## Base Classes
-*   `Control`: The abstract base class. Handles visibility, padding, margins, and standard event callbacks (`onHover`, `onClick`, `onFocus`).
-*   `Container`: Inherits `Control`. Maintains a list of child controls and applies Layout Engines (Grid, Flex, Absolute).
 
-## Core Interactables
-*   `Button`: Standard push button. Supports text, icons, and state transitions (idle, hover, pressed, disabled).
-*   `ToggleButton`: Boolean state switch.
-*   `CheckBox` / `RadioButton`: Standard grouped and isolated boolean selections.
-*   `Slider`: 1D value selection. Handles fractional interpolation and stepping.
-*   `Dial` / `Knob`: Radial 1D value selection.
-*   `ProgressBar`: Visual feedback for indeterminate or determinate asynchronous tasks.
+| Class | Status | Notes |
+|-------|--------|-------|
+| `Widget` | ✅ | Root base. Owns `NodeId`, `WidgetState`, virtual mouse handlers, `populateRenderPrimitives` |
+| `Control` | ✅ | Adds hover/press/click signals, `isPointInside`, enabled/disabled routing |
+| `IAIState` | ✅ | Forces `getSemanticNode()` + `executeSemanticAction()` on every widget |
 
-## Text & Data Entry
-*   `Label`: Non-interactive text display. Supports rich text (bold, italic, color runs) via custom text engine.
-*   `TextInput`: Single-line text entry. Supports custom cursors, text selection, and localized IME (Input Method Editor) hookups.
-*   `TextArea`: Multi-line text entry with virtualization and fast scrolling.
-*   `ComboBox` / `DropDown`: Collapsed list for singular selection.
+## Layout Primitives
 
-## Advanced Data Displays
-*   `ListView`: Highly optimized, virtualized vertical list for displaying massive datasets. Only renders items currently visible in the viewport.
-*   `TreeView`: Hierarchical data display with expand/collapse logic.
-*   `TableView` / `DataGrid`: 2D virtualized scrolling, sortable columns, and editable cells.
-*   `ScrollView`: Wraps any content providing custom physics-based scrollbars.
+| Class | Status | Notes |
+|-------|--------|-------|
+| `SceneGraph` | ✅ | Flat array + invalidation bitmask. `computeLayout` respects `padding` and `gap` |
+| `FlexDirection` | ✅ | `Row` / `Column` on every `LayoutComponent` |
+| `Constraints` | ✅ | `{minW, maxW, minH, maxH}` propagated down the tree |
 
-## Layout & Structure
-*   `FlexBox`: Directional (Row/Column) layout engine prioritizing distribution of available space.
-*   `GridBox`: 2D coordinate-based placement.
-*   `Splitter`: Draggable divider between two or more layout regions.
-*   `TabControl`: Overlapping page navigation.
-*   `Window`: The top-level OS integration unit. Handles title bars (client-side decorations), minimize/maximize, and OS dragging.
+## Structural
 
-## Multimedia & Custom
-*   `Canvas`: An immediate-mode drawing surface exposed to the application developer for custom visualizations.
-*   `Image`: Decodes (via custom written decoders for PNG/JPG) and displays bitmap data.
+| Class | Status | Notes |
+|-------|--------|-------|
+| `Separator` | ✅ | Horizontal or vertical 1px rule, configurable length |
+| `GroupBox` | ✅ | Labelled container panel with title bar; children laid out via SceneGraph |
 
-## AI Control Specifics
-Every widget in this catalog inherits the `AIState` interface:
+## Basic Controls
+
+| Class | Status | Notes |
+|-------|--------|-------|
+| `Label` | ✅ | Faux glyph bars until `FontEngine` lands; size configurable |
+| `Button` | ✅ | Hover / press state, accent colour on press, AI `click` action |
+| `ToggleButton` | ✅ | Latches on/off, emits `onToggled(bool)` |
+| `CheckBox` | ✅ | Blue fill + cross-tick mark when checked |
+| `RadioButton` | ✅ | SDF circle + dot; use `setSelected(true)` from group logic |
+
+## Input Controls
+
+| Class | Status | Notes |
+|-------|--------|-------|
+| `LineEdit` | ✅ | Focused border (accent), cursor line, placeholder bars |
+| `SpinBox` | ✅ | Value field + up/down chrome; `setValue`, `increment`, `decrement` AI actions |
+| `ComboBox` | ✅ | Cycles items on click; `select:<label>` AI action |
+| `TextArea` | 🔜 | Multi-line, virtual scroll |
+
+## Range & Feedback
+
+| Class | Status | Notes |
+|-------|--------|-------|
+| `Slider` | ✅ | Filled track + draggable thumb; emits `onValueChanged(float)` |
+| `ProgressBar` | ✅ | Deterministic fill; animated in catalog demo |
+| `ScrollBar` | ✅ | Track + proportional thumb; `setScrollPosition(0..1)` |
+| `Dial/Knob` | 📋 | Radial SDF rendering planned |
+
+## Navigation
+
+| Class | Status | Notes |
+|-------|--------|-------|
+| `TabBar` | ✅ | N equal-width tabs, accent underline on active |
+| `TreeView` | 🔜 | Collapse/expand, virtualised |
+| `ListView` | 🔜 | Virtualised vertical list |
+
+## Future
+
+- `Canvas` — immediate-mode drawing surface
+- `Image` — bitmap decode + display (PNG/QOI target)
+- `TableView` — sortable, virtualized 2D grid
+- `ScrollArea` — wraps any content with physics-based scrollbars
+- `Tooltip` — hover-triggered overlay
+- `ContextMenu` — right-click overlay list
+
+---
+
+## AI Semantic Interface
+
+Every widget implements:
+
 ```cpp
-virtual AITreeNode GetSemanticNode() const = 0;
-virtual bool ExecuteSemanticAction(AIAction action) = 0;
+struct AISemanticNode {
+    std::string role;         // "Button", "Slider", "CheckBox", ...
+    std::string label;        // human-readable identifier
+    std::string value;        // current value as string
+    bool        interactable;
+};
+
+virtual AISemanticNode getSemanticNode() const = 0;
+virtual bool executeSemanticAction(const std::string& action) = 0;
 ```
-This forces all future widget implementations to define exactly how an AI understands them and interacts with them, ensuring the AI bus is never an afterthought.
+
+Standard action strings:
+
+| Widget | Action strings |
+|--------|---------------|
+| Button | `"click"` |
+| ToggleButton | `"toggle"` |
+| CheckBox | `"check"`, `"uncheck"` |
+| RadioButton | `"select"` |
+| Slider | `"set_value:0.75"` |
+| SpinBox | `"set_value:42"`, `"increment"`, `"decrement"` |
+| ComboBox | `"select:1440p"` |
+| TabBar | `"select_tab:2"` |
+| LineEdit | `"set_text:hello"` |
+
+The AI Control Bus polls this interface every frame and exposes the full
+semantic tree to any connected AI agent without any extra instrumentation.
