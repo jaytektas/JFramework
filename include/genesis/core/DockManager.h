@@ -453,6 +453,9 @@ public:
         if (!m_nodes.empty()) _computeNodeLayout(rootId(), hostRect);
     }
 
+    void setLivePreviewEnabled(bool enabled) { m_livePreviewEnabled = enabled; }
+    bool isLivePreviewEnabled() const { return m_livePreviewEnabled; }
+
     // --- Per-frame drag tracking ---
 
     void updateDrag(float /*cursorWindowX*/, float /*cursorWindowY*/,
@@ -461,12 +464,30 @@ public:
                     DockWidget* draggedDock)
     {
         if (!draggedDock) {
+            if (m_livePreviewEnabled && m_hasSavedState) {
+                m_nodes = m_savedNodes;
+                m_nextId = m_savedNextId;
+                m_hasSavedState = false;
+                computeLayout(m_hostRect);
+            }
             m_dropTargets.clear();
             m_activeTarget = nullptr;
             m_draggedDock  = nullptr;
             return;
         }
         m_draggedDock = draggedDock;
+
+        if (m_livePreviewEnabled) {
+            if (m_hasSavedState) {
+                m_nodes = m_savedNodes;
+                m_nextId = m_savedNextId;
+            } else {
+                m_savedNodes = m_nodes;
+                m_savedNextId = m_nextId;
+                m_hasSavedState = true;
+            }
+        }
+
         _buildDropTargets(draggedDock, cursorScreenX, cursorScreenY,
                           hostScreenX, hostScreenY);
 
@@ -506,6 +527,13 @@ public:
             }
             break;  // leaves don't overlap — stop after first match
         }
+
+        if (m_livePreviewEnabled && m_activeTarget && m_activeTarget->allowed && m_activeTarget->pos != DropPos::Center) {
+            _splitLeaf(m_activeTarget->leaf, m_activeTarget->pos);
+            _computeNodeLayout(rootId(), m_hostRect);
+        } else {
+            _computeNodeLayout(rootId(), m_hostRect);
+        }
     }
 
     struct DropResult { DockNodeId targetLeaf; DropPos pos; };
@@ -519,6 +547,12 @@ public:
         DockNodeId leafId = m_activeTarget->leaf;
         DropPos    pos    = m_activeTarget->pos;
         DockWidget* dock  = m_draggedDock;
+
+        if (m_hasSavedState) {
+            m_nodes = m_savedNodes;
+            m_nextId = m_savedNextId;
+            m_hasSavedState = false;
+        }
 
         DockNode* leaf = node(leafId);
         if (!leaf || leaf->type != DockNode::Type::Leaf) { _endDrag(); return std::nullopt; }
@@ -680,6 +714,16 @@ public:
     }
     const DockNode* node(DockNodeId id) const {
         return id.valid() && id.v < m_nodes.size() ? &m_nodes[id.v] : nullptr;
+    }
+
+    size_t dockCount() const {
+        size_t count = 0;
+        for (const auto& n : m_nodes) {
+            if (n.type == DockNode::Type::Leaf) {
+                count += n.tabs.size();
+            }
+        }
+        return count;
     }
 
     // Enumerate currently-docked panels (for AI telemetry / introspection).  Calls
@@ -1337,6 +1381,12 @@ private:
     }
 
     void _endDrag() {
+        if (m_hasSavedState) {
+            m_nodes = m_savedNodes;
+            m_nextId = m_savedNextId;
+            m_hasSavedState = false;
+            computeLayout(m_hostRect);
+        }
         m_dropTargets.clear();
         m_activeTarget = nullptr;
         m_draggedDock  = nullptr;
@@ -1416,6 +1466,11 @@ private:
     std::vector<DropTarget> m_dropTargets;
     DropTarget*             m_activeTarget{nullptr};
     DockWidget*             m_draggedDock{nullptr};
+
+    std::vector<DockNode>   m_savedNodes;
+    uint32_t                m_savedNextId{0};
+    bool                    m_hasSavedState{false};
+    bool                    m_livePreviewEnabled{true};
 
     struct HandleDrag {
         DockNodeId parentSplit;

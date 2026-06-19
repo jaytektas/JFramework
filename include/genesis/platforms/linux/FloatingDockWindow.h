@@ -10,127 +10,220 @@
 
 #include <memory>
 #include <functional>
+#include <vector>
+#include <algorithm>
 
 namespace Genesis {
 
 // ============================================================================
-// FloatingDockWindow — a DockWidget that lives in its own OS-level Popup
+// FloatingDragBehavior — defines the drag behavior of the floating host window:
+//
+//   Legacy                    — Tab/title drag tears out dock (no global bar).
+//                               Drag window via keyboard Alt + Drag.
+//   AlwaysGlobalTitleBar      — Always show a global window title bar at the top.
+//   ConditionalGlobalTitleBar — Show global window title bar only when nested (docks > 1).
+// ============================================================================
+enum class FloatingDragBehavior : uint8_t {
+    Legacy,
+    AlwaysGlobalTitleBar,
+    ConditionalGlobalTitleBar
+};
+
+struct FloatingDockOptions {
+    FloatingDragBehavior dragBehavior{FloatingDragBehavior::ConditionalGlobalTitleBar};
+    bool singleDockDragMovesWindow{true};
+    bool tabDragTearsOut{true};
+    bool splitDragTearsOut{true};
+    bool livePreviewEnabled{true};
+};
+
+// ============================================================================
+// FloatingDockWindow — a DockWidget container that lives in its own OS-level Popup
 // window and can be dragged anywhere on the desktop, including over and into
 // any DockHost registered with DockRegistry.
-//
-// There are three internal states:
-//
-//   InitialDrag — created while the mouse button is still held from the drag
-//                 that spawned it (grab is on the originating window).  The OS
-//                 window is invisible / unmoved; the caller draws a ghost in
-//                 the main window.  On button-up we snap the OS window to the
-//                 cursor and transition to Idle (or immediately drop).
-//
-//   Idle        — fully placed and rendered.  The user can interact with the
-//                 dock's chrome (close, pin, resize) or grab the title bar to
-//                 start a HeaderDrag.
-//
-//   HeaderDrag  — user grabbed the title bar; pointer is now grabbed by THIS
-//                 window.  We move the OS window every frame to follow the
-//                 cursor and drive updateDrag() on whichever registered
-//                 DockHost is under the cursor.
-//
-// Caller pattern per frame:
-//
-//   DockHost* drop = fd.pollAndMove();          // step 1
-//   if (drop && drop->tryCommitDrop()) {        // step 2: re-dock
-//       fd.destroySurface(hal);
-//       // move dock into the host's ownership
-//   } else if (!fd.isInInitialDrag()) {         // step 3
-//       fd.render(hal, buf);
-//   }
 // ============================================================================
 
 class FloatingDockWindow {
 public:
     static constexpr uint32_t kDefaultW = 340;
     static constexpr uint32_t kDefaultH = 260;
+    static constexpr float    kGlobalTitleH = 26.0f;
+
+    struct PollResult {
+        enum class Type {
+            None,
+            CommitDrop,     // drag ended, commit drop to dropHost
+            WantsFloat,     // dock wants to float
+        } type{Type::None};
+
+        DockHost*   dropHost{nullptr};
+        DockWidget* wantsFloatDock{nullptr};
+        Rect        wantsFloatRect{};
+    };
 
     // Construct from a DockWidget extracted from a DockHost (WantsFloat path).
-    // screenX/Y: top-left of the OS window in screen coords.
-    // winW/H:    pixel size of the OS window.
-    // dragOffX/Y: cursor position within the window at creation time.
-    // initialDrag: pass true when the button is still held — keeps the window
-    //             invisible until button-up then snaps it under the cursor.
     FloatingDockWindow(DockWidget dock,
                        int screenX, int screenY,
                        uint32_t winW, uint32_t winH,
                        int dragOffX, int dragOffY,
                        GpuHal& hal,
-                       bool initialDrag = false)
+                       bool initialDrag = false,
+                       FloatingDockOptions options = {},
+                       xcb_window_t parentWindow = 0)
         : m_window(std::make_unique<LinuxPlatformWindow>(
-              dock.title().c_str(), winW, winH, screenX, screenY, WindowStyle::Popup))
+              dock.title().c_str(), winW, winH, screenX, screenY,
+              (parentWindow != 0) ? PlatformWindowStyle::Borderless : PlatformWindowStyle::Popup,
+              parentWindow))
         , m_surface(hal.createSurface(m_window->nativeHandle(), winW, winH))
-        , m_dock(std::move(dock))
         , m_winW(winW), m_winH(winH)
         , m_state(initialDrag ? State::InitialDrag : State::Idle)
         , m_dragOffX(dragOffX)
         , m_dragOffY(dragOffY)
+        , m_options(options)
     {
-        m_dock.setPosition(0.f, 0.f);
-        m_dock.setSize(static_cast<float>(winW), static_cast<float>(winH));
+
+        m_dockHost = std::make_unique<DockHost>();
+        m_dockHost->setLivePreviewEnabled(m_options.livePreviewEnabled);
+        m_dockHost->setRootSplit(SplitDir::Horizontal);
+        DockNodeId leaf = m_dockHost->addLeaf(m_dockHost->rootId(), "floating-leaf", 1.0f);
+
+        auto d = std::make_unique<DockWidget>(std::move(dock));
+        d->setPosition(0.f, 0.f);
+        d->setSize(static_cast<float>(winW), static_cast<float>(winH));
+
+        m_dockHost->insertDock(d.get(), leaf);
+        m_docks.push_back(std::move(d));
+
+        float topOffset = isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f;
+        m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(winW), static_cast<float>(winH) - topOffset});
+
+        DockRegistry::instance().registerHost(*m_dockHost, screenX, screenY, winW, winH);
     }
 
     // Construct from a TornTabState (TabBar tear-off path).
     FloatingDockWindow(TornTabState state,
                        int screenX, int screenY,
                        int dragOffX, int dragOffY,
-                       GpuHal& hal)
+                       GpuHal& hal,
+                       FloatingDockOptions options = {},
+                       xcb_window_t parentWindow = 0)
         : FloatingDockWindow(
               DockWidget(std::move(state), 0.f, 0.f,
                          static_cast<float>(kDefaultW), static_cast<float>(kDefaultH)),
               screenX, screenY, kDefaultW, kDefaultH,
-              dragOffX, dragOffY, hal, /*initialDrag=*/true)
+              dragOffX, dragOffY, hal, /*initialDrag=*/true, options, parentWindow)
     {}
 
     FloatingDockWindow(const FloatingDockWindow&)            = delete;
     FloatingDockWindow& operator=(const FloatingDockWindow&) = delete;
-    FloatingDockWindow(FloatingDockWindow&&)                 = default;
-    FloatingDockWindow& operator=(FloatingDockWindow&&)      = default;
+
+    FloatingDockWindow(FloatingDockWindow&& other) noexcept
+        : m_window(std::move(other.m_window))
+        , m_surface(other.m_surface)
+        , m_dockHost(std::move(other.m_dockHost))
+        , m_docks(std::move(other.m_docks))
+        , m_winW(other.m_winW)
+        , m_winH(other.m_winH)
+        , m_contentRenderHost(std::move(other.m_contentRenderHost))
+        , m_contentInputHost(std::move(other.m_contentInputHost))
+        , m_state(other.m_state)
+        , m_shouldClose(other.m_shouldClose)
+        , m_wasDown(other.m_wasDown)
+        , m_dragOffX(other.m_dragOffX)
+        , m_dragOffY(other.m_dragOffY)
+        , m_options(other.m_options)
+    {
+        other.m_surface = GpuSurfaceId{kPrimarySurface};
+    }
+
+    FloatingDockWindow& operator=(FloatingDockWindow&& other) noexcept {
+        if (this != &other) {
+            m_window = std::move(other.m_window);
+            m_surface = other.m_surface;
+            other.m_surface = GpuSurfaceId{kPrimarySurface};
+            m_dockHost = std::move(other.m_dockHost);
+            m_docks = std::move(other.m_docks);
+            m_winW = other.m_winW;
+            m_winH = other.m_winH;
+            m_contentRenderHost = std::move(other.m_contentRenderHost);
+            m_contentInputHost = std::move(other.m_contentInputHost);
+            m_state = other.m_state;
+            m_shouldClose = other.m_shouldClose;
+            m_wasDown = other.m_wasDown;
+            m_dragOffX = other.m_dragOffX;
+            m_dragOffY = other.m_dragOffY;
+            m_options = other.m_options;
+        }
+        return *this;
+    }
+
+    ~FloatingDockWindow() {
+        if (m_dockHost) {
+            DockRegistry::instance().unregisterHost(*m_dockHost);
+        }
+    }
+
+    bool isGlobalTitleBarVisible() const {
+        if (m_options.dragBehavior == FloatingDragBehavior::AlwaysGlobalTitleBar) return true;
+        if (m_options.dragBehavior == FloatingDragBehavior::ConditionalGlobalTitleBar && m_docks.size() > 1) return true;
+        return false;
+    }
+
+    void setOptions(const FloatingDockOptions& options) {
+        m_options = options;
+        if (m_dockHost) {
+            m_dockHost->setLivePreviewEnabled(m_options.livePreviewEnabled);
+        }
+        float topOffset = isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f;
+        m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(m_winW), static_cast<float>(m_winH) - topOffset});
+    }
+
+    const FloatingDockOptions& options() const { return m_options; }
+
+    void setDragBehavior(FloatingDragBehavior behavior) {
+        m_options.dragBehavior = behavior;
+        float topOffset = isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f;
+        m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(m_winW), static_cast<float>(m_winH) - topOffset});
+    }
+
+    FloatingDragBehavior dragBehavior() const { return m_options.dragBehavior; }
 
     // -------------------------------------------------------------------------
     // Per-frame update.
-    //
-    // Polls OS events, moves the OS window when dragging, and drives
-    // updateDrag() on registered DockHosts so drop indicators appear.
-    //
-    // Returns the DockHost under the cursor the moment the drag ends (button
-    // released while over it) — the caller should then call tryCommitDrop() on
-    // that host.  Returns nullptr in all other cases.
     // -------------------------------------------------------------------------
-    DockHost* pollAndMove() {
+    PollResult pollAndMove() {
         m_window->pollNativeEvents();
 
         const bool btnDown = m_window->isLeftButtonDown();
         const bool press   = m_window->consumePress();
         const bool release = m_window->consumeRelease();
-        (void)release;  // used implicitly through btnDown transitions
+        (void)release;
+
+        // Keep bounds current if WM moved or resized the window
+        if (m_state == State::Idle) {
+            float topOffset = isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f;
+            m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(m_winW), static_cast<float>(m_winH) - topOffset});
+            DockRegistry::instance().updateBounds(*m_dockHost, m_window->screenX(), m_window->screenY(), m_winW, m_winH);
+        }
 
         switch (m_state) {
         case State::InitialDrag: {
-            // Pointer grab is on the originating window so normal events don't
-            // arrive here — poll global state via xcb_query_pointer.
             auto [gx, gy] = m_window->globalCursorPos();
-
-            // Follow the cursor every frame so the window is always visible,
-            // even outside the bounds of the window that owns the grab.
             m_window->setPosition(gx - m_dragOffX, gy - m_dragOffY);
+            DockRegistry::instance().updateBounds(*m_dockHost, gx - m_dragOffX, gy - m_dragOffY, m_winW, m_winH);
 
-            // Drive drop indicators on whatever host is under the cursor.
             DockHost* hoveredHost = nullptr;
             if (auto hit = DockRegistry::instance().hitTest(gx, gy)) {
-                hoveredHost = hit->host;
-                hoveredHost->updateDrag(
-                    hit->localX, hit->localY,
-                    static_cast<float>(gx), static_cast<float>(gy),
-                    gx - static_cast<int>(hit->localX),
-                    gy - static_cast<int>(hit->localY),
-                    &m_dock);
+                if (hit->host != m_dockHost.get()) {
+                    hoveredHost = hit->host;
+                    DockWidget* draggedDock = m_docks.empty() ? nullptr : m_docks[0].get();
+                    hoveredHost->updateDrag(
+                        hit->localX, hit->localY,
+                        static_cast<float>(gx), static_cast<float>(gy),
+                        gx - static_cast<int>(hit->localX),
+                        gy - static_cast<int>(hit->localY),
+                        draggedDock);
+                }
             } else {
                 _clearAllHostDrags();
             }
@@ -139,29 +232,30 @@ public:
                 m_state = State::Idle;
                 if (hoveredHost) {
                     _clearHostDragsExcept(hoveredHost);
-                    return hoveredHost;
+                    return PollResult{PollResult::Type::CommitDrop, hoveredHost, nullptr, {}};
                 }
                 _clearAllHostDrags();
             }
-            return nullptr;
+            return PollResult{};
         }
 
         case State::HeaderDrag: {
             auto [gx, gy] = m_window->globalCursorPos();
-
-            // Move OS window to follow the cursor.
             m_window->setPosition(gx - m_dragOffX, gy - m_dragOffY);
+            DockRegistry::instance().updateBounds(*m_dockHost, gx - m_dragOffX, gy - m_dragOffY, m_winW, m_winH);
 
-            // Drive drop indicators.
             DockHost* hoveredHost = nullptr;
             if (auto hit = DockRegistry::instance().hitTest(gx, gy)) {
-                hoveredHost = hit->host;
-                hoveredHost->updateDrag(
-                    hit->localX, hit->localY,
-                    static_cast<float>(gx), static_cast<float>(gy),
-                    gx - static_cast<int>(hit->localX),
-                    gy - static_cast<int>(hit->localY),
-                    &m_dock);
+                if (hit->host != m_dockHost.get()) {
+                    hoveredHost = hit->host;
+                    DockWidget* draggedDock = m_docks.empty() ? nullptr : m_docks[0].get();
+                    hoveredHost->updateDrag(
+                        hit->localX, hit->localY,
+                        static_cast<float>(gx), static_cast<float>(gy),
+                        gx - static_cast<int>(hit->localX),
+                        gy - static_cast<int>(hit->localY),
+                        draggedDock);
+                }
             } else {
                 _clearAllHostDrags();
             }
@@ -169,63 +263,129 @@ public:
             if (!btnDown) {
                 m_state = State::Idle;
                 if (hoveredHost) {
-                    // Leave hoveredHost's drag state intact so the caller's
-                    // tryCommitDrop() can read m_activeTarget.  Clear all others.
                     _clearHostDragsExcept(hoveredHost);
-                    return hoveredHost;
+                    return PollResult{PollResult::Type::CommitDrop, hoveredHost, nullptr, {}};
                 }
                 _clearAllHostDrags();
             }
-            return nullptr;
+            return PollResult{};
         }
 
-        case State::Idle:
-            // Detect title-bar grab → HeaderDrag.
-            // The title bar is the top TAB_BAR_SZ logical pixels.
-            if (press && m_window->mouseY() < DockHost::TAB_BAR_SZ + 4.f) {
-                // Title bar: let the dock detect a close-button click first; only start a
-                // window drag if the press wasn't on the close button.
-                m_dock.handleMouse(m_window->mouseX(), m_window->mouseY(), press, false);
-                if (!m_dock.closeRequested()) {
-                    m_state    = State::HeaderDrag;
-                    m_dragOffX = static_cast<int>(m_window->mouseX());
-                    m_dragOffY = static_cast<int>(m_window->mouseY());
-                }
-            } else if (m_contentInput) {
-                m_contentInput(m_window->mouseX(), m_window->mouseY(), press, !btnDown && m_wasDown);
-            } else {
-                m_dock.handleMouse(m_window->mouseX(), m_window->mouseY(), press, !btnDown && m_wasDown);
+        case State::Idle: {
+            float mx = m_window->mouseX();
+            float my = m_window->mouseY();
+
+            bool altDrag = m_window->isAltDown() && press;
+            bool titleBarDrag = isGlobalTitleBarVisible() && press && my < kGlobalTitleH;
+
+            if (altDrag || titleBarDrag) {
+                m_state    = State::HeaderDrag;
+                m_dragOffX = static_cast<int>(mx);
+                m_dragOffY = static_cast<int>(my);
+                return PollResult{};
             }
-            m_shouldClose = m_dock.closeRequested() || m_window->shouldClose();
+
+            auto ev = m_dockHost->handleMouse(mx, my, press, !btnDown && m_wasDown);
+
+            if (ev) {
+                if (ev->type == DockHost::DockEvent::Type::WantsFloat) {
+                    bool allowTear = true;
+                    if (m_docks.size() == 1) {
+                        if (m_options.singleDockDragMovesWindow) {
+                            m_state    = State::HeaderDrag;
+                            m_dragOffX = static_cast<int>(mx);
+                            m_dragOffY = static_cast<int>(my);
+                            allowTear  = false;
+                        } else {
+                            allowTear  = true;
+                        }
+                    } else {
+                        DockNodeId loc = m_dockHost->findDock(ev->dock);
+                        const DockNode* leaf = m_dockHost->node(loc);
+                        bool isTabGroup = (leaf && leaf->tabs.size() > 1);
+                        if (isTabGroup) {
+                            allowTear = m_options.tabDragTearsOut;
+                        } else {
+                            allowTear = m_options.splitDragTearsOut;
+                        }
+                    }
+
+                    if (allowTear) {
+                        DockNodeId loc = m_dockHost->findDock(ev->dock);
+                        Rect r = m_dockHost->node(loc)->rect;
+                        m_dockHost->removeDock(ev->dock);
+                        m_wasDown = btnDown;
+                        return PollResult{PollResult::Type::WantsFloat, nullptr, ev->dock, r};
+                    }
+                }
+                if (ev->type == DockHost::DockEvent::Type::CloseRequested) {
+                    m_dockHost->removeDock(ev->dock);
+                    m_docks.erase(
+                        std::remove_if(m_docks.begin(), m_docks.end(),
+                            [target = ev->dock](const auto& u){ return u.get() == target; }),
+                        m_docks.end());
+                    if (m_docks.empty()) {
+                        m_shouldClose = true;
+                    }
+                }
+            } else if (m_contentInputHost) {
+                m_contentInputHost(mx, my, press, !btnDown && m_wasDown);
+            }
+
+            m_shouldClose = m_shouldClose || m_window->shouldClose();
             m_wasDown     = btnDown;
-            return nullptr;
+            return PollResult{};
         }
-        return nullptr;
+        }
+        return PollResult{};
     }
 
     // -------------------------------------------------------------------------
     // Render the dock into this window's private GPU surface.
-    // Do NOT call during InitialDrag (window is offscreen).
     // -------------------------------------------------------------------------
     void render(GpuHal& hal, PrimitiveBuffer& buf) {
         buf.clear();
-        m_dock.populateRenderPrimitives(buf);
-        if (m_contentRender)
-            m_contentRender(buf, static_cast<float>(m_winW), static_cast<float>(m_winH));
+
+        bool hasTitle = isGlobalTitleBarVisible();
+        if (hasTitle) {
+            uint8_t barBg[4] = {28, 28, 32, 255};
+            buf.pushRectangle(0.f, 0.f, static_cast<float>(m_winW), kGlobalTitleH, barBg, 0.f);
+
+            uint8_t sepColor[4] = {50, 50, 55, 255};
+            buf.pushRectangle(0.f, kGlobalTitleH - 1.f, static_cast<float>(m_winW), 1.f, sepColor, 0.f);
+
+            if (TextHelper::hasAtlas()) {
+                uint8_t tc[4] = {180, 180, 190, 255};
+                float ty = (kGlobalTitleH - TextHelper::lineHeight()) * 0.5f;
+                std::string title = m_docks.empty() ? "Genesis Window" : m_docks[0]->title();
+                if (m_docks.size() > 1) {
+                    title += " (+" + std::to_string(m_docks.size() - 1) + " panels)";
+                }
+                TextHelper::pushText(buf, 10.f, ty, title, tc, static_cast<float>(m_winW) - 30.f);
+            }
+        }
+
+        m_dockHost->populateRenderPrimitives(buf);
+        if (m_contentRenderHost) {
+            m_contentRenderHost(buf);
+        }
+        m_dockHost->populateOverlay(buf);
         auto frame = hal.beginFrame(m_surface);
         hal.drawPrimitives(buf);
         hal.submitAndPresentFrame(frame);
     }
 
-    // Wire the floated panel's content (rendered/driven by the catalog) into this window.
-    void setContentRender(std::function<void(PrimitiveBuffer&, float, float)> fn) { m_contentRender = std::move(fn); }
-    void setContentInput (std::function<void(float, float, bool, bool)> fn)       { m_contentInput  = std::move(fn); }
+    void setContentRenderHost(std::function<void(PrimitiveBuffer&)> fn) { m_contentRenderHost = std::move(fn); }
+    void setContentInputHost(std::function<void(float, float, bool, bool)> fn) { m_contentInputHost = std::move(fn); }
 
     // -------------------------------------------------------------------------
     // Destroy the Vulkan surface.  Call before erasing this object.
     // -------------------------------------------------------------------------
     void destroySurface(GpuHal& hal) {
-        hal.destroySurface(m_surface);
+        if (m_surface != kPrimarySurface) {
+            hal.destroySurface(m_surface);
+            m_surface = kPrimarySurface;
+        }
     }
 
     // ---- Accessors ----------------------------------------------------------
@@ -234,15 +394,40 @@ public:
     bool isDragging()      const { return m_state != State::Idle; }
     bool shouldClose()     const { return m_shouldClose; }
 
-    DockWidget& dock()          { return m_dock; }
-    DockWidget  takeDock()      { return std::move(m_dock); }
+    LinuxPlatformWindow& window() { return *m_window; }
+    const LinuxPlatformWindow& window() const { return *m_window; }
 
-    // Cursor offset within this window at the start of the current drag.
-    int dragOffX() const { return m_dragOffX; }
-    int dragOffY() const { return m_dragOffY; }
+    DockHost& dockHost() { return *m_dockHost; }
+    const DockHost& dockHost() const { return *m_dockHost; }
 
-    float dockWidth()  const { return m_dock.width(); }
-    float dockHeight() const { return m_dock.height(); }
+    DockWidget& dock() {
+        return *m_docks.at(0);
+    }
+
+    DockWidget takeDock() {
+        auto d = std::move(m_docks.at(0));
+        m_docks.clear();
+        return std::move(*d);
+    }
+
+    std::unique_ptr<DockWidget> releaseDock(DockWidget* ptr) {
+        for (auto it = m_docks.begin(); it != m_docks.end(); ++it) {
+            if (it->get() == ptr) {
+                auto d = std::move(*it);
+                m_docks.erase(it);
+                return d;
+            }
+        }
+        return nullptr;
+    }
+
+    void adoptDock(std::unique_ptr<DockWidget> d, DockWidget* oldPtr) {
+        DockWidget* raw = d.get();
+        m_docks.push_back(std::move(d));
+        if (m_dockHost) {
+            m_dockHost->retargetDock(oldPtr, raw);
+        }
+    }
 
 private:
     enum class State { InitialDrag, Idle, HeaderDrag };
@@ -260,18 +445,18 @@ private:
 
     std::unique_ptr<LinuxPlatformWindow> m_window;
     GpuSurfaceId m_surface{kPrimarySurface};
-    DockWidget   m_dock;
+    std::unique_ptr<DockHost>            m_dockHost;
+    std::vector<std::unique_ptr<DockWidget>> m_docks;
     uint32_t     m_winW{kDefaultW}, m_winH{kDefaultH};
 
-    // Optional: render & drive the floated panel's catalog content inside this window.
-    // Coordinates are window-local; the content area sits below the title bar.
-    std::function<void(PrimitiveBuffer&, float, float)> m_contentRender;
-    std::function<void(float, float, bool, bool)>       m_contentInput;
+    std::function<void(PrimitiveBuffer&)> m_contentRenderHost;
+    std::function<void(float, float, bool, bool)> m_contentInputHost;
 
     State m_state{State::Idle};
     bool  m_shouldClose{false};
-    bool  m_wasDown{false};  // previous-frame button state for release detection in Idle
+    bool  m_wasDown{false};
     int   m_dragOffX{0}, m_dragOffY{0};
+    FloatingDockOptions m_options;
 };
 
 } // namespace Genesis

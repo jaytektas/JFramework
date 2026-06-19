@@ -348,6 +348,7 @@ public:
     GpuFrameContext beginFrame(GpuSurfaceId sid = kPrimarySurface) override {
         VulkanSurface& s = m_surfaces[sid];
         m_act = &s;
+        m_activeSurfaceId = sid;
 
         // Wait for the PREVIOUS frame's GPU work to finish first.  After this fence the
         // swapchain images/framebuffers are no longer referenced by any in-flight
@@ -544,11 +545,15 @@ private:
         }
         if (verts.empty()) return vertexCursor;
 
+        VkDeviceSize surfaceOffset = (VkDeviceSize)m_activeSurfaceId * MAX_TEXT_VERTS * 4 * sizeof(float);
+
         VkDeviceSize sliceBytes   = verts.size() * sizeof(float);
-        VkDeviceSize bufferOffset = (VkDeviceSize)vertexCursor * 4 * sizeof(float);
+        VkDeviceSize bufferOffset = surfaceOffset + (VkDeviceSize)vertexCursor * 4 * sizeof(float);
         VkDeviceSize capacity     = (VkDeviceSize)MAX_TEXT_VERTS * 4 * sizeof(float);
-        if (bufferOffset + sliceBytes > capacity)
-            sliceBytes = (bufferOffset < capacity) ? capacity - bufferOffset : 0;
+        if (vertexCursor * 4 * sizeof(float) + sliceBytes > capacity) {
+            VkDeviceSize remaining = (vertexCursor * 4 * sizeof(float) < capacity) ? capacity - vertexCursor * 4 * sizeof(float) : 0;
+            sliceBytes = (sliceBytes > remaining) ? remaining : sliceBytes;
+        }
         if (sliceBytes == 0) return vertexCursor;
 
         std::memcpy(static_cast<char*>(m_textVertMapped) + bufferOffset,
@@ -953,7 +958,7 @@ private:
     }
 
     void createTextVertexBuffer() {
-        VkDeviceSize sz = MAX_TEXT_VERTS * 4 * sizeof(float);
+        VkDeviceSize sz = (VkDeviceSize)16 * MAX_TEXT_VERTS * 4 * sizeof(float);
         createBuffer(m_device, m_physicalDevice, sz,
                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -973,6 +978,7 @@ private:
 
     std::vector<VulkanSurface> m_surfaces;
     VulkanSurface*             m_act{nullptr};  // active surface, set in beginFrame
+    GpuSurfaceId               m_activeSurfaceId{kPrimarySurface};
 
     // SDF rect pipeline
     VkPipelineLayout   m_pipelineLayout{VK_NULL_HANDLE};

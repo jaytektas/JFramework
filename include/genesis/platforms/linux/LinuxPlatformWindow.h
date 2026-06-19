@@ -12,6 +12,7 @@
 #include <vector>
 #include <deque>
 #include <utility>  // std::pair
+#include <unistd.h>
 
 namespace Genesis {
 
@@ -25,7 +26,7 @@ namespace Genesis {
 //                control of position (great for overlays / secondary monitors).
 //                Does NOT support setFullscreen; close detection is internal.
 // ---------------------------------------------------------------------------
-enum class WindowStyle : uint8_t { Normal, Borderless, Popup };
+enum class PlatformWindowStyle : uint8_t { Normal, Borderless, Popup };
 
 /**
  * @brief Concrete Linux platform window backed by XCB.
@@ -37,10 +38,13 @@ class LinuxPlatformWindow : public Core::PlatformWindow {
 public:
     LinuxPlatformWindow(const std::string& title, uint32_t width, uint32_t height,
                         int screenX = 100, int screenY = 100,
-                        WindowStyle style = WindowStyle::Normal)
+                        PlatformWindowStyle style = PlatformWindowStyle::Normal,
+                        xcb_window_t parentWindow = 0)
         : m_screenX(screenX), m_screenY(screenY)
         , m_width(width), m_height(height)
         , m_style(style) {
+        std::cout << "[INFO][Platform] LinuxPlatformWindow created: " << title
+                  << ", parentWindow: " << parentWindow << ", style: " << (int)style << std::endl;
         m_connection = xcb_connect(nullptr, nullptr);
         if (xcb_connection_has_error(m_connection))
             throw std::runtime_error("Failed to open XCB connection.");
@@ -66,7 +70,7 @@ public:
             XCB_EVENT_MASK_BUTTON_PRESS    | XCB_EVENT_MASK_BUTTON_RELEASE |
             XCB_EVENT_MASK_POINTER_MOTION  | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
 
-        if (style == WindowStyle::Popup) {
+        if (style == PlatformWindowStyle::Popup) {
             // override_redirect: bypass WM entirely.  Values must be ordered by
             // mask bit position: BACK_PIXEL(1) < OVERRIDE_REDIRECT(9) < EVENT_MASK(11).
             uint32_t mask   = XCB_CW_BACK_PIXEL | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK;
@@ -97,11 +101,51 @@ public:
                             XCB_ATOM_WM_NAME, XCB_ATOM_STRING,
                             8, static_cast<uint32_t>(title.size()), title.c_str());
 
-        if (style == WindowStyle::Borderless) {
+        // Set WM_CLASS so the WM (e.g. GNOME/Mutter) can correctly group our windows
+        {
+            const char classStr[] = "genesis-ui\0GenesisUi";
+            xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
+                                XCB_ATOM_WM_CLASS, XCB_ATOM_STRING, 8,
+                                sizeof(classStr), classStr);
+        }
+
+        // Set _NET_WM_PID to associate the window with our process
+        {
+            uint32_t pid = static_cast<uint32_t>(getpid());
+            xcb_atom_t pidAtom = _internAtom("_NET_WM_PID");
+            if (pidAtom != XCB_ATOM_NONE) {
+                xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
+                                    pidAtom, XCB_ATOM_CARDINAL, 32, 1, &pid);
+            }
+        }
+
+        // Set WM_CLIENT_LEADER to let the WM group this window under the parent application
+        {
+            xcb_window_t leaderWin = (parentWindow != 0) ? parentWindow : m_windowId;
+            xcb_atom_t leaderAtom = _internAtom("WM_CLIENT_LEADER");
+            if (leaderAtom != XCB_ATOM_NONE) {
+                xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
+                                    leaderAtom, XCB_ATOM_WINDOW, 32, 1, &leaderWin);
+            }
+        }
+
+        if (style == PlatformWindowStyle::Borderless) {
             // Remove WM decorations while staying WM-managed (draggable, fullscreen-capable).
             _applyMotifBorderless();
-            // Hint the WM that this is a utility tool window (no taskbar, no focus steal).
-            _applyWindowType("_NET_WM_WINDOW_TYPE_UTILITY");
+            if (parentWindow == 0) {
+                // Hint the WM that this is a utility tool window (no taskbar, no focus steal).
+                _applyWindowType("_NET_WM_WINDOW_TYPE_UTILITY");
+            }
+        }
+
+        if (parentWindow != 0) {
+            // Set transient property before mapping
+            xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
+                                XCB_ATOM_WM_TRANSIENT_FOR, XCB_ATOM_WINDOW,
+                                32, 1, &parentWindow);
+            
+            // Set window type to NORMAL before mapping to allow proper stacking behavior (transient over parent only)
+            _applyWindowType("_NET_WM_WINDOW_TYPE_NORMAL");
         }
 
         // Wire up WM_DELETE_WINDOW (irrelevant for Popup but harmless).
@@ -160,6 +204,7 @@ public:
                     if (b->detail == 5) { m_wheelY -= 1.0f; break; }
                     if (b->detail == XCB_BUTTON_INDEX_1) {
                         m_pendingPress = true;
+                        m_altDown = (b->state & XCB_MOD_MASK_1) != 0;
                         // Grab pointer so we keep receiving MotionNotify and
                         // ButtonRelease even when the cursor leaves the window.
                         // Required for drag-outside-window on X11 and XWayland.
@@ -185,6 +230,7 @@ public:
                 case XCB_KEY_PRESS:
                 case XCB_KEY_RELEASE: {
                     auto* k = reinterpret_cast<xcb_key_press_event_t*>(ev);
+                    m_altDown = (k->state & XCB_MOD_MASK_1) != 0;
                     _handleKey(k, type == XCB_KEY_PRESS);
                     break;
                 }
@@ -248,7 +294,23 @@ public:
     uint32_t width()   const { return m_width;   }
     uint32_t height()  const { return m_height;  }
 
-    WindowStyle windowStyle() const { return m_style; }
+    PlatformWindowStyle windowStyle() const { return m_style; }
+    bool        isAltDown()   const { return m_altDown; }
+
+    void setTransientParent(xcb_window_t parent) {
+        if (parent != 0) {
+            xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
+                                XCB_ATOM_WM_TRANSIENT_FOR, XCB_ATOM_WINDOW,
+                                32, 1, &parent);
+            xcb_atom_t leaderAtom = _internAtom("WM_CLIENT_LEADER");
+            if (leaderAtom != XCB_ATOM_NONE) {
+                xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
+                                    leaderAtom, XCB_ATOM_WINDOW, 32, 1, &parent);
+            }
+            _applyWindowType("_NET_WM_WINDOW_TYPE_NORMAL");
+            xcb_flush(m_connection);
+        }
+    }
 
     // Move the window to an absolute screen position.
     // Effective immediately for Popup (override_redirect) windows.
@@ -275,7 +337,7 @@ public:
     // The window fullscreens on whichever monitor it currently occupies — to
     // fullscreen on a secondary monitor, call setPosition() first to move it there.
     void setFullscreen(bool on) {
-        if (m_style == WindowStyle::Popup) return;  // WM not involved
+        if (m_style == PlatformWindowStyle::Popup) return;  // WM not involved
         xcb_atom_t stateAtom = _internAtom("_NET_WM_STATE");
         xcb_atom_t fullAtom  = _internAtom("_NET_WM_STATE_FULLSCREEN");
         if (stateAtom == XCB_ATOM_NONE || fullAtom == XCB_ATOM_NONE) return;
@@ -436,7 +498,7 @@ private:
     xcb_atom_t          m_deleteWindowAtom{0};
     xcb_key_symbols_t*  m_syms{nullptr};
 
-    WindowStyle m_style{WindowStyle::Normal};
+    PlatformWindowStyle m_style{PlatformWindowStyle::Normal};
     float m_dpiScale{1.0f};
     int      m_screenX{0};
     int      m_screenY{0};
@@ -448,6 +510,7 @@ private:
     bool  m_pendingPress{false};
     bool  m_pendingRelease{false};
     bool  m_closeRequested{false};
+    bool  m_altDown{false};
 
     std::deque<KeyEvent> m_keyQueue;
 };

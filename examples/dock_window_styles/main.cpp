@@ -35,7 +35,7 @@ struct TestWindow {
 
 static TestWindow makeWindow(const std::string& title,
                              int x, int y, uint32_t w, uint32_t h,
-                             WindowStyle style, GpuHal& hal)
+                             PlatformWindowStyle style, GpuHal& hal)
 {
     TestWindow tw;
     tw.label = title;
@@ -80,7 +80,7 @@ int main()
 
     // Use lavapipe for headless-capable Vulkan.
     auto primaryWin = std::make_unique<LinuxPlatformWindow>(
-        "primary", 1, 1, -1000, -1000, WindowStyle::Popup);
+        "primary", 1, 1, -1000, -1000, PlatformWindowStyle::Popup);
 
     NativeWindowHandle handle{};
     handle.apiTarget         = GpuApiType::Vulkan;
@@ -109,7 +109,7 @@ int main()
     std::cout << "\n[TEST 1] Normal decorated window...\n";
     {
         auto tw = makeWindow("Normal Window", 50, 50, 400, 300,
-                             WindowStyle::Normal, *hal);
+                             PlatformWindowStyle::Normal, *hal);
         runFrames(tw, *hal, buf, 30, 80, 200, 35, "/tmp/genesis_normal.ppm");
         hal->destroySurface(tw.surface);
         std::cout << "[TEST 1] Screenshot: /tmp/genesis_normal.ppm\n";
@@ -120,7 +120,7 @@ int main()
     std::cout << "\n[TEST 2] Borderless (_MOTIF_WM_HINTS)...\n";
     {
         auto tw = makeWindow("Borderless (MOTIF)", 100, 100, 400, 300,
-                             WindowStyle::Borderless, *hal);
+                             PlatformWindowStyle::Borderless, *hal);
         runFrames(tw, *hal, buf, 40, 180, 80, 35, "/tmp/genesis_borderless.ppm");
         hal->destroySurface(tw.surface);
         std::cout << "[TEST 2] Screenshot: /tmp/genesis_borderless.ppm\n";
@@ -131,7 +131,7 @@ int main()
     std::cout << "\n[TEST 3] Popup (override_redirect)...\n";
     {
         auto tw = makeWindow("Popup", 150, 150, 400, 300,
-                             WindowStyle::Popup, *hal);
+                             PlatformWindowStyle::Popup, *hal);
         runFrames(tw, *hal, buf, 200, 50, 50, 35, "/tmp/genesis_popup.ppm");
         hal->destroySurface(tw.surface);
         std::cout << "[TEST 3] Screenshot: /tmp/genesis_popup.ppm\n";
@@ -142,7 +142,7 @@ int main()
     std::cout << "\n[TEST 4] setPosition (Popup → secondary monitor coords)...\n";
     {
         auto tw = makeWindow("Popup on Second Monitor", 200, 200, 600, 400,
-                             WindowStyle::Popup, *hal);
+                             PlatformWindowStyle::Popup, *hal);
         runFrames(tw, *hal, buf, 180, 100, 220, 15);
 
         int secondX = 1920 + 200;  // beyond typical 1080p primary
@@ -161,7 +161,7 @@ int main()
     std::cout << "\n[TEST 5] setFullscreen on Borderless window...\n";
     {
         auto tw = makeWindow("Fullscreen Borderless", 300, 200, 800, 600,
-                             WindowStyle::Borderless, *hal);
+                             PlatformWindowStyle::Borderless, *hal);
         runFrames(tw, *hal, buf, 220, 200, 30, 20);
         std::cout << "[TEST 5] Requesting fullscreen...\n";
         tw.win->setFullscreen(true);
@@ -176,7 +176,7 @@ int main()
     if (hasSecondMonitor) {
         std::cout << "\n[TEST 6] Borderless → move to monitor 2 → fullscreen...\n";
         auto tw = makeWindow("Dock on Monitor 2", 100, 100, 600, 400,
-                             WindowStyle::Borderless, *hal);
+                             PlatformWindowStyle::Borderless, *hal);
         runFrames(tw, *hal, buf, 30, 200, 180, 20);
         tw.win->setPosition(1920 + 100, 100);
         runFrames(tw, *hal, buf, 30, 200, 180, 30);

@@ -54,12 +54,18 @@ public:
         if (m_dockHost) m_dockHost->populateRenderPrimitives(buf);
 
         // 2. Each visible panel's content, clipped + scrolled within its viewport.
-        for (auto& p : m_panels) {
-            if (!p.visible) continue;
-            buf.pushClip(p.viewport.x, p.viewport.y, p.viewport.width, p.viewport.height);
-            for (Widget* w : p.widgets)
-                if (w->isVisible()) w->populateRenderPrimitives(buf);
-            buf.popClip();
+        if (m_dockHost) {
+            m_dockHost->forEachDockPanel(
+                [&](const DockWidget* dock, const Rect&, bool active, int tabCount) {
+                    if (tabCount > 1 && !active) return;
+                    Panel* p = panelByTitle(dock->title());
+                    if (!p) return;
+                    Rect content = m_dockHost->contentArea(m_dockHost->findDock(dock));
+                    buf.pushClip(content.x, content.y, content.width, content.height);
+                    for (Widget* w : p->widgets)
+                        if (w->isVisible()) w->populateRenderPrimitives(buf);
+                    buf.popClip();
+                });
         }
 
         // 3. Drag ghost + dock drop overlay on top of everything.
@@ -69,16 +75,19 @@ public:
 
     // Per-frame: place each docked panel's content at its content area, lay it out at the
     // panel width (controls stretch), measure height, clamp scroll, and apply the wheel.
-    void updateDockContent(float wheelDelta, float mouseX, float mouseY) {
+    void clearPanelVisibility() {
         for (auto& p : m_panels) p.visible = false;
-        if (!m_dockHost) return;
-        const float TB = DockHost::TAB_BAR_SZ;
-        m_dockHost->forEachDockPanel(
-            [&](const DockWidget* dock, const Rect& rect, bool active, int tabCount) {
+    }
+
+    // Per-frame: place each docked panel's content at its content area, lay it out at the
+    // panel width (controls stretch), measure height, clamp scroll, and apply the wheel.
+    void updateHostDockContent(DockHost& host, float wheelDelta, float mouseX, float mouseY) {
+        host.forEachDockPanel(
+            [&](const DockWidget* dock, const Rect&, bool active, int tabCount) {
                 if (tabCount > 1 && !active) return;          // only the active tab shows
                 Panel* p = panelByTitle(dock->title());
                 if (!p) return;
-                Rect content{ rect.x, rect.y + TB, rect.width, std::max(0.0f, rect.height - TB) };
+                Rect content = host.contentArea(host.findDock(dock));
                 p->viewport = content;
                 p->visible  = true;
 
@@ -190,11 +199,9 @@ public:
     }
 
     // Render a floated panel's content into a floating window (window-local coords).
-    void renderFloatingPanel(const std::string& title, PrimitiveBuffer& buf, float w, float h) {
+    void renderFloatingPanel(const std::string& title, PrimitiveBuffer& buf, const Rect& content) {
         Panel* p = panelByTitle(title);
         if (!p) return;
-        const float TB = DockHost::TAB_BAR_SZ;
-        Rect content{ 0.0f, TB, w, std::max(0.0f, h - TB) };
         auto& L = m_graph.getLayout(p->root);
         m_graph.invalidateNode(p->root, DirtySelf);
         L.boundingBox.x = content.x;
@@ -203,6 +210,27 @@ public:
         buf.pushClip(content.x, content.y, content.width, content.height);
         for (Widget* wt : p->widgets) if (wt->isVisible()) wt->populateRenderPrimitives(buf);
         buf.popClip();
+    }
+
+    void renderHostFloatingPanels(DockHost& host, PrimitiveBuffer& buf) {
+        host.forEachDockPanel(
+            [&](const DockWidget* dock, const Rect&, bool active, int tabCount) {
+                if (tabCount > 1 && !active) return;
+                Rect content = host.contentArea(host.findDock(dock));
+                renderFloatingPanel(dock->title(), buf, content);
+            });
+    }
+
+    void handleHostFloatingPanelsInput(DockHost& host, float x, float y, bool pr, bool rl) {
+        host.forEachDockPanel(
+            [&](const DockWidget* dock, const Rect&, bool active, int tabCount) {
+                if (tabCount > 1 && !active) return;
+                Rect content = host.contentArea(host.findDock(dock));
+                if (x >= content.x && x < content.x + content.width &&
+                    y >= content.y && y < content.y + content.height) {
+                    handleFloatingPanelInput(dock->title(), x, y, pr, rl);
+                }
+            });
     }
 
     // Drive a floated panel's content (window-local coords).
@@ -450,7 +478,11 @@ int main() {
     Genesis::TranslationEngine::instance().setSearchPath("./translations");
     Genesis::TranslationEngine::instance().setLocale("en");
 
-    auto window = std::make_unique<LinuxPlatformWindow>("Genesis Controls Catalog", W, H);
+    std::string winTitle = "Genesis Controls Catalog";
+    if (getenv("GENESIS_WIN_TITLE") != nullptr) {
+        winTitle = getenv("GENESIS_WIN_TITLE");
+    }
+    auto window = std::make_unique<LinuxPlatformWindow>(winTitle, W, H);
 
     NativeWindowHandle handle{};
     handle.apiTarget         = GpuApiType::Vulkan;
@@ -497,9 +529,17 @@ int main() {
     int   redrawFrames = 4;            // render the first few frames to settle the UI
     float lastMouseX = -1.f, lastMouseY = -1.f;
 
+    Genesis::FloatingDockOptions g_dockOptions;
+    catalog->dockHost().setLivePreviewEnabled(g_dockOptions.livePreviewEnabled);
     std::vector<FloatingDockWindow> floatingDocks;
 
     std::cout << "[GENESIS] Catalog running. Tab/Shift-Tab cycles focus. Close window to exit.\n";
+    std::cout << "[HOTKEYS] Tweak drag options at runtime:\n";
+    std::cout << "  'd' / 'D': Cycle global title bar drag behavior (Legacy, Always, Conditional)\n";
+    std::cout << "  's' / 'S': Toggle Single Dock Drag Moves Window (vs Tears Out)\n";
+    std::cout << "  't' / 'T': Toggle Tab Drag Tears Out\n";
+    std::cout << "  'x' / 'X': Toggle Split Drag Tears Out\n";
+    std::cout << "  'l' / 'L': Toggle Live Drop Preview\n";
 
     while (!window->shouldClose()) {
         auto now = std::chrono::steady_clock::now();
@@ -507,6 +547,17 @@ int main() {
         lastTime  = now;
 
         window->pollNativeEvents();
+
+        static int autoFloatFrames = 0;
+        static bool autoFloatTriggered = false;
+        if (getenv("GENESIS_AUTO_FLOAT") != nullptr && !autoFloatTriggered) {
+            autoFloatFrames++;
+            if (autoFloatFrames >= 10) {
+                std::cout << "[TEST] Triggering auto-float of tab...\n";
+                catalog->forceTear(1);
+                autoFloatTriggered = true;
+            }
+        }
 
         // Resize handling — keep the swapchain size LOCKED to the window size every
         // frame.  Deferring the rebuild only desyncs the layout (sized to the new
@@ -535,7 +586,8 @@ int main() {
 
         // ---- Place dock-panel content at its area (handles scroll wheel) ----
         float wheel = window->consumeWheel();
-        catalog->updateDockContent(wheel, window->mouseX(), window->mouseY());
+        catalog->clearPanelVisibility();
+        catalog->updateHostDockContent(catalog->dockHost(), wheel, window->mouseX(), window->mouseY());
 
         // ---- Keyboard ----
         bool wantScreenshot = false;
@@ -549,6 +601,44 @@ int main() {
             if (ke.utf8[0] == 'p' || ke.utf8[0] == 'P') wantScreenshot = true;
             // 'a' pauses/resumes animations (the UI then idles to 0 renders until input).
             if (ke.utf8[0] == 'a' || ke.utf8[0] == 'A') catalog->toggleAnimation();
+            if (ke.utf8[0] == 'f' || ke.utf8[0] == 'F') catalog->forceTear(1);
+
+            // Toggle config options:
+            if (ke.utf8[0] == 'd' || ke.utf8[0] == 'D') {
+                using B = Genesis::FloatingDragBehavior;
+                if (g_dockOptions.dragBehavior == B::ConditionalGlobalTitleBar) {
+                    g_dockOptions.dragBehavior = B::Legacy;
+                    std::cout << "[CONFIG] Drag Behavior: Legacy (No global title bar, Alt+Drag to move)\n";
+                } else if (g_dockOptions.dragBehavior == B::Legacy) {
+                    g_dockOptions.dragBehavior = B::AlwaysGlobalTitleBar;
+                    std::cout << "[CONFIG] Drag Behavior: AlwaysGlobalTitleBar (Always show global title bar)\n";
+                } else {
+                    g_dockOptions.dragBehavior = B::ConditionalGlobalTitleBar;
+                    std::cout << "[CONFIG] Drag Behavior: ConditionalGlobalTitleBar (Show global title bar when nested)\n";
+                }
+                for (auto& fd : floatingDocks) fd.setOptions(g_dockOptions);
+            }
+            if (ke.utf8[0] == 's' || ke.utf8[0] == 'S') {
+                g_dockOptions.singleDockDragMovesWindow = !g_dockOptions.singleDockDragMovesWindow;
+                std::cout << "[CONFIG] Single Dock Drag Moves Window: " << (g_dockOptions.singleDockDragMovesWindow ? "ENABLED" : "DISABLED (Tears out instead)") << "\n";
+                for (auto& fd : floatingDocks) fd.setOptions(g_dockOptions);
+            }
+            if (ke.utf8[0] == 't' || ke.utf8[0] == 'T') {
+                g_dockOptions.tabDragTearsOut = !g_dockOptions.tabDragTearsOut;
+                std::cout << "[CONFIG] Tab Drag Tears Out: " << (g_dockOptions.tabDragTearsOut ? "ENABLED" : "DISABLED") << "\n";
+                for (auto& fd : floatingDocks) fd.setOptions(g_dockOptions);
+            }
+            if (ke.utf8[0] == 'x' || ke.utf8[0] == 'X') {
+                g_dockOptions.splitDragTearsOut = !g_dockOptions.splitDragTearsOut;
+                std::cout << "[CONFIG] Split Drag Tears Out: " << (g_dockOptions.splitDragTearsOut ? "ENABLED" : "DISABLED") << "\n";
+                for (auto& fd : floatingDocks) fd.setOptions(g_dockOptions);
+            }
+            if (ke.utf8[0] == 'l' || ke.utf8[0] == 'L') {
+                g_dockOptions.livePreviewEnabled = !g_dockOptions.livePreviewEnabled;
+                std::cout << "[CONFIG] Live Drop Preview: " << (g_dockOptions.livePreviewEnabled ? "ENABLED" : "DISABLED") << "\n";
+                catalog->dockHost().setLivePreviewEnabled(g_dockOptions.livePreviewEnabled);
+                for (auto& fd : floatingDocks) fd.setOptions(g_dockOptions);
+            }
         }
 
         bool pressed  = window->consumePress();
@@ -586,21 +676,20 @@ int main() {
                     sx, sy,
                     static_cast<uint32_t>(r.width), static_cast<uint32_t>(r.height),
                     offX, offY,
-                    *hal, /*initialDrag=*/true);
+                    *hal, /*initialDrag=*/true, g_dockOptions, window->nativeWindow());
 
                 // The floated panel carries its catalog content: render & drive it in the
                 // floating window so it stays fully functional while detached.
                 {
                     ControlsCatalog* cat = catalog.get();
-                    std::string title = floatingDocks.back().dock().title();
-                    floatingDocks.back().setContentRender(
-                        [cat, title](PrimitiveBuffer& b, float w, float h) {
-                            cat->renderFloatingPanel(title, b, w, h);
-                        });
-                    floatingDocks.back().setContentInput(
-                        [cat, title](float x, float y, bool pr, bool rl) {
-                            cat->handleFloatingPanelInput(title, x, y, pr, rl);
-                        });
+                    auto& newFd = floatingDocks.back();
+                    DockHost* hostPtr = &newFd.dockHost();
+                    newFd.setContentRenderHost([cat, hostPtr](PrimitiveBuffer& b) {
+                        cat->renderHostFloatingPanels(*hostPtr, b);
+                    });
+                    newFd.setContentInputHost([cat, hostPtr](float x, float y, bool pr, bool rl) {
+                        cat->handleHostFloatingPanelsInput(*hostPtr, x, y, pr, rl);
+                    });
                 }
 
                 catalog->removeInlineDock(dw);
@@ -615,20 +704,77 @@ int main() {
         for (auto it = floatingDocks.begin(); it != floatingDocks.end(); ) {
             auto& fd = *it;
 
-            // pollAndMove returns a DockHost* the moment a drag ends over it.
-            DockHost* dropHost = fd.pollAndMove();
+            catalog->updateHostDockContent(fd.dockHost(), wheel, fd.window().mouseX(), fd.window().mouseY());
 
-            if (dropHost) {
+            auto pollRes = fd.pollAndMove();
+
+            if (pollRes.type == FloatingDockWindow::PollResult::Type::CommitDrop) {
+                DockHost* dropHost = pollRes.dropHost;
                 if (auto result = dropHost->tryCommitDrop()) {
                     (void)result;
                     fd.destroySurface(*hal);
                     DockWidget* oldPtr = &fd.dock();
-                    catalog->adoptInlineDock(
-                        std::make_unique<DockWidget>(fd.takeDock()), oldPtr);
+                    if (dropHost == &catalog->dockHost()) {
+                        catalog->adoptInlineDock(
+                            std::make_unique<DockWidget>(fd.takeDock()), oldPtr);
+                    } else {
+                        FloatingDockWindow* targetWin = nullptr;
+                        for (auto& otherFd : floatingDocks) {
+                            if (&otherFd.dockHost() == dropHost) {
+                                targetWin = &otherFd;
+                                break;
+                            }
+                        }
+                        if (targetWin) {
+                            targetWin->adoptDock(
+                                std::make_unique<DockWidget>(fd.takeDock()), oldPtr);
+                        }
+                    }
                     it = floatingDocks.erase(it);
                     continue;
                 }
-                // tryCommitDrop failed (no highlighted drop zone) — dock stays floating.
+            } else if (pollRes.type == FloatingDockWindow::PollResult::Type::WantsFloat) {
+                DockWidget* dw = pollRes.wantsFloatDock;
+                Rect r = pollRes.wantsFloatRect;
+
+                int sx = fd.window().screenX() + static_cast<int>(r.x);
+                int sy = fd.window().screenY() + static_cast<int>(r.y);
+
+                auto [gx, gy] = fd.window().globalCursorPos();
+                int offX = gx - sx;
+                int offY = gy - sy;
+
+                std::unique_ptr<DockWidget> movedPtr = fd.releaseDock(dw);
+                if (movedPtr) {
+                    DockWidget moved = std::move(*movedPtr);
+                    moved.setPosition(0.f, 0.f);
+                    moved.setSize(r.width, r.height);
+
+                    floatingDocks.emplace_back(
+                        std::move(moved),
+                        sx, sy,
+                        static_cast<uint32_t>(r.width), static_cast<uint32_t>(r.height),
+                        offX, offY,
+                        *hal, /*initialDrag=*/true, g_dockOptions, window->nativeWindow());
+
+                    {
+                        ControlsCatalog* cat = catalog.get();
+                        auto& newFd = floatingDocks.back();
+                        DockHost* hostPtr = &newFd.dockHost();
+                        newFd.setContentRenderHost([cat, hostPtr](PrimitiveBuffer& b) {
+                            cat->renderHostFloatingPanels(*hostPtr, b);
+                        });
+                        newFd.setContentInputHost([cat, hostPtr](float x, float y, bool pr, bool rl) {
+                            cat->handleHostFloatingPanelsInput(*hostPtr, x, y, pr, rl);
+                        });
+                    }
+                }
+
+                if (fd.dockHost().dockCount() == 0) {
+                    fd.destroySurface(*hal);
+                    it = floatingDocks.erase(it);
+                    continue;
+                }
             }
 
             if (fd.shouldClose()) {
@@ -637,15 +783,11 @@ int main() {
                 continue;
             }
 
-            // Always render — the OS window follows the cursor from the first
-            // frame so there is no ghost phase inside the main window.
             fd.render(*hal, buffer);
             ++it;
         }
 
         // ---- Inline-only drop (no floating docks in flight) ----
-        // Handles the case where DockHost itself initiated a tab-reorder drag
-        // within the host and the user released the button.
         if (released && floatingDocks.empty())
             catalog->dockHost().tryCommitDrop();
 
@@ -658,7 +800,19 @@ int main() {
             int winY   = gy - kTabH;
             int dragOX = static_cast<int>(FloatingDockWindow::kDefaultW) / 2;
             int dragOY = kTabH;
-            floatingDocks.emplace_back(std::move(state), winX, winY, dragOX, dragOY, *hal);
+            floatingDocks.emplace_back(std::move(state), winX, winY, dragOX, dragOY, *hal, g_dockOptions, window->nativeWindow());
+
+            {
+                ControlsCatalog* cat = catalog.get();
+                auto& newFd = floatingDocks.back();
+                DockHost* hostPtr = &newFd.dockHost();
+                newFd.setContentRenderHost([cat, hostPtr](PrimitiveBuffer& b) {
+                    cat->renderHostFloatingPanels(*hostPtr, b);
+                });
+                newFd.setContentInputHost([cat, hostPtr](float x, float y, bool pr, bool rl) {
+                    cat->handleHostFloatingPanelsInput(*hostPtr, x, y, pr, rl);
+                });
+            }
         }
 
         // ---- AI semantic command channel (act-by-id, dispatched on the UI thread) ----
