@@ -98,6 +98,7 @@ public:
     virtual void handleMousePress(float, float)   {}
     virtual void handleMouseRelease(float, float) {}
     virtual bool handleKeyEvent(const KeyEvent&) { return false; }
+    virtual void handleScroll(float /*mx*/, float /*my*/, float /*wheel*/) {}
 
     // AI interface
     AISemanticNode getSemanticNode() const override {
@@ -1773,6 +1774,156 @@ public:
 
 private:
     std::string m_title;
+};
+
+// ============================================================================
+// ScrollArea
+// ============================================================================
+
+class ScrollArea : public Widget {
+public:
+    ScrollArea(SceneGraph& graph, float w = 320.0f, float h = 200.0f)
+        : Widget(graph, "ScrollArea")
+    {
+        auto& l = m_graph.getLayout(m_nodeId);
+        l.boundingBox.width  = w;
+        l.boundingBox.height = h;
+    }
+
+    void addChildWidget(Widget* w) {
+        m_children.push_back(w);
+    }
+
+    const std::vector<Widget*>& children() const { return m_children; }
+
+    void handleMouseMove(float mx, float my) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
+            m_hovered = true;
+            for (Widget* w : m_children) {
+                if (w->isVisible()) w->handleMouseMove(mx, my);
+            }
+        } else {
+            m_hovered = false;
+        }
+    }
+
+    void handleMousePress(float mx, float my) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
+            float trackW = 10.0f;
+            float trackX = b.x + b.width - trackW;
+            if (mx >= trackX) {
+                m_draggingScroll = true;
+            } else {
+                for (Widget* w : m_children) {
+                    if (w->isVisible()) w->handleMousePress(mx, my);
+                }
+            }
+        }
+    }
+
+    void handleMouseRelease(float mx, float my) override {
+        m_draggingScroll = false;
+        for (Widget* w : m_children) {
+            if (w->isVisible()) w->handleMouseRelease(mx, my);
+        }
+    }
+
+    void handleScroll(float mx, float my, float wheel) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
+            float totalH = 12.0f;
+            for (Widget* w : m_children) {
+                totalH += m_graph.getLayoutConst(w->getNodeId()).boundingBox.height + 6.0f;
+            }
+            float maxScrollY = std::max(0.0f, totalH - b.height);
+            m_scrollY = std::clamp(m_scrollY - wheel * 40.0f, 0.0f, maxScrollY);
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            
+            for (Widget* w : m_children) {
+                if (w->isVisible()) w->handleScroll(mx, my, wheel);
+            }
+        }
+    }
+
+    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        
+        // Background
+        uint8_t fill[4] = {20, 20, 24, 255};
+        buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f, 1.0f, Colors::Border);
+
+        if (m_children.empty()) return;
+
+        // Perform Layout
+        float curY = b.y + 6.0f - m_scrollY;
+        float innerW = b.width - 16.0f;
+        float totalH = 12.0f;
+
+        for (Widget* w : m_children) {
+            auto& wl = m_graph.getLayout(w->getNodeId());
+            wl.boundingBox.x = b.x + 8.0f;
+            wl.boundingBox.y = curY;
+            wl.boundingBox.width = innerW;
+            
+            curY += wl.boundingBox.height + 6.0f;
+            totalH += wl.boundingBox.height + 6.0f;
+        }
+
+        float maxScrollY = std::max(0.0f, totalH - b.height);
+        m_scrollY = std::clamp(m_scrollY, 0.0f, maxScrollY);
+
+        curY = b.y + 6.0f - m_scrollY;
+        for (Widget* w : m_children) {
+            auto& wl = m_graph.getLayout(w->getNodeId());
+            wl.boundingBox.y = curY;
+            curY += wl.boundingBox.height + 6.0f;
+        }
+
+        // Render with clip scissor
+        buf.pushClip(b.x + 1.0f, b.y + 1.0f, b.width - 13.0f, b.height - 2.0f);
+        for (Widget* w : m_children) {
+            const auto& wb = m_graph.getLayoutConst(w->getNodeId()).boundingBox;
+            if (wb.y + wb.height >= b.y && wb.y <= b.y + b.height) {
+                if (w->isVisible()) {
+                    w->populateRenderPrimitives(buf);
+                }
+            }
+        }
+        buf.popClip();
+
+        // Render Scrollbar
+        if (maxScrollY > 0.0f) {
+            float trackW = 10.0f;
+            float trackH = b.height - 4.0f;
+            float trackX = b.x + b.width - trackW - 2.0f;
+            float trackY = b.y + 2.0f;
+
+            uint8_t trackColor[4] = {30, 30, 35, 120};
+            buf.pushRectangle(trackX, trackY, trackW, trackH, trackColor, 3.0f);
+
+            float visibleRatio = b.height / totalH;
+            float thumbH = std::max(20.0f, trackH * visibleRatio);
+            float scrollRatio = m_scrollY / maxScrollY;
+            float thumbY = trackY + scrollRatio * (trackH - thumbH);
+
+            uint8_t thumbColor[4] = {100, 100, 110, 200};
+            if (m_draggingScroll) {
+                thumbColor[0] = 130; thumbColor[1] = 130; thumbColor[2] = 140;
+            }
+            buf.pushRectangle(trackX + 1.0f, thumbY, trackW - 2.0f, thumbH, thumbColor, 3.0f);
+        }
+    }
+
+    AISemanticNode getSemanticNode() const override { return {"ScrollArea", "", "", true}; }
+    bool executeSemanticAction(const std::string&) override { return false; }
+
+private:
+    std::vector<Widget*> m_children;
+    float   m_scrollY{0.0f};
+    bool    m_hovered{false};
+    bool    m_draggingScroll{false};
 };
 
 } // namespace Genesis

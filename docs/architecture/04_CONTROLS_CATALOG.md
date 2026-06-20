@@ -80,7 +80,7 @@ semantic interface automatically.
 - `Canvas` — immediate-mode drawing surface
 - `Image` — bitmap decode + display (PNG/QOI target)
 - `TableView` — sortable, virtualized 2D grid
-- `ScrollArea` — wraps any content with physics-based scrollbars
+- `ScrollArea` — ✅ Wraps a collection of widgets with a scrollable viewport and scissor clipping
 - `Tooltip` — hover-triggered overlay
 - `ContextMenu` — right-click overlay list
 

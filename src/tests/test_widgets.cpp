@@ -156,12 +156,46 @@ void test_textarea_logic() {
     std::cout << "test_textarea_logic passed" << std::endl;
 }
 
+void test_scrollarea_logic() {
+    SceneGraph graph;
+    ScrollArea sa(graph, 200.0f, 100.0f);
+    
+    Button* b1 = new Button(graph, "Child Button 1", 180.0f, 40.0f);
+    Button* b2 = new Button(graph, "Child Button 2", 180.0f, 80.0f);
+    sa.addChildWidget(b1);
+    sa.addChildWidget(b2);
+
+    assert(sa.children().size() == 2);
+    assert(sa.children()[0] == b1);
+    assert(sa.children()[1] == b2);
+
+    PrimitiveBuffer buf;
+    sa.populateRenderPrimitives(buf);
+
+    auto l1 = graph.getLayoutConst(b1->getNodeId()).boundingBox;
+    auto l2 = graph.getLayoutConst(b2->getNodeId()).boundingBox;
+    
+    assert(l1.width == 200.0f - 16.0f);
+    assert(l2.y == l1.y + l1.height + 6.0f);
+
+    sa.handleScroll(10.0f, 10.0f, -1.0f); // Scroll down
+    sa.populateRenderPrimitives(buf);
+
+    auto l1_scrolled = graph.getLayoutConst(b1->getNodeId()).boundingBox;
+    assert(l1_scrolled.y < l1.y);
+
+    delete b1;
+    delete b2;
+    std::cout << "test_scrollarea_logic passed" << std::endl;
+}
+
 int main() {
     test_button_interaction();
     test_widget_rendering();
     test_slider_logic();
     test_combobox_logic();
     test_textarea_logic();
+    test_scrollarea_logic();
     std::cout << "All tests passed!" << std::endl;
     return 0;
 }

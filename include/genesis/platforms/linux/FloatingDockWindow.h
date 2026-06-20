@@ -203,6 +203,7 @@ public:
     // -------------------------------------------------------------------------
     PollResult pollAndMove() {
         m_window->pollNativeEvents();
+        m_lastWheel = m_window->consumeWheel();
 
         const bool btnDown = m_window->isLeftButtonDown();
         const bool press   = m_window->consumePress();
@@ -518,7 +519,7 @@ public:
                     }
                 }
             } else if (m_contentInputHost) {
-                m_contentInputHost(mx, my, press, !btnDown && m_wasDown);
+                m_contentInputHost(mx, my, press, !btnDown && m_wasDown, m_lastWheel);
             }
 
             m_shouldClose = m_shouldClose || m_window->shouldClose();
@@ -569,7 +570,7 @@ public:
     }
 
     void setContentRenderHost(std::function<void(PrimitiveBuffer&)> fn) { m_contentRenderHost = std::move(fn); }
-    void setContentInputHost(std::function<void(float, float, bool, bool)> fn) { m_contentInputHost = std::move(fn); }
+    void setContentInputHost(std::function<void(float, float, bool, bool, float)> fn) { m_contentInputHost = std::move(fn); }
 
     // -------------------------------------------------------------------------
     // Destroy the Vulkan surface.  Call before erasing this object.
@@ -586,6 +587,7 @@ public:
     bool isInInitialDrag() const { return m_state == State::InitialDrag; }
     bool isDragging()      const { return m_state != State::Idle; }
     bool shouldClose()     const { return m_shouldClose; }
+    float lastWheel()      const { return m_lastWheel; }
 
     LinuxPlatformWindow& window() { return *m_window; }
     const LinuxPlatformWindow& window() const { return *m_window; }
@@ -654,13 +656,14 @@ private:
     uint32_t     m_winW{kDefaultW}, m_winH{kDefaultH};
 
     std::function<void(PrimitiveBuffer&)> m_contentRenderHost;
-    std::function<void(float, float, bool, bool)> m_contentInputHost;
+    std::function<void(float, float, bool, bool, float)> m_contentInputHost;
 
     State m_state{State::Idle};
     bool  m_shouldClose{false};
     bool  m_wasDown{false};
     int   m_dragOffX{0}, m_dragOffY{0};
     FloatingDockOptions m_options;
+    float               m_lastWheel{0.0f};
 
     ResizeDir m_resizeDir{ResizeDir::None};
     bool      m_needsSurfaceResize{false};

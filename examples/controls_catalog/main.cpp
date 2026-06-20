@@ -444,7 +444,7 @@ public:
         return 0;  // unrecognised system action
     }
 
-    void handleMouse(float x, float y, bool pressed, bool released) {
+    void handleMouse(float x, float y, bool pressed, bool released, float wheel = 0.0f) {
         // Route to the controls of currently-visible docked panels only.  Floated panels
         // receive input through handleFloatingPanelInput (in their own window's coords).
         bool hitAny = false;
@@ -457,6 +457,7 @@ public:
                     if (w->hitTest(x, y)) hitAny = true;
                 }
                 if (released) w->handleMouseRelease(x, y);
+                if (wheel != 0.0f) w->handleScroll(x, y, wheel);
             }
         }
         if (pressed && !hitAny) {
@@ -487,20 +488,20 @@ public:
             });
     }
 
-    void handleHostFloatingPanelsInput(DockHost& host, float x, float y, bool pr, bool rl) {
+    void handleHostFloatingPanelsInput(DockHost& host, float x, float y, bool pr, bool rl, float wheel = 0.0f) {
         host.forEachDockPanel(
             [&](const DockWidget* dock, const Rect&, bool active, int tabCount) {
                 if (tabCount > 1 && !active) return;
                 Rect content = host.contentArea(host.findDock(dock));
                 if (x >= content.x && x < content.x + content.width &&
                     y >= content.y && y < content.y + content.height) {
-                    handleFloatingPanelInput(dock->title(), x, y, pr, rl);
+                    handleFloatingPanelInput(dock->title(), x, y, pr, rl, wheel);
                 }
             });
     }
 
     // Drive a floated panel's content (window-local coords).
-    void handleFloatingPanelInput(const std::string& title, float x, float y, bool press, bool release) {
+    void handleFloatingPanelInput(const std::string& title, float x, float y, bool press, bool release, float wheel = 0.0f) {
         Panel* p = panelByTitle(title);
         if (!p) return;
         bool hitAny = false;
@@ -511,6 +512,7 @@ public:
                 if (wt->hitTest(x, y)) hitAny = true;
             }
             if (release) wt->handleMouseRelease(x, y);
+            if (wheel != 0.0f) wt->handleScroll(x, y, wheel);
         }
         if (press && !hitAny) {
             m_focus.setFocus(nullptr);
@@ -618,7 +620,26 @@ private:
             m_curPanel->widgets.push_back(tb.get());
             m_widgets.push_back(std::move(tb));
         }
-        add<GroupBox>(m_graph, "Asset Browser", 340.0f, 120.0f);
+        section("ScrollArea Sandbox");
+        {
+            auto sa = std::make_unique<ScrollArea>(m_graph, 340.0f, 160.0f);
+            
+            // Create a GroupBox inside the ScrollArea
+            auto innerGb = new GroupBox(m_graph, "Asset Directory", 320.0f, 300.0f);
+            sa->addChildWidget(innerGb);
+            m_widgets.push_back(std::unique_ptr<Widget>(innerGb));
+
+            // Populate the GroupBox with children
+            for (int i = 1; i <= 8; ++i) {
+                auto cb = new CheckBox(m_graph, "src/widget/File_" + std::to_string(i) + ".cpp", 280.0f, 22.0f);
+                m_graph.addChild(innerGb->getNodeId(), cb->getNodeId());
+                m_widgets.push_back(std::unique_ptr<Widget>(cb));
+            }
+            
+            m_graph.addChild(m_curContainer, sa->getNodeId());
+            m_curPanel->widgets.push_back(sa.get());
+            m_widgets.push_back(std::move(sa));
+        }
 
         // ====================================================================
         // Dock zone management — 3-column layout exercising every constraint.
@@ -916,8 +937,8 @@ int main() {
             newFd.setContentRenderHost([cat, hostPtr](PrimitiveBuffer& b) {
                 cat->renderHostFloatingPanels(*hostPtr, b);
             });
-            newFd.setContentInputHost([cat, hostPtr](float x, float y, bool pr, bool rl) {
-                cat->handleHostFloatingPanelsInput(*hostPtr, x, y, pr, rl);
+            newFd.setContentInputHost([cat, hostPtr](float x, float y, bool pr, bool rl, float wheel) {
+                cat->handleHostFloatingPanelsInput(*hostPtr, x, y, pr, rl, wheel);
             });
         }
 
@@ -1061,7 +1082,7 @@ int main() {
             }
         }
 
-        catalog->handleMouse(window->mouseX(), window->mouseY(), pressed, released);
+        catalog->handleMouse(window->mouseX(), window->mouseY(), pressed, released, wheel);
         catalog->update(dt);
 
         // ---- DockHost mouse routing (inline docks) ----
@@ -1110,8 +1131,8 @@ int main() {
                     newFd.setContentRenderHost([cat, hostPtr](PrimitiveBuffer& b) {
                         cat->renderHostFloatingPanels(*hostPtr, b);
                     });
-                    newFd.setContentInputHost([cat, hostPtr](float x, float y, bool pr, bool rl) {
-                        cat->handleHostFloatingPanelsInput(*hostPtr, x, y, pr, rl);
+                    newFd.setContentInputHost([cat, hostPtr](float x, float y, bool pr, bool rl, float wheel) {
+                        cat->handleHostFloatingPanelsInput(*hostPtr, x, y, pr, rl, wheel);
                     });
                 }
 
@@ -1126,10 +1147,8 @@ int main() {
         // ---- Floating dock update: drag / re-dock / close / render ----
         for (auto it = floatingDocks.begin(); it != floatingDocks.end(); ) {
             auto& fd = *it;
-
-            catalog->updateHostDockContent(fd.dockHost(), wheel, fd.window().mouseX(), fd.window().mouseY());
-
             auto pollRes = fd.pollAndMove();
+            catalog->updateHostDockContent(fd.dockHost(), fd.lastWheel(), fd.window().mouseX(), fd.window().mouseY());
 
             if (pollRes.type == FloatingDockWindow::PollResult::Type::CommitDrop) {
                 DockHost* dropHost = pollRes.dropHost;
@@ -1187,8 +1206,8 @@ int main() {
                         newFd.setContentRenderHost([cat, hostPtr](PrimitiveBuffer& b) {
                             cat->renderHostFloatingPanels(*hostPtr, b);
                         });
-                        newFd.setContentInputHost([cat, hostPtr](float x, float y, bool pr, bool rl) {
-                            cat->handleHostFloatingPanelsInput(*hostPtr, x, y, pr, rl);
+                        newFd.setContentInputHost([cat, hostPtr](float x, float y, bool pr, bool rl, float wheel) {
+                            cat->handleHostFloatingPanelsInput(*hostPtr, x, y, pr, rl, wheel);
                         });
                     }
                 }
@@ -1252,8 +1271,8 @@ int main() {
                 newFd.setContentRenderHost([cat, hostPtr](PrimitiveBuffer& b) {
                     cat->renderHostFloatingPanels(*hostPtr, b);
                 });
-                newFd.setContentInputHost([cat, hostPtr](float x, float y, bool pr, bool rl) {
-                    cat->handleHostFloatingPanelsInput(*hostPtr, x, y, pr, rl);
+                newFd.setContentInputHost([cat, hostPtr](float x, float y, bool pr, bool rl, float wheel) {
+                    cat->handleHostFloatingPanelsInput(*hostPtr, x, y, pr, rl, wheel);
                 });
             }
         }
