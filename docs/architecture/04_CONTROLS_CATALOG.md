@@ -73,7 +73,7 @@ semantic interface automatically.
 |-------|--------|-------|
 | `TabBar` | ✅ | N equal-width tabs, accent underline on active |
 | `TreeView` | 🔜 | Collapse/expand, virtualised |
-| `ListView` | 🔜 | Virtualised vertical list |
+| `ListView` | ✅ | Virtualised vertical scrolling list with selection, active item signals, and arrow navigation |
 
 ## Future
 

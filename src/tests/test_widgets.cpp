@@ -189,6 +189,51 @@ void test_scrollarea_logic() {
     std::cout << "test_scrollarea_logic passed" << std::endl;
 }
 
+void test_listview_logic() {
+    SceneGraph graph;
+    ListView lv(graph, {"Item 1", "Item 2", "Item 3"});
+
+    int lastSelection = -1;
+    lv.onSelectionChanged.connect([&lastSelection](int idx) {
+        lastSelection = idx;
+    });
+
+    assert(lv.items().size() == 3);
+    assert(lv.selectedIndex() == -1);
+
+    lv.setSelectedIndex(1);
+    assert(lv.selectedIndex() == 1);
+    assert(lastSelection == 1);
+
+    KeyEvent ke;
+    ke.pressed = true;
+    ke.key = KeyEvent::Key::Down;
+    bool handled = lv.handleKeyEvent(ke);
+    assert(handled == true);
+    assert(lv.selectedIndex() == 2);
+    assert(lastSelection == 2);
+
+    ke.key = KeyEvent::Key::Up;
+    handled = lv.handleKeyEvent(ke);
+    assert(handled == true);
+    assert(lv.selectedIndex() == 1);
+    assert(lastSelection == 1);
+
+    auto& l = graph.getLayout(lv.getNodeId());
+    l.boundingBox = {0, 0, 100, 100};
+
+    int activatedItem = -1;
+    lv.onItemActivated.connect([&activatedItem](int idx) {
+        activatedItem = idx;
+    });
+
+    lv.handleMousePress(10.f, 10.f);
+    assert(lv.selectedIndex() == 0);
+    assert(activatedItem == 0);
+
+    std::cout << "test_listview_logic passed" << std::endl;
+}
+
 int main() {
     test_button_interaction();
     test_widget_rendering();
@@ -196,6 +241,7 @@ int main() {
     test_combobox_logic();
     test_textarea_logic();
     test_scrollarea_logic();
+    test_listview_logic();
     std::cout << "All tests passed!" << std::endl;
     return 0;
 }

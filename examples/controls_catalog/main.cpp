@@ -398,6 +398,8 @@ public:
                 injected = add<LineEdit>(m_graph, label.empty() ? "Enter text..." : label, 320.0f, 32.0f);
             } else if (type == "textarea" || type == "TextArea") {
                 injected = add<TextArea>(m_graph, label.empty() ? "Enter paragraph..." : label, 320.0f, 100.0f);
+            } else if (type == "listview" || type == "ListView") {
+                injected = add<ListView>(m_graph, std::vector<std::string>{"Item A", "Item B", "Item C"}, 240.0f, 120.0f);
             } else {
                 std::cerr << "[AI-inject] unknown widget type '" << type << "'\n";
                 m_curPanel = savedPanel; m_curContainer = savedContainer;
@@ -560,6 +562,16 @@ private:
         add<Button>(m_graph, "Secondary",      160.0f, 36.0f);
         add<ToggleButton>(m_graph, "Dark Mode", 180.0f, 34.0f);
         add<ToggleButton>(m_graph, "Auto-save", 180.0f, 34.0f)->setToggled(true);
+        section("Project Files");
+        add<ListView>(m_graph, std::vector<std::string>{
+            "src/core/SceneGraph.cpp",
+            "src/core/BaseWidgets.cpp",
+            "src/core/StyleEngine.cpp",
+            "src/graphics/VulkanGpuHal.cpp",
+            "src/graphics/FontEngine.cpp",
+            "src/platforms/linux/Platform.cpp",
+            "include/genesis/core/Widget.h"
+        }, 200.0f, 120.0f);
 
         beginPanel("Properties");
         section("Toggles");
