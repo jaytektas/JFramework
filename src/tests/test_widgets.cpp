@@ -137,6 +137,22 @@ void test_textarea_logic() {
     assert(handled == true);
     assert(ta.text() == "Line 1\nLine 2 ");
 
+    // Test Question mark Shift key resolution
+    ke.key = KeyEvent::Key::Unknown;
+    ke.utf8[0] = '?';
+    ke.utf8[1] = '\0';
+    handled = ta.handleKeyEvent(ke);
+    assert(handled == true);
+    assert(ta.text() == "Line 1\nLine 2 ?");
+
+    // Test Unicode character entry (e.g., 'ü' -> C3 BC in UTF-8)
+    ke.utf8[0] = '\xc3';
+    ke.utf8[1] = '\xbc';
+    ke.utf8[2] = '\0';
+    handled = ta.handleKeyEvent(ke);
+    assert(handled == true);
+    assert(ta.text() == "Line 1\nLine 2 ?\xc3\xbc");
+
     std::cout << "test_textarea_logic passed" << std::endl;
 }
 

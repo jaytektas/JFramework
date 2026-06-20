@@ -536,11 +536,12 @@ private:
 
     void _handleKey(xcb_key_press_event_t* k, bool pressed) {
         if (!m_syms) m_syms = xcb_key_symbols_alloc(m_connection);
-        xcb_keysym_t ks = xcb_key_symbols_get_keysym(m_syms, k->detail, 0);
+        bool shift = (k->state & XCB_MOD_MASK_SHIFT) != 0;
+        xcb_keysym_t ks = xcb_key_symbols_get_keysym(m_syms, k->detail, shift ? 1 : 0);
 
         KeyEvent ev;
         ev.pressed = pressed;
-        ev.shift   = (k->state & XCB_MOD_MASK_SHIFT)   != 0;
+        ev.shift   = shift;
         ev.ctrl    = (k->state & XCB_MOD_MASK_CONTROL) != 0;
         ev.alt     = (k->state & XCB_MOD_MASK_1)       != 0;
         ev.keysym  = static_cast<uint32_t>(ks);
@@ -563,13 +564,37 @@ private:
             case 0xFF54: ev.key = K::Down;      break;
             case 0xFF50: ev.key = K::Home;      break;
             case 0xFF57: ev.key = K::End;       break;
-            default:
-                if (ks >= 0x20 && ks <= 0x7e) {
-                    char c = ev.shift ? static_cast<char>(std::toupper(ks)) : static_cast<char>(ks);
-                    ev.utf8[0] = c; ev.utf8[1] = '\0';
-                    ev.key = static_cast<K>(static_cast<uint32_t>(c));
+            default: {
+                uint32_t cp = 0;
+                if ((ks >= 0x0020 && ks <= 0x007e) || (ks >= 0x00a0 && ks <= 0x00ff)) {
+                    cp = ks;
+                } else if (ks >= 0x01000100 && ks <= 0x0110ffff) {
+                    cp = ks - 0x01000000;
+                }
+                if (cp != 0) {
+                    if (cp < 0x80) {
+                        ev.utf8[0] = static_cast<char>(cp);
+                        ev.utf8[1] = '\0';
+                        ev.key = static_cast<K>(cp);
+                    } else if (cp < 0x800) {
+                        ev.utf8[0] = static_cast<char>((cp >> 6) | 0xc0);
+                        ev.utf8[1] = static_cast<char>((cp & 0x3f) | 0x80);
+                        ev.utf8[2] = '\0';
+                    } else if (cp < 0x10000) {
+                        ev.utf8[0] = static_cast<char>((cp >> 12) | 0xe0);
+                        ev.utf8[1] = static_cast<char>(((cp >> 6) & 0x3f) | 0x80);
+                        ev.utf8[2] = static_cast<char>((cp & 0x3f) | 0x80);
+                        ev.utf8[3] = '\0';
+                    } else if (cp < 0x110000) {
+                        ev.utf8[0] = static_cast<char>((cp >> 18) | 0xf0);
+                        ev.utf8[1] = static_cast<char>(((cp >> 12) & 0x3f) | 0x80);
+                        ev.utf8[2] = static_cast<char>(((cp >> 6) & 0x3f) | 0x80);
+                        ev.utf8[3] = static_cast<char>((cp & 0x3f) | 0x80);
+                        ev.utf8[4] = '\0';
+                    }
                 }
                 break;
+            }
         }
 
         m_keyQueue.push_back(ev);
