@@ -47,12 +47,14 @@ else()
 endif()
 
 # --- Dependencies ---
-find_package(PkgConfig REQUIRED)
-if(UNIX AND NOT APPLE)
-    pkg_check_modules(XCB         REQUIRED xcb)
-    pkg_check_modules(XCB_KEYSYMS REQUIRED xcb-keysyms)
-    pkg_check_modules(DBUS        REQUIRED dbus-1)
-    pkg_check_modules(ATSPI       QUIET    atspi-2)
+if(NOT WIN32)
+    find_package(PkgConfig REQUIRED)
+    if(UNIX AND NOT APPLE)
+        pkg_check_modules(XCB         REQUIRED xcb)
+        pkg_check_modules(XCB_KEYSYMS REQUIRED xcb-keysyms)
+        pkg_check_modules(DBUS        REQUIRED dbus-1)
+        pkg_check_modules(ATSPI       QUIET    atspi-2)
+    endif()
 endif()
 
 # --- stb_truetype include path ---
@@ -67,7 +69,21 @@ target_include_directories(genesis_core INTERFACE
 )
 
 # --- Platform Implementation ---
-find_package(Vulkan REQUIRED)
+if(WIN32)
+    # When cross-compiling, FindVulkan may fail or find native Linux libs.
+    # Provide manual targets or standard system libraries.
+    find_package(Vulkan QUIET)
+    if(NOT Vulkan_FOUND)
+        # Setup mock/header-only Vulkan dependencies or manual library mapping
+        add_library(Vulkan::Vulkan INTERFACE IMPORTED)
+        # MinGW needs /usr/include to locate vulkan/vulkan.h
+        target_include_directories(Vulkan::Vulkan INTERFACE ${CMAKE_SOURCE_DIR}/include)
+        # Use our generated import library or just link dynamically
+        target_link_libraries(Vulkan::Vulkan INTERFACE ${CMAKE_SOURCE_DIR}/libvulkan-1.a)
+    endif()
+else()
+    find_package(Vulkan REQUIRED)
+endif()
 add_library(genesis_platform STATIC)
 target_link_libraries(genesis_platform PUBLIC genesis_core Vulkan::Vulkan)
 add_dependencies(genesis_platform genesis_shaders)
@@ -95,6 +111,23 @@ if(UNIX AND NOT APPLE)
         target_link_libraries(genesis_platform PRIVATE ${ATSPI_LIBRARIES})
         target_compile_definitions(genesis_platform PRIVATE GENESIS_ATSPI=1)
     endif()
+elseif(WIN32)
+    target_sources(genesis_platform PRIVATE
+        src/platforms/windows/WindowsPlatformWindow.cpp
+        src/graphics/VulkanGpuHal.cpp
+    )
+    target_include_directories(genesis_platform PRIVATE
+        ${STB_INCLUDE_DIR}
+    )
+    # Windows native winsock, gdi, etc.
+    target_link_libraries(genesis_platform PRIVATE
+        ws2_32
+        gdi32
+        user32
+        shell32
+    )
+    # Static link runtime libraries for standalone Win32 binaries
+    add_link_options(-static -static-libgcc -static-libstdc++)
 endif()
 
 # --- Platform Host ---

@@ -6,7 +6,12 @@
 #include <genesis/core/DockRegistry.h>
 #include <genesis/graphics/GpuHal.h>
 #include <genesis/graphics/RenderPrimitive.h>
+
+#if defined(_WIN32)
+#include <genesis/platforms/windows/WindowsPlatformWindow.h>
+#else
 #include <genesis/platforms/linux/LinuxPlatformWindow.h>
+#endif
 
 #include <memory>
 #include <functional>
@@ -61,6 +66,14 @@ public:
         Rect        wantsFloatRect{};
     };
 
+#if defined(_WIN32)
+    using PlatformWinType = WindowsPlatformWindow;
+    using NativeWinHandleType = HWND;
+#else
+    using PlatformWinType = LinuxPlatformWindow;
+    using NativeWinHandleType = xcb_window_t;
+#endif
+
     // Construct from a DockWidget extracted from a DockHost (WantsFloat path).
     FloatingDockWindow(DockWidget dock,
                        int screenX, int screenY,
@@ -69,10 +82,14 @@ public:
                        GpuHal& hal,
                        bool initialDrag = false,
                        FloatingDockOptions options = {},
-                       xcb_window_t parentWindow = 0)
-        : m_window(std::make_unique<LinuxPlatformWindow>(
+                       NativeWinHandleType parentWindow = {})
+        : m_window(std::make_unique<PlatformWinType>(
               dock.title().c_str(), winW, winH, screenX, screenY,
+#if defined(_WIN32)
+              (parentWindow != nullptr) ? PlatformWindowStyle::Borderless : PlatformWindowStyle::Popup,
+#else
               (parentWindow != 0) ? PlatformWindowStyle::Borderless : PlatformWindowStyle::Popup,
+#endif
               parentWindow))
         , m_surface(hal.createSurface(m_window->nativeHandle(), winW, winH))
         , m_winW(winW), m_winH(winH)
@@ -116,7 +133,7 @@ public:
                        int dragOffX, int dragOffY,
                        GpuHal& hal,
                        FloatingDockOptions options = {},
-                       xcb_window_t parentWindow = 0)
+                       NativeWinHandleType parentWindow = {})
         : FloatingDockWindow(
               DockWidget(std::move(state), 0.f, 0.f,
                          static_cast<float>(kDefaultW), static_cast<float>(kDefaultH)),
@@ -589,8 +606,8 @@ public:
     bool shouldClose()     const { return m_shouldClose; }
     float lastWheel()      const { return m_lastWheel; }
 
-    LinuxPlatformWindow& window() { return *m_window; }
-    const LinuxPlatformWindow& window() const { return *m_window; }
+    PlatformWinType& window() { return *m_window; }
+    const PlatformWinType& window() const { return *m_window; }
 
     DockHost& dockHost() { return *m_dockHost; }
     const DockHost& dockHost() const { return *m_dockHost; }
@@ -649,7 +666,7 @@ private:
                 e.host->updateDrag(0.f, 0.f, 0.f, 0.f, 0, 0, nullptr);
     }
 
-    std::unique_ptr<LinuxPlatformWindow> m_window;
+    std::unique_ptr<PlatformWinType> m_window;
     GpuSurfaceId m_surface{kPrimarySurface};
     std::unique_ptr<DockHost>            m_dockHost;
     std::vector<std::unique_ptr<DockWidget>> m_docks;

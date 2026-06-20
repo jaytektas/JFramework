@@ -13,6 +13,11 @@
 #include <genesis/core/muted_logging_mock.h>
 namespace { inline constexpr auto& LogEngineCore = Genesis::Log::Core; }
 
+#include <genesis/core/PlatformCommon.h>
+#include <genesis/graphics/GpuHal.h>
+
+#include <genesis/core/KeyEvent.h>
+
 namespace Core {
 
 /**
@@ -40,6 +45,39 @@ public:
     virtual void swapBuffers() = 0;
     virtual void setVSync(bool enabled) = 0;
     virtual bool shouldClose() const = 0;
+
+    // Common mouse and wheel getters/modifiers
+    virtual float mouseX() const { return 0.0f; }
+    virtual float mouseY() const { return 0.0f; }
+    virtual bool  consumePress() { return false; }
+    virtual bool  consumeRelease() { return false; }
+    virtual float consumeWheel() { return 0.0f; }
+    
+    // Keyboard events
+    virtual bool hasKeyEvents() const { return false; }
+    virtual Genesis::KeyEvent consumeKey() { return {}; }
+    virtual std::vector<Genesis::KeyEvent> consumeAllKeys() { return {}; }
+
+    // Window dimensions and state
+    virtual int      screenX() const { return 0; }
+    virtual int      screenY() const { return 0; }
+    virtual uint32_t width()   const { return 0; }
+    virtual uint32_t height()  const { return 0; }
+    virtual void     setPosition(int x, int y) { (void)x; (void)y; }
+    virtual void     setSize(uint32_t w, uint32_t h) { (void)w; (void)h; }
+    virtual void     setCursor(Genesis::PlatformCursor shape) { (void)shape; }
+    virtual Genesis::PlatformWindowStyle windowStyle() const { return Genesis::PlatformWindowStyle::Normal; }
+    virtual Genesis::NativeWindowHandle nativeHandle() const { return {}; }
+    
+    // Focus & state checks
+    virtual bool consumeFocusLost() { return false; }
+    virtual bool isAltDown() const { return false; }
+
+    virtual std::pair<int,int> globalCursorPos() const { return {0, 0}; }
+    virtual bool isLeftButtonDown() const { return false; }
+
+    virtual std::pair<int,int> virtualDesktopSize() const { return {1920, 1080}; }
+    virtual void setFullscreen(bool on) { (void)on; }
 };
 
 /**

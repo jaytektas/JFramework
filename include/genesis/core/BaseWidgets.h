@@ -98,7 +98,7 @@ public:
     virtual void handleMousePress(float, float)   {}
     virtual void handleMouseRelease(float, float) {}
     virtual bool handleKeyEvent(const KeyEvent&) { return false; }
-    virtual void handleScroll(float /*mx*/, float /*my*/, float /*wheel*/) {}
+    virtual bool handleScroll(float /*mx*/, float /*my*/, float /*wheel*/) { return false; }
 
     // AI interface
     AISemanticNode getSemanticNode() const override {
@@ -377,9 +377,6 @@ private:
 };
 
 // ============================================================================
-// Button
-// ============================================================================
-
 class Button : public Control {
 public:
     Button(SceneGraph& graph, const std::string& label,
@@ -398,10 +395,27 @@ public:
         if (m_state == WidgetState::Hovered) fill = Colors::Surface3;
         if (m_state == WidgetState::Pressed) fill = Colors::Accent;
         bool focused = isFocused();
+        drawBackground(buf, b, fill, focused);
+        drawLabel(buf, b);
+    }
+
+    AISemanticNode getSemanticNode() const override { return {"Button", m_label, "", true}; }
+    bool executeSemanticAction(const std::string& a) override {
+        if (a == "click") {
+            onClicked.emit();
+            if (AiBusHook::emit) AiBusHook::emit(m_nodeId, AiBusHook::kClick, m_label.c_str());
+            return true;
+        }
+        return false;
+    }
+
+protected:
+    virtual void drawBackground(PrimitiveBuffer& buf, const Rect& b, const uint8_t* fill, bool focused) {
         buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f,
                           focused ? 1.5f : 1.0f,
                           focused ? Colors::Accent : Colors::Border);
-
+    }
+    virtual void drawLabel(PrimitiveBuffer& buf, const Rect& b) {
         if (TextHelper::hasAtlas()) {
             std::string txt = tr(m_label);
             float tw = TextHelper::measureWidth(txt);
@@ -415,16 +429,6 @@ public:
             uint8_t tc[4] = {220, 220, 228, 200};
             buf.pushRectangle(tx, b.y + (b.height - 6.0f) * 0.5f, tw, 6.0f, tc, 2.0f);
         }
-    }
-
-    AISemanticNode getSemanticNode() const override { return {"Button", m_label, "", true}; }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a == "click") {
-            onClicked.emit();
-            if (AiBusHook::emit) AiBusHook::emit(m_nodeId, AiBusHook::kClick, m_label.c_str());
-            return true;
-        }
-        return false;
     }
 
 private:
@@ -478,9 +482,25 @@ public:
             fill = hover;
         }
         bool focused = isFocused();
+        drawBackground(buf, b, fill, focused);
+        drawLabel(buf, b);
+    }
+
+    AISemanticNode getSemanticNode() const override {
+        return {"ToggleButton", m_label, m_toggled ? "true" : "false", true};
+    }
+    bool executeSemanticAction(const std::string& a) override {
+        if (a == "toggle") { setToggled(!m_toggled); return true; }
+        return false;
+    }
+
+protected:
+    virtual void drawBackground(PrimitiveBuffer& buf, const Rect& b, const uint8_t* fill, bool focused) {
         buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f,
                           focused ? 1.5f : 1.0f,
                           focused ? Colors::Accent : Colors::Border);
+    }
+    virtual void drawLabel(PrimitiveBuffer& buf, const Rect& b) {
         if (TextHelper::hasAtlas()) {
             std::string txt = tr(m_label);
             float tw = TextHelper::measureWidth(txt);
@@ -492,14 +512,6 @@ public:
             uint8_t tc[4] = {220, 220, 228, 200};
             buf.pushRectangle(b.x + (b.width-tw)*0.5f, b.y + (b.height-6.0f)*0.5f, tw, 6.0f, tc, 2.0f);
         }
-    }
-
-    AISemanticNode getSemanticNode() const override {
-        return {"ToggleButton", m_label, m_toggled ? "true" : "false", true};
-    }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a == "toggle") { setToggled(!m_toggled); return true; }
-        return false;
     }
 
 private:
@@ -544,29 +556,10 @@ public:
     void populateRenderPrimitives(PrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float boxSz = b.height;
-        // Box
         const uint8_t* fill = m_checked ? Colors::Accent : Colors::Surface1;
         bool focused = isFocused();
-        buf.pushRectangle(b.x, b.y, boxSz, boxSz, fill, 4.0f,
-                          focused ? 2.0f : 1.5f,
-                          focused ? Colors::Accent : Colors::Border);
-        // Tick mark when checked — two overlapping rects form a checkmark shape
-        if (m_checked) {
-            uint8_t white[4] = {255, 255, 255, 220};
-            buf.pushRectangle(b.x + 3.0f, b.y + boxSz*0.5f - 1.5f, boxSz - 6.0f, 3.0f, white, 1.5f);
-            buf.pushRectangle(b.x + boxSz*0.5f - 1.5f, b.y + 3.0f, 3.0f, boxSz - 6.0f, white, 1.5f);
-        }
-        // Label next to box
-        if (TextHelper::hasAtlas()) {
-            uint8_t lc[4] = {200, 200, 210, 200};
-            TextHelper::pushText(buf, b.x + boxSz + 8.0f,
-                                 b.y + (b.height - TextHelper::lineHeight()) * 0.5f,
-                                 tr(m_label), lc, b.width - boxSz - 8.0f);
-        } else {
-            uint8_t lc[4] = {180, 180, 190, 140};
-            buf.pushRectangle(b.x + boxSz + 8.0f, b.y + (b.height - 6.0f)*0.5f,
-                              b.width - boxSz - 8.0f, 6.0f, lc, 2.0f);
-        }
+        drawBox(buf, b, boxSz, fill, focused);
+        drawLabel(buf, b, boxSz);
     }
 
     AISemanticNode getSemanticNode() const override {
@@ -576,6 +569,30 @@ public:
         if (a == "check")   { setChecked(true);  return true; }
         if (a == "uncheck") { setChecked(false); return true; }
         return false;
+    }
+
+protected:
+    virtual void drawBox(PrimitiveBuffer& buf, const Rect& b, float boxSz, const uint8_t* fill, bool focused) {
+        buf.pushRectangle(b.x, b.y, boxSz, boxSz, fill, 4.0f,
+                          focused ? 2.0f : 1.5f,
+                          focused ? Colors::Accent : Colors::Border);
+        if (m_checked) {
+            uint8_t white[4] = {255, 255, 255, 220};
+            buf.pushRectangle(b.x + 3.0f, b.y + boxSz*0.5f - 1.5f, boxSz - 6.0f, 3.0f, white, 1.5f);
+            buf.pushRectangle(b.x + boxSz*0.5f - 1.5f, b.y + 3.0f, 3.0f, boxSz - 6.0f, white, 1.5f);
+        }
+    }
+    virtual void drawLabel(PrimitiveBuffer& buf, const Rect& b, float boxSz) {
+        if (TextHelper::hasAtlas()) {
+            uint8_t lc[4] = {200, 200, 210, 200};
+            TextHelper::pushText(buf, b.x + boxSz + 8.0f,
+                                 b.y + (b.height - TextHelper::lineHeight()) * 0.5f,
+                                 tr(m_label), lc, b.width - boxSz - 8.0f);
+        } else {
+            uint8_t lc[4] = {180, 180, 190, 140};
+            buf.pushRectangle(b.x + boxSz + 8.0f, b.y + (b.height - 6.0f)*0.5f,
+                               b.width - boxSz - 8.0f, 6.0f, lc, 2.0f);
+        }
     }
 
 private:
@@ -612,30 +629,11 @@ public:
 
     void populateRenderPrimitives(PrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        float r = b.height;           // outer circle diameter == row height
-        float borderW = 1.5f;
-        // Outer circle (use extreme radius for perfect circle)
+        float r = b.height;
         const uint8_t* ring = m_selected ? Colors::Accent : Colors::Surface1;
         bool focused = isFocused();
-        buf.pushRectangle(b.x, b.y, r, r, ring, r * 0.5f,
-                          focused ? 2.0f : borderW,
-                          focused ? Colors::Accent : Colors::Border);
-        // Inner fill dot when selected
-        if (m_selected) {
-            float dot = r * 0.42f, offset = (r - dot) * 0.5f;
-            buf.pushRectangle(b.x + offset, b.y + offset, dot, dot, Colors::TextPrimary, dot * 0.5f);
-        }
-        // Label
-        if (TextHelper::hasAtlas()) {
-            uint8_t lc[4] = {200, 200, 210, 200};
-            TextHelper::pushText(buf, b.x + r + 8.0f,
-                                 b.y + (b.height - TextHelper::lineHeight()) * 0.5f,
-                                 tr(m_label), lc, b.width - r - 8.0f);
-        } else {
-            uint8_t lc[4] = {180, 180, 190, 140};
-            buf.pushRectangle(b.x + r + 8.0f, b.y + (b.height - 6.0f)*0.5f,
-                              b.width - r - 8.0f, 6.0f, lc, 2.0f);
-        }
+        drawCircle(buf, b, r, ring, focused);
+        drawLabel(buf, b, r);
     }
 
     AISemanticNode getSemanticNode() const override {
@@ -644,6 +642,30 @@ public:
     bool executeSemanticAction(const std::string& a) override {
         if (a == "select") { setSelected(true); return true; }
         return false;
+    }
+
+protected:
+    virtual void drawCircle(PrimitiveBuffer& buf, const Rect& b, float r, const uint8_t* ring, bool focused) {
+        float borderW = 1.5f;
+        buf.pushRectangle(b.x, b.y, r, r, ring, r * 0.5f,
+                          focused ? 2.0f : borderW,
+                          focused ? Colors::Accent : Colors::Border);
+        if (m_selected) {
+            float dot = r * 0.42f, offset = (r - dot) * 0.5f;
+            buf.pushRectangle(b.x + offset, b.y + offset, dot, dot, Colors::TextPrimary, dot * 0.5f);
+        }
+    }
+    virtual void drawLabel(PrimitiveBuffer& buf, const Rect& b, float r) {
+        if (TextHelper::hasAtlas()) {
+            uint8_t lc[4] = {200, 200, 210, 200};
+            TextHelper::pushText(buf, b.x + r + 8.0f,
+                                 b.y + (b.height - TextHelper::lineHeight()) * 0.5f,
+                                 tr(m_label), lc, b.width - r - 8.0f);
+        } else {
+            uint8_t lc[4] = {180, 180, 190, 140};
+            buf.pushRectangle(b.x + r + 8.0f, b.y + (b.height - 6.0f)*0.5f,
+                               b.width - r - 8.0f, 6.0f, lc, 2.0f);
+        }
     }
 
 private:
@@ -693,21 +715,14 @@ public:
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float trackH = 4.0f, trackY = b.y + (b.height - trackH) * 0.5f;
         float fillW  = b.width * m_value;
+        drawTrack(buf, b, trackY, trackH, fillW);
 
-        // Track background
-        buf.pushRectangle(b.x, trackY, b.width, trackH, Colors::Surface3, 2.0f);
-        // Filled portion
-        if (fillW > 0.5f)
-            buf.pushRectangle(b.x, trackY, fillW, trackH, Colors::Accent, 2.0f);
-        // Thumb
         float thumbW = 16.0f, thumbH = b.height;
         float thumbX = b.x + fillW - thumbW * 0.5f;
         thumbX = std::clamp(thumbX, b.x, b.x + b.width - thumbW);
         const uint8_t* tc = (m_state == WidgetState::Pressed) ? Colors::AccentPress : Colors::TextPrimary;
         bool focused = isFocused();
-        buf.pushRectangle(thumbX, b.y, thumbW, thumbH, tc, thumbW * 0.5f,
-                          focused ? 1.5f : 0.0f,
-                          focused ? Colors::Accent : Colors::Border);
+        drawThumb(buf, b, thumbX, thumbW, thumbH, tc, focused);
     }
 
     AISemanticNode getSemanticNode() const override {
@@ -718,6 +733,18 @@ public:
             try { setValue(std::stof(a.substr(10))); return true; } catch (...) {}
         }
         return false;
+    }
+
+protected:
+    virtual void drawTrack(PrimitiveBuffer& buf, const Rect& b, float trackY, float trackH, float fillW) {
+        buf.pushRectangle(b.x, trackY, b.width, trackH, Colors::Surface3, 2.0f);
+        if (fillW > 0.5f)
+            buf.pushRectangle(b.x, trackY, fillW, trackH, Colors::Accent, 2.0f);
+    }
+    virtual void drawThumb(PrimitiveBuffer& buf, const Rect& b, float thumbX, float thumbW, float thumbH, const uint8_t* tc, bool focused) {
+        buf.pushRectangle(thumbX, b.y, thumbW, thumbH, tc, thumbW * 0.5f,
+                          focused ? 1.5f : 0.0f,
+                          focused ? Colors::Accent : Colors::Border);
     }
 
 private:
@@ -744,9 +771,8 @@ public:
 
     void populateRenderPrimitives(PrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface2, 6.0f);
-        if (m_progress > 0.005f)
-            buf.pushRectangle(b.x, b.y, b.width * m_progress, b.height, Colors::Success, 6.0f);
+        drawTrack(buf, b);
+        drawProgressFill(buf, b, m_progress);
     }
 
     AISemanticNode getSemanticNode() const override {
@@ -754,11 +780,20 @@ public:
     }
     bool executeSemanticAction(const std::string&) override { return false; }
 
+protected:
+    virtual void drawTrack(PrimitiveBuffer& buf, const Rect& b) {
+        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface2, 6.0f);
+    }
+    virtual void drawProgressFill(PrimitiveBuffer& buf, const Rect& b, float progress) {
+        if (progress > 0.005f)
+            buf.pushRectangle(b.x, b.y, b.width * progress, b.height, Colors::Success, 6.0f);
+    }
+
 private:
     float m_progress;
 };
 
-// ============================================================================
+// ============================================================================================
 // ScrollBar
 // ============================================================================
 
@@ -1830,9 +1865,19 @@ public:
         }
     }
 
-    void handleScroll(float mx, float my, float wheel) override {
+    bool handleScroll(float mx, float my, float wheel) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
+            bool consumed = false;
+            for (Widget* w : m_children) {
+                if (w->isVisible()) {
+                    if (w->handleScroll(mx, my, wheel)) {
+                        consumed = true;
+                    }
+                }
+            }
+            if (consumed) return true;
+
             float totalH = 12.0f;
             for (Widget* w : m_children) {
                 totalH += m_graph.getLayoutConst(w->getNodeId()).boundingBox.height + 6.0f;
@@ -1840,11 +1885,9 @@ public:
             float maxScrollY = std::max(0.0f, totalH - b.height);
             m_scrollY = std::clamp(m_scrollY - wheel * 40.0f, 0.0f, maxScrollY);
             m_graph.invalidateNode(m_nodeId, DirtySelf);
-            
-            for (Widget* w : m_children) {
-                if (w->isVisible()) w->handleScroll(mx, my, wheel);
-            }
+            return true;
         }
+        return false;
     }
 
     void populateRenderPrimitives(PrimitiveBuffer& buf) override {
@@ -1992,7 +2035,7 @@ public:
         Control::handleMouseRelease(mx, my);
     }
 
-    void handleScroll(float mx, float my, float wheel) override {
+    bool handleScroll(float mx, float my, float wheel) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
             float itemH = TextHelper::hasAtlas() ? TextHelper::lineHeight() + 8.0f : 20.0f;
@@ -2000,7 +2043,9 @@ public:
             float maxScrollY = std::max(0.0f, totalH - b.height);
             m_scrollY = std::clamp(m_scrollY - wheel * 30.0f, 0.0f, maxScrollY);
             m_graph.invalidateNode(m_nodeId, DirtySelf);
+            return true;
         }
+        return false;
     }
 
     bool handleKeyEvent(const KeyEvent& ke) override {
@@ -2139,6 +2184,674 @@ private:
     int                      m_selectedIndex{-1};
     float                    m_scrollY{0.0f};
     bool                     m_draggingScroll{false};
+};
+
+struct TreeViewNode {
+    std::string label;
+    bool expanded{false};
+    bool selected{false};
+    std::vector<TreeViewNode> children;
+};
+
+class TreeView : public Control {
+public:
+    Core::Signal<TreeViewNode*> onSelectionChanged;
+    Core::Signal<TreeViewNode*> onNodeActivated;
+
+    TreeView(SceneGraph& graph, float w = 240.0f, float h = 300.0f)
+        : Control(graph, "TreeView"), m_root{"Root", true, false, {}}
+    {
+        auto& l = m_graph.getLayout(m_nodeId);
+        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.minWidth = 80.0f;
+        l.minHeight = 40.0f;
+    }
+
+    TreeViewNode& root() { return m_root; }
+    const TreeViewNode& root() const { return m_root; }
+
+    void setRootNode(TreeViewNode rootNode) {
+        m_root = std::move(rootNode);
+        m_selectedNode = nullptr;
+        m_scrollY = 0.0f;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+
+    float rowHeight() const { return m_rowHeight; }
+    void setRowHeight(float h) { m_rowHeight = h; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+
+    float getItemHeight() const {
+        return m_rowHeight > 0.0f ? m_rowHeight : (TextHelper::hasAtlas() ? TextHelper::lineHeight() + 8.0f : 22.0f);
+    }
+
+    struct FlatNode {
+        TreeViewNode* node;
+        int depth;
+        size_t flatIndex;
+    };
+
+    std::vector<FlatNode> getFlatNodes() {
+        std::vector<FlatNode> flat;
+        for (auto& child : m_root.children) {
+            _flatten(child, 0, flat);
+        }
+        return flat;
+    }
+
+    void handleMousePress(float mx, float my) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
+            onClicked.emit();
+            float trackW = 10.0f;
+            float trackX = b.x + b.width - trackW;
+            if (mx >= trackX) {
+                m_draggingScroll = true;
+            } else {
+                auto flatNodes = getFlatNodes();
+                float itemH = getItemHeight();
+                float relativeY = my - b.y + m_scrollY - 4.0f;
+                int clickedIndex = static_cast<int>(relativeY / itemH);
+                if (clickedIndex >= 0 && clickedIndex < (int)flatNodes.size()) {
+                    auto& flat = flatNodes[clickedIndex];
+                    float indent = flat.depth * 16.0f + 6.0f;
+                    float arrowW = 16.0f;
+                    if (!flat.node->children.empty() && mx >= b.x + indent && mx <= b.x + indent + arrowW) {
+                        flat.node->expanded = !flat.node->expanded;
+                        m_graph.invalidateNode(m_nodeId, DirtySelf);
+                    } else {
+                        _selectNode(flat.node);
+                        onNodeActivated.emit(flat.node);
+                    }
+                }
+            }
+        }
+    }
+
+    void handleMouseRelease(float mx, float my) override {
+        m_draggingScroll = false;
+        Control::handleMouseRelease(mx, my);
+    }
+
+    bool handleScroll(float mx, float my, float wheel) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
+            auto flatNodes = getFlatNodes();
+            float itemH = getItemHeight();
+            float totalH = flatNodes.size() * itemH + 8.0f;
+            float maxScrollY = std::max(0.0f, totalH - b.height);
+            m_scrollY = std::clamp(m_scrollY - wheel * 30.0f, 0.0f, maxScrollY);
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            return true;
+        }
+        return false;
+    }
+
+    bool handleKeyEvent(const KeyEvent& ke) override {
+        if (!ke.pressed) return false;
+        auto flatNodes = getFlatNodes();
+        if (flatNodes.empty()) return false;
+
+        int selIdx = -1;
+        if (m_selectedNode) {
+            for (int i = 0; i < (int)flatNodes.size(); ++i) {
+                if (flatNodes[i].node == m_selectedNode) {
+                    selIdx = i;
+                    break;
+                }
+            }
+        }
+
+        using K = KeyEvent::Key;
+        if (ke.key == K::Down) {
+            int nextIdx = (selIdx == -1) ? 0 : std::clamp(selIdx + 1, 0, (int)flatNodes.size() - 1);
+            _selectNode(flatNodes[nextIdx].node);
+            _ensureIndexVisible(nextIdx);
+            return true;
+        } else if (ke.key == K::Up) {
+            int nextIdx = (selIdx == -1) ? 0 : std::clamp(selIdx - 1, 0, (int)flatNodes.size() - 1);
+            _selectNode(flatNodes[nextIdx].node);
+            _ensureIndexVisible(nextIdx);
+            return true;
+        } else if (ke.key == K::Right) {
+            if (selIdx != -1) {
+                auto* n = flatNodes[selIdx].node;
+                if (!n->children.empty()) {
+                    if (!n->expanded) {
+                        n->expanded = true;
+                        m_graph.invalidateNode(m_nodeId, DirtySelf);
+                    } else {
+                        int nextIdx = std::clamp(selIdx + 1, 0, (int)flatNodes.size() - 1);
+                        _selectNode(flatNodes[nextIdx].node);
+                        _ensureIndexVisible(nextIdx);
+                    }
+                    return true;
+                }
+            }
+        } else if (ke.key == K::Left) {
+            if (selIdx != -1) {
+                auto* n = flatNodes[selIdx].node;
+                if (!n->children.empty() && n->expanded) {
+                    n->expanded = false;
+                    m_graph.invalidateNode(m_nodeId, DirtySelf);
+                    return true;
+                } else {
+                    TreeViewNode* parent = _findParent(&m_root, n);
+                    if (parent && parent != &m_root) {
+                        _selectNode(parent);
+                        for (int i = 0; i < (int)flatNodes.size(); ++i) {
+                            if (flatNodes[i].node == parent) {
+                                _ensureIndexVisible(i);
+                                break;
+                            }
+                        }
+                        return true;
+                    }
+                }
+            }
+        } else if (ke.key == K::Return || ke.key == K::Space) {
+            if (selIdx != -1) {
+                onNodeActivated.emit(flatNodes[selIdx].node);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        bool focused = isFocused();
+
+        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1, 6.0f,
+                          focused ? 1.5f : 1.0f,
+                          focused ? Colors::Accent : Colors::Border);
+
+        auto flatNodes = getFlatNodes();
+        if (flatNodes.empty()) return;
+
+        float itemH = getItemHeight();
+        float totalH = flatNodes.size() * itemH + 8.0f;
+        float maxScrollY = std::max(0.0f, totalH - b.height);
+        m_scrollY = std::clamp(m_scrollY, 0.0f, maxScrollY);
+
+        int startIdx = static_cast<int>(m_scrollY / itemH);
+        int endIdx = static_cast<int>((m_scrollY + b.height) / itemH) + 1;
+        startIdx = std::clamp(startIdx, 0, (int)flatNodes.size() - 1);
+        endIdx = std::clamp(endIdx, 0, (int)flatNodes.size() - 1);
+
+        buf.pushClip(b.x + 1.0f, b.y + 1.0f, b.width - 13.0f, b.height - 2.0f);
+
+        for (int i = startIdx; i <= endIdx; ++i) {
+            auto& flat = flatNodes[i];
+            float itemY = b.y + 4.0f + i * itemH - m_scrollY;
+            float indent = flat.depth * 16.0f + 6.0f;
+
+            if (flat.node == m_selectedNode) {
+                drawNodeBackground(buf, flat.node, {b.x + 4.0f, itemY, b.width - 18.0f, itemH});
+            }
+
+            if (!flat.node->children.empty()) {
+                float ax = b.x + indent + 8.0f;
+                float ay = itemY + itemH * 0.5f;
+                drawNodeChevron(buf, flat.node, ax, ay, 10.0f, flat.node->expanded);
+            }
+
+            float textX = b.x + indent + 16.0f;
+            float ty = itemY + (itemH - (TextHelper::hasAtlas() ? TextHelper::lineHeight() : 8.0f)) * 0.5f;
+            drawNodeText(buf, flat.node, textX, ty, b.width - indent - 30.0f);
+        }
+
+        buf.popClip();
+
+        if (totalH > b.height) {
+            float trackW = 8.0f;
+            float trackX = b.x + b.width - trackW - 2.0f;
+            buf.pushRectangle(trackX, b.y + 2.0f, trackW, b.height - 4.0f, Colors::Surface2, 4.0f);
+
+            float handleH = std::max(20.0f, (b.height / totalH) * (b.height - 8.0f));
+            float handleY = b.y + 4.0f + (m_scrollY / maxScrollY) * (b.height - 8.0f - handleH);
+            buf.pushRectangle(trackX + 1.0f, handleY, trackW - 2.0f, handleH, Colors::Surface3, 3.0f);
+        }
+    }
+
+    AISemanticNode getSemanticNode() const override {
+        std::string val = m_selectedNode ? m_selectedNode->label : "";
+        return {"TreeView", "", val, true};
+    }
+
+    bool executeSemanticAction(const std::string& a) override {
+        if (a.rfind("select:", 0) == 0) {
+            std::string label = a.substr(7);
+            auto flatNodes = getFlatNodes();
+            for (auto& flat : flatNodes) {
+                if (flat.node->label == label) {
+                    _selectNode(flat.node);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    TreeViewNode* selectedNode() const { return m_selectedNode; }
+
+protected:
+    virtual void drawNodeBackground(PrimitiveBuffer& buf, TreeViewNode* node, const Rect& bounds) {
+        uint8_t selBg[4] = {10, 132, 255, 60};
+        buf.pushRectangle(bounds.x, bounds.y, bounds.width, bounds.height, selBg, 4.0f);
+    }
+
+    virtual void drawNodeChevron(PrimitiveBuffer& buf, TreeViewNode* node, float ax, float ay, float size, bool expanded) {
+        uint8_t arrowColor[4] = {180, 180, 190, 220};
+        if (expanded) {
+            buf.pushRectangle(ax - 4.0f, ay - 2.0f, 5.0f, 2.0f, arrowColor, 1.0f);
+            buf.pushRectangle(ax + 1.0f, ay - 2.0f, 5.0f, 2.0f, arrowColor, 1.0f);
+        } else {
+            buf.pushRectangle(ax - 2.0f, ay - 4.0f, 2.0f, 5.0f, arrowColor, 1.0f);
+            buf.pushRectangle(ax - 2.0f, ay + 1.0f, 2.0f, 5.0f, arrowColor, 1.0f);
+        }
+    }
+
+    virtual void drawNodeText(PrimitiveBuffer& buf, TreeViewNode* node, float tx, float ty, float maxW) {
+        if (TextHelper::hasAtlas()) {
+            uint8_t tc[4] = {210, 210, 220, 220};
+            TextHelper::pushText(buf, tx, ty, tr(node->label), tc, maxW);
+        } else {
+            uint8_t tc[4] = {200, 200, 210, 180};
+            buf.pushRectangle(tx, ty + 2.0f, 60.0f, 8.0f, tc, 2.0f);
+        }
+    }
+
+private:
+    void _flatten(TreeViewNode& node, int depth, std::vector<FlatNode>& result) {
+        result.push_back({&node, depth, result.size()});
+        if (node.expanded) {
+            for (auto& child : node.children) {
+                _flatten(child, depth + 1, result);
+            }
+        }
+    }
+
+    void _selectNode(TreeViewNode* node) {
+        if (m_selectedNode != node) {
+            if (m_selectedNode) m_selectedNode->selected = false;
+            m_selectedNode = node;
+            if (m_selectedNode) m_selectedNode->selected = true;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            onSelectionChanged.emit(node);
+        }
+    }
+
+    TreeViewNode* _findParent(TreeViewNode* current, TreeViewNode* target) {
+        for (auto& child : current->children) {
+            if (&child == target) return current;
+            auto* p = _findParent(&child, target);
+            if (p) return p;
+        }
+        return nullptr;
+    }
+
+    void _ensureIndexVisible(int index) {
+        auto flatNodes = getFlatNodes();
+        if (index < 0 || index >= (int)flatNodes.size()) return;
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        float itemH = getItemHeight();
+        float itemY = index * itemH;
+        if (itemY < m_scrollY) {
+            m_scrollY = itemY;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+        } else if (itemY + itemH > m_scrollY + b.height) {
+            m_scrollY = itemY + itemH - b.height;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+        }
+    }
+
+    TreeViewNode  m_root;
+    TreeViewNode* m_selectedNode{nullptr};
+    float         m_scrollY{0.0f};
+    float         m_rowHeight{-1.0f};
+    bool          m_draggingScroll{false};
+};
+
+class DataGrid : public Control {
+public:
+    Core::Signal<int> onSelectionChanged;
+    Core::Signal<int> onRowActivated;
+
+    DataGrid(SceneGraph& graph, std::vector<std::string> headers = {}, float w = 400.0f, float h = 250.0f)
+        : Control(graph, "DataGrid"), m_headers(std::move(headers))
+    {
+        auto& l = m_graph.getLayout(m_nodeId);
+        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.minWidth = 100.0f;
+        l.minHeight = 80.0f;
+    }
+
+    void setHeaders(const std::vector<std::string>& headers) {
+        m_headers = headers;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+
+    void setColumnWidths(const std::vector<float>& widths) {
+        m_columnWidths = widths;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+
+    void setRows(const std::vector<std::vector<std::string>>& rows) {
+        m_rows = rows;
+        if (m_selectedIndex != -1) {
+            m_selectedIndex = m_rows.empty() ? -1 : std::clamp(m_selectedIndex, 0, (int)m_rows.size()-1);
+        }
+        m_scrollY = 0.0f;
+        m_scrollX = 0.0f;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+
+    const std::vector<std::string>& headers() const { return m_headers; }
+    const std::vector<std::vector<std::string>>& rows() const { return m_rows; }
+
+    void setSelectedIndex(int index) {
+        int nextIdx = (m_rows.empty()) ? -1 : std::clamp(index, 0, (int)m_rows.size()-1);
+        if (m_selectedIndex != nextIdx) {
+            m_selectedIndex = nextIdx;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            onSelectionChanged.emit(nextIdx);
+        }
+    }
+    int selectedIndex() const { return m_selectedIndex; }
+
+    float rowHeight() const { return m_rowHeight; }
+    void setRowHeight(float h) { m_rowHeight = h; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+
+    float headerHeight() const { return m_headerHeight; }
+    void setHeaderHeight(float h) { m_headerHeight = h; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+
+    float cellPadding() const { return m_cellPadding; }
+    void setCellPadding(float p) { m_cellPadding = p; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+
+    float columnWidth(int colIdx, float totalW) const {
+        if (colIdx >= 0 && colIdx < (int)m_columnWidths.size()) {
+            return m_columnWidths[colIdx];
+        }
+        if (m_headers.empty()) return totalW;
+        return totalW / m_headers.size();
+    }
+
+    void handleMousePress(float mx, float my) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
+            onClicked.emit();
+            float scrollBarW = 10.0f;
+            float headerH = m_headerHeight;
+            float rowH = m_rowHeight;
+
+            float trackX = b.x + b.width - scrollBarW;
+            if (mx >= trackX && my >= b.y + headerH) {
+                m_draggingVScroll = true;
+                return;
+            }
+
+            float trackY = b.y + b.height - scrollBarW;
+            if (my >= trackY && mx < trackX) {
+                m_draggingHScroll = true;
+                return;
+            }
+
+            if (my >= b.y + headerH && my < b.y + b.height - (hasHScroll(b) ? scrollBarW : 0.0f)) {
+                float relativeY = my - (b.y + headerH) + m_scrollY;
+                int clickedIndex = static_cast<int>(relativeY / rowH);
+                if (clickedIndex >= 0 && clickedIndex < (int)m_rows.size()) {
+                    setSelectedIndex(clickedIndex);
+                    onRowActivated.emit(clickedIndex);
+                }
+            }
+        }
+    }
+
+    void handleMouseRelease(float mx, float my) override {
+        m_draggingVScroll = false;
+        m_draggingHScroll = false;
+        Control::handleMouseRelease(mx, my);
+    }
+
+    bool handleScroll(float mx, float my, float wheel) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
+            float headerH = m_headerHeight;
+            float rowH = m_rowHeight;
+            float hScrollH = hasHScroll(b) ? 10.0f : 0.0f;
+            float totalH = m_rows.size() * rowH + headerH + hScrollH;
+            float maxScrollY = std::max(0.0f, totalH - b.height);
+            m_scrollY = std::clamp(m_scrollY - wheel * 30.0f, 0.0f, maxScrollY);
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            return true;
+        }
+        return false;
+    }
+
+    bool handleKeyEvent(const KeyEvent& ke) override {
+        if (!ke.pressed || m_rows.empty()) return false;
+        using K = KeyEvent::Key;
+
+        if (ke.key == K::Down) {
+            setSelectedIndex(m_selectedIndex + 1);
+            _ensureRowVisible(m_selectedIndex);
+            return true;
+        } else if (ke.key == K::Up) {
+            setSelectedIndex(m_selectedIndex - 1);
+            _ensureRowVisible(m_selectedIndex);
+            return true;
+        } else if (ke.key == K::Return || ke.key == K::Space) {
+            if (m_selectedIndex >= 0 && m_selectedIndex < (int)m_rows.size()) {
+                onRowActivated.emit(m_selectedIndex);
+            }
+            return true;
+        } else if (ke.key == K::Right) {
+            const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+            float totalColW = 0.0f;
+            for (int i = 0; i < (int)m_headers.size(); ++i) {
+                totalColW += columnWidth(i, b.width);
+            }
+            float maxScrollX = std::max(0.0f, totalColW - b.width + (hasVScroll(b) ? 10.0f : 0.0f));
+            m_scrollX = std::clamp(m_scrollX + 20.0f, 0.0f, maxScrollX);
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            return true;
+        } else if (ke.key == K::Left) {
+            m_scrollX = std::clamp(m_scrollX - 20.0f, 0.0f, m_scrollX);
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            return true;
+        }
+        return false;
+    }
+
+    bool hasVScroll(const Rect& b) const {
+        float headerH = m_headerHeight;
+        float rowH = m_rowHeight;
+        float totalH = m_rows.size() * rowH + headerH;
+        return totalH > b.height;
+    }
+
+    bool hasHScroll(const Rect& b) const {
+        float totalColW = 0.0f;
+        for (int i = 0; i < (int)m_headers.size(); ++i) {
+            totalColW += columnWidth(i, b.width);
+        }
+        return totalColW > b.width;
+    }
+
+    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        bool focused = isFocused();
+
+        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1, 6.0f,
+                          focused ? 1.5f : 1.0f,
+                          focused ? Colors::Accent : Colors::Border);
+
+        float headerH = m_headerHeight;
+        float rowH = m_rowHeight;
+        float scrollBarW = 10.0f;
+
+        bool hasV = hasVScroll(b);
+        bool hasH = hasHScroll(b);
+        float visibleW = b.width - (hasV ? scrollBarW : 0.0f) - 2.0f;
+        float visibleH = b.height - (hasH ? scrollBarW : 0.0f) - 2.0f;
+
+        buf.pushRectangle(b.x + 1.0f, b.y + 1.0f, visibleW, headerH - 1.0f, Colors::Surface3, 4.0f);
+
+        buf.pushClip(b.x + 1.0f, b.y + 1.0f, visibleW, visibleH);
+
+        std::vector<float> colStartX;
+        float currentX = 0.0f;
+        for (int i = 0; i < (int)m_headers.size(); ++i) {
+            colStartX.push_back(currentX);
+            currentX += columnWidth(i, b.width);
+        }
+        float totalColW = currentX;
+
+        float maxScrollY = std::max(0.0f, m_rows.size() * rowH + headerH + (hasH ? scrollBarW : 0.0f) - b.height);
+        m_scrollY = std::clamp(m_scrollY, 0.0f, maxScrollY);
+
+        float maxScrollX = std::max(0.0f, totalColW - visibleW);
+        m_scrollX = std::clamp(m_scrollX, 0.0f, maxScrollX);
+
+        for (int i = 0; i < (int)m_headers.size(); ++i) {
+            float colW = columnWidth(i, b.width);
+            float startX = b.x + 1.0f + colStartX[i] - m_scrollX;
+
+            drawHeaderCell(buf, i, {startX, b.y + 1.0f, colW, headerH - 1.0f}, m_headers[i]);
+
+            if (i > 0) {
+                uint8_t gridC[4] = {72, 72, 76, 255};
+                buf.pushRectangle(startX, b.y + 1.0f, 1.0f, headerH - 1.0f, gridC);
+            }
+        }
+
+        int startIdx = static_cast<int>(m_scrollY / rowH);
+        int endIdx = static_cast<int>((m_scrollY + visibleH - headerH) / rowH) + 1;
+        startIdx = std::clamp(startIdx, 0, (int)m_rows.size() - 1);
+        endIdx = std::clamp(endIdx, 0, (int)m_rows.size() - 1);
+
+        for (int r = startIdx; r <= endIdx; ++r) {
+            float rowY = b.y + headerH + r * rowH - m_scrollY;
+
+            if (r == m_selectedIndex) {
+                uint8_t selBg[4] = {10, 132, 255, 60};
+                buf.pushRectangle(b.x + 1.0f, rowY, visibleW, rowH, selBg);
+            } else if (r % 2 == 1) {
+                uint8_t altBg[4] = {34, 34, 36, 120};
+                buf.pushRectangle(b.x + 1.0f, rowY, visibleW, rowH, altBg);
+            }
+
+            for (int c = 0; c < (int)m_headers.size() && c < (int)m_rows[r].size(); ++c) {
+                float colW = columnWidth(c, b.width);
+                float cellX = b.x + 1.0f + colStartX[c] - m_scrollX;
+
+                drawRowCell(buf, r, c, {cellX, rowY, colW, rowH}, m_rows[r][c], r == m_selectedIndex);
+
+                if (c > 0) {
+                    uint8_t gridC[4] = {50, 50, 54, 180};
+                    buf.pushRectangle(cellX, rowY, 1.0f, rowH, gridC);
+                }
+            }
+
+            uint8_t gridH[4] = {50, 50, 54, 180};
+            buf.pushRectangle(b.x + 1.0f, rowY + rowH - 1.0f, visibleW, 1.0f, gridH);
+        }
+
+        buf.popClip();
+
+        if (hasV) {
+            float trackX = b.x + b.width - scrollBarW - 1.0f;
+            buf.pushRectangle(trackX, b.y + headerH, scrollBarW, b.height - headerH - (hasH ? scrollBarW : 0.0f), Colors::Surface2, 3.0f);
+            
+            float totalH = m_rows.size() * rowH + headerH + (hasH ? scrollBarW : 0.0f);
+            float trackH = b.height - headerH - (hasH ? scrollBarW : 0.0f);
+            float handleH = std::max(20.0f, (trackH / totalH) * trackH);
+            float handleY = b.y + headerH + (m_scrollY / maxScrollY) * (trackH - handleH);
+            buf.pushRectangle(trackX + 1.0f, handleY, scrollBarW - 2.0f, handleH, Colors::Surface3, 2.0f);
+        }
+
+        if (hasH) {
+            float trackY = b.y + b.height - scrollBarW - 1.0f;
+            buf.pushRectangle(b.x, trackY, b.width - (hasV ? scrollBarW : 0.0f), scrollBarW, Colors::Surface2, 3.0f);
+
+            float trackW = b.width - (hasV ? scrollBarW : 0.0f);
+            float handleW = std::max(20.0f, (trackW / totalColW) * trackW);
+            float handleX = b.x + (m_scrollX / maxScrollX) * (trackW - handleW);
+            buf.pushRectangle(handleX, trackY + 1.0f, handleW, scrollBarW - 2.0f, Colors::Surface3, 2.0f);
+        }
+    }
+
+    AISemanticNode getSemanticNode() const override {
+        std::string val = "";
+        if (m_selectedIndex >= 0 && m_selectedIndex < (int)m_rows.size()) {
+            for (const auto& cell : m_rows[m_selectedIndex]) {
+                if (!val.empty()) val += " | ";
+                val += cell;
+            }
+        }
+        return {"DataGrid", "", val, true};
+    }
+
+    bool executeSemanticAction(const std::string& a) override {
+        if (a.rfind("select_row:", 0) == 0) {
+            try {
+                int row = std::stoi(a.substr(11));
+                setSelectedIndex(row);
+                _ensureRowVisible(row);
+                return true;
+            } catch (...) {}
+        }
+        return false;
+    }
+
+protected:
+    virtual void drawHeaderCell(PrimitiveBuffer& buf, int colIdx, const Rect& bounds, const std::string& title) {
+        if (TextHelper::hasAtlas()) {
+            uint8_t tc[4] = {230, 230, 240, 255};
+            float ty = bounds.y + (bounds.height - TextHelper::lineHeight()) * 0.5f;
+            TextHelper::pushText(buf, bounds.x + m_cellPadding, ty, tr(title), tc, bounds.width - m_cellPadding * 2.0f);
+        }
+    }
+
+    virtual void drawRowCell(PrimitiveBuffer& buf, int rowIdx, int colIdx, const Rect& bounds, const std::string& val, bool selected) {
+        if (TextHelper::hasAtlas()) {
+            uint8_t tc[4] = {200, 200, 210, 220};
+            float ty = bounds.y + (bounds.height - TextHelper::lineHeight()) * 0.5f;
+            TextHelper::pushText(buf, bounds.x + m_cellPadding, ty, tr(val), tc, bounds.width - m_cellPadding * 2.0f);
+        }
+    }
+
+private:
+    void _ensureRowVisible(int index) {
+        if (index < 0 || index >= (int)m_rows.size()) return;
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        float headerH = m_headerHeight;
+        float rowH = m_rowHeight;
+        float hScrollH = hasHScroll(b) ? 10.0f : 0.0f;
+        float visibleAreaH = b.height - headerH - hScrollH;
+
+        float rowY = index * rowH;
+        if (rowY < m_scrollY) {
+            m_scrollY = rowY;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+        } else if (rowY + rowH > m_scrollY + visibleAreaH) {
+            m_scrollY = rowY + rowH - visibleAreaH;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+        }
+    }
+
+    std::vector<std::string>              m_headers;
+    std::vector<float>                    m_columnWidths;
+    std::vector<std::vector<std::string>> m_rows;
+    int                                   m_selectedIndex{-1};
+    float                                 m_scrollY{0.0f};
+    float                                 m_scrollX{0.0f};
+    float                                 m_rowHeight{24.0f};
+    float                                 m_headerHeight{28.0f};
+    float                                 m_cellPadding{8.0f};
+    bool                                  m_draggingVScroll{false};
+    bool                                  m_draggingHScroll{false};
 };
 
 } // namespace Genesis

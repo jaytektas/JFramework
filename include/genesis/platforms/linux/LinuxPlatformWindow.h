@@ -26,17 +26,6 @@ namespace Genesis {
 //                control of position (great for overlays / secondary monitors).
 //                Does NOT support setFullscreen; close detection is internal.
 // ---------------------------------------------------------------------------
-enum class PlatformWindowStyle : uint8_t { Normal, Borderless, Popup };
-
-enum class PlatformCursor : uint8_t {
-    Default,
-    ResizeLeftRight,
-    ResizeUpDown,
-    ResizeTopLeft,
-    ResizeTopRight,
-    ResizeBottomLeft,
-    ResizeBottomRight
-};
 
 /**
  * @brief Concrete Linux platform window backed by XCB.
@@ -48,7 +37,7 @@ class LinuxPlatformWindow : public Core::PlatformWindow {
 public:
     LinuxPlatformWindow(const std::string& title, uint32_t width, uint32_t height,
                         int screenX = 100, int screenY = 100,
-                        PlatformWindowStyle style = PlatformWindowStyle::Normal,
+                        Genesis::PlatformWindowStyle style = Genesis::PlatformWindowStyle::Normal,
                         xcb_window_t parentWindow = 0,
                         xcb_connection_t* sharedConnection = nullptr)
         : m_screenX(screenX), m_screenY(screenY)
@@ -323,38 +312,38 @@ public:
     }
 
     bool shouldClose()  const override { return m_closeRequested; }
-    bool consumeFocusLost() { bool v = m_focusLost; m_focusLost = false; return v; }
+    bool consumeFocusLost() override { bool v = m_focusLost; m_focusLost = false; return v; }
     void swapBuffers()        override {}
     void setVSync(bool)       override {}
 
     // ---- Mouse state accessors (consume-once for press/release) ----
-    float mouseX() const { return m_mouseX; }
-    float mouseY() const { return m_mouseY; }
-    bool  consumePress()   { bool v = m_pendingPress;   m_pendingPress   = false; return v; }
-    bool  consumeRelease() { bool v = m_pendingRelease; m_pendingRelease = false; return v; }
-    float consumeWheel()   { float v = m_wheelY; m_wheelY = 0.0f; return v; }  // +up / -down notches
+    float mouseX() const override { return m_mouseX; }
+    float mouseY() const override { return m_mouseY; }
+    bool  consumePress()   override { bool v = m_pendingPress;   m_pendingPress   = false; return v; }
+    bool  consumeRelease() override { bool v = m_pendingRelease; m_pendingRelease = false; return v; }
+    float consumeWheel()   override { float v = m_wheelY; m_wheelY = 0.0f; return v; }  // +up / -down notches
 
     // ---- Keyboard events (consume-once queue) ----
-    bool hasKeyEvents() const { return !m_keyQueue.empty(); }
-    KeyEvent consumeKey() {
+    bool hasKeyEvents() const override { return !m_keyQueue.empty(); }
+    Genesis::KeyEvent consumeKey() override {
         auto e = m_keyQueue.front();
         m_keyQueue.pop_front();
         return e;
     }
-    std::vector<KeyEvent> consumeAllKeys() {
-        std::vector<KeyEvent> out(m_keyQueue.begin(), m_keyQueue.end());
+    std::vector<Genesis::KeyEvent> consumeAllKeys() override {
+        std::vector<Genesis::KeyEvent> out(m_keyQueue.begin(), m_keyQueue.end());
         m_keyQueue.clear();
         return out;
     }
 
     // ---- Screen position and current size (updated from ConfigureNotify) ----
-    int      screenX() const { return m_screenX; }
-    int      screenY() const { return m_screenY; }
-    uint32_t width()   const { return m_width;   }
-    uint32_t height()  const { return m_height;  }
+    int      screenX() const override { return m_screenX; }
+    int      screenY() const override { return m_screenY; }
+    uint32_t width()   const override { return m_width;   }
+    uint32_t height()  const override { return m_height;  }
 
-    PlatformWindowStyle windowStyle() const { return m_style; }
-    bool        isAltDown()   const { return m_altDown; }
+    Genesis::PlatformWindowStyle windowStyle() const override { return m_style; }
+    bool        isAltDown()   const override { return m_altDown; }
 
     void setTransientParent(xcb_window_t parent) {
         if (parent != 0) {
@@ -371,18 +360,18 @@ public:
         }
     }
 
-    void setCursor(PlatformCursor shape) {
+    void setCursor(Genesis::PlatformCursor shape) override {
         if (m_currentCursor == shape) return;
         m_currentCursor = shape;
         xcb_cursor_t cursorId = 0;
         switch (shape) {
-            case PlatformCursor::Default:           cursorId = m_cursorDefault; break;
-            case PlatformCursor::ResizeLeftRight:   cursorId = m_cursorHoriz;   break;
-            case PlatformCursor::ResizeUpDown:      cursorId = m_cursorVert;    break;
-            case PlatformCursor::ResizeTopLeft:     cursorId = m_cursorTopLeft; break;
-            case PlatformCursor::ResizeTopRight:    cursorId = m_cursorTopRight;break;
-            case PlatformCursor::ResizeBottomLeft:  cursorId = m_cursorBotLeft; break;
-            case PlatformCursor::ResizeBottomRight: cursorId = m_cursorBotRight;break;
+            case Genesis::PlatformCursor::Default:           cursorId = m_cursorDefault; break;
+            case Genesis::PlatformCursor::ResizeLeftRight:   cursorId = m_cursorHoriz;   break;
+            case Genesis::PlatformCursor::ResizeUpDown:      cursorId = m_cursorVert;    break;
+            case Genesis::PlatformCursor::ResizeTopLeft:     cursorId = m_cursorTopLeft; break;
+            case Genesis::PlatformCursor::ResizeTopRight:    cursorId = m_cursorTopRight;break;
+            case Genesis::PlatformCursor::ResizeBottomLeft:  cursorId = m_cursorBotLeft; break;
+            case Genesis::PlatformCursor::ResizeBottomRight: cursorId = m_cursorBotRight;break;
         }
         if (cursorId != 0) {
             uint32_t values[] = { cursorId };
@@ -395,7 +384,7 @@ public:
     // Effective immediately for Popup (override_redirect) windows.
     // For Normal/Borderless, sends a ConfigureWindow request — the WM may
     // reposition it, but most WMs honour application position requests.
-    void setPosition(int x, int y) {
+    void setPosition(int x, int y) override {
         m_screenX = x;
         m_screenY = y;
         uint32_t vals[] = { static_cast<uint32_t>(x), static_cast<uint32_t>(y) };
@@ -405,7 +394,7 @@ public:
     }
 
     // Resize the window.
-    void setSize(uint32_t w, uint32_t h) {
+    void setSize(uint32_t w, uint32_t h) override {
         uint32_t vals[] = { w, h };
         xcb_configure_window(m_connection, m_windowId,
             XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, vals);
@@ -415,8 +404,8 @@ public:
     // Request fullscreen via _NET_WM_STATE_FULLSCREEN (WM-managed windows only).
     // The window fullscreens on whichever monitor it currently occupies — to
     // fullscreen on a secondary monitor, call setPosition() first to move it there.
-    void setFullscreen(bool on) {
-        if (m_style == PlatformWindowStyle::Popup) return;  // WM not involved
+    void setFullscreen(bool on) override {
+        if (m_style == Genesis::PlatformWindowStyle::Popup) return;  // WM not involved
         xcb_atom_t stateAtom = _internAtom("_NET_WM_STATE");
         xcb_atom_t fullAtom  = _internAtom("_NET_WM_STATE_FULLSCREEN");
         if (stateAtom == XCB_ATOM_NONE || fullAtom == XCB_ATOM_NONE) return;
@@ -428,18 +417,20 @@ public:
         ev.format         = 32;
         ev.data.data32[0] = on ? 1u : 0u;  // _NET_WM_STATE_ADD / REMOVE
         ev.data.data32[1] = fullAtom;
-        ev.data.data32[2] = 0;
-        ev.data.data32[3] = 1;  // source: application
+        ev.data.data32[2] = XCB_ATOM_NONE;
+        ev.data.data32[3] = 0u;
+        ev.data.data32[4] = 0u;
+
         xcb_send_event(m_connection, 0, m_rootWindow,
-            XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
-            reinterpret_cast<const char*>(&ev));
+                       XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
+                       reinterpret_cast<const char*>(&ev));
         xcb_flush(m_connection);
     }
 
     // Returns the total virtual desktop extent (union of all monitors).
     // On a multi-monitor setup (e.g. two 1920×1080 side by side) this gives
     // 3840×1080.  Use to determine coordinates for secondary monitors.
-    std::pair<int,int> virtualDesktopSize() const {
+    std::pair<int,int> virtualDesktopSize() const override {
         auto cookie = xcb_get_geometry(m_connection, m_rootWindow);
         auto* geom  = xcb_get_geometry_reply(m_connection, cookie, nullptr);
         if (!geom) return {1920, 1080};
@@ -489,9 +480,9 @@ public:
     xcb_connection_t* nativeConnection() const { return m_connection; }
     xcb_window_t      nativeWindow()     const { return m_windowId; }
 
-    NativeWindowHandle nativeHandle() const {
-        NativeWindowHandle h{};
-        h.apiTarget         = GpuApiType::Vulkan;
+    Genesis::NativeWindowHandle nativeHandle() const override {
+        Genesis::NativeWindowHandle h{};
+        h.apiTarget         = Genesis::GpuApiType::Vulkan;
         h.connectionPointer = m_connection;
         h.windowPointer     = reinterpret_cast<void*>(static_cast<uintptr_t>(m_windowId));
         return h;

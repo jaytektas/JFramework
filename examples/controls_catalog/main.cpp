@@ -10,9 +10,19 @@
 #include <genesis/graphics/GpuHal.h>
 #include <genesis/graphics/RenderPrimitive.h>
 #include <genesis/graphics/FontEngine.h>
+#if defined(_WIN32)
+#include <genesis/platforms/windows/WindowsPlatformWindow.h>
+#else
 #include <genesis/platforms/linux/LinuxPlatformWindow.h>
+#endif
 #include <genesis/platforms/linux/FloatingDockWindow.h>
 #include <genesis/platforms/linux/PopupWindow.h>
+
+#if defined(_WIN32)
+using PlatformWindowImpl = Genesis::WindowsPlatformWindow;
+#else
+using PlatformWindowImpl = Genesis::LinuxPlatformWindow;
+#endif
 
 #include <iostream>
 #include <vector>
@@ -52,7 +62,15 @@ public:
     // together all active animators / transitions.
     bool isAnimating() const { return !m_animPaused && m_progressBar != nullptr; }
     void toggleAnimation()    { m_animPaused = !m_animPaused; }
-    bool animationPaused() const { return m_animPaused; }
+    bool showPanelScrollbars() const { return m_showPanelScrollbars; }
+    void setShowPanelScrollbars(bool show) {
+        m_showPanelScrollbars = show;
+        for (auto& p : m_panels) {
+            if (p.root != InvalidNodeId) {
+                m_graph.invalidateNode(p.root, DirtySelf);
+            }
+        }
+    }
 
     void render(PrimitiveBuffer& buf) {
         // 1. Dock chrome (panel backgrounds, tab bars, borders) as the base layer.
@@ -69,6 +87,17 @@ public:
                     buf.pushClip(content.x, content.y, content.width, content.height);
                     for (Widget* w : p->widgets)
                         if (w->isVisible()) w->populateRenderPrimitives(buf);
+                    
+                    if (m_showPanelScrollbars && p->contentH > content.height) {
+                        float scrollBarW = 6.0f;
+                        float trackX = content.x + content.width - scrollBarW - 2.0f;
+                        float handleH = std::max(20.0f, (content.height / p->contentH) * content.height);
+                        float maxScroll = p->contentH - content.height;
+                        float handleY = content.y + (p->scrollY / maxScroll) * (content.height - handleH);
+                        
+                        uint8_t handleC[4] = {255, 255, 255, 60};
+                        buf.pushRectangle(trackX, handleY, scrollBarW, handleH, handleC, scrollBarW * 0.5f);
+                    }
                     buf.popClip();
                 });
         }
@@ -99,7 +128,15 @@ public:
                 if (wheelDelta != 0.0f &&
                     mouseX >= content.x && mouseX < content.x + content.width &&
                     mouseY >= content.y && mouseY < content.y + content.height) {
-                    p->scrollY -= wheelDelta * 40.0f;
+                    bool consumed = false;
+                    for (Widget* w : p->widgets) {
+                        if (w->handleScroll(mouseX, mouseY, wheelDelta)) {
+                            consumed = true;
+                        }
+                    }
+                    if (!consumed) {
+                        p->scrollY -= wheelDelta * 40.0f;
+                    }
                 }
 
                 auto& L = m_graph.getLayout(p->root);
@@ -400,6 +437,24 @@ public:
                 injected = add<TextArea>(m_graph, label.empty() ? "Enter paragraph..." : label, 320.0f, 100.0f);
             } else if (type == "listview" || type == "ListView") {
                 injected = add<ListView>(m_graph, std::vector<std::string>{"Item A", "Item B", "Item C"}, 240.0f, 120.0f);
+            } else if (type == "treeview" || type == "TreeView") {
+                auto* tv = add<TreeView>(m_graph, 240.0f, 150.0f);
+                tv->setRootNode(TreeViewNode{
+                    "Root", true, false, {
+                        {"Injected Node A", false, false, {}},
+                        {"Injected Node B", true, false, {
+                            {"Injected Child B1", false, false, {}}
+                        }}
+                    }
+                });
+                injected = tv;
+            } else if (type == "datagrid" || type == "DataGrid") {
+                auto* dg = add<DataGrid>(m_graph, std::vector<std::string>{"Col 1", "Col 2"}, 320.0f, 150.0f);
+                dg->setRows({
+                    {"Injected Row 1 Cel 1", "Injected Row 1 Cel 2"},
+                    {"Injected Row 2 Cel 1", "Injected Row 2 Cel 2"}
+                });
+                injected = dg;
             } else {
                 std::cerr << "[AI-inject] unknown widget type '" << type << "'\n";
                 m_curPanel = savedPanel; m_curContainer = savedContainer;
@@ -459,7 +514,7 @@ public:
                     if (w->hitTest(x, y)) hitAny = true;
                 }
                 if (released) w->handleMouseRelease(x, y);
-                if (wheel != 0.0f) w->handleScroll(x, y, wheel);
+
             }
         }
         if (pressed && !hitAny) {
@@ -478,6 +533,17 @@ public:
         m_graph.computeLayout(p->root, Constraints{content.width, content.width, 0.0f, 100000.0f});
         buf.pushClip(content.x, content.y, content.width, content.height);
         for (Widget* wt : p->widgets) if (wt->isVisible()) wt->populateRenderPrimitives(buf);
+        
+        if (m_showPanelScrollbars && p->contentH > content.height) {
+            float scrollBarW = 6.0f;
+            float trackX = content.x + content.width - scrollBarW - 2.0f;
+            float handleH = std::max(20.0f, (content.height / p->contentH) * content.height);
+            float maxScroll = p->contentH - content.height;
+            float handleY = content.y + (p->scrollY / maxScroll) * (content.height - handleH);
+            
+            uint8_t handleC[4] = {255, 255, 255, 60};
+            buf.pushRectangle(trackX, handleY, scrollBarW, handleH, handleC, scrollBarW * 0.5f);
+        }
         buf.popClip();
     }
 
@@ -514,7 +580,7 @@ public:
                 if (wt->hitTest(x, y)) hitAny = true;
             }
             if (release) wt->handleMouseRelease(x, y);
-            if (wheel != 0.0f) wt->handleScroll(x, y, wheel);
+
         }
         if (press && !hitAny) {
             m_focus.setFocus(nullptr);
@@ -573,6 +639,28 @@ private:
             "include/genesis/core/Widget.h"
         }, 200.0f, 120.0f);
 
+        section("Workspace Tree");
+        {
+            auto* tv = add<TreeView>(m_graph, 200.0f, 150.0f);
+            tv->setRootNode(TreeViewNode{
+                "Root", true, false, {
+                    {"src", true, false, {
+                        {"core", true, false, {
+                            {"SceneGraph.cpp", false, false, {}},
+                            {"BaseWidgets.cpp", false, false, {}}
+                        }},
+                        {"graphics", false, false, {
+                            {"VulkanGpuHal.cpp", false, false, {}}
+                        }}
+                    }},
+                    {"include", false, false, {
+                        {"genesis", false, false, {}}
+                    }},
+                    {"CMakeLists.txt", false, false, {}}
+                }
+            });
+        }
+
         beginPanel("Properties");
         section("Toggles");
         add<CheckBox>(m_graph, "Enable hardware acceleration", 320.0f, 22.0f)->setChecked(true);
@@ -593,6 +681,18 @@ private:
         section("Steppers");
         add<SpinBox>(m_graph, 0, 255, 160.0f, 32.0f)->setValue(42);
         add<SpinBox>(m_graph, 0, 100, 160.0f, 32.0f)->setValue(75);
+        section("Data Grid");
+        {
+            auto* dg = add<DataGrid>(m_graph, std::vector<std::string>{"File", "Lines", "Size"}, 340.0f, 150.0f);
+            dg->setColumnWidths({160.0f, 80.0f, 80.0f});
+            dg->setRows({
+                {"SceneGraph.cpp", "824", "32.4 KB"},
+                {"BaseWidgets.cpp", "2450", "95.8 KB"},
+                {"VulkanGpuHal.cpp", "1480", "58.2 KB"},
+                {"FontEngine.cpp", "920", "36.1 KB"},
+                {"Platform.cpp", "540", "21.0 KB"}
+            });
+        }
 
         beginPanel("Console");
         section("Filters");
@@ -793,6 +893,7 @@ private:
     std::vector<std::unique_ptr<DockWidget>> m_inlineDocks;
     float m_elapsed{0.0f};
     bool  m_animPaused{false};
+    bool  m_showPanelScrollbars{true};
 };
 
 // ============================================================================
@@ -812,13 +913,9 @@ int main() {
     if (getenv("GENESIS_WIN_TITLE") != nullptr) {
         winTitle = getenv("GENESIS_WIN_TITLE");
     }
-    auto window = std::make_unique<LinuxPlatformWindow>(winTitle, W, H);
+    auto window = std::make_unique<PlatformWindowImpl>(winTitle, W, H);
 
-    NativeWindowHandle handle{};
-    handle.apiTarget         = GpuApiType::Vulkan;
-    handle.connectionPointer = window->nativeConnection();
-    handle.windowPointer     = reinterpret_cast<void*>(
-        static_cast<uintptr_t>(window->nativeWindow()));
+    NativeWindowHandle handle = window->nativeHandle();
 
     auto hal = GpuHal::create(GpuApiType::Vulkan, handle);
     if (!hal) { std::cerr << "[GENESIS] Failed to create Vulkan HAL\n"; return -1; }
@@ -895,7 +992,7 @@ int main() {
 
         const auto& items = cb->items();
         for (int i = 0; i < static_cast<int>(items.size()); ++i) {
-            auto* pi = popup->add<PopupItem>(
+            auto* pi = popup->add<Genesis::PopupItem>(
                 items[i],
                 static_cast<float>(popupW), 28.f);
 
@@ -1301,9 +1398,10 @@ int main() {
         }
 
         // ---- Decide if this frame needs rendering (event-driven damage) ----
-        float mx = window->mouseX(), my = window->mouseY();
-        bool mouseMoved = (mx != lastMouseX || my != lastMouseY);
-        lastMouseX = mx; lastMouseY = my;
+        float mouseX_val = window->mouseX();
+        float mouseY_val = window->mouseY();
+        bool mouseMoved = (mouseX_val != lastMouseX || mouseY_val != lastMouseY);
+        lastMouseX = mouseX_val; lastMouseY = mouseY_val;
 
         bool activity = keyActivity || pressed || released || mouseMoved || resized
                         || wantScreenshot || aiActed || wheel != 0.0f || !floatingDocks.empty()

@@ -12,7 +12,11 @@
 #include <genesis/graphics/GpuHal.h>
 #include <genesis/graphics/RenderPrimitive.h>
 #include <genesis/graphics/FontEngine.h>
+#if defined(_WIN32)
+#include <genesis/platforms/windows/WindowsPlatformWindow.h>
+#else
 #include <genesis/platforms/linux/LinuxPlatformWindow.h>
+#endif
 
 #include <iostream>
 #include <thread>
@@ -27,8 +31,14 @@ static void sleepMs(int ms) {
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
 
+#if defined(_WIN32)
+using PlatformWindowImpl = WindowsPlatformWindow;
+#else
+using PlatformWindowImpl = LinuxPlatformWindow;
+#endif
+
 struct TestWindow {
-    std::unique_ptr<LinuxPlatformWindow> win;
+    std::unique_ptr<PlatformWindowImpl> win;
     GpuSurfaceId                         surface{kPrimarySurface};
     std::string                          label;
 };
@@ -39,7 +49,7 @@ static TestWindow makeWindow(const std::string& title,
 {
     TestWindow tw;
     tw.label = title;
-    tw.win   = std::make_unique<LinuxPlatformWindow>(title, w, h, x, y, style);
+    tw.win   = std::make_unique<PlatformWindowImpl>(title, w, h, x, y, style);
     tw.surface = hal.createSurface(tw.win->nativeHandle(), w, h);
     return tw;
 }
@@ -79,14 +89,10 @@ int main()
     std::cout << "[dock_window_styles] Starting...\n";
 
     // Use lavapipe for headless-capable Vulkan.
-    auto primaryWin = std::make_unique<LinuxPlatformWindow>(
+    auto primaryWin = std::make_unique<PlatformWindowImpl>(
         "primary", 1, 1, -1000, -1000, PlatformWindowStyle::Popup);
 
-    NativeWindowHandle handle{};
-    handle.apiTarget         = GpuApiType::Vulkan;
-    handle.connectionPointer = primaryWin->nativeConnection();
-    handle.windowPointer     = reinterpret_cast<void*>(
-        static_cast<uintptr_t>(primaryWin->nativeWindow()));
+    NativeWindowHandle handle = primaryWin->nativeHandle();
 
     auto hal = GpuHal::create(GpuApiType::Vulkan, handle);
     if (!hal) { std::cerr << "Failed to create Vulkan HAL\n"; return 1; }

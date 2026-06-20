@@ -234,6 +234,101 @@ void test_listview_logic() {
     std::cout << "test_listview_logic passed" << std::endl;
 }
 
+void test_treeview_logic() {
+    SceneGraph graph;
+    TreeView tv(graph);
+
+    TreeViewNode rootNode = {
+        "Root", true, false, {
+            {"Child 1", false, false, {}},
+            {"Child 2", true, false, {
+                {"Grandchild 2.1", false, false, {}}
+            }}
+        }
+    };
+    tv.setRootNode(rootNode);
+
+    auto flatNodes = tv.getFlatNodes();
+    assert(flatNodes.size() == 3);
+    assert(flatNodes[0].node->label == "Child 1");
+    assert(flatNodes[1].node->label == "Child 2");
+    assert(flatNodes[2].node->label == "Grandchild 2.1");
+
+    KeyEvent ke;
+    ke.pressed = true;
+    ke.key = KeyEvent::Key::Down;
+    
+    bool handled = tv.handleKeyEvent(ke);
+    assert(handled == true);
+    assert(tv.selectedNode() != nullptr);
+    assert(tv.selectedNode()->label == "Child 1");
+
+    handled = tv.handleKeyEvent(ke);
+    assert(handled == true);
+    assert(tv.selectedNode()->label == "Child 2");
+
+    ke.key = KeyEvent::Key::Left;
+    handled = tv.handleKeyEvent(ke);
+    assert(handled == true);
+    assert(flatNodes[1].node->expanded == false);
+
+    flatNodes = tv.getFlatNodes();
+    assert(flatNodes.size() == 2);
+
+    std::cout << "test_treeview_logic passed" << std::endl;
+}
+
+void test_datagrid_logic() {
+    SceneGraph graph;
+    DataGrid dg(graph, {"ID", "Name", "Role"});
+    
+    std::vector<std::vector<std::string>> rows = {
+        {"1", "Alice", "Admin"},
+        {"2", "Bob", "Developer"},
+        {"3", "Charlie", "Designer"}
+    };
+    dg.setRows(rows);
+
+    assert(dg.headers().size() == 3);
+    assert(dg.rows().size() == 3);
+    assert(dg.selectedIndex() == -1);
+
+    int lastSelected = -1;
+    dg.onSelectionChanged.connect([&lastSelected](int r) {
+        lastSelected = r;
+    });
+
+    dg.setSelectedIndex(1);
+    assert(dg.selectedIndex() == 1);
+    assert(lastSelected == 1);
+
+    KeyEvent ke;
+    ke.pressed = true;
+    ke.key = KeyEvent::Key::Down;
+    bool handled = dg.handleKeyEvent(ke);
+    assert(handled == true);
+    assert(dg.selectedIndex() == 2);
+    assert(lastSelected == 2);
+
+    ke.key = KeyEvent::Key::Up;
+    handled = dg.handleKeyEvent(ke);
+    assert(handled == true);
+    assert(dg.selectedIndex() == 1);
+    assert(lastSelected == 1);
+
+    int activatedRow = -1;
+    dg.onRowActivated.connect([&activatedRow](int r) {
+        activatedRow = r;
+    });
+
+    ke.key = KeyEvent::Key::Return;
+    handled = dg.handleKeyEvent(ke);
+    assert(handled == true);
+    assert(activatedRow == 1);
+
+    std::cout << "test_datagrid_logic passed" << std::endl;
+}
+
 int main() {
     test_button_interaction();
     test_widget_rendering();
@@ -242,6 +337,8 @@ int main() {
     test_textarea_logic();
     test_scrollarea_logic();
     test_listview_logic();
+    test_treeview_logic();
+    test_datagrid_logic();
     std::cout << "All tests passed!" << std::endl;
     return 0;
 }

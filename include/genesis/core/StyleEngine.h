@@ -109,6 +109,9 @@ namespace Style {
     constexpr StyleKey<uint32_t[4]> BackgroundColor{ 0x01 }; // RGBA8
     constexpr StyleKey<float> CornerRadius{ 0x02 };
     constexpr StyleKey<float> BorderWidth{ 0x03 };
+    constexpr StyleKey<float> RowHeight{ 0x50 };
+    constexpr StyleKey<float> HeaderHeight{ 0x51 };
+    constexpr StyleKey<float> CellPadding{ 0x52 };
 }
 
 } // namespace Genesis
