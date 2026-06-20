@@ -688,8 +688,11 @@ private:
         ci.oldSwapchain     = oldSwapchain;
         VkResult cr = vkCreateSwapchainKHR(m_device, &ci, nullptr, &s.swapchain);
         if (oldSwapchain) vkDestroySwapchainKHR(m_device, oldSwapchain, nullptr);
-        if (cr != VK_SUCCESS)
+        if (cr != VK_SUCCESS) {
+            std::fprintf(stderr, "[VulkanError] vkCreateSwapchainKHR failed with error code: %d\n", cr);
+            std::fflush(stderr);
             throw std::runtime_error("vkCreateSwapchainKHR failed");
+        }
 
         uint32_t n; vkGetSwapchainImagesKHR(m_device, s.swapchain, &n, nullptr);
         s.images.resize(n);

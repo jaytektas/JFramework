@@ -60,11 +60,13 @@ public:
         Widget* old = m_focused;
         m_focused = w;
         if (old) {
+            old->setFocused(false);
             if (old->getState() == WidgetState::Focused) {
                 old->setState(WidgetState::Normal);
             }
         }
         if (m_focused) {
+            m_focused->setFocused(true);
             m_focused->setState(WidgetState::Focused);
         }
         onFocusChanged.emit(w);

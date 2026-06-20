@@ -66,10 +66,17 @@ public:
     WidgetState getState()   const noexcept { return m_state;  }
     bool        isVisible()  const noexcept { return m_visible; }
     bool        isEnabled()  const noexcept { return m_state != WidgetState::Disabled; }
+    bool        isFocused()  const noexcept { return m_focused; }
 
     void setVisible(bool v) { m_visible = v; }
     void setEnabled(bool e) {
         setState(e ? WidgetState::Normal : WidgetState::Disabled);
+    }
+    void setFocused(bool f) {
+        if (m_focused != f) {
+            m_focused = f;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+        }
     }
 
     virtual void setState(WidgetState s) {
@@ -107,6 +114,7 @@ protected:
     WidgetState m_state;
     std::string m_debugName;
     bool        m_visible{true};
+    bool        m_focused{false};
 };
 
 // ============================================================================
@@ -140,6 +148,15 @@ public:
         if (m_state == WidgetState::Disabled) return;
         if (m_state == WidgetState::Pressed)
             setState(isPointInside(mx, my) ? WidgetState::Hovered : WidgetState::Normal);
+    }
+
+    bool executeSemanticAction(const std::string& a) override {
+        if (m_state == WidgetState::Disabled) return false;
+        if (a == "click" || a == "activate") {
+            onClicked.emit();
+            return true;
+        }
+        return false;
     }
 };
 
@@ -377,7 +394,7 @@ public:
         const uint8_t* fill = Colors::Surface2;
         if (m_state == WidgetState::Hovered) fill = Colors::Surface3;
         if (m_state == WidgetState::Pressed) fill = Colors::Accent;
-        bool focused = (m_state == WidgetState::Focused);
+        bool focused = isFocused();
         buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f,
                           focused ? 1.5f : 1.0f,
                           focused ? Colors::Accent : Colors::Border);
@@ -457,7 +474,10 @@ public:
             for (int i=0;i<3;i++) hover[i] = static_cast<uint8_t>(std::min(255, hover[i]+20));
             fill = hover;
         }
-        buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f, 1.0f, Colors::Border);
+        bool focused = isFocused();
+        buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f,
+                          focused ? 1.5f : 1.0f,
+                          focused ? Colors::Accent : Colors::Border);
         if (TextHelper::hasAtlas()) {
             std::string txt = tr(m_label);
             float tw = TextHelper::measureWidth(txt);
@@ -523,7 +543,7 @@ public:
         float boxSz = b.height;
         // Box
         const uint8_t* fill = m_checked ? Colors::Accent : Colors::Surface1;
-        bool focused = (m_state == WidgetState::Focused);
+        bool focused = isFocused();
         buf.pushRectangle(b.x, b.y, boxSz, boxSz, fill, 4.0f,
                           focused ? 2.0f : 1.5f,
                           focused ? Colors::Accent : Colors::Border);
@@ -593,7 +613,7 @@ public:
         float borderW = 1.5f;
         // Outer circle (use extreme radius for perfect circle)
         const uint8_t* ring = m_selected ? Colors::Accent : Colors::Surface1;
-        bool focused = (m_state == WidgetState::Focused);
+        bool focused = isFocused();
         buf.pushRectangle(b.x, b.y, r, r, ring, r * 0.5f,
                           focused ? 2.0f : borderW,
                           focused ? Colors::Accent : Colors::Border);
@@ -681,7 +701,7 @@ public:
         float thumbX = b.x + fillW - thumbW * 0.5f;
         thumbX = std::clamp(thumbX, b.x, b.x + b.width - thumbW);
         const uint8_t* tc = (m_state == WidgetState::Pressed) ? Colors::AccentPress : Colors::TextPrimary;
-        bool focused = (m_state == WidgetState::Focused);
+        bool focused = isFocused();
         buf.pushRectangle(thumbX, b.y, thumbW, thumbH, tc, thumbW * 0.5f,
                           focused ? 1.5f : 0.0f,
                           focused ? Colors::Accent : Colors::Border);
@@ -831,7 +851,7 @@ public:
 
     void populateRenderPrimitives(PrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        bool focused = (m_state == WidgetState::Focused);
+        bool focused = isFocused();
 
         // Background + border (accent when focused)
         buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1, 6.0f,
@@ -916,8 +936,11 @@ public:
         float btnW = b.height * 0.7f;
         float fieldW = b.width - btnW;
 
+        bool focused = isFocused();
         // Value field
-        buf.pushRectangle(b.x, b.y, fieldW, b.height, Colors::Surface1, 6.0f, 1.0f, Colors::Border);
+        buf.pushRectangle(b.x, b.y, fieldW, b.height, Colors::Surface1, 6.0f,
+                          focused ? 1.5f : 1.0f,
+                          focused ? Colors::Accent : Colors::Border);
         // Value text
         if (TextHelper::hasAtlas()) {
             uint8_t vc[4] = {210, 210, 220, 220};
@@ -1106,7 +1129,7 @@ public:
         float arrowW = b.height * 0.75f;
         const uint8_t* fill = (m_state == WidgetState::Hovered) ? Colors::Surface3 : Colors::Surface2;
         // Main box
-        bool focused = (m_state == WidgetState::Focused);
+        bool focused = isFocused();
         buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f,
                           focused ? 1.5f : 1.0f,
                           focused ? Colors::Accent : Colors::Border);
@@ -1139,7 +1162,14 @@ public:
             for (int i = 0; i < (int)m_items.size(); ++i)
                 if (m_items[i] == needle) { setCurrentIndex(i); return true; }
         }
-        return false;
+        if (a == "click" || a == "activate") {
+            onClicked.emit();
+            if (!m_items.empty() && m_mode == ComboBoxMode::Popup) {
+                onPopupRequested.emit(this);
+            }
+            return true;
+        }
+        return Control::executeSemanticAction(a);
     }
 
 private:
@@ -1312,7 +1342,10 @@ public:
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float tabW = b.width / static_cast<float>(m_tabs.size());
 
-        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1, 6.0f);
+        bool focused = isFocused();
+        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1, 6.0f,
+                          focused ? 1.5f : 0.0f,
+                          focused ? Colors::Accent : Colors::Border);
 
         for (int i = 0; i < (int)m_tabs.size(); ++i) {
             float tx   = b.x + i * tabW;

@@ -66,31 +66,14 @@ public:
                 uint32_t width, uint32_t height,
                 GpuHal& hal,
                 Style style = Style::Borderless,
-                xcb_window_t parentWindow = 0)
+                xcb_window_t parentWindow = 0,
+                xcb_connection_t* sharedConnection = nullptr)
         : m_winW(width), m_winH(height), m_style(style)
         , m_window(std::make_unique<LinuxPlatformWindow>(
               "Popup", width, height, screenX, screenY,
-              PlatformWindowStyle::Popup, parentWindow))
-        , m_surface(hal.createSurface(m_window->nativeHandle(), width, height))
+              PlatformWindowStyle::Popup, parentWindow, sharedConnection))
+        , m_surface(hal.createSurface(m_window->nativeHandle(), 0, 0))
     {
-        xcb_connection_t* conn = m_window->nativeConnection();
-        xcb_window_t      wid  = m_window->nativeWindow();
-
-        // Claim keyboard input focus so XCB_FOCUS_OUT fires when we lose it.
-        // XCB_INPUT_FOCUS_POINTER_ROOT = focus follows pointer if it moves to root.
-        xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, wid, XCB_CURRENT_TIME);
-
-        // Grab the pointer for motion events (hover highlighting).
-        // Owner events = false so clicks outside still reach the grab window.
-        xcb_grab_pointer(conn, 0 /*owner_events*/, wid,
-            XCB_EVENT_MASK_BUTTON_PRESS   |
-            XCB_EVENT_MASK_BUTTON_RELEASE |
-            XCB_EVENT_MASK_POINTER_MOTION,
-            XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
-            XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
-
-        xcb_flush(conn);
-
         // Root node — vertical flow container for all popup content.
         m_root = m_graph.createNode("PopupRoot");
         auto& l = m_graph.getLayout(m_root);
@@ -139,26 +122,52 @@ public:
     // Per-frame update — call in the render loop before render().
     // Returns Dismissed when the popup should be destroyed (focus lost, etc.).
     // -----------------------------------------------------------------------
-    PollResult pollEvents() {
-        xcb_connection_t* conn = m_window->nativeConnection();
+    PollResult pollEvents(GpuHal& hal) {
+        // One-time focus and pointer grab set once mapped and viewable
+        if (!m_focusSet) {
+            auto cookie = xcb_get_window_attributes(m_window->nativeConnection(), m_window->nativeWindow());
+            xcb_flush(m_window->nativeConnection());
+            xcb_generic_error_t* attrErr = nullptr;
+            xcb_get_window_attributes_reply_t* attr = xcb_get_window_attributes_reply(m_window->nativeConnection(), cookie, &attrErr);
+            if (attrErr) {
+                free(attrErr);
+            }
+            if (attr) {
+                if (attr->map_state == XCB_MAP_STATE_VIEWABLE) {
+
+                    auto grabCookie = xcb_grab_pointer(m_window->nativeConnection(), 0 /*owner_events*/, m_window->nativeWindow(),
+                        XCB_EVENT_MASK_BUTTON_PRESS   |
+                        XCB_EVENT_MASK_BUTTON_RELEASE |
+                        XCB_EVENT_MASK_POINTER_MOTION,
+                        XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
+                        XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
+                    xcb_flush(m_window->nativeConnection());
+
+                    xcb_generic_error_t* err = nullptr;
+                    xcb_grab_pointer_reply_t* grabReply = xcb_grab_pointer_reply(m_window->nativeConnection(), grabCookie, &err);
+                    if (err) {
+                        free(err);
+                    }
+                    if (grabReply) {
+                        if (grabReply->status == XCB_GRAB_STATUS_SUCCESS) {
+                            xcb_set_input_focus(m_window->nativeConnection(), XCB_INPUT_FOCUS_POINTER_ROOT, m_window->nativeWindow(), XCB_CURRENT_TIME);
+                            xcb_flush(m_window->nativeConnection());
+                            hal.resizeSurface(m_surface, m_winW, m_winH);
+                            m_focusSet = true;
+                        }
+                        free(grabReply);
+                    }
+                }
+                free(attr);
+            }
+        }
 
         // 1. Let the platform layer handle motion / button / close.
         m_window->pollNativeEvents();
 
-        // 2. Drain remaining events from the XCB queue — specifically FocusIn/Out.
-        xcb_generic_event_t* ev;
-        while ((ev = xcb_poll_for_event(conn))) {
-            uint8_t type = ev->response_type & ~0x80;
-            if (type == XCB_FOCUS_OUT) {
-                auto* fe = reinterpret_cast<xcb_focus_out_event_t*>(ev);
-                // XCB_NOTIFY_DETAIL_INFERIOR = focus moved to a child (pointer grab
-                // artefact); everything else is a genuine loss of focus.
-                if (fe->detail != XCB_NOTIFY_DETAIL_INFERIOR) {
-                    free(ev);
-                    return {PollResult::Type::Dismissed};
-                }
-            }
-            free(ev);
+        // 2. Check if the window lost focus.
+        if (m_window->consumeFocusLost()) {
+            return {PollResult::Type::Dismissed};
         }
 
         // 3. Mouse state.
@@ -167,8 +176,6 @@ public:
         bool press   = m_window->consumePress();
         bool release = m_window->consumeRelease();
 
-        // Belt-and-suspenders: outside click also dismisses (FocusOut usually
-        // arrives first, but this guards the first frame before focus is settled).
         if (press) {
             if (mx < 0.f || mx > static_cast<float>(m_winW) ||
                 my < 0.f || my > static_cast<float>(m_winH)) {
@@ -201,6 +208,8 @@ public:
 
         return {PollResult::Type::None};
     }
+
+    bool isViewable() const { return m_focusSet; }
 
     // -----------------------------------------------------------------------
     // Render — call after pollEvents() when Type == None.
@@ -252,6 +261,7 @@ private:
 
     std::unique_ptr<LinuxPlatformWindow> m_window;
     GpuSurfaceId m_surface{kPrimarySurface};
+    bool m_focusSet{false};
 };
 
 } // namespace Genesis

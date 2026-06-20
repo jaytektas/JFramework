@@ -47,8 +47,8 @@ Building a zero-dependency, cross-platform UI framework from scratch requires st
    - Implement hit-testing and Z-order sorting.
 2. **Base Widgets:**
    - Implement `Button`, `TextInput`, `Slider`, `CheckBox`.
-3. **Focus & Accessibility:**
-   - Implement keyboard tabbing and focus rings.
+3. **Focus & Accessibility: [Done]**
+   - Implement keyboard tabbing and focus rings (SDF focus borders and FocusManager synchronization are complete).
 
 ## Phase 5: Complex Applications & Polish
 **Goal:** Capable of building production software.

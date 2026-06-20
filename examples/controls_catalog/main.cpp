@@ -231,6 +231,8 @@ public:
     // Dispatch a semantic action from the AI bus to a target by id, on the UI thread.
     // Returns 1 = handled, 0 = action not understood, -1 = no such target.
     int dispatchAiAction(uint32_t targetId, const std::string& action) {
+        std::printf("[dispatchAiAction] targetId=%u, action=%s\n", targetId, action.c_str());
+        std::fflush(stdout);
         // System-level actions addressed to the magic id 0xFFFFFFFF (broadcast / inject).
         if (targetId == 0xFFFFFFFFu)
             return handleSystemAction(action);
@@ -334,9 +336,16 @@ public:
             }
             return 0;
         }
-        for (auto& w : m_widgets)
-            if (w->getNodeId() == targetId)
-                return w->executeSemanticAction(action) ? 1 : 0;
+        for (auto& w : m_widgets) {
+            if (w->getNodeId() == targetId) {
+                bool res = w->executeSemanticAction(action);
+                std::printf("[dispatchAiAction] Found widget. executeSemanticAction returned %d\n", res);
+                std::fflush(stdout);
+                return res ? 1 : 0;
+            }
+        }
+        std::printf("[dispatchAiAction] Widget targetId=%u NOT found in m_widgets\n", targetId);
+        std::fflush(stdout);
         return -1;
     }
 
@@ -818,6 +827,7 @@ int main() {
     std::vector<FloatingDockWindow> floatingDocks;
     std::unique_ptr<PopupWindow> activePopup;
     ComboBox* activePopupComboBox = nullptr;
+    PopupWindow* pendingClosePopup = nullptr;
 
     catalog->onComboBoxPopupRequested = [&](ComboBox* cb) {
         // Toggle: clicking the same combo while its popup is open closes it.
@@ -853,12 +863,9 @@ int main() {
                 static_cast<float>(popupW), 28.f);
 
             // Capture by value: i and cb are stable for the popup's lifetime.
-            pi->onActivated.connect([cb, i, &activePopup, &activePopupComboBox, &hal]() {
+            pi->onActivated.connect([cb, i, &pendingClosePopup, &activePopup, &activePopupComboBox]() {
                 cb->setCurrentIndex(i);
-                if (activePopup) {
-                    activePopup->destroySurface(*hal);
-                    activePopup.reset();
-                }
+                pendingClosePopup = activePopup.get();
                 activePopupComboBox = nullptr;
             });
         }
@@ -1031,6 +1038,19 @@ int main() {
         bool pressed  = window->consumePress();
         bool released = window->consumeRelease();
 
+        if (activePopup && pressed) {
+            NodeId cbNode = activePopupComboBox->getNodeId();
+            const auto& bb = app.sceneGraph().getLayoutConst(cbNode).boundingBox;
+            float mx = window->mouseX();
+            float my = window->mouseY();
+            if (mx < bb.x || mx > bb.x + bb.width ||
+                my < bb.y || my > bb.y + bb.height) {
+                activePopup->destroySurface(*hal);
+                activePopup.reset();
+                activePopupComboBox = nullptr;
+            }
+        }
+
         catalog->handleMouse(window->mouseX(), window->mouseY(), pressed, released);
         catalog->update(dt);
 
@@ -1182,14 +1202,22 @@ int main() {
 
         // ---- Active popup update ----
         if (activePopup) {
-            auto res = activePopup->pollEvents();
+            auto res = activePopup->pollEvents(*hal);
             if (res.type == PopupWindow::PollResult::Type::Dismissed) {
                 activePopup->destroySurface(*hal);
                 activePopup.reset();
                 activePopupComboBox = nullptr;
-            } else {
+            } else if (activePopup->isViewable()) {
                 activePopup->render(*hal, buffer);
             }
+        }
+
+        if (pendingClosePopup) {
+            if (activePopup && activePopup.get() == pendingClosePopup) {
+                activePopup->destroySurface(*hal);
+                activePopup.reset();
+            }
+            pendingClosePopup = nullptr;
         }
 
         // ---- Inline-only drop (no floating docks in flight) ----

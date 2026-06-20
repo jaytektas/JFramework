@@ -49,15 +49,22 @@ public:
     LinuxPlatformWindow(const std::string& title, uint32_t width, uint32_t height,
                         int screenX = 100, int screenY = 100,
                         PlatformWindowStyle style = PlatformWindowStyle::Normal,
-                        xcb_window_t parentWindow = 0)
+                        xcb_window_t parentWindow = 0,
+                        xcb_connection_t* sharedConnection = nullptr)
         : m_screenX(screenX), m_screenY(screenY)
         , m_width(width), m_height(height)
         , m_style(style) {
         std::cout << "[INFO][Platform] LinuxPlatformWindow created: " << title
                   << ", parentWindow: " << parentWindow << ", style: " << (int)style << std::endl;
-        m_connection = xcb_connect(nullptr, nullptr);
-        if (xcb_connection_has_error(m_connection))
-            throw std::runtime_error("Failed to open XCB connection.");
+        if (sharedConnection) {
+            m_connection = sharedConnection;
+            m_ownsConnection = false;
+        } else {
+            m_connection = xcb_connect(nullptr, nullptr);
+            if (xcb_connection_has_error(m_connection))
+                throw std::runtime_error("Failed to open XCB connection.");
+            m_ownsConnection = true;
+        }
 
         const xcb_setup_t*     setup  = xcb_get_setup(m_connection);
         xcb_screen_iterator_t  iter   = xcb_setup_roots_iterator(setup);
@@ -78,7 +85,8 @@ public:
             XCB_EVENT_MASK_EXPOSURE        |
             XCB_EVENT_MASK_KEY_PRESS       | XCB_EVENT_MASK_KEY_RELEASE    |
             XCB_EVENT_MASK_BUTTON_PRESS    | XCB_EVENT_MASK_BUTTON_RELEASE |
-            XCB_EVENT_MASK_POINTER_MOTION  | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
+            XCB_EVENT_MASK_POINTER_MOTION  | XCB_EVENT_MASK_STRUCTURE_NOTIFY |
+            XCB_EVENT_MASK_FOCUS_CHANGE;
 
         if (style == PlatformWindowStyle::Popup) {
             // override_redirect: bypass WM entirely.  Values must be ordered by
@@ -207,7 +215,9 @@ public:
             xcb_free_cursor(m_connection, m_cursorBotRight);
             xcb_close_font(m_connection, m_cursorFont);
             xcb_destroy_window(m_connection, m_windowId);
-            xcb_disconnect(m_connection);
+            if (m_ownsConnection) {
+                xcb_disconnect(m_connection);
+            }
         }
     }
 
@@ -237,16 +247,18 @@ public:
                         m_mouseY = static_cast<float>(b->event_y);
                         m_pendingPress = true;
                         m_altDown = (b->state & XCB_MOD_MASK_1) != 0;
-                        // Grab pointer so we keep receiving MotionNotify and
-                        // ButtonRelease even when the cursor leaves the window.
-                        // Required for drag-outside-window on X11 and XWayland.
-                        xcb_grab_pointer(m_connection, 0, m_windowId,
-                            XCB_EVENT_MASK_BUTTON_PRESS   |
-                            XCB_EVENT_MASK_BUTTON_RELEASE |
-                            XCB_EVENT_MASK_POINTER_MOTION,
-                            XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
-                            XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
-                        xcb_flush(m_connection);
+                        if (m_style != PlatformWindowStyle::Popup) {
+                            // Grab pointer so we keep receiving MotionNotify and
+                            // ButtonRelease even when the cursor leaves the window.
+                            // Required for drag-outside-window on X11 and XWayland.
+                            xcb_grab_pointer(m_connection, 0, m_windowId,
+                                XCB_EVENT_MASK_BUTTON_PRESS   |
+                                XCB_EVENT_MASK_BUTTON_RELEASE |
+                                XCB_EVENT_MASK_POINTER_MOTION,
+                                XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
+                                XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
+                            xcb_flush(m_connection);
+                        }
                     }
                     break;
                 }
@@ -256,8 +268,10 @@ public:
                         m_mouseX = static_cast<float>(b->event_x);
                         m_mouseY = static_cast<float>(b->event_y);
                         m_pendingRelease = true;
-                        xcb_ungrab_pointer(m_connection, XCB_CURRENT_TIME);
-                        xcb_flush(m_connection);
+                        if (m_style != PlatformWindowStyle::Popup) {
+                            xcb_ungrab_pointer(m_connection, XCB_CURRENT_TIME);
+                            xcb_flush(m_connection);
+                        }
                     }
                     break;
                 }
@@ -292,6 +306,16 @@ public:
                 case XCB_DESTROY_NOTIFY:
                     m_closeRequested = true;
                     break;
+                case XCB_FOCUS_OUT: {
+                    auto* fe = reinterpret_cast<xcb_focus_out_event_t*>(ev);
+                    if (fe->detail != XCB_NOTIFY_DETAIL_INFERIOR &&
+                        fe->detail != XCB_NOTIFY_DETAIL_POINTER &&
+                        fe->mode != XCB_NOTIFY_MODE_GRAB &&
+                        fe->mode != XCB_NOTIFY_MODE_WHILE_GRABBED) {
+                        m_focusLost = true;
+                    }
+                    break;
+                }
                 default: break;
             }
             free(ev);
@@ -299,6 +323,7 @@ public:
     }
 
     bool shouldClose()  const override { return m_closeRequested; }
+    bool consumeFocusLost() { bool v = m_focusLost; m_focusLost = false; return v; }
     void swapBuffers()        override {}
     void setVSync(bool)       override {}
 
@@ -547,6 +572,7 @@ private:
     }
 
     xcb_connection_t*   m_connection{nullptr};
+    bool                m_ownsConnection{true};
     xcb_window_t        m_windowId{0};
     xcb_window_t        m_rootWindow{0};
     xcb_atom_t          m_deleteWindowAtom{0};
@@ -564,6 +590,7 @@ private:
     bool  m_pendingPress{false};
     bool  m_pendingRelease{false};
     bool  m_closeRequested{false};
+    bool  m_focusLost{false};
     bool  m_altDown{false};
 
     xcb_font_t   m_cursorFont{0};
