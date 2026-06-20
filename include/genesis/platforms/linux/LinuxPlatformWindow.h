@@ -549,7 +549,11 @@ private:
         switch (ks) {
             case 0xFF09: ev.key = ev.shift ? K::BackTab : K::Tab; break;
             case 0xFF0D: ev.key = K::Return;    break;
-            case 0x0020: ev.key = K::Space;     break;
+            case 0x0020:
+                ev.key = K::Space;
+                ev.utf8[0] = ' ';
+                ev.utf8[1] = '\0';
+                break;
             case 0xFF1B: ev.key = K::Escape;    break;
             case 0xFF08: ev.key = K::Backspace; break;
             case 0xFFFF: ev.key = K::Delete;    break;

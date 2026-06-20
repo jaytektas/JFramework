@@ -129,6 +129,14 @@ void test_textarea_logic() {
     assert(handled == true);
     assert(ta.text() == "Line 1\nLine 2");
 
+    // Test Space key entry
+    ke.key = KeyEvent::Key::Space;
+    ke.utf8[0] = ' ';
+    ke.utf8[1] = '\0';
+    handled = ta.handleKeyEvent(ke);
+    assert(handled == true);
+    assert(ta.text() == "Line 1\nLine 2 ");
+
     std::cout << "test_textarea_logic passed" << std::endl;
 }
 
