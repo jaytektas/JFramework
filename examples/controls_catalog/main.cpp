@@ -396,6 +396,8 @@ public:
                 injected = add<CheckBox>(m_graph, label.empty() ? "CheckBox" : label, 280.0f, 22.0f);
             } else if (type == "lineedit" || type == "LineEdit") {
                 injected = add<LineEdit>(m_graph, label.empty() ? "Enter text..." : label, 320.0f, 32.0f);
+            } else if (type == "textarea" || type == "TextArea") {
+                injected = add<TextArea>(m_graph, label.empty() ? "Enter paragraph..." : label, 320.0f, 100.0f);
             } else {
                 std::cerr << "[AI-inject] unknown widget type '" << type << "'\n";
                 m_curPanel = savedPanel; m_curContainer = savedContainer;
@@ -582,6 +584,8 @@ private:
         section("Filters");
         add<LineEdit>(m_graph, "Search widgets...", 340.0f, 32.0f);
         add<LineEdit>(m_graph, "API endpoint URL", 340.0f, 32.0f);
+        section("Terminal Log");
+        add<TextArea>(m_graph, "No logs yet. Type here...", 340.0f, 100.0f);
         add<Label>(m_graph, "Genesis UI Toolkit — Zero-dependency, AI-native", 460.0f, 20.0f);
 
         beginPanel("Output");
@@ -990,6 +994,12 @@ int main() {
             if (!ke.pressed) continue;
             keyActivity = true;
             using K = Genesis::KeyEvent::Key;
+            bool handled = false;
+            if (focus.focused()) {
+                handled = focus.focused()->handleKeyEvent(ke);
+            }
+            if (handled) continue;
+
             if (ke.key == K::Tab)     focus.nextFocus();
             if (ke.key == K::BackTab) focus.prevFocus();
             if (ke.utf8[0] == 'p' || ke.utf8[0] == 'P') wantScreenshot = true;

@@ -11,6 +11,7 @@
 #include "SceneGraph.h"
 #include "TranslationEngine.h"
 #include "AiBusHook.h"          // zero-dependency AI bus bridge
+#include "KeyEvent.h"
 #include "../graphics/RenderPrimitive.h"
 #include "../graphics/FontEngine.h"
 
@@ -96,6 +97,7 @@ public:
     virtual void handleMouseMove(float, float)    {}
     virtual void handleMousePress(float, float)   {}
     virtual void handleMouseRelease(float, float) {}
+    virtual bool handleKeyEvent(const KeyEvent&) { return false; }
 
     // AI interface
     AISemanticNode getSemanticNode() const override {
@@ -849,6 +851,35 @@ public:
         if (isPointInside(mx, my)) { onClicked.emit(); }
     }
 
+    bool handleKeyEvent(const KeyEvent& ke) override {
+        if (!ke.pressed) return false;
+        using K = KeyEvent::Key;
+        if (ke.key == K::Backspace) {
+            if (!m_text.empty()) {
+                m_text.pop_back();
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+                onTextChanged.emit(m_text);
+                if (AiBusHook::emit)
+                    AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+            }
+            return true;
+        } else if (ke.key == K::Return) {
+            onReturnPressed.emit();
+            return true;
+        } else if (ke.utf8[0] != '\0') {
+            // Append character if it's printable (not control characters)
+            if (static_cast<uint8_t>(ke.utf8[0]) >= 32) {
+                m_text += ke.utf8;
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+                onTextChanged.emit(m_text);
+                if (AiBusHook::emit)
+                    AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+                return true;
+            }
+        }
+        return false;
+    }
+
     void populateRenderPrimitives(PrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         bool focused = isFocused();
@@ -897,6 +928,256 @@ public:
 private:
     std::string m_text;
     std::string m_placeholder;
+};
+
+// ============================================================================
+// TextArea
+// ============================================================================
+
+class TextArea : public Control {
+public:
+    Core::Signal<std::string> onTextChanged;
+
+    TextArea(SceneGraph& graph, const std::string& placeholder = "",
+             float w = 340.0f, float h = 120.0f)
+        : Control(graph, "TextArea"), m_placeholder(placeholder)
+    {
+        auto& l = m_graph.getLayout(m_nodeId);
+        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.minWidth = 100.0f;
+        l.minHeight = 40.0f;
+    }
+
+    void setText(const std::string& t) {
+        if (m_text != t) {
+            m_text = t;
+            m_cursorPos = m_text.size();
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            onTextChanged.emit(t);
+            if (AiBusHook::emit)
+                AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+        }
+    }
+    const std::string& text()        const { return m_text; }
+    const std::string& placeholder() const { return m_placeholder; }
+
+    void handleMousePress(float mx, float my) override {
+        if (isPointInside(mx, my)) { onClicked.emit(); }
+    }
+
+    std::vector<std::string> getLines() const {
+        std::vector<std::string> lines;
+        std::string current;
+        for (char c : m_text) {
+            if (c == '\n') {
+                lines.push_back(current);
+                current.clear();
+            } else {
+                current.push_back(c);
+            }
+        }
+        lines.push_back(current);
+        return lines;
+    }
+
+    void getCursorLineCol(size_t& outLine, size_t& outCol) const {
+        outLine = 0;
+        outCol = 0;
+        for (size_t i = 0; i < m_cursorPos && i < m_text.size(); ++i) {
+            if (m_text[i] == '\n') {
+                outLine++;
+                outCol = 0;
+            } else {
+                outCol++;
+            }
+        }
+    }
+
+    size_t getPosFromLineCol(size_t line, size_t col) const {
+        size_t curLine = 0;
+        size_t curCol = 0;
+        size_t i = 0;
+        for (; i < m_text.size(); ++i) {
+            if (curLine == line) {
+                if (curCol == col || m_text[i] == '\n') {
+                    return i;
+                }
+                curCol++;
+            } else {
+                if (m_text[i] == '\n') {
+                    curLine++;
+                    curCol = 0;
+                    if (curLine == line && col == 0) {
+                        return i + 1;
+                    }
+                }
+            }
+        }
+        return i;
+    }
+
+    bool handleKeyEvent(const KeyEvent& ke) override {
+        if (!ke.pressed) return false;
+        using K = KeyEvent::Key;
+        
+        size_t line = 0, col = 0;
+        getCursorLineCol(line, col);
+
+        if (ke.key == K::Backspace) {
+            if (m_cursorPos > 0 && !m_text.empty()) {
+                m_text.erase(m_cursorPos - 1, 1);
+                m_cursorPos--;
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+                onTextChanged.emit(m_text);
+                if (AiBusHook::emit)
+                    AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+            }
+            return true;
+        } else if (ke.key == K::Delete) {
+            if (m_cursorPos < m_text.size()) {
+                m_text.erase(m_cursorPos, 1);
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+                onTextChanged.emit(m_text);
+                if (AiBusHook::emit)
+                    AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+            }
+            return true;
+        } else if (ke.key == K::Return) {
+            m_text.insert(m_cursorPos, "\n");
+            m_cursorPos++;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            onTextChanged.emit(m_text);
+            if (AiBusHook::emit)
+                AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+            return true;
+        } else if (ke.key == K::Left) {
+            if (m_cursorPos > 0) m_cursorPos--;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            return true;
+        } else if (ke.key == K::Right) {
+            if (m_cursorPos < m_text.size()) m_cursorPos++;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            return true;
+        } else if (ke.key == K::Up) {
+            if (line > 0) {
+                m_cursorPos = getPosFromLineCol(line - 1, col);
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+            }
+            return true;
+        } else if (ke.key == K::Down) {
+            auto lines = getLines();
+            if (line + 1 < lines.size()) {
+                m_cursorPos = getPosFromLineCol(line + 1, col);
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+            }
+            return true;
+        } else if (ke.key == K::Home) {
+            m_cursorPos = getPosFromLineCol(line, 0);
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            return true;
+        } else if (ke.key == K::End) {
+            auto lines = getLines();
+            m_cursorPos = getPosFromLineCol(line, lines[line].size());
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            return true;
+        } else if (ke.utf8[0] != '\0') {
+            if (static_cast<uint8_t>(ke.utf8[0]) >= 32 || ke.utf8[0] == '\t') {
+                m_text.insert(m_cursorPos, ke.utf8);
+                m_cursorPos += std::strlen(ke.utf8);
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+                onTextChanged.emit(m_text);
+                if (AiBusHook::emit)
+                    AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        bool focused = isFocused();
+
+        // Background + border (accent when focused)
+        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1, 6.0f,
+                          focused ? 1.5f : 1.0f,
+                          focused ? Colors::Accent : Colors::Border);
+
+        float innerX = b.x + 8.0f;
+        float innerY = b.y + 8.0f;
+        float innerW = b.width - 16.0f;
+        float innerH = b.height - 16.0f;
+
+        float lh = TextHelper::hasAtlas() ? TextHelper::lineHeight() : 12.0f;
+
+        size_t cursorLine = 0, cursorCol = 0;
+        getCursorLineCol(cursorLine, cursorCol);
+
+        // Keep cursor visible with scroll offset
+        float cursorYRel = cursorLine * lh;
+        if (cursorYRel < m_scrollOffset) {
+            m_scrollOffset = cursorYRel;
+        } else if (cursorYRel + lh > m_scrollOffset + innerH) {
+            m_scrollOffset = cursorYRel + lh - innerH;
+        }
+        m_scrollOffset = std::max(0.0f, m_scrollOffset);
+
+        auto lines = getLines();
+
+        if (TextHelper::hasAtlas()) {
+            if (m_text.empty() && !m_placeholder.empty()) {
+                uint8_t pc[4] = {100, 100, 110, 160};
+                TextHelper::pushText(buf, innerX, innerY, m_placeholder, pc, innerW);
+            } else {
+                uint8_t tc[4] = {220, 220, 228, 220};
+                for (size_t i = 0; i < lines.size(); ++i) {
+                    float lineY = innerY + i * lh - m_scrollOffset;
+                    if (lineY + lh >= innerY && lineY <= innerY + innerH) {
+                        TextHelper::pushText(buf, innerX, lineY, lines[i], tc, innerW);
+                    }
+                }
+            }
+        } else {
+            if (m_text.empty()) {
+                uint8_t pc[4] = {100, 100, 110, 120};
+                buf.pushRectangle(innerX, innerY + (lh - 7.0f) * 0.5f, innerW * 0.55f, 7.0f, pc, 2.0f);
+            } else {
+                uint8_t tc[4] = {220, 220, 228, 200};
+                for (size_t i = 0; i < lines.size(); ++i) {
+                    float lineY = innerY + i * lh - m_scrollOffset;
+                    if (lineY + lh >= innerY && lineY <= innerY + innerH) {
+                        float lw = std::min(innerW, 20.0f + static_cast<float>(lines[i].size() * 6));
+                        buf.pushRectangle(innerX, lineY + (lh - 7.0f) * 0.5f, lw, 7.0f, tc, 2.0f);
+                    }
+                }
+            }
+        }
+
+        // Render Cursor
+        if (focused) {
+            float cx = innerX;
+            if (!m_text.empty() && cursorLine < lines.size()) {
+                std::string currentLineText = lines[cursorLine].substr(0, cursorCol);
+                cx = innerX + (TextHelper::hasAtlas() ? TextHelper::measureWidth(currentLineText) : cursorCol * 6.0f);
+            }
+            float cy = innerY + cursorLine * lh - m_scrollOffset;
+            if (cy + lh >= innerY && cy <= innerY + innerH) {
+                buf.pushRectangle(cx, cy + 2.0f, 1.5f, lh - 4.0f, Colors::Accent);
+            }
+        }
+    }
+
+    AISemanticNode getSemanticNode() const override { return {"TextArea", m_placeholder, m_text, true}; }
+    bool executeSemanticAction(const std::string& a) override {
+        if (a.rfind("set_text:", 0) == 0) { setText(a.substr(9)); return true; }
+        return false;
+    }
+
+private:
+    std::string m_text;
+    std::string m_placeholder;
+    size_t      m_cursorPos{0};
+    float       m_scrollOffset{0.0f};
 };
 
 // ============================================================================

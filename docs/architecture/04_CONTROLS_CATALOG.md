@@ -56,7 +56,7 @@ semantic interface automatically.
 | `LineEdit` | ✅ | Focused border (accent), cursor line, placeholder bars |
 | `SpinBox` | ✅ | Value field + up/down chrome; `setValue`, `increment`, `decrement` AI actions |
 | `ComboBox` | ✅ | Cycles items on click; `select:<label>` AI action |
-| `TextArea` | 🔜 | Multi-line, virtual scroll |
+| `TextArea` | ✅ | Multi-line text input with custom SDF cursor, scroll offsets, key navigation, and text actions |
 
 ## Range & Feedback
 

@@ -94,11 +94,50 @@ void test_combobox_logic() {
     std::cout << "test_combobox_logic passed" << std::endl;
 }
 
+void test_textarea_logic() {
+    SceneGraph graph;
+    TextArea ta(graph, "Placeholder");
+    
+    std::string textOut = "";
+    ta.onTextChanged.connect([&textOut](const std::string& s) {
+        textOut = s;
+    });
+
+    assert(ta.text().empty());
+    assert(ta.placeholder() == "Placeholder");
+
+    ta.setText("Line 1\nLine 2");
+    assert(ta.text() == "Line 1\nLine 2");
+    assert(textOut == "Line 1\nLine 2");
+
+    auto lines = ta.getLines();
+    assert(lines.size() == 2);
+    assert(lines[0] == "Line 1");
+    assert(lines[1] == "Line 2");
+
+    KeyEvent ke;
+    ke.pressed = true;
+    ke.utf8[0] = '!';
+    ke.utf8[1] = '\0';
+    bool handled = ta.handleKeyEvent(ke);
+    assert(handled == true);
+    assert(ta.text() == "Line 1\nLine 2!");
+
+    ke.key = KeyEvent::Key::Backspace;
+    ke.utf8[0] = '\0';
+    handled = ta.handleKeyEvent(ke);
+    assert(handled == true);
+    assert(ta.text() == "Line 1\nLine 2");
+
+    std::cout << "test_textarea_logic passed" << std::endl;
+}
+
 int main() {
     test_button_interaction();
     test_widget_rendering();
     test_slider_logic();
     test_combobox_logic();
+    test_textarea_logic();
     std::cout << "All tests passed!" << std::endl;
     return 0;
 }
