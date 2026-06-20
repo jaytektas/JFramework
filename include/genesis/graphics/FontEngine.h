@@ -85,11 +85,17 @@ public:
     /** Auto-detect a usable system font. */
     bool loadSystemFont() {
         static const char* kCandidates[] = {
+#if defined(_WIN32)
+            "C:\\Windows\\Fonts\\arial.ttf",
+            "C:\\Windows\\Fonts\\segoeui.ttf",
+            "C:\\Windows\\Fonts\\tahoma.ttf",
+#else
             "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
             "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
             "/usr/share/fonts/TTF/DejaVuSans.ttf",
+#endif
             nullptr
         };
         for (const char** p = kCandidates; *p; ++p)

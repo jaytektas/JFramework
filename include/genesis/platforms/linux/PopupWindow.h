@@ -84,6 +84,12 @@ public:
         if (m_style == Style::Bordered) h += m_kBorderPad * 2.f;
         m_winH = static_cast<uint32_t>(std::max(1.f, h));
         m_window->setSize(m_winW, m_winH);
+
+        auto& l = m_graph.getLayout(m_root);
+        l.boundingBox.width = static_cast<float>(m_winW);
+        l.boundingBox.height = static_cast<float>(m_winH);
+        m_graph.invalidateNode(m_root, DirtySelf);
+        m_graph.computeLayout(m_root, { static_cast<float>(m_winW), static_cast<float>(m_winW), 0.0f, 100000.f });
     }
 
     SceneGraph& graph()  { return m_graph; }
@@ -162,6 +168,12 @@ public:
     }
 
     void render(GpuHal& hal, PrimitiveBuffer& buf) {
+        if (m_surfaceW != m_winW || m_surfaceH != m_winH) {
+            hal.resizeSurface(m_surface, m_winW, m_winH);
+            m_surfaceW = m_winW;
+            m_surfaceH = m_winH;
+        }
+
         if (m_style == Style::Bordered) {
             uint8_t bg[4] = {22, 22, 26, 255};
             buf.pushRectangle(0.f, 0.f,
@@ -208,6 +220,7 @@ private:
     std::unique_ptr<PlatformWinType> m_window;
     GpuSurfaceId m_surface{kPrimarySurface};
     bool m_focusSet{false};
+    uint32_t m_surfaceW{0}, m_surfaceH{0};
 };
 
 } // namespace Genesis

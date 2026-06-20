@@ -80,7 +80,8 @@ public:
         );
 
         if (!m_hwnd) {
-            throw std::runtime_error("Fatal: Failed to instantiate Win32 HWND surface.");
+            DWORD err = GetLastError();
+            throw std::runtime_error("Fatal: Failed to instantiate Win32 HWND surface. Error: " + std::to_string(err));
         }
 
         HDC hdc = GetDC(m_hwnd);
@@ -211,16 +212,17 @@ private:
             pThis = reinterpret_cast<WindowsPlatformWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
         }
         if (pThis) {
-            return pThis->handleMessage(uMsg, wParam, lParam);
+            return pThis->handleMessage(hwnd, uMsg, wParam, lParam);
         }
         return DefWindowProcW(hwnd, uMsg, wParam, lParam);
     }
 
-    LRESULT handleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    LRESULT handleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
         switch (uMsg) {
             case WM_MOUSEMOVE: {
                 m_mouseX = static_cast<float>(GET_X_LPARAM(lParam));
                 m_mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
+                qCDebug(Genesis::Log::Platform) << "WM_MOUSEMOVE: " << m_mouseX << ", " << m_mouseY << "\n";
                 return 0;
             }
             case WM_LBUTTONDOWN: {
@@ -228,37 +230,56 @@ private:
                 m_mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
                 m_pendingPress = true;
                 m_altDown = (GetKeyState(VK_MENU) & 0x8000) != 0;
-                SetCapture(m_hwnd);
+                SetCapture(hwnd);
+                qCDebug(Genesis::Log::Platform) << "WM_LBUTTONDOWN: " << m_mouseX << ", " << m_mouseY << "\n";
                 return 0;
             }
             case WM_LBUTTONUP: {
                 m_pendingRelease = true;
                 ReleaseCapture();
+                qCDebug(Genesis::Log::Platform) << "WM_LBUTTONUP: " << m_mouseX << ", " << m_mouseY << "\n";
                 return 0;
             }
             case WM_MOUSEWHEEL: {
                 m_wheelY += static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam)) / static_cast<float>(WHEEL_DELTA);
+                qCDebug(Genesis::Log::Platform) << "WM_MOUSEWHEEL: " << m_wheelY << "\n";
                 return 0;
             }
             case WM_SIZE: {
                 m_width = LOWORD(lParam);
                 m_height = HIWORD(lParam);
+                qCInfo(Genesis::Log::Platform) << "WM_SIZE: " << m_width << "x" << m_height << "\n";
                 return 0;
+            }
+            case WM_WINDOWPOSCHANGED: {
+                WINDOWPOS* wp = reinterpret_cast<WINDOWPOS*>(lParam);
+                if (wp && !(wp->flags & SWP_NOMOVE)) {
+                    m_screenX = wp->x;
+                    m_screenY = wp->y;
+                    qCDebug(Genesis::Log::Platform) << "WM_WINDOWPOSCHANGED position: " << m_screenX << ", " << m_screenY << "\n";
+                }
+                break;
             }
             case WM_KILLFOCUS: {
                 m_focusLost = true;
+                qCInfo(Genesis::Log::Platform) << "WM_KILLFOCUS\n";
                 return 0;
             }
             case WM_DESTROY: {
-                PostQuitMessage(0);
+                if (m_style == PlatformWindowStyle::Normal) {
+                    PostQuitMessage(0);
+                }
+                m_closeRequested = true;
+                qCInfo(Genesis::Log::Platform) << "WM_DESTROY\n";
                 return 0;
             }
             case WM_CLOSE: {
                 m_closeRequested = true;
+                qCInfo(Genesis::Log::Platform) << "WM_CLOSE\n";
                 return 0;
             }
         }
-        return DefWindowProcW(m_hwnd, uMsg, wParam, lParam);
+        return DefWindowProcW(hwnd, uMsg, wParam, lParam);
     }
 
     HWND m_hwnd{nullptr};

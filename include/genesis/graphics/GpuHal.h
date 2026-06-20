@@ -16,7 +16,8 @@ namespace Genesis {
  */
 enum class GpuApiType : uint32_t {
     Vulkan,
-    Metal
+    Metal,
+    Software
 };
 
 /**

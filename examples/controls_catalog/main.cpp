@@ -502,11 +502,42 @@ public:
     }
 
     void handleMouse(float x, float y, bool pressed, bool released, float wheel = 0.0f) {
+        if (released) {
+            m_scrollDraggingPanel = nullptr;
+        }
+
+        if (m_scrollDraggingPanel) {
+            Panel* p = m_scrollDraggingPanel;
+            float trackH = p->viewport.height;
+            float handleH = std::max(20.0f, (p->viewport.height / p->contentH) * p->viewport.height);
+            float thumbRange = trackH - handleH;
+            float maxScroll = p->contentH - p->viewport.height;
+            if (thumbRange > 0.0f) {
+                p->scrollY = std::clamp(m_scrollDragStartScrollY + (y - m_scrollDragStartY) * maxScroll / thumbRange, 0.0f, maxScroll);
+                m_graph.invalidateNode(p->root, DirtySelf);
+            }
+            return;
+        }
+
         // Route to the controls of currently-visible docked panels only.  Floated panels
         // receive input through handleFloatingPanelInput (in their own window's coords).
         bool hitAny = false;
         for (auto& p : m_panels) {
             if (!p.visible) continue;
+
+            if (pressed && m_showPanelScrollbars && p.contentH > p.viewport.height) {
+                float scrollBarW = 6.0f;
+                float trackX = p.viewport.x + p.viewport.width - scrollBarW - 2.0f;
+                if (x >= trackX - 10.0f && x <= trackX + scrollBarW + 10.0f &&
+                    y >= p.viewport.y && y <= p.viewport.y + p.viewport.height) {
+                    m_scrollDraggingPanel = &p;
+                    m_scrollDragStartY = y;
+                    m_scrollDragStartScrollY = p.scrollY;
+                    hitAny = true;
+                    break;
+                }
+            }
+
             for (Widget* w : p.widgets) {
                 w->handleMouseMove(x, y);
                 if (pressed) {
@@ -557,6 +588,15 @@ public:
     }
 
     void handleHostFloatingPanelsInput(DockHost& host, float x, float y, bool pr, bool rl, float wheel = 0.0f) {
+        if (rl) {
+            m_scrollDraggingPanel = nullptr;
+        }
+
+        if (m_scrollDraggingPanel) {
+            handleFloatingPanelInput(m_scrollDraggingPanel->title, x, y, pr, rl, wheel);
+            return;
+        }
+
         host.forEachDockPanel(
             [&](const DockWidget* dock, const Rect&, bool active, int tabCount) {
                 if (tabCount > 1 && !active) return;
@@ -570,18 +610,50 @@ public:
 
     // Drive a floated panel's content (window-local coords).
     void handleFloatingPanelInput(const std::string& title, float x, float y, bool press, bool release, float wheel = 0.0f) {
+        if (release) {
+            m_scrollDraggingPanel = nullptr;
+        }
+
+        if (m_scrollDraggingPanel && m_scrollDraggingPanel->title == title) {
+            Panel* p = m_scrollDraggingPanel;
+            float trackH = p->viewport.height;
+            float handleH = std::max(20.0f, (p->viewport.height / p->contentH) * p->viewport.height);
+            float thumbRange = trackH - handleH;
+            float maxScroll = p->contentH - p->viewport.height;
+            if (thumbRange > 0.0f) {
+                p->scrollY = std::clamp(m_scrollDragStartScrollY + (y - m_scrollDragStartY) * maxScroll / thumbRange, 0.0f, maxScroll);
+                m_graph.invalidateNode(p->root, DirtySelf);
+            }
+            return;
+        }
+
         Panel* p = panelByTitle(title);
         if (!p) return;
         bool hitAny = false;
-        for (Widget* wt : p->widgets) {
-            wt->handleMouseMove(x, y);
-            if (press) {
-                wt->handleMousePress(x, y);
-                if (wt->hitTest(x, y)) hitAny = true;
-            }
-            if (release) wt->handleMouseRelease(x, y);
 
+        if (press && m_showPanelScrollbars && p->contentH > p->viewport.height) {
+            float scrollBarW = 6.0f;
+            float trackX = p->viewport.x + p->viewport.width - scrollBarW - 2.0f;
+            if (x >= trackX - 4.0f && x <= trackX + scrollBarW + 4.0f &&
+                y >= p->viewport.y && y <= p->viewport.y + p->viewport.height) {
+                m_scrollDraggingPanel = p;
+                m_scrollDragStartY = y;
+                m_scrollDragStartScrollY = p->scrollY;
+                hitAny = true;
+            }
         }
+
+        if (!hitAny) {
+            for (Widget* wt : p->widgets) {
+                wt->handleMouseMove(x, y);
+                if (press) {
+                    wt->handleMousePress(x, y);
+                    if (wt->hitTest(x, y)) hitAny = true;
+                }
+                if (release) wt->handleMouseRelease(x, y);
+            }
+        }
+
         if (press && !hitAny) {
             m_focus.setFocus(nullptr);
         }
@@ -894,6 +966,10 @@ private:
     float m_elapsed{0.0f};
     bool  m_animPaused{false};
     bool  m_showPanelScrollbars{true};
+
+    Panel* m_scrollDraggingPanel{nullptr};
+    float  m_scrollDragStartY{0.0f};
+    float  m_scrollDragStartScrollY{0.0f};
 };
 
 // ============================================================================

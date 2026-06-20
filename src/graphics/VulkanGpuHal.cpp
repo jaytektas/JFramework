@@ -19,6 +19,7 @@
 #include <genesis/graphics/ShaderSpirv.h>
 #include <genesis/core/GenesisComponents.h>
 #include <genesis/core/muted_logging_mock.h>
+#include "SoftwareGpuHal.h"
 
 #include <iostream>
 #include <stdexcept>
@@ -1008,10 +1009,23 @@ private:
     uint32_t m_frameCounter{0};
 };
 
+
 std::unique_ptr<GpuHal> GpuHal::create(GpuApiType api, const NativeWindowHandle& h) {
     if (api == GpuApiType::Vulkan) {
-        auto hal = std::make_unique<VulkanGpuHal>(h);
-        if (hal->initialize()) return hal;
+        try {
+            auto hal = std::make_unique<VulkanGpuHal>(h);
+            if (hal->initialize()) {
+                return hal;
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "[GENESIS] Vulkan hardware initialization failed: " << e.what() << ". Falling back to Software API.\n";
+        }
+    }
+    
+    // Software fallback
+    auto softwareHal = std::make_unique<SoftwareGpuHal>(h);
+    if (softwareHal->initialize()) {
+        return softwareHal;
     }
     return nullptr;
 }

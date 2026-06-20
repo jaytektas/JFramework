@@ -1832,6 +1832,21 @@ public:
     const std::vector<Widget*>& children() const { return m_children; }
 
     void handleMouseMove(float mx, float my) override {
+        if (m_draggingScroll) {
+            const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+            float totalH = 12.0f;
+            for (Widget* w : m_children)
+                totalH += m_graph.getLayoutConst(w->getNodeId()).boundingBox.height + 6.0f;
+            float maxScrollY = std::max(0.0f, totalH - b.height);
+            float trackH = b.height - 4.0f;
+            float thumbH = std::max(20.0f, trackH * (b.height / totalH));
+            float thumbRange = trackH - thumbH;
+            if (thumbRange > 0.0f) {
+                m_scrollY = std::clamp(m_dragStartScrollY + (my - m_dragStartY) * maxScrollY / thumbRange, 0.0f, maxScrollY);
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+            }
+            return;
+        }
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
             m_hovered = true;
@@ -1847,9 +1862,11 @@ public:
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
             float trackW = 10.0f;
-            float trackX = b.x + b.width - trackW;
+            float trackX = b.x + b.width - trackW - 6.0f;
             if (mx >= trackX) {
                 m_draggingScroll = true;
+                m_dragStartY = my;
+                m_dragStartScrollY = m_scrollY;
             } else {
                 for (Widget* w : m_children) {
                     if (w->isVisible()) w->handleMousePress(mx, my);
@@ -1967,6 +1984,8 @@ private:
     float   m_scrollY{0.0f};
     bool    m_hovered{false};
     bool    m_draggingScroll{false};
+    float   m_dragStartY{0.0f};
+    float   m_dragStartScrollY{0.0f};
 };
 
 // ============================================================================
@@ -2007,6 +2026,20 @@ public:
     int selectedIndex() const { return m_selectedIndex; }
 
     void handleMouseMove(float mx, float my) override {
+        if (m_draggingScroll) {
+            const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+            float itemH = TextHelper::hasAtlas() ? TextHelper::lineHeight() + 8.0f : 20.0f;
+            float totalH = m_items.size() * itemH + 8.0f;
+            float maxScrollY = std::max(0.0f, totalH - b.height);
+            float trackH = b.height - 4.0f;
+            float thumbH = std::max(20.0f, trackH * (b.height / totalH));
+            float thumbRange = trackH - thumbH;
+            if (thumbRange > 0.0f) {
+                m_scrollY = std::clamp(m_dragStartScrollY + (my - m_dragStartY) * maxScrollY / thumbRange, 0.0f, maxScrollY);
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+            }
+            return;
+        }
         Control::handleMouseMove(mx, my);
     }
 
@@ -2015,9 +2048,11 @@ public:
         if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
             onClicked.emit();
             float trackW = 10.0f;
-            float trackX = b.x + b.width - trackW;
+            float trackX = b.x + b.width - trackW - 6.0f;
             if (mx >= trackX) {
                 m_draggingScroll = true;
+                m_dragStartY = my;
+                m_dragStartScrollY = m_scrollY;
             } else {
                 float itemH = TextHelper::hasAtlas() ? TextHelper::lineHeight() + 8.0f : 20.0f;
                 float relativeY = my - b.y + m_scrollY - 4.0f;
@@ -2184,6 +2219,8 @@ private:
     int                      m_selectedIndex{-1};
     float                    m_scrollY{0.0f};
     bool                     m_draggingScroll{false};
+    float                    m_dragStartY{0.0f};
+    float                    m_dragStartScrollY{0.0f};
 };
 
 struct TreeViewNode {
@@ -2246,6 +2283,8 @@ public:
             float trackX = b.x + b.width - trackW;
             if (mx >= trackX) {
                 m_draggingScroll = true;
+                m_dragStartY = my;
+                m_dragStartScrollY = m_scrollY;
             } else {
                 auto flatNodes = getFlatNodes();
                 float itemH = getItemHeight();
@@ -2270,6 +2309,25 @@ public:
     void handleMouseRelease(float mx, float my) override {
         m_draggingScroll = false;
         Control::handleMouseRelease(mx, my);
+    }
+
+    void handleMouseMove(float mx, float my) override {
+        if (m_draggingScroll) {
+            const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+            auto flatNodes = getFlatNodes();
+            float itemH = getItemHeight();
+            float totalH = flatNodes.size() * itemH + 8.0f;
+            float maxScrollY = std::max(0.0f, totalH - b.height);
+            float trackH = b.height - 8.0f;
+            float handleH = std::max(20.0f, (b.height / totalH) * trackH);
+            float thumbRange = trackH - handleH;
+            if (thumbRange > 0.0f) {
+                m_scrollY = std::clamp(m_dragStartScrollY + (my - m_dragStartY) * maxScrollY / thumbRange, 0.0f, maxScrollY);
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+            }
+            return;
+        }
+        Control::handleMouseMove(mx, my);
     }
 
     bool handleScroll(float mx, float my, float wheel) override {
@@ -2511,6 +2569,8 @@ private:
     float         m_scrollY{0.0f};
     float         m_rowHeight{-1.0f};
     bool          m_draggingScroll{false};
+    float         m_dragStartY{0.0f};
+    float         m_dragStartScrollY{0.0f};
 };
 
 class DataGrid : public Control {
@@ -2588,12 +2648,16 @@ public:
             float trackX = b.x + b.width - scrollBarW;
             if (mx >= trackX && my >= b.y + headerH) {
                 m_draggingVScroll = true;
+                m_dragStartY = my;
+                m_dragStartScrollY = m_scrollY;
                 return;
             }
 
             float trackY = b.y + b.height - scrollBarW;
             if (my >= trackY && mx < trackX) {
                 m_draggingHScroll = true;
+                m_dragStartX = mx;
+                m_dragStartScrollX = m_scrollX;
                 return;
             }
 
@@ -2612,6 +2676,42 @@ public:
         m_draggingVScroll = false;
         m_draggingHScroll = false;
         Control::handleMouseRelease(mx, my);
+    }
+
+    void handleMouseMove(float mx, float my) override {
+        if (m_draggingVScroll) {
+            const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+            bool hasH = hasHScroll(b);
+            float scrollBarW = 10.0f;
+            float trackH = b.height - m_headerHeight - (hasH ? scrollBarW : 0.0f);
+            float totalH = m_rows.size() * m_rowHeight + m_headerHeight + (hasH ? scrollBarW : 0.0f);
+            float maxScrollY = std::max(0.0f, totalH - b.height);
+            float handleH = std::max(20.0f, (trackH / totalH) * trackH);
+            float thumbRange = trackH - handleH;
+            if (thumbRange > 0.0f) {
+                m_scrollY = std::clamp(m_dragStartScrollY + (my - m_dragStartY) * maxScrollY / thumbRange, 0.0f, maxScrollY);
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+            }
+            return;
+        }
+        if (m_draggingHScroll) {
+            const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+            bool hasV = hasVScroll(b);
+            float scrollBarW = 10.0f;
+            float trackW = b.width - (hasV ? scrollBarW : 0.0f);
+            float totalColW = 0.0f;
+            for (int i = 0; i < (int)m_headers.size(); ++i)
+                totalColW += columnWidth(i, b.width);
+            float maxScrollX = std::max(0.0f, totalColW - trackW);
+            float handleW = std::max(20.0f, (trackW / totalColW) * trackW);
+            float thumbRange = trackW - handleW;
+            if (thumbRange > 0.0f) {
+                m_scrollX = std::clamp(m_dragStartScrollX + (mx - m_dragStartX) * maxScrollX / thumbRange, 0.0f, maxScrollX);
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+            }
+            return;
+        }
+        Control::handleMouseMove(mx, my);
     }
 
     bool handleScroll(float mx, float my, float wheel) override {
@@ -2852,6 +2952,10 @@ private:
     float                                 m_cellPadding{8.0f};
     bool                                  m_draggingVScroll{false};
     bool                                  m_draggingHScroll{false};
+    float                                 m_dragStartY{0.0f};
+    float                                 m_dragStartScrollY{0.0f};
+    float                                 m_dragStartX{0.0f};
+    float                                 m_dragStartScrollX{0.0f};
 };
 
 } // namespace Genesis
