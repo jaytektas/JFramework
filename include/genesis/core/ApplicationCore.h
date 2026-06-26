@@ -51,6 +51,8 @@ public:
     virtual float mouseY() const { return 0.0f; }
     virtual bool  consumePress() { return false; }
     virtual bool  consumeRelease() { return false; }
+    virtual bool  consumeRightPress() { return false; }
+    virtual bool  consumeRightRelease() { return false; }
     virtual float consumeWheel() { return 0.0f; }
     
     // Keyboard events
@@ -70,7 +72,8 @@ public:
     virtual Genesis::NativeWindowHandle nativeHandle() const { return {}; }
     
     // Focus & state checks
-    virtual bool consumeFocusLost() { return false; }
+    virtual bool consumeFocusLost()  { return false; }
+    virtual bool consumeMouseLeave() { return false; }
     virtual bool isAltDown() const { return false; }
 
     virtual std::pair<int,int> globalCursorPos() const { return {0, 0}; }
@@ -78,6 +81,9 @@ public:
 
     virtual std::pair<int,int> virtualDesktopSize() const { return {1920, 1080}; }
     virtual void setFullscreen(bool on) { (void)on; }
+    virtual float dpiScale() const { return 1.0f; }
+    virtual void setResizeCallback(std::function<void(uint32_t, uint32_t)> cb) { (void)cb; }
+    virtual void setMinSize(uint32_t minW, uint32_t minH) { (void)minW; (void)minH; }
 };
 
 /**

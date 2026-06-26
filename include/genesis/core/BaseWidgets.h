@@ -53,15 +53,29 @@ public:
 
 class Widget : public Core::SlotTracker, public IAIState {
 public:
+    inline static std::vector<Widget*> s_activeWidgets;
+
     Widget(SceneGraph& graph, const std::string& debugName = "")
         : m_graph(graph), m_state(WidgetState::Normal), m_debugName(debugName)
     {
         m_nodeId = m_graph.createNode(debugName);
+        s_activeWidgets.push_back(this);
     }
 
-    virtual ~Widget() = default;
+    virtual ~Widget() {
+        auto it = std::find(s_activeWidgets.begin(), s_activeWidgets.end(), this);
+        if (it != s_activeWidgets.end()) {
+            s_activeWidgets.erase(it);
+        }
+    }
     Widget(const Widget&)            = delete;
     Widget& operator=(const Widget&) = delete;
+
+    std::string m_tooltipText;
+    void setTooltip(const std::string& text) { m_tooltipText = text; }
+    const std::string& tooltip() const noexcept { return m_tooltipText; }
+
+    static void renderTooltips(PrimitiveBuffer& buf, float mouseX, float mouseY);
 
     NodeId      getNodeId()  const noexcept { return m_nodeId; }
     WidgetState getState()   const noexcept { return m_state;  }
@@ -182,6 +196,10 @@ namespace Colors {
     inline constexpr uint8_t Warning[4]   = {255, 159, 10,  255}; // amber
     inline constexpr uint8_t Danger[4]    = {255, 69,  58,  255}; // red
     inline constexpr uint8_t Transparent[4] = {0, 0, 0, 0};
+    // Close-button shared style — used by DockWidget and floating popup windows
+    inline constexpr uint8_t CloseBtn[4]      = {60,  40,  44,  160};
+    inline constexpr uint8_t CloseBtnHover[4] = {220, 50,  50,  255};
+    inline constexpr uint8_t CloseBtnMark[4]  = {255, 255, 255, 200};
 }
 
 // ============================================================================
@@ -308,6 +326,53 @@ public:
 private:
     static FontAtlas& get() { static FontAtlas s; return s; }
 };
+
+inline void Widget::renderTooltips(PrimitiveBuffer& buf, float mouseX, float mouseY) {
+    static Widget* lastHovered = nullptr;
+    static auto hoverStart = std::chrono::steady_clock::now();
+
+    Widget* hovered = nullptr;
+    for (auto it = s_activeWidgets.rbegin(); it != s_activeWidgets.rend(); ++it) {
+        Widget* w = *it;
+        if (w && w->isVisible() && !w->tooltip().empty() && w->hitTest(mouseX, mouseY)) {
+            hovered = w;
+            break;
+        }
+    }
+
+    if (hovered != lastHovered) {
+        lastHovered = hovered;
+        hoverStart = std::chrono::steady_clock::now();
+    }
+
+    if (hovered) {
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - hoverStart).count();
+        if (elapsed < 500) {
+            return; // 500ms delay
+        }
+
+        float padX = 8.0f;
+        float padY = 6.0f;
+        std::string text = hovered->tooltip();
+        float textW = TextHelper::measureWidth(text);
+        float textH = TextHelper::lineHeight();
+        float tooltipW = textW + padX * 2.0f;
+        float tooltipH = textH + padY * 2.0f;
+        float x = mouseX + 12.0f;
+        float y = mouseY + 12.0f;
+
+        uint8_t shadow[4] = {0, 0, 0, 80};
+        buf.pushRectangle(x + 2.f, y + 2.f, tooltipW, tooltipH, shadow, 4.0f);
+
+        uint8_t fill[4] = {30, 30, 34, 250};
+        uint8_t border[4] = {80, 80, 85, 255};
+        buf.pushRectangle(x, y, tooltipW, tooltipH, fill, 4.0f, 1.0f, border);
+
+        uint8_t textColor[4] = {240, 240, 245, 255};
+        TextHelper::pushText(buf, x + padX, y + padY, text, textColor);
+    }
+}
 
 // ============================================================================
 // Separator

@@ -75,7 +75,7 @@ public:
             XCB_EVENT_MASK_KEY_PRESS       | XCB_EVENT_MASK_KEY_RELEASE    |
             XCB_EVENT_MASK_BUTTON_PRESS    | XCB_EVENT_MASK_BUTTON_RELEASE |
             XCB_EVENT_MASK_POINTER_MOTION  | XCB_EVENT_MASK_STRUCTURE_NOTIFY |
-            XCB_EVENT_MASK_FOCUS_CHANGE;
+            XCB_EVENT_MASK_FOCUS_CHANGE    | XCB_EVENT_MASK_LEAVE_WINDOW;
 
         if (style == PlatformWindowStyle::Popup) {
             // override_redirect: bypass WM entirely.  Values must be ordered by
@@ -248,6 +248,10 @@ public:
                                 XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
                             xcb_flush(m_connection);
                         }
+                    } else if (b->detail == XCB_BUTTON_INDEX_3) {
+                        m_mouseX = static_cast<float>(b->event_x);
+                        m_mouseY = static_cast<float>(b->event_y);
+                        m_pendingRightPress = true;
                     }
                     break;
                 }
@@ -261,6 +265,10 @@ public:
                             xcb_ungrab_pointer(m_connection, XCB_CURRENT_TIME);
                             xcb_flush(m_connection);
                         }
+                    } else if (b->detail == XCB_BUTTON_INDEX_3) {
+                        m_mouseX = static_cast<float>(b->event_x);
+                        m_mouseY = static_cast<float>(b->event_y);
+                        m_pendingRightRelease = true;
                     }
                     break;
                 }
@@ -305,6 +313,16 @@ public:
                     }
                     break;
                 }
+                case XCB_LEAVE_NOTIFY: {
+                    auto* le = reinterpret_cast<xcb_leave_notify_event_t*>(ev);
+                    // Only reset for genuine cursor-exit, not grab-induced leaves.
+                    if (le->mode == XCB_NOTIFY_MODE_NORMAL) {
+                        m_mouseX = -1.f;
+                        m_mouseY = -1.f;
+                    }
+                    m_mouseLeft = true;
+                    break;
+                }
                 default: break;
             }
             free(ev);
@@ -312,7 +330,8 @@ public:
     }
 
     bool shouldClose()  const override { return m_closeRequested; }
-    bool consumeFocusLost() override { bool v = m_focusLost; m_focusLost = false; return v; }
+    bool consumeFocusLost()  override { bool v = m_focusLost;  m_focusLost  = false; return v; }
+    bool consumeMouseLeave() override { bool v = m_mouseLeft; m_mouseLeft = false; return v; }
     void swapBuffers()        override {}
     void setVSync(bool)       override {}
 
@@ -321,6 +340,8 @@ public:
     float mouseY() const override { return m_mouseY; }
     bool  consumePress()   override { bool v = m_pendingPress;   m_pendingPress   = false; return v; }
     bool  consumeRelease() override { bool v = m_pendingRelease; m_pendingRelease = false; return v; }
+    bool  consumeRightPress() override { bool v = m_pendingRightPress; m_pendingRightPress = false; return v; }
+    bool  consumeRightRelease() override { bool v = m_pendingRightRelease; m_pendingRightRelease = false; return v; }
     float consumeWheel()   override { float v = m_wheelY; m_wheelY = 0.0f; return v; }  // +up / -down notches
 
     // ---- Keyboard events (consume-once queue) ----
@@ -344,6 +365,7 @@ public:
 
     Genesis::PlatformWindowStyle windowStyle() const override { return m_style; }
     bool        isAltDown()   const override { return m_altDown; }
+    float       dpiScale()    const override { return m_dpiScale; }
 
     void setTransientParent(xcb_window_t parent) {
         if (parent != 0) {
@@ -398,6 +420,42 @@ public:
         uint32_t vals[] = { w, h };
         xcb_configure_window(m_connection, m_windowId,
             XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, vals);
+        xcb_flush(m_connection);
+    }
+
+    // Inform the WM of our minimum window size via WM_NORMAL_HINTS so the
+    // WM enforces it during interactive resize and never sends us a
+    // ConfigureNotify below this threshold.
+    //
+    // Under XWayland + Mutter, WM_NORMAL_HINTS is translated to
+    // xdg_toplevel.set_min_size, which Mutter treats as the *total* window
+    // height including its own SSD title bar — not just the client area.  We
+    // add the top frame extent (_NET_FRAME_EXTENTS[2]) so that the enforced
+    // client area minimum equals the caller's layout minimum.  On native X11
+    // the same property is set by the WM but is interpreted as a client-area
+    // minimum; the small extra margin is harmless.
+    void setMinSize(uint32_t minW, uint32_t minH) override {
+        minH += _frameTop();
+
+        struct XSizeHints {
+            uint32_t flags{0};
+            int32_t  x{0}, y{0}, width{0}, height{0};
+            int32_t  min_width{0}, min_height{0};
+            int32_t  max_width{0}, max_height{0};
+            int32_t  width_inc{0}, height_inc{0};
+            int32_t  min_aspect_num{0}, min_aspect_den{0};
+            int32_t  max_aspect_num{0}, max_aspect_den{0};
+            int32_t  base_width{0}, base_height{0};
+            uint32_t win_gravity{0};
+        };
+        static constexpr uint32_t PMinSize = 1u << 4;
+        XSizeHints hints{};
+        hints.flags      = PMinSize;
+        hints.min_width  = static_cast<int32_t>(minW);
+        hints.min_height = static_cast<int32_t>(minH);
+        xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
+                            XCB_ATOM_WM_NORMAL_HINTS, XCB_ATOM_WM_SIZE_HINTS,
+                            32, sizeof(hints) / 4, &hints);
         xcb_flush(m_connection);
     }
 
@@ -609,8 +667,11 @@ private:
     float m_wheelY{0.0f};
     bool  m_pendingPress{false};
     bool  m_pendingRelease{false};
+    bool  m_pendingRightPress{false};
+    bool  m_pendingRightRelease{false};
     bool  m_closeRequested{false};
     bool  m_focusLost{false};
+    bool  m_mouseLeft{false};
     bool  m_altDown{false};
 
     xcb_font_t   m_cursorFont{0};
@@ -622,6 +683,35 @@ private:
     xcb_cursor_t m_cursorBotLeft{0};
     xcb_cursor_t m_cursorBotRight{0};
     PlatformCursor m_currentCursor{PlatformCursor::Default};
+
+    // Return the height of the WM title bar decoration above our client window.
+    //
+    // Strategy: our client window is reparented into the WM's decoration frame.
+    // We translate both the frame's (0,0) and our own (0,0) to root coordinates;
+    // the difference is the top decoration height.  Works on both native X11 and
+    // XWayland/Mutter (which does not set _NET_FRAME_EXTENTS on XWayland clients).
+    // Returns 0 if the window has no WM parent (Popup / not yet reparented).
+    uint32_t _frameTop() const {
+        // Find our immediate parent window (the WM decoration frame).
+        auto qtcook = xcb_query_tree(m_connection, m_windowId);
+        auto* qtree = xcb_query_tree_reply(m_connection, qtcook, nullptr);
+        if (!qtree) return 0;
+        xcb_window_t parent = qtree->parent;
+        free(qtree);
+
+        if (parent == m_rootWindow) return 0;  // no WM reparenting
+
+        // Translate the parent frame's origin to root coordinates.
+        auto pcook = xcb_translate_coordinates(m_connection, parent, m_rootWindow, 0, 0);
+        auto* preply = xcb_translate_coordinates_reply(m_connection, pcook, nullptr);
+        if (!preply) return 0;
+        int parentRootY = static_cast<int>(preply->dst_y);
+        free(preply);
+
+        // m_screenY is our client area's root-Y (updated by _updateRootPosition).
+        int top = static_cast<int>(m_screenY) - parentRootY;
+        return top > 0 ? static_cast<uint32_t>(top) : 0;
+    }
 
     xcb_cursor_t _createFontCursor(uint16_t shape) {
         xcb_cursor_t cid = xcb_generate_id(m_connection);

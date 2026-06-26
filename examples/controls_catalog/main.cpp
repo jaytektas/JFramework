@@ -16,7 +16,8 @@
 #include <genesis/platforms/linux/LinuxPlatformWindow.h>
 #endif
 #include <genesis/platforms/linux/FloatingDockWindow.h>
-#include <genesis/platforms/linux/PopupWindow.h>
+#include <genesis/platforms/PopupWindow.h>
+#include <genesis/core/MenuSystem.h>
 
 #if defined(_WIN32)
 using PlatformWindowImpl = Genesis::WindowsPlatformWindow;
@@ -66,9 +67,20 @@ public:
     void setShowPanelScrollbars(bool show) {
         m_showPanelScrollbars = show;
         for (auto& p : m_panels) {
-            if (p.root != InvalidNodeId) {
-                m_graph.invalidateNode(p.root, DirtySelf);
+            if (p && p->root != InvalidNodeId) {
+                m_graph.invalidateNode(p->root, DirtySelf);
             }
+        }
+    }
+
+    Genesis::MenuBar* menuBar() const noexcept { return m_menuBar.get(); }
+    Genesis::Menu* viewMenu() const noexcept { return m_menus.size() > 2 ? m_menus[2].get() : nullptr; }
+    void layoutMenuBar(float winW) {
+        if (m_menuBar) {
+            auto& l = m_graph.getLayout(m_menuBar->getNodeId());
+            l.boundingBox = { 0.f, 0.f, winW, 32.f };
+            m_graph.invalidateNode(m_menuBar->getNodeId(), DirtySelf);
+            m_graph.computeLayout(m_menuBar->getNodeId(), { winW, winW, 32.f, 32.f });
         }
     }
 
@@ -105,12 +117,13 @@ public:
         // 3. Drag ghost + dock drop overlay on top of everything.
         if (m_tearableTab) m_tearableTab->populateDragGhost(buf);
         if (m_dockHost)    m_dockHost->populateOverlay(buf);
+        if (m_menuBar)     m_menuBar->populateRenderPrimitives(buf);
     }
 
     // Per-frame: place each docked panel's content at its content area, lay it out at the
     // panel width (controls stretch), measure height, clamp scroll, and apply the wheel.
     void clearPanelVisibility() {
-        for (auto& p : m_panels) p.visible = false;
+        for (auto& p : m_panels) if (p) p->visible = false;
     }
 
     // Per-frame: place each docked panel's content at its content area, lay it out at the
@@ -167,8 +180,9 @@ public:
     // current value, live state flags, and geometry — addressed by node id, not pixels.
     void collectAiNodes(std::vector<AiNodeDescriptor>& out) const {
         out.clear();
-        out.reserve(m_widgets.size());
-        for (const auto& w : m_widgets) {
+        out.reserve(m_widgets.size() + 20);
+
+        auto addWidgetNode = [&](const Widget* w) {
             AiNodeDescriptor d{};
             NodeId nid = w->getNodeId();
             d.id = nid;
@@ -188,6 +202,28 @@ public:
             if (w->getState() == WidgetState::Focused) f |= AiFocused;
             d.stateFlags = f;
             out.push_back(d);
+        };
+
+        for (const auto& w : m_widgets) {
+            addWidgetNode(w.get());
+        }
+
+        if (m_menuBar) {
+            addWidgetNode(m_menuBar.get());
+            // Expose the menu bar item buttons individually so they can be clicked
+            for (size_t i = 0; i < m_menuBar->entries().size(); ++i) {
+                const auto& entry = m_menuBar->entries()[i];
+                AiNodeDescriptor d{};
+                d.id = entry.btnId;
+                const auto& bb = m_graph.getLayoutConst(entry.btnId).boundingBox;
+                d.x = bb.x; d.y = bb.y; d.width = bb.width; d.height = bb.height;
+                aiSetField(d.role,  sizeof(d.role),  "Button");
+                aiSetField(d.name,  sizeof(d.name),  entry.title);
+                uint32_t f = AiVisible | AiEnabled | AiInteractable;
+                if (m_menuBar->activeIndex() == static_cast<int>(i)) f |= AiFocused | AiPressed;
+                d.stateFlags = f;
+                out.push_back(d);
+            }
         }
 
         // Docked panels (containers).  Synthetic ids offset past widget node ids so the
@@ -381,6 +417,35 @@ public:
                 return res ? 1 : 0;
             }
         }
+        if (m_menuBar && m_menuBar->getNodeId() == targetId) {
+            bool res = m_menuBar->executeSemanticAction(action);
+            std::printf("[dispatchAiAction] Found MenuBar. executeSemanticAction returned %d\n", res);
+            std::fflush(stdout);
+            return res ? 1 : 0;
+        }
+        if (m_menuBar) {
+            for (const auto& entry : m_menuBar->entries()) {
+                if (entry.btnId == targetId) {
+                    // Clicking a menu button opens the menu
+                    if (action == "click") {
+                        // Locate entry index
+                        for (size_t i = 0; i < m_menuBar->entries().size(); ++i) {
+                            if (m_menuBar->entries()[i].btnId == targetId) {
+                                // Simulate click: open menu
+                                float mouseX = 0.f, mouseY = 0.f;
+                                const auto& bb = m_graph.getLayoutConst(entry.btnId).boundingBox;
+                                m_menuBar->handleMousePress(bb.x + 5.f, bb.y + 5.f);
+                                std::printf("[dispatchAiAction] Clicked MenuBarBtn '%s'\n", entry.title.c_str());
+                                std::fflush(stdout);
+                                return 1;
+                            }
+                        }
+                    }
+                    return 0;
+                }
+            }
+        }
+
         std::printf("[dispatchAiAction] Widget targetId=%u NOT found in m_widgets\n", targetId);
         std::fflush(stdout);
         return -1;
@@ -480,7 +545,9 @@ public:
             catch (...) { return 0; }
 
             // Find which panel owns this widget and remove it.
-            for (auto& p : m_panels) {
+            for (auto& p_ptr : m_panels) {
+                if (!p_ptr) continue;
+                auto& p = *p_ptr;
                 auto it = std::find_if(p.widgets.begin(), p.widgets.end(),
                     [nid](Widget* w){ return w->getNodeId() == nid; });
                 if (it != p.widgets.end()) {
@@ -502,6 +569,15 @@ public:
     }
 
     void handleMouse(float x, float y, bool pressed, bool released, float wheel = 0.0f) {
+        if (m_menuBar) {
+            m_menuBar->handleMouseMove(x, y);
+            if (pressed) m_menuBar->handleMousePress(x, y);
+            if (released) m_menuBar->handleMouseRelease(x, y);
+            if (y >= 0.f && y < 32.f) {
+                return;
+            }
+        }
+
         if (released) {
             m_scrollDraggingPanel = nullptr;
         }
@@ -522,7 +598,9 @@ public:
         // Route to the controls of currently-visible docked panels only.  Floated panels
         // receive input through handleFloatingPanelInput (in their own window's coords).
         bool hitAny = false;
-        for (auto& p : m_panels) {
+        for (auto& p_ptr : m_panels) {
+            if (!p_ptr) continue;
+            Panel& p = *p_ptr;
             if (!p.visible) continue;
 
             if (pressed && m_showPanelScrollbars && p.contentH > p.viewport.height) {
@@ -560,7 +638,7 @@ public:
         auto& L = m_graph.getLayout(p->root);
         m_graph.invalidateNode(p->root, DirtySelf);
         L.boundingBox.x = content.x;
-        L.boundingBox.y = content.y;
+        L.boundingBox.y = content.y - p->scrollY;
         m_graph.computeLayout(p->root, Constraints{content.width, content.width, 0.0f, 100000.0f});
         buf.pushClip(content.x, content.y, content.width, content.height);
         for (Widget* wt : p->widgets) if (wt->isVisible()) wt->populateRenderPrimitives(buf);
@@ -689,8 +767,131 @@ public:
         if (m_dockHost) m_dockHost->retargetDock(oldPtr, raw);
     }
 
+    void buildMenus() {
+        // Create menus
+        auto fileMenu = std::make_unique<Genesis::Menu>("File");
+        fileMenu->add(m_graph, "New Project", {Genesis::KeyEvent::Key::N, true, false, false})->onTriggered.connect([]() {
+            std::cout << "[MENU] New Project triggered\n";
+        });
+        fileMenu->add(m_graph, "Open Project...", {Genesis::KeyEvent::Key::O, true, false, false})->onTriggered.connect([]() {
+            std::cout << "[MENU] Open Project triggered\n";
+        });
+        fileMenu->addSeparator(m_graph);
+        fileMenu->add(m_graph, "Save", {Genesis::KeyEvent::Key::S, true, false, false})->onTriggered.connect([]() {
+            std::cout << "[MENU] Save triggered\n";
+        });
+        fileMenu->add(m_graph, "Save As...", {Genesis::KeyEvent::Key::S, true, false, true})->onTriggered.connect([]() {
+            std::cout << "[MENU] Save As triggered\n";
+        });
+        fileMenu->addSeparator(m_graph);
+        fileMenu->add(m_graph, "Exit", {Genesis::KeyEvent::Key::Unknown, false, false, false})->onTriggered.connect([]() {
+            std::cout << "[MENU] Exit triggered\n";
+        });
+
+        auto editMenu = std::make_unique<Genesis::Menu>("Edit");
+        editMenu->add(m_graph, "Undo", {Genesis::KeyEvent::Key::Z, true, false, false})->onTriggered.connect([]() {
+            std::cout << "[MENU] Undo triggered\n";
+        });
+        editMenu->add(m_graph, "Redo", {Genesis::KeyEvent::Key::Y, true, false, false})->onTriggered.connect([]() {
+            std::cout << "[MENU] Redo triggered\n";
+        });
+        editMenu->addSeparator(m_graph);
+        editMenu->add(m_graph, "Cut", {Genesis::KeyEvent::Key::X, true, false, false})->onTriggered.connect([]() {
+            std::cout << "[MENU] Cut triggered\n";
+        });
+        editMenu->add(m_graph, "Copy", {Genesis::KeyEvent::Key::C, true, false, false})->onTriggered.connect([]() {
+            std::cout << "[MENU] Copy triggered\n";
+        });
+        editMenu->add(m_graph, "Paste", {Genesis::KeyEvent::Key::V, true, false, false})->onTriggered.connect([]() {
+            std::cout << "[MENU] Paste triggered\n";
+        });
+        
+        auto prefMenu = std::make_unique<Genesis::Menu>("Preferences");
+        auto* prefItem1 = prefMenu->add(m_graph, "Embedded Slider");
+        prefItem1->setEmbeddedWidgetFactory([](SceneGraph& g) -> std::unique_ptr<Widget> {
+            auto slider = std::make_unique<Genesis::Slider>(g, 120.f, 20.f);
+            slider->setValue(0.5f);
+            return slider;
+        });
+        
+        Genesis::Menu* prefMenuPtr = prefMenu.get();
+        m_submenus.push_back(std::move(prefMenu));
+        
+        editMenu->addSeparator(m_graph);
+        editMenu->add(m_graph, "Preferences...", {}, prefMenuPtr);
+
+        auto viewMenu = std::make_unique<Genesis::Menu>("View");
+        auto* scrollbarsItem = viewMenu->add(m_graph, "Show Scrollbars");
+        scrollbarsItem->setCheckable(true);
+        scrollbarsItem->setChecked(m_showPanelScrollbars);
+        scrollbarsItem->onTriggered.connect([this, scrollbarsItem]() {
+            setShowPanelScrollbars(scrollbarsItem->isChecked());
+            std::cout << "[MENU] Toggle Scrollbars: " << m_showPanelScrollbars << "\n";
+        });
+
+        auto* animItem = viewMenu->add(m_graph, "Animate Progress");
+        animItem->setCheckable(true);
+        animItem->setChecked(!m_animPaused);
+        animItem->onTriggered.connect([this, animItem]() {
+            m_animPaused = !animItem->isChecked();
+            std::cout << "[MENU] Animate Progress: " << !m_animPaused << "\n";
+        });
+
+        auto helpMenu = std::make_unique<Genesis::Menu>("Help");
+        helpMenu->add(m_graph, "Documentation")->onTriggered.connect([]() {
+            std::cout << "[MENU] Help Documentation triggered\n";
+        });
+        helpMenu->addSeparator(m_graph);
+        helpMenu->add(m_graph, "About Genesis UI...") ->onTriggered.connect([]() {
+            std::cout << "[MENU] About Genesis UI triggered\n";
+        });
+
+        // Set tooltips!
+        for (const auto& item : fileMenu->items()) {
+            if (auto* mi = dynamic_cast<Genesis::MenuItem*>(item.get())) {
+                mi->setTooltip("Execute " + mi->label() + " action");
+            }
+        }
+        for (const auto& item : editMenu->items()) {
+            if (auto* mi = dynamic_cast<Genesis::MenuItem*>(item.get())) {
+                mi->setTooltip("Edit: " + mi->label());
+            }
+        }
+        for (const auto& item : viewMenu->items()) {
+            if (auto* mi = dynamic_cast<Genesis::MenuItem*>(item.get())) {
+                mi->setTooltip("Configure: " + mi->label());
+            }
+        }
+
+        m_menus.push_back(std::move(fileMenu));
+        m_menus.push_back(std::move(editMenu));
+        m_menus.push_back(std::move(viewMenu));
+        m_menus.push_back(std::move(helpMenu));
+        
+        m_menuBar = std::make_unique<Genesis::MenuBar>(m_graph);
+        for (const auto& m : m_menus) {
+            m_menuBar->addMenu(m.get());
+        }
+
+        // Register global shortcuts
+        Genesis::MenuManager::instance().clearShortcuts();
+        for (const auto& m : m_menus) {
+            for (const auto& item : m->items()) {
+                if (!item) continue;
+                if (auto* mi = dynamic_cast<Genesis::MenuItem*>(item.get())) {
+                    if (mi->shortcut().key != Genesis::KeyEvent::Key::Unknown) {
+                        Genesis::MenuManager::instance().registerShortcut(mi->shortcut(), [mi]() {
+                            mi->onTriggered.emit();
+                        });
+                    }
+                }
+            }
+        }
+    }
+
 private:
     void buildUI() {
+        buildMenus();
         // ---- Content, grouped into dock panels (each is a scrollable flex column) ----
         beginPanel("Navigator");
         section("Navigation");
@@ -882,8 +1083,9 @@ private:
         makeDock("Navigator",  200.f, 300.f, navLeaf);
         makeDock("Assets",     200.f, 280.f, assetLeaf);
 
-        m_dockHost->computeLayout({0.f, 0.f,
-            static_cast<float>(m_winW), static_cast<float>(m_winH)});
+        m_dockHost->computeLayout({0.f, 32.f,
+            static_cast<float>(m_winW), static_cast<float>(m_winH) - 32.f});
+        layoutMenuBar(static_cast<float>(m_winW));
     }
 
     // A dock panel's scrollable content: a flex-column root + the widgets it owns-by-ref,
@@ -906,9 +1108,40 @@ private:
         L.padding    = 14.0f;
         L.gap        = 8.0f;
         L.alignItems = AlignItems::Stretch;   // controls fill the panel width
-        m_panels.push_back(Panel{title, root, {}, 0.f, 0.f, {}, false});
-        m_curPanel     = &m_panels.back();
+        m_panels.push_back(std::make_unique<Panel>(Panel{title, root, {}, 0.f, 0.f, {}, false}));
+        m_curPanel     = m_panels.back().get();
         m_curContainer = root;
+    }
+
+public:
+    void createPanelFromMenu(Genesis::Menu* menu) {
+        if (panelByTitle(menu->title())) return;
+
+        beginPanel(menu->title());
+        // Menu items have a natural popup width (~152px content, matching the 180px popup
+        // minus the 14px padding on each side). Don't stretch them to fill wider dock slots.
+        m_graph.getLayout(m_curContainer).alignItems = AlignItems::Start;
+        static constexpr float kMenuItemMinW = 152.f;
+        for (const auto& item : menu->items()) {
+            if (!item) continue;
+            if (auto* mi = dynamic_cast<Genesis::MenuItem*>(item.get())) {
+                auto* added = add<Genesis::MenuItem>(m_graph, mi->label(), mi->shortcut(), mi->submenu());
+                added->setCheckable(mi->isCheckable());
+                added->setChecked(mi->isChecked());
+                added->setTooltip(mi->tooltip());
+                if (mi->embeddedWidgetFactory()) {
+                    added->setEmbeddedWidgetFactory(mi->embeddedWidgetFactory());
+                }
+                added->onTriggered.connect([mi]() {
+                    mi->onTriggered.emit();
+                });
+                m_graph.getLayout(added->getNodeId()).minWidth = kMenuItemMinW;
+            } else if (auto* sep = dynamic_cast<Genesis::MenuSeparator*>(item.get())) {
+                (void)sep;
+                auto* added = add<Genesis::MenuSeparator>(m_graph);
+                m_graph.getLayout(added->getNodeId()).minWidth = kMenuItemMinW;
+            }
+        }
     }
 
     void section(const std::string& name) {
@@ -947,15 +1180,22 @@ private:
     }
 
     Panel* panelByTitle(const std::string& t) {
-        for (auto& p : m_panels) if (p.title == t) return &p;
+        for (auto& p : m_panels) if (p && p->title == t) return p.get();
         return nullptr;
+    }
+
+    float panelMinHeight(const std::string& t) {
+        Panel* p = panelByTitle(t);
+        if (!p) return 0.f;
+        m_graph.computeMinSize(p->root);
+        return m_graph.getLayoutConst(p->root).minHeight;
     }
 
     SceneGraph& m_graph;
     FocusManager& m_focus;
     uint32_t    m_winW, m_winH;
     std::vector<std::unique_ptr<Widget>> m_widgets;
-    std::vector<Panel> m_panels;
+    std::vector<std::unique_ptr<Panel>> m_panels;
     NodeId      m_curContainer{InvalidNodeId};
     Panel*      m_curPanel{nullptr};
     ProgressBar* m_progressBar{nullptr};
@@ -970,6 +1210,10 @@ private:
     Panel* m_scrollDraggingPanel{nullptr};
     float  m_scrollDragStartY{0.0f};
     float  m_scrollDragStartScrollY{0.0f};
+
+    std::unique_ptr<Genesis::MenuBar> m_menuBar;
+    std::vector<std::unique_ptr<Genesis::Menu>> m_menus;
+    std::vector<std::unique_ptr<Genesis::Menu>> m_submenus;
 };
 
 // ============================================================================
@@ -999,10 +1243,10 @@ int main() {
 
     Genesis::FontEngine fontEngine;
     if (fontEngine.loadSystemFont()) {
-        auto atlas = fontEngine.buildAtlas(14.0f);
+        auto atlas = fontEngine.buildAtlas(14.0f * window->dpiScale());
         Genesis::TextHelper::setAtlas(atlas);
         hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
-        std::cout << "[GENESIS] Font atlas ready.\n";
+        std::cout << "[GENESIS] Font atlas ready (DPI scale: " << window->dpiScale() << ").\n";
     } else {
         std::cout << "[GENESIS] No system font found — text will use placeholder rendering.\n";
     }
@@ -1031,10 +1275,12 @@ int main() {
     // changes" — see isAnimating()/the activity check below.
     int   redrawFrames = 4;            // render the first few frames to settle the UI
     float lastMouseX = -1.f, lastMouseY = -1.f;
+    uint32_t lastHintMinW = 0, lastHintMinH = 0;  // last minimum size sent to the WM
 
     Genesis::FloatingDockOptions g_dockOptions;
     catalog->dockHost().setLivePreviewEnabled(g_dockOptions.livePreviewEnabled);
     std::vector<FloatingDockWindow> floatingDocks;
+    std::vector<std::unique_ptr<PopupWindow>> floatingMenus;
     std::unique_ptr<PopupWindow> activePopup;
     ComboBox* activePopupComboBox = nullptr;
     PopupWindow* pendingClosePopup = nullptr;
@@ -1085,6 +1331,123 @@ int main() {
         activePopupComboBox = cb;
     };
 
+    std::vector<std::unique_ptr<PopupWindow>> activeMenuPopups;
+    std::vector<std::unique_ptr<PopupWindow>> deferredMenuPopups;
+    std::vector<std::function<void()>> deferredMenuActions;
+    bool isPollingMenuEvents = false;
+
+    Genesis::MenuManager::instance().onOpenMenu = [&](Genesis::Menu* menu, int sx, int sy, bool parentTorn) {
+        auto action = [menu, sx, sy, parentTorn, &activeMenuPopups, &deferredMenuPopups, &floatingMenus, &floatingDocks, &g_dockOptions, &hal, &window, &catalog, &isPollingMenuEvents, &deferredMenuActions]() {
+            if (!menu) {
+                for (auto& p : activeMenuPopups) p->destroySurface(*hal);
+                activeMenuPopups.clear();
+                for (auto& p : deferredMenuPopups) p->destroySurface(*hal);
+                deferredMenuPopups.clear();
+                catalog->menuBar()->closeMenu();
+                return;
+            }
+
+            if (!parentTorn) {
+                for (auto& p : activeMenuPopups) p->destroySurface(*hal);
+                activeMenuPopups.clear();
+            }
+
+            auto popup = std::make_unique<PopupWindow>(
+                sx, sy, 180, 8, *hal, PopupWindow::Style::Bordered, window->nativeWindow(),
+#if defined(_WIN32)
+                GetModuleHandle(NULL)
+#else
+                nullptr
+#endif
+            );
+
+            if (menu->isTearOffEnabled()) {
+                auto* handle = popup->add<Genesis::TearOffHandle>();
+                handle->onTornOff.connect([menu, &activeMenuPopups, &deferredMenuPopups, &floatingMenus, &hal, &window, &isPollingMenuEvents, &deferredMenuActions, &catalog]() {
+                    auto tearAction = [menu, &activeMenuPopups, &deferredMenuPopups, &floatingMenus, &hal, &window, &catalog]() {
+                        // Park any submenus off-screen — we only promote the main popup.
+                        for (size_t i = 1; i < activeMenuPopups.size(); ++i) {
+                            activeMenuPopups[i]->releasePointerGrab();
+                            activeMenuPopups[i]->window().setPosition(-10000, -10000);
+                            deferredMenuPopups.push_back(std::move(activeMenuPopups[i]));
+                        }
+
+                        if (!activeMenuPopups.empty()) {
+                            auto& p = activeMenuPopups.front();
+                            p->releasePointerGrab();
+                            p->enableCloseButton();
+                            // Leave the popup at its current screen position —
+                            // the user just dragged it there via the TearOffHandle.
+                            floatingMenus.push_back(std::move(p));
+                        }
+                        activeMenuPopups.clear();
+                        catalog->menuBar()->closeMenu();  // reset m_activeIdx so hover-to-switch can't open another menu
+                    };
+                    if (isPollingMenuEvents) {
+                        deferredMenuActions.push_back(std::move(tearAction));
+                    } else {
+                        tearAction();
+                    }
+                });
+            }
+
+            for (const auto& item : menu->items()) {
+                if (!item) continue;
+                if (auto* mi = dynamic_cast<Genesis::MenuItem*>(item.get())) {
+                    auto* added = popup->add<Genesis::MenuItem>(mi->label(), mi->shortcut(), mi->submenu());
+                    added->setCheckable(mi->isCheckable());
+                    added->setChecked(mi->isChecked());
+                    added->setTooltip(mi->tooltip());
+                    if (mi->embeddedWidgetFactory()) {
+                        added->setEmbeddedWidgetFactory(mi->embeddedWidgetFactory());
+                    }
+                    added->onTriggered.connect([mi, &activeMenuPopups, &hal, &isPollingMenuEvents, &deferredMenuActions, &catalog]() {
+                        mi->onTriggered.emit();
+                        if (!mi->submenu()) {
+                            auto triggerAction = [&activeMenuPopups, &hal, &catalog]() {
+                                for (auto& p : activeMenuPopups) p->destroySurface(*hal);
+                                activeMenuPopups.clear();
+                                // Must reset m_activeIdx so hover-to-switch logic doesn't
+                                // reopen a menu when the cursor moves after a click.
+                                catalog->menuBar()->closeMenu();
+                            };
+                            if (isPollingMenuEvents) {
+                                deferredMenuActions.push_back(std::move(triggerAction));
+                            } else {
+                                triggerAction();
+                            }
+                        }
+                    });
+
+                    if (mi->submenu()) {
+                        PopupWindow* parentPopup = popup.get();
+                        added->onHoverEntered.connect([added, parentPopup, &hal]() {
+                            const auto& layout = parentPopup->graph().getLayoutConst(added->getNodeId());
+                            int sx = parentPopup->window().screenX() + static_cast<int>(layout.boundingBox.x + layout.boundingBox.width);
+                            int sy = parentPopup->window().screenY() + static_cast<int>(layout.boundingBox.y);
+                            Genesis::MenuManager::instance().onOpenMenu(added->submenu(), sx, sy, true);
+                        });
+                    }
+                } else if (dynamic_cast<Genesis::MenuSeparator*>(item.get())) {
+                    popup->add<Genesis::MenuSeparator>();
+                }
+            }
+
+            popup->computeNaturalHeight();
+            activeMenuPopups.push_back(std::move(popup));
+        };
+
+        if (isPollingMenuEvents) {
+            deferredMenuActions.push_back(std::move(action));
+        } else {
+            action();
+        }
+    };
+
+    catalog->menuBar()->onQueryScreenPos = [&](float localX, float localY) -> std::pair<int, int> {
+        return { window->screenX() + static_cast<int>(localX), window->screenY() + static_cast<int>(localY) };
+    };
+
     catalog->onFloatPanelRequested = [&](const std::string& title) {
         DockWidget* dw = nullptr;
         catalog->dockHost().forEachDockPanel([&](const DockWidget* d, const Rect&, bool, int) {
@@ -1098,19 +1461,23 @@ int main() {
         int sx = window->screenX() + static_cast<int>(r.x);
         int sy = window->screenY() + static_cast<int>(r.y);
 
+        // Restore pre-dock dimensions.
+        float floatW = std::max(dw->width(),  dw->minW());
+        float floatH = std::max(dw->height(), dw->minH());
+
         catalog->dockHost().removeDock(dw);
 
         DockWidget moved = std::move(*dw);
         moved.setPosition(0.f, 0.f);
-        moved.setSize(r.width, r.height);
+        moved.setSize(floatW, floatH);
 
-        int offX = static_cast<int>(r.width) / 2;
-        int offY = static_cast<int>(r.height) / 2;
+        int offX = static_cast<int>(floatW) / 2;
+        int offY = static_cast<int>(floatH) / 2;
 
         floatingDocks.emplace_back(
             std::move(moved),
             sx, sy,
-            static_cast<uint32_t>(r.width), static_cast<uint32_t>(r.height),
+            static_cast<uint32_t>(floatW), static_cast<uint32_t>(floatH),
             offX, offY,
             *hal, /*initialDrag=*/false, g_dockOptions, window->nativeWindow()
         );
@@ -1145,6 +1512,14 @@ int main() {
 
         window->pollNativeEvents();
 
+        float mouseX_val = window->mouseX();
+        float mouseY_val = window->mouseY();
+        if (!activeMenuPopups.empty()) {
+            auto [gx, gy] = window->globalCursorPos();
+            mouseX_val = static_cast<float>(gx - window->screenX());
+            mouseY_val = static_cast<float>(gy - window->screenY());
+        }
+
         static int autoFloatFrames = 0;
         static bool autoFloatTriggered = false;
         if (getenv("GENESIS_AUTO_FLOAT") != nullptr && !autoFloatTriggered) {
@@ -1169,10 +1544,25 @@ int main() {
             uint32_t newH = window->height();
             uint32_t minW = static_cast<uint32_t>(std::ceil(catalog->dockHost().minWidthNeeded()));
             uint32_t minH = static_cast<uint32_t>(std::ceil(catalog->dockHost().minHeightNeeded()));
+
+            // Keep the WM informed so it enforces the minimum during interactive
+            // resize and never delivers a ConfigureNotify below this threshold.
+            if (minW != lastHintMinW || minH != lastHintMinH) {
+                window->setMinSize(minW, minH);
+                lastHintMinW = minW;
+                lastHintMinH = minH;
+            }
+
             if (newW > 0 && newH > 0 && (newW < minW || newH < minH)) {
                 newW = std::max(newW, minW);
                 newH = std::max(newH, minH);
                 window->setSize(newW, newH);
+                // Do NOT re-read window->width()/height() here.  setSize() is an
+                // async XCB request; the ConfigureNotify reply hasn't arrived yet,
+                // so re-reading picks up the WM's old (smaller) cached value.
+                // That caused the swapchain to oscillate between the clamped and
+                // the WM-assigned sizes every other frame, producing the flicker.
+                // newW/newH already hold the correct clamped values.
             }
             if (newW > 0 && newH > 0 && (newW != curW || newH != curH)) {
                 curW = newW;
@@ -1181,7 +1571,8 @@ int main() {
                 resized = true;
             }
             catalog->dockHost().computeLayout(
-                {0.f, 0.f, static_cast<float>(curW), static_cast<float>(curH)});
+                {0.f, 32.f, static_cast<float>(curW), static_cast<float>(curH) - 32.f});
+            catalog->layoutMenuBar(static_cast<float>(curW));
         }
 
         // Keep the registry's bounds current (WM may have moved or resized our window).
@@ -1199,6 +1590,9 @@ int main() {
         for (auto& ke : window->consumeAllKeys()) {
             if (!ke.pressed) continue;
             keyActivity = true;
+            if (Genesis::MenuManager::instance().processAccelerator(ke)) {
+                continue;
+            }
             using K = Genesis::KeyEvent::Key;
             bool handled = false;
             if (focus.focused()) {
@@ -1253,12 +1647,36 @@ int main() {
 
         bool pressed  = window->consumePress();
         bool released = window->consumeRelease();
+        bool rightPressed = window->consumeRightPress();
 
-        if (activePopup && pressed) {
+        if (released && !deferredMenuPopups.empty()) {
+            for (auto& p : deferredMenuPopups) p->destroySurface(*hal);
+            deferredMenuPopups.clear();
+        }
+
+        if (rightPressed) {
+            int sx = window->screenX() + static_cast<int>(mouseX_val);
+            int sy = window->screenY() + static_cast<int>(mouseY_val);
+            Genesis::MenuManager::instance().onOpenMenu(catalog->viewMenu(), sx, sy, false);
+        }
+
+        if (!activeMenuPopups.empty() && (pressed || rightPressed)) {
+            bool clickOutsideMenuBar = (mouseX_val < 0.f || mouseX_val >= curW ||
+                                        mouseY_val < 0.f || mouseY_val >= 32.f);
+            if (clickOutsideMenuBar) {
+                for (auto& p : activeMenuPopups) p->destroySurface(*hal);
+                activeMenuPopups.clear();
+                for (auto& p : deferredMenuPopups) p->destroySurface(*hal);
+                deferredMenuPopups.clear();
+                catalog->menuBar()->closeMenu();
+            }
+        }
+
+        if (activePopup && activePopupComboBox && pressed) {
             NodeId cbNode = activePopupComboBox->getNodeId();
             const auto& bb = app.sceneGraph().getLayoutConst(cbNode).boundingBox;
-            float mx = window->mouseX();
-            float my = window->mouseY();
+            float mx = mouseX_val;
+            float my = mouseY_val;
             if (mx < bb.x || mx > bb.x + bb.width ||
                 my < bb.y || my > bb.y + bb.height) {
                 activePopup->destroySurface(*hal);
@@ -1267,43 +1685,54 @@ int main() {
             }
         }
 
-        catalog->handleMouse(window->mouseX(), window->mouseY(), pressed, released, wheel);
+        window->consumeMouseLeave();  // drains the flag; m_mouseX/Y already reset in platform on leave
+
+        if (!activeMenuPopups.empty()) {
+            catalog->menuBar()->handleMouseMove(mouseX_val, mouseY_val);
+        } else {
+            catalog->handleMouse(mouseX_val, mouseY_val, pressed, released, wheel);
+        }
         catalog->update(dt);
 
         // ---- DockHost mouse routing (inline docks) ----
         PlatformCursor pc = PlatformCursor::Default;
-        auto hc = catalog->dockHost().getHoverCursor(window->mouseX(), window->mouseY());
+        auto hc = catalog->dockHost().getHoverCursor(mouseX_val, mouseY_val);
         if (hc == DockHost::HoverCursor::Horiz)      pc = PlatformCursor::ResizeLeftRight;
         else if (hc == DockHost::HoverCursor::Vert)  pc = PlatformCursor::ResizeUpDown;
         window->setCursor(pc);
 
         if (auto ev = catalog->dockHost().handleMouse(
-                window->mouseX(), window->mouseY(), pressed, released))
+                mouseX_val, mouseY_val, pressed, released))
         {
             if (ev->type == DockHost::DockEvent::Type::WantsFloat) {
                 DockWidget* dw  = ev->dock;
                 DockNodeId  loc = catalog->dockHost().findDock(dw);
                 Rect        r   = catalog->dockHost().node(loc)->rect;
 
-                // Screen position of the dock's top-left corner.
+                // Restore the dock's own pre-dock dimensions rather than the
+                // current split-tree rect, so size is preserved across dock/undock.
+                float floatW = std::max(dw->width(),  dw->minW());
+                float floatH = std::max(dw->height(), dw->minH());
+
+                // Screen position of the dock's top-left corner (from its current rect).
                 int sx = window->screenX() + static_cast<int>(r.x);
                 int sy = window->screenY() + static_cast<int>(r.y);
 
-                // Cursor offset within the new floating window.
+                // Cursor offset within the restored floating window.
                 auto [gx, gy] = window->globalCursorPos();
-                int offX = gx - sx;
-                int offY = gy - sy;
+                int offX = std::clamp(gx - sx, 0, static_cast<int>(floatW) - 1);
+                int offY = std::clamp(gy - sy, 0, static_cast<int>(floatH) - 1);
 
                 catalog->dockHost().removeDock(dw);
 
                 DockWidget moved = std::move(*dw);
                 moved.setPosition(0.f, 0.f);
-                moved.setSize(r.width, r.height);
+                moved.setSize(floatW, floatH);  // keep DockWidget in sync with window
 
                 floatingDocks.emplace_back(
                     std::move(moved),
                     sx, sy,
-                    static_cast<uint32_t>(r.width), static_cast<uint32_t>(r.height),
+                    static_cast<uint32_t>(floatW), static_cast<uint32_t>(floatH),
                     offX, offY,
                     *hal, /*initialDrag=*/true, g_dockOptions, window->nativeWindow());
 
@@ -1426,6 +1855,54 @@ int main() {
             }
         }
 
+        // ---- Active menu popups update ----
+        bool dismissed = false;
+        isPollingMenuEvents = true;
+        for (auto it = activeMenuPopups.begin(); it != activeMenuPopups.end(); ) {
+            auto& popup = *it;
+            auto res = popup->pollEvents(*hal);
+            if (res.type == PopupWindow::PollResult::Type::Dismissed) {
+                dismissed = true;
+                break;
+            }
+            ++it;
+        }
+        isPollingMenuEvents = false;
+
+        if (!deferredMenuActions.empty()) {
+            for (const auto& action : deferredMenuActions) {
+                action();
+            }
+            deferredMenuActions.clear();
+        }
+
+        if (dismissed) {
+            for (auto& p : activeMenuPopups) p->destroySurface(*hal);
+            activeMenuPopups.clear();
+            catalog->menuBar()->closeMenu();
+        } else {
+            for (auto& popup : activeMenuPopups) {
+                if (popup->isViewable()) {
+                    popup->render(*hal, buffer);
+                }
+            }
+        }
+
+
+
+        // ---- Floating menus (torn-off popup, still looks like a menu) ----
+        for (auto it = floatingMenus.begin(); it != floatingMenus.end(); ) {
+            auto& fm = *it;
+            auto res = fm->pollFloating();
+            if (res == PopupWindow::FloatPollResult::Close) {
+                fm->destroySurface(*hal);
+                it = floatingMenus.erase(it);
+            } else {
+                fm->render(*hal, buffer);
+                ++it;
+            }
+        }
+
         if (pendingClosePopup) {
             if (activePopup && activePopup.get() == pendingClosePopup) {
                 activePopup->destroySurface(*hal);
@@ -1474,14 +1951,13 @@ int main() {
         }
 
         // ---- Decide if this frame needs rendering (event-driven damage) ----
-        float mouseX_val = window->mouseX();
-        float mouseY_val = window->mouseY();
         bool mouseMoved = (mouseX_val != lastMouseX || mouseY_val != lastMouseY);
         lastMouseX = mouseX_val; lastMouseY = mouseY_val;
 
         bool activity = keyActivity || pressed || released || mouseMoved || resized
                         || wantScreenshot || aiActed || wheel != 0.0f || !floatingDocks.empty()
-                        || activePopup || catalog->isAnimating();
+                        || activePopup || !activeMenuPopups.empty() || !floatingMenus.empty()
+                        || catalog->isAnimating();
         if (activity) redrawFrames = 4;        // render now + a short settle tail
 
         bool doRender = (redrawFrames > 0);
@@ -1492,6 +1968,7 @@ int main() {
             auto frame = hal->beginFrame();
             buffer.clear();
             catalog->render(buffer);
+            Widget::renderTooltips(buffer, mouseX_val, mouseY_val);
             hal->drawPrimitives(buffer);
             hal->submitAndPresentFrame(frame);
             if (wantScreenshot) hal->captureNextFrame("/tmp/genesis_screenshot.ppm");
@@ -1505,6 +1982,36 @@ int main() {
         if (doRender || frame60 >= 60) {
             frame60 = 0;
             catalog->collectAiNodes(aiNodes);
+            
+            // Also append active popup menus so they are visible to the AI agent
+            for (const auto& popup : activeMenuPopups) {
+                for (const auto& w : popup->widgets()) {
+                    AiNodeDescriptor d{};
+                    NodeId nid = w->getNodeId();
+                    d.id = nid;
+                    // Global screen coordinates of popup widgets
+                    const auto& bb = popup->graph().getLayoutConst(nid).boundingBox;
+                    d.x = static_cast<float>(popup->window().screenX()) + bb.x;
+                    d.y = static_cast<float>(popup->window().screenY()) + bb.y;
+                    d.width = bb.width;
+                    d.height = bb.height;
+
+                    AISemanticNode sn = w->getSemanticNode();
+                    aiSetField(d.role,  sizeof(d.role),  sn.role);
+                    aiSetField(d.name,  sizeof(d.name),  sn.label);
+                    aiSetField(d.value, sizeof(d.value), sn.value);
+
+                    uint32_t f = 0;
+                    if (w->isEnabled())  f |= AiEnabled;
+                    if (w->isVisible())  f |= AiVisible;
+                    if (sn.interactable) f |= AiInteractable;
+                    if (w->getState() == WidgetState::Pressed) f |= AiPressed;
+                    if (w->getState() == WidgetState::Focused) f |= AiFocused;
+                    d.stateFlags = f;
+                    aiNodes.push_back(d);
+                }
+            }
+
             app.aiBus().publishNodes(aiNodes.data(), static_cast<uint32_t>(aiNodes.size()));
             a11y.update(aiNodes);
         }
@@ -1518,6 +2025,12 @@ int main() {
     for (auto& fd : floatingDocks)
         fd.destroySurface(*hal);
     floatingDocks.clear();
+
+    for (auto& p : activeMenuPopups)
+        p->destroySurface(*hal);
+    activeMenuPopups.clear();
+
+
 
     if (activePopup) {
         activePopup->destroySurface(*hal);

@@ -226,13 +226,11 @@ public:
         // 6. Close button
         float closeX = m_x + m_w - BTN_SZ - 6.0f;
         float closeY = pinY;
-        uint8_t closeFill[4] = {m_hoverClose ? (uint8_t)220 : (uint8_t)60,
-                                 m_hoverClose ? (uint8_t)50  : (uint8_t)40,
-                                 m_hoverClose ? (uint8_t)50  : (uint8_t)44,
-                                 m_hoverClose ? (uint8_t)255 : (uint8_t)160};
+        const auto& closeSrc = m_hoverClose ? Colors::CloseBtnHover : Colors::CloseBtn;
+        uint8_t closeFill[4] = {closeSrc[0], closeSrc[1], closeSrc[2], closeSrc[3]};
         buf.pushRectangle(closeX, closeY, BTN_SZ, BTN_SZ, closeFill, 3.0f);
-        // × mark: two diagonal rects
-        uint8_t xc[4] = {255, 255, 255, 200};
+        uint8_t xc[4] = {Colors::CloseBtnMark[0], Colors::CloseBtnMark[1],
+                          Colors::CloseBtnMark[2], Colors::CloseBtnMark[3]};
         buf.pushRectangle(closeX + 3.0f, closeY + BTN_SZ * 0.42f, BTN_SZ - 6.0f, 2.5f, xc, 1.0f);
         buf.pushRectangle(closeX + BTN_SZ * 0.42f, closeY + 3.0f, 2.5f, BTN_SZ - 6.0f, xc, 1.0f);
 
