@@ -2,6 +2,7 @@
 
 #include "Signal.h"
 #include "MainThreadDispatcher.h"
+#include "AiBusHook.h"
 #include <string>
 #include <vector>
 #include <thread>
@@ -131,12 +132,17 @@ public:
         int flags = fcntl(m_fd, F_GETFL, 0);
         fcntl(m_fd, F_SETFL, flags & ~O_NONBLOCK);
 #endif
+        m_port    = port;
         m_running = true;
         m_thread  = std::thread([this]{ _readLoop(); });
+        if (AiBusHook::emit) AiBusHook::emit(0, "serial.open", port.c_str());
         return true;
     }
 
     void close() {
+        if (!m_port.empty() && AiBusHook::emit)
+            AiBusHook::emit(0, "serial.close", m_port.c_str());
+        m_port.clear();
         m_running = false;
 #if defined(_WIN32)
         if (m_handle != INVALID_HANDLE_VALUE) {
@@ -217,6 +223,10 @@ private:
     }
 
     void _dispatch(std::vector<uint8_t> data) {
+        if (AiBusHook::emit) {
+            std::string len = std::to_string(data.size()) + "B";
+            AiBusHook::emit(0, "serial.data", len.c_str());
+        }
         MainThreadDispatcher::instance().post([this, d = std::move(data)]() mutable {
             onData.emit(std::move(d));
         });
@@ -249,6 +259,7 @@ private:
     int m_fd{-1};
 #endif
 
+    std::string       m_port;
     std::thread       m_thread;
     std::atomic<bool> m_running{false};
 };

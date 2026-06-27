@@ -18,6 +18,7 @@
 #include <genesis/platforms/linux/FloatingDockWindow.h>
 #include <genesis/platforms/PopupWindow.h>
 #include <genesis/core/MenuSystem.h>
+#include <genesis/core/Dialog.h>
 
 #if defined(_WIN32)
 using PlatformWindowImpl = Genesis::WindowsPlatformWindow;
@@ -1986,6 +1987,11 @@ int main() {
             buffer.clear();
             catalog->render(buffer);
             Widget::renderTooltips(buffer, mouseX_val, mouseY_val);
+            // Render genesis-native dialog overlays on top of everything
+            bool mouseDownThisFrame = window->consumePress();
+            Genesis::DialogManager::renderAndHandle(buffer,
+                static_cast<float>(curW), static_cast<float>(curH),
+                mouseX_val, mouseY_val, mouseDownThisFrame, window->consumeAllKeys());
             hal->drawPrimitives(buffer);
             hal->submitAndPresentFrame(frame);
             if (wantScreenshot) hal->captureNextFrame("/tmp/genesis_screenshot.ppm");

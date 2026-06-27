@@ -17,6 +17,7 @@ namespace { inline constexpr auto& LogEngineCore = Genesis::Log::Core; }
 #include <genesis/graphics/GpuHal.h>
 
 #include <genesis/core/KeyEvent.h>
+#include <genesis/core/MainThreadDispatcher.h>
 
 namespace Core {
 
@@ -195,6 +196,9 @@ private:
     }
 
     void updateEngineSystems(double deltaTime) {
+        // Always drain the main-thread dispatcher so Timer/SerialPort callbacks
+        // reach the UI even when used without GApplication.
+        Genesis::MainThreadDispatcher::instance().drain();
         if (onFrameUpdate) onFrameUpdate(deltaTime);
     }
 

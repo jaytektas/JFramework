@@ -1,6 +1,7 @@
 #pragma once
 
 #include <genesis/core/BaseWidgets.h>
+#include <genesis/core/AiBusHook.h>
 #include <genesis/graphics/GpuHal.h>
 
 #if defined(_WIN32)
@@ -57,9 +58,11 @@ public:
         m_root = m_graph.createNode("PopupRoot");
         auto& l = m_graph.getLayout(m_root);
         l.boundingBox = { 0.f, 0.f, static_cast<float>(width), static_cast<float>(height) };
+        if (AiBusHook::emit) AiBusHook::emit(0, "popup.open", "");
     }
 
     ~PopupWindow() {
+        if (AiBusHook::emit) AiBusHook::emit(0, "popup.close", "");
 #if defined(_WIN32)
         ReleaseCapture();
 #else

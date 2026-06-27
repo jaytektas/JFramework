@@ -954,7 +954,12 @@ public:
     AISemanticNode getSemanticNode() const override {
         return {"ProgressBar", "", std::to_string(int(m_progress * 100)) + "%", false};
     }
-    bool executeSemanticAction(const std::string&) override { return false; }
+    bool executeSemanticAction(const std::string& a) override {
+        if (a.rfind("set_value:", 0) == 0) {
+            try { setProgress(std::stof(a.substr(10))); return true; } catch (...) {}
+        }
+        return false;
+    }
 
 protected:
     virtual void drawTrack(PrimitiveBuffer& buf, const Rect& b) {
@@ -1021,7 +1026,13 @@ public:
     AISemanticNode getSemanticNode() const override {
         return {"ScrollBar", "", std::to_string(m_position), true};
     }
-    bool executeSemanticAction(const std::string&) override { return false; }
+    bool executeSemanticAction(const std::string& a) override {
+        if (a.rfind("set_value:", 0) == 0 || a.rfind("scroll_to:", 0) == 0) {
+            size_t colon = a.find(':');
+            try { setScrollPosition(std::stof(a.substr(colon + 1))); return true; } catch (...) {}
+        }
+        return false;
+    }
 
 private:
     float m_position{0.0f};
@@ -2153,7 +2164,16 @@ public:
     }
 
     AISemanticNode getSemanticNode() const override { return {"ScrollArea", "", "", true}; }
-    bool executeSemanticAction(const std::string&) override { return false; }
+    bool executeSemanticAction(const std::string& a) override {
+        if (a.rfind("scroll_to:", 0) == 0) {
+            try {
+                m_scrollY = std::max(0.0f, std::stof(a.substr(10)));
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+                return true;
+            } catch (...) {}
+        }
+        return false;
+    }
 
 private:
     std::vector<Widget*> m_children;
