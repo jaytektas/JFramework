@@ -5,20 +5,23 @@
 #include <memory>
 #include <cassert>
 #include <iostream>
+#include <cstring>
 
-// Include our previously validated Genesis foundation framework headers
 #include "Signal.h"
 #include "ApplicationCore.h"
 #include "SceneGraph.h"
 #include "AiControlBus.h"
-#include "AiBusHook.h"    // lightweight hook; does NOT drag in BaseWidgets/FontEngine/stb
+#include "AiBusHook.h"
+#include "BaseWidgets.h"
+#include "DockWidget.h"
+#include "MainThreadDispatcher.h"
 
 namespace { inline constexpr auto& LogWidget = Genesis::Log::Widgets; }
 
 namespace Genesis {
 
 /**
- * @brief Base lifecycle and event tracking framework tracker class.
+ * GObject — base lifecycle and slot-tracking.
  */
 class GObject : public Core::SlotTracker {
 public:
@@ -34,41 +37,105 @@ private:
     std::string m_objectName;
 };
 
-/**
- * @brief Coordinates the global execution pool, flat SceneGraph, and the AI Control Bus.
- */
+// ============================================================================
+// GApplication — coordinates the event loop, SceneGraph, AI Control Bus,
+//                MainThreadDispatcher drain, and full semantic publishing.
+// ============================================================================
 class GApplication : public GObject {
 public:
     GApplication() : GObject("GApplication") {
-        assert(s_instance == nullptr && "Fatal: Only one GApplication instance can exist safely.");
+        assert(s_instance == nullptr && "Only one GApplication may exist.");
         s_instance = this;
 
-        // Prefer a real cross-process shared-memory segment so an external AI agent can
-        // read the live semantic tree / drive the UI at machine speed.  Fall back to the
-        // in-process pool if POSIX shm is unavailable (keeps tests & headless robust).
+        // Prefer cross-process shared-memory so an external AI agent can attach.
+        // Fall back to the in-process pool for headless / test runs.
         if (!m_aiBus.createSegment())
-            m_aiBus.attach(&m_fallbackMemoryPool);
+            m_aiBus.attach(&m_fallbackPool);
 
-        // Wire every widget's user-interaction callbacks to the outbound AI signal bus so
-        // an external agent can watch live events (clicks, text changes, toggles, etc.).
+        // Wire every widget interaction onto the outbound AI signal bus.
         AiBusHook::install([this](uint32_t nodeId, const char* sig, const char* val) {
             m_aiBus.publishSignal(nodeId, sig, val);
         });
+
+        // Every frame: drain main-thread callbacks (Timer ticks, SerialPort data, etc.),
+        // publish the full rich semantic snapshot, then service any pending AI action.
+        m_runtimeLoop.onFrameUpdate = [this](double) {
+            MainThreadDispatcher::instance().drain();
+            publishSemanticSnapshot();
+            _pollAndDispatchAction();
+        };
     }
 
-    virtual ~GApplication() {
-        AiBusHook::install(nullptr);  // uninstall so no dangling calls after destruction
+    ~GApplication() {
+        AiBusHook::install(nullptr);
         s_instance = nullptr;
     }
 
     static GApplication* instance() noexcept { return s_instance; }
-    SceneGraph&   sceneGraph()  noexcept { return m_sceneGraph; }
-    AiControlBus& aiBus()       noexcept { return m_aiBus; }
+    SceneGraph&    sceneGraph()  noexcept { return m_sceneGraph; }
+    AiControlBus&  aiBus()       noexcept { return m_aiBus; }
     Core::Application& runtimeLoop() noexcept { return m_runtimeLoop; }
 
-    /** Convenience: forward a user-interaction signal to the AI bus. */
     void publishSignal(uint32_t nodeId, const char* signal, const char* value) {
         m_aiBus.publishSignal(nodeId, signal, value);
+    }
+
+    // ---- Rich semantic snapshot ------------------------------------------
+    // Builds a full AiNodeDescriptor array from Widget::s_activeWidgets and
+    // publishes it over the AI control bus (seqlock-protected, readable from
+    // any process that has mapped the shared segment).
+    void publishSemanticSnapshot() {
+        m_descriptors.clear();
+        for (auto* w : Widget::s_activeWidgets) {
+            if (!w) continue;
+            auto node = w->getSemanticNode();
+            auto bb   = w->getBoundingBox();
+
+            AiNodeDescriptor d{};
+            d.id     = static_cast<uint32_t>(w->getNodeId());
+            d.x      = bb.x;
+            d.y      = bb.y;
+            d.width  = bb.width;
+            d.height = bb.height;
+
+            // Populate state flags
+            d.stateFlags = 0;
+            if (w->isEnabled())                         d.stateFlags |= AiEnabled;
+            if (w->isVisible())                         d.stateFlags |= AiVisible;
+            if (w->isFocused())                         d.stateFlags |= AiFocused;
+            if (w->getState() == WidgetState::Pressed)  d.stateFlags |= AiPressed;
+            if (node.interactable)                      d.stateFlags |= AiInteractable;
+            // Infer AiChecked from semantic value (CheckBox, ToggleButton, RadioButton)
+            if (node.value == "true" || node.value == "checked")
+                d.stateFlags |= AiChecked;
+
+            aiSetField(d.role,  sizeof(d.role),  node.role);
+            aiSetField(d.name,  sizeof(d.name),  node.label);
+            aiSetField(d.value, sizeof(d.value), node.value);
+
+            m_descriptors.push_back(d);
+        }
+        // Also publish floating DockWidgets (live outside the SceneGraph layout tree)
+        for (auto* dock : DockWidget::s_activeDocks) {
+            if (!dock) continue;
+            auto node = dock->getSemanticNode();
+            AiNodeDescriptor d{};
+            d.id     = 0xF0000000u | static_cast<uint32_t>(
+                           reinterpret_cast<std::uintptr_t>(dock) & 0x0FFFFFFFu);
+            d.x      = dock->x();
+            d.y      = dock->y();
+            d.width  = dock->width();
+            d.height = dock->height();
+            d.stateFlags = AiEnabled | AiVisible | AiInteractable;
+            if (dock->isPinned()) d.stateFlags |= AiChecked;
+            aiSetField(d.role,  sizeof(d.role),  node.role);
+            aiSetField(d.name,  sizeof(d.name),  node.label);
+            aiSetField(d.value, sizeof(d.value), node.value);
+            m_descriptors.push_back(d);
+        }
+
+        m_aiBus.publishNodes(m_descriptors.data(),
+                             static_cast<uint32_t>(m_descriptors.size()));
     }
 
     int exec(std::unique_ptr<Core::PlatformWindow> nativeWindow) {
@@ -76,25 +143,44 @@ public:
     }
 
 private:
+    // Poll for an inbound semantic action from the AI agent and dispatch it
+    // to the target widget on the UI thread.
+    void _pollAndDispatchAction() {
+        uint32_t targetId = 0;
+        char     action[64] = {};
+        uint32_t seq  = 0;
+        if (!m_aiBus.pollAction(targetId, action, sizeof(action), seq)) return;
+
+        int result = -1;  // default: bad target
+        for (auto* w : Widget::s_activeWidgets) {
+            if (!w) continue;
+            if (static_cast<uint32_t>(w->getNodeId()) == targetId) {
+                result = w->executeSemanticAction(action) ? 1 : 0;
+                break;
+            }
+        }
+        m_aiBus.ackAction(seq, result);
+    }
+
     static GApplication* s_instance;
-    SceneGraph m_sceneGraph;
+    SceneGraph   m_sceneGraph;
     AiControlBus m_aiBus;
     Core::Application m_runtimeLoop;
-    SharedBusMemory m_fallbackMemoryPool{}; // Fast IPC memory mapping simulation context
+    SharedBusMemory   m_fallbackPool{};
+    std::vector<AiNodeDescriptor> m_descriptors;  // reused each frame to avoid alloc
 };
 
 inline GApplication* GApplication::s_instance = nullptr;
 
-/**
- * @brief High-level Widget wrapper. Maps clean object APIs onto the flat scene graph.
- */
+// ============================================================================
+// GWidget — high-level Widget wrapper onto the flat SceneGraph.
+// ============================================================================
 class GWidget : public GObject {
 public:
     explicit GWidget(std::string name = "") : GObject(std::move(name)) {
         m_graphRef = &GApplication::instance()->sceneGraph();
-        m_nodeId = m_graphRef->createNode(objectName());
+        m_nodeId   = m_graphRef->createNode(objectName());
     }
-
     virtual ~GWidget() = default;
 
     NodeId nodeId() const noexcept { return m_nodeId; }
@@ -102,37 +188,33 @@ public:
     void setFlexDirection(FlexDirection direction) {
         m_graphRef->getLayout(m_nodeId).direction = direction;
     }
-
     void setJustifyContent(JustifyContent justify) {
         m_graphRef->getLayout(m_nodeId).justifyContent = justify;
     }
 
 protected:
     SceneGraph* m_graphRef;
-    NodeId m_nodeId;
+    NodeId      m_nodeId;
 };
 
-/**
- * @brief Main Window Component managing rendering constraints and layouts.
- */
+// ============================================================================
+// GMainWindow — top-level window, triggers layout + initial AI snapshot.
+// ============================================================================
 class GMainWindow : public GWidget {
 public:
-    explicit GMainWindow(std::string title = "Genesis Window") 
-        : GWidget(std::move(title)) 
+    explicit GMainWindow(std::string title = "Genesis Window")
+        : GWidget(std::move(title))
     {
         setFlexDirection(FlexDirection::Column);
         setJustifyContent(JustifyContent::FlexStart);
     }
 
     void show() {
-        qCInfo(LogWidget) << "Showing main window application surface: " << objectName() << std::endl;
-        
-        // Force the single-pass constraint solver layout down across our data graph arrays
+        qCInfo(LogWidget) << "Showing main window: " << objectName() << std::endl;
         Constraints constraints{800.0f, 1920.0f, 600.0f, 1080.0f};
         m_graphRef->computeLayout(m_nodeId, constraints);
-        
-        // Broadcast the initial layout telemetry down to the waiting AI Agent
-        GApplication::instance()->aiBus().updateTelemetry(*m_graphRef);
+        // Publish initial snapshot immediately (before the first frame fires).
+        GApplication::instance()->publishSemanticSnapshot();
     }
 };
 

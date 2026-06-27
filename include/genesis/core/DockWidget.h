@@ -26,8 +26,12 @@ namespace Genesis {
 // then offsets by contentArea().
 // ============================================================================
 
-class DockWidget {
+class DockWidget : public IAIState {
 public:
+    // All live DockWidgets register here so GApplication::publishSemanticSnapshot()
+    // can include floating panels in the AI bus alongside regular widgets.
+    inline static std::vector<DockWidget*> s_activeDocks;
+
     static constexpr float TITLE_H     = 30.0f;
     static constexpr float BTN_SZ      = 16.0f;  // close / pin button size
     static constexpr float BORDER_R    = 8.0f;
@@ -48,17 +52,48 @@ public:
     // --- Constructors ---
 
     DockWidget(std::string title, float x, float y, float w, float h)
-        : m_title(std::move(title)), m_x(x), m_y(y), m_w(w), m_h(h) {}
+        : m_title(std::move(title)), m_x(x), m_y(y), m_w(w), m_h(h)
+    { s_activeDocks.push_back(this); }
 
     DockWidget(TornTabState state, float x, float y, float w = 320.0f, float h = 240.0f)
         : m_title(state.title), m_x(x), m_y(y), m_w(w), m_h(h)
-        , m_tornState(std::move(state)) {}
+        , m_tornState(std::move(state))
+    { s_activeDocks.push_back(this); }
 
-    // Non-copyable, movable
+    ~DockWidget() {
+        auto& v = s_activeDocks;
+        v.erase(std::remove(v.begin(), v.end(), this), v.end());
+    }
+
+    // Move transfers registry entry
+    DockWidget(DockWidget&& o) noexcept
+        : m_title(std::move(o.m_title)), m_tag(std::move(o.m_tag))
+        , m_x(o.m_x), m_y(o.m_y), m_w(o.m_w), m_h(o.m_h)
+        , m_tornState(std::move(o.m_tornState))
+        , m_minW(o.m_minW), m_minH(o.m_minH), m_maxW(o.m_maxW), m_maxH(o.m_maxH)
+        , m_floatable(o.m_floatable), m_tabifiable(o.m_tabifiable)
+        , m_allowedDrops(o.m_allowedDrops)
+        , m_dockable(o.m_dockable), m_closeable(o.m_closeable)
+        , m_pinnable(o.m_pinnable), m_resizable(o.m_resizable)
+        , m_titleVisible(o.m_titleVisible)
+        , m_acceptLeafLabels(std::move(o.m_acceptLeafLabels))
+        , m_rejectLeafLabels(std::move(o.m_rejectLeafLabels))
+        , m_dragging(o.m_dragging), m_dragOffX(o.m_dragOffX), m_dragOffY(o.m_dragOffY)
+        , m_resizing(o.m_resizing), m_resizeInitW(o.m_resizeInitW), m_resizeInitH(o.m_resizeInitH)
+        , m_resizeAnchorX(o.m_resizeAnchorX), m_resizeAnchorY(o.m_resizeAnchorY)
+        , m_closeRequested(o.m_closeRequested), m_pinned(o.m_pinned)
+        , m_hoverClose(o.m_hoverClose), m_hoverPin(o.m_hoverPin), m_hoverResize(o.m_hoverResize)
+    {
+        // Replace old pointer in registry with this
+        auto& v = s_activeDocks;
+        auto it = std::find(v.begin(), v.end(), &o);
+        if (it != v.end()) *it = this;
+        else v.push_back(this);
+    }
+    DockWidget& operator=(DockWidget&&) = delete;
+
     DockWidget(const DockWidget&)            = delete;
     DockWidget& operator=(const DockWidget&) = delete;
-    DockWidget(DockWidget&&)                 = default;
-    DockWidget& operator=(DockWidget&&)      = default;
 
     // --- Geometry ---
 
@@ -172,8 +207,16 @@ public:
         m_hoverResize = m_resizable  && _inResizeHandle(mx, my);
 
         if (pressed) {
-            if (m_hoverClose)  { m_closeRequested = true; return; }
-            if (m_hoverPin)    { m_pinned = !m_pinned; return; }
+            if (m_hoverClose)  {
+                m_closeRequested = true;
+                if (AiBusHook::emit) AiBusHook::emit(0, "dock.close", m_title.c_str());
+                return;
+            }
+            if (m_hoverPin) {
+                m_pinned = !m_pinned;
+                if (AiBusHook::emit) AiBusHook::emit(0, m_pinned ? "dock.pin" : "dock.unpin", m_title.c_str());
+                return;
+            }
             if (m_hoverResize) {
                 m_resizing    = true;
                 m_resizeInitW = m_w;
@@ -201,6 +244,42 @@ public:
             m_dragging = false;
             m_resizing = false;
         }
+    }
+
+    // --- AI bus interface ---
+
+    AISemanticNode getSemanticNode() const override {
+        std::string state = m_pinned ? "pinned" : "floating";
+        return {"DockWidget", m_title, state, true};
+    }
+
+    bool executeSemanticAction(const std::string& a) override {
+        if (a == "close")  { m_closeRequested = true;  return true; }
+        if (a == "pin")    { m_pinned = true;           return true; }
+        if (a == "unpin")  { m_pinned = false;          return true; }
+        if (a.rfind("move:", 0) == 0) {
+            // "move:x,y"
+            auto comma = a.find(',', 5);
+            if (comma != std::string::npos) {
+                try {
+                    m_x = std::stof(a.substr(5, comma - 5));
+                    m_y = std::stof(a.substr(comma + 1));
+                    return true;
+                } catch (...) {}
+            }
+        }
+        if (a.rfind("resize:", 0) == 0) {
+            // "resize:w,h"
+            auto comma = a.find(',', 7);
+            if (comma != std::string::npos) {
+                try {
+                    m_w = std::max(m_minW, std::stof(a.substr(7, comma - 7)));
+                    m_h = std::max(m_minH, std::stof(a.substr(comma + 1)));
+                    return true;
+                } catch (...) {}
+            }
+        }
+        return false;
     }
 
     // --- Rendering ---

@@ -9,8 +9,8 @@
 #include <cstdint>
 #include <genesis/core/muted_logging_mock.h>
 
-// stb_truetype: implementation compiled once in FontEngine.cpp
-#define STB_TRUETYPE_IMPLEMENTATION
+// stb_truetype: implementation compiled in FontEngineImpl.cpp
+// This header only gets the declarations.
 #include <stb_truetype.h>
 
 namespace Genesis {

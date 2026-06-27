@@ -101,6 +101,7 @@ if(UNIX AND NOT APPLE)
     target_sources(genesis_platform PRIVATE
         src/platforms/linux/LinuxPlatformWindow.cpp
         src/graphics/VulkanGpuHal.cpp
+        src/graphics/FontEngineImpl.cpp
         src/accessibility/AtSpiServer.cpp
     )
     target_include_directories(genesis_platform PRIVATE
@@ -124,6 +125,7 @@ elseif(WIN32)
     target_sources(genesis_platform PRIVATE
         src/platforms/windows/WindowsPlatformWindow.cpp
         src/graphics/VulkanGpuHal.cpp
+        src/graphics/FontEngineImpl.cpp
     )
     target_include_directories(genesis_platform PRIVATE
         ${STB_INCLUDE_DIR}

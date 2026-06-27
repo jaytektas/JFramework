@@ -110,6 +110,10 @@ public:
         }
     }
 
+    // Called once per frame (main thread, before swapBuffers).
+    // Wire AI snapshot publishing, MainThreadDispatcher::drain(), etc. here.
+    std::function<void(double deltaTime)> onFrameUpdate;
+
     void setTargetFps(uint32_t fps) {
         if (fps == 0) {
             m_targetFrameTime = std::chrono::microseconds(0);
@@ -191,7 +195,7 @@ private:
     }
 
     void updateEngineSystems(double deltaTime) {
-        (void)deltaTime; 
+        if (onFrameUpdate) onFrameUpdate(deltaTime);
     }
 
     std::atomic<bool> m_isRunning;

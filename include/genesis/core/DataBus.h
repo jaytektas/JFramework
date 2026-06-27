@@ -8,6 +8,7 @@
 #include "Signal.h"
 #include "BaseWidgets.h"
 #include "SceneGraph.h"
+#include "AiBusHook.h"
 
 namespace Genesis {
 
@@ -36,6 +37,10 @@ public:
         auto it = m_doubleSubs.find(channel);
         if (it != m_doubleSubs.end())
             for (auto& [id, cb] : it->second) cb(value);
+        if (AiBusHook::emit) {
+            std::string v = std::to_string(value);
+            AiBusHook::emit(0, ("databus:" + channel).c_str(), v.c_str());
+        }
     }
 
     void publish(const std::string& channel, const std::string& value) {
@@ -43,6 +48,8 @@ public:
         auto it = m_stringSubs.find(channel);
         if (it != m_stringSubs.end())
             for (auto& [id, cb] : it->second) cb(value);
+        if (AiBusHook::emit)
+            AiBusHook::emit(0, ("databus:" + channel).c_str(), value.c_str());
     }
 
     // --- Subscribe (raw callbacks) ---

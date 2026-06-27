@@ -90,6 +90,12 @@ public:
     bool        isEnabled()  const noexcept { return m_state != WidgetState::Disabled; }
     bool        isFocused()  const noexcept { return m_focused; }
 
+    struct BBox { float x, y, width, height; };
+    BBox getBoundingBox() const {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        return {b.x, b.y, b.width, b.height};
+    }
+
     void setVisible(bool v) { m_visible = v; }
     void setEnabled(bool e) {
         setState(e ? WidgetState::Normal : WidgetState::Disabled);

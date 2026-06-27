@@ -231,6 +231,9 @@ public:
         uint8_t lineC[4] = {Colors::Border[0], Colors::Border[1], Colors::Border[2], 120};
         buf.pushRectangle(bb.x + 6.0f, bb.y + 2.0f, bb.width - 12.0f, 1.0f, lineC);
     }
+
+    AISemanticNode getSemanticNode() const override { return {"MenuSeparator", "", "", false}; }
+    bool executeSemanticAction(const std::string&) override { return false; }
 };
 
 // ============================================================================
@@ -255,8 +258,15 @@ public:
 
     void handleMousePress(float mx, float my) override {
         if (isPointInside(mx, my)) {
+            if (AiBusHook::emit) AiBusHook::emit(m_nodeId, "tearoff", "");
             onTornOff.emit();
         }
+    }
+
+    AISemanticNode getSemanticNode() const override { return {"TearOffHandle", "Tear Off", "", true}; }
+    bool executeSemanticAction(const std::string& a) override {
+        if (a == "tearoff" || a == "click") { onTornOff.emit(); return true; }
+        return false;
     }
 };
 
@@ -360,7 +370,28 @@ public:
     }
 
     AISemanticNode getSemanticNode() const override {
-        return {"MenuBar", m_debugName, "", true};
+        std::string titles;
+        for (size_t i = 0; i < m_entries.size(); ++i) {
+            if (i) titles += '|';
+            titles += m_entries[i].title;
+        }
+        return {"MenuBar", m_debugName, titles, true};
+    }
+
+    bool executeSemanticAction(const std::string& a) override {
+        // "open:File"  — open the named menu
+        if (a.rfind("open:", 0) == 0) {
+            std::string target = a.substr(5);
+            for (size_t i = 0; i < m_entries.size(); ++i) {
+                if (m_entries[i].title == target) {
+                    openMenu(static_cast<int>(i));
+                    return true;
+                }
+            }
+        }
+        // "close" — dismiss any open menu
+        if (a == "close") { closeMenu(); return true; }
+        return false;
     }
 
     struct MenuEntry {

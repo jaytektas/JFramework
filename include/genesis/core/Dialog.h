@@ -20,6 +20,7 @@
 
 #include "Signal.h"
 #include "MainThreadDispatcher.h"
+#include "AiBusHook.h"
 #include <string>
 #include <vector>
 #include <functional>
@@ -85,6 +86,7 @@ public:
     // ---- Message box (single OK button) ------------------------------------
     static void message(const std::string& title, const std::string& body,
                         std::function<void()> onDismiss = {}) {
+        if (AiBusHook::emit) AiBusHook::emit(0, "dialog.message", title.c_str());
         DialogManager::instance().push({
             DialogRequest::Kind::Message, title, body, {},
             std::move(onDismiss), {}, {}
@@ -95,6 +97,7 @@ public:
     static void confirm(const std::string& title, const std::string& body,
                         std::function<void()> onConfirm,
                         std::function<void()> onCancel = {}) {
+        if (AiBusHook::emit) AiBusHook::emit(0, "dialog.confirm", title.c_str());
         DialogManager::instance().push({
             DialogRequest::Kind::Confirm, title, body, {},
             std::move(onConfirm), std::move(onCancel), {}
@@ -106,6 +109,7 @@ public:
                       std::function<void(std::string)> onAccept,
                       std::function<void()>            onCancel      = {},
                       const std::string&               placeholder   = "") {
+        if (AiBusHook::emit) AiBusHook::emit(0, "dialog.input", title.c_str());
         DialogManager::instance().push({
             DialogRequest::Kind::Input, title, prompt, placeholder,
             {}, std::move(onCancel), std::move(onAccept)

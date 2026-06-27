@@ -5,6 +5,7 @@
 #include <fstream>
 #include <filesystem>
 #include <stdexcept>
+#include "AiBusHook.h"
 
 namespace Genesis {
 
@@ -22,10 +23,13 @@ public:
     const std::filesystem::path& path() const { return m_path; }
 
     // Setters
-    void set(const std::string& key, std::string        value) { m_data[key] = std::move(value); }
-    void set(const std::string& key, int                value) { m_data[key] = std::to_string(value); }
-    void set(const std::string& key, double             value) { m_data[key] = std::to_string(value); }
-    void set(const std::string& key, bool               value) { m_data[key] = value ? "true" : "false"; }
+    void set(const std::string& key, std::string value) {
+        m_data[key] = value;
+        if (AiBusHook::emit) AiBusHook::emit(0, ("settings:" + key).c_str(), value.c_str());
+    }
+    void set(const std::string& key, int    value) { set(key, std::to_string(value)); }
+    void set(const std::string& key, double value) { set(key, std::to_string(value)); }
+    void set(const std::string& key, bool   value) { set(key, std::string(value ? "true" : "false")); }
 
     // Typed getters with defaults
     template<typename T>
