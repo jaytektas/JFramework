@@ -75,7 +75,8 @@ public:
             XCB_EVENT_MASK_KEY_PRESS       | XCB_EVENT_MASK_KEY_RELEASE    |
             XCB_EVENT_MASK_BUTTON_PRESS    | XCB_EVENT_MASK_BUTTON_RELEASE |
             XCB_EVENT_MASK_POINTER_MOTION  | XCB_EVENT_MASK_STRUCTURE_NOTIFY |
-            XCB_EVENT_MASK_FOCUS_CHANGE    | XCB_EVENT_MASK_LEAVE_WINDOW;
+            XCB_EVENT_MASK_FOCUS_CHANGE    | XCB_EVENT_MASK_LEAVE_WINDOW   |
+            XCB_EVENT_MASK_PROPERTY_CHANGE;
 
         if (style == PlatformWindowStyle::Popup) {
             // override_redirect: bypass WM entirely.  Values must be ordered by
@@ -139,20 +140,16 @@ public:
         if (style == PlatformWindowStyle::Borderless) {
             // Remove WM decorations while staying WM-managed (draggable, fullscreen-capable).
             _applyMotifBorderless();
-            if (parentWindow == 0) {
-                // Hint the WM that this is a utility tool window (no taskbar, no focus steal).
-                _applyWindowType("_NET_WM_WINDOW_TYPE_UTILITY");
-            }
+            // Keep NORMAL window type so the WM still handles _NET_WM_MOVERESIZE,
+            // maximize, and snap — UTILITY windows are excluded from those by many WMs.
         }
 
         if (parentWindow != 0) {
-            // Set transient property before mapping
+            // Transient + DIALOG type: WM stacks above parent, grants keyboard focus.
             xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
                                 XCB_ATOM_WM_TRANSIENT_FOR, XCB_ATOM_WINDOW,
                                 32, 1, &parentWindow);
-            
-            // Set window type to NORMAL before mapping to allow proper stacking behavior (transient over parent only)
-            _applyWindowType("_NET_WM_WINDOW_TYPE_NORMAL");
+            _applyWindowType("_NET_WM_WINDOW_TYPE_DIALOG");
         }
 
         // Wire up WM_DELETE_WINDOW (irrelevant for Popup but harmless).
@@ -323,6 +320,31 @@ public:
                     m_mouseLeft = true;
                     break;
                 }
+                case XCB_PROPERTY_NOTIFY: {
+                    auto* pn = reinterpret_cast<xcb_property_notify_event_t*>(ev);
+                    xcb_atom_t netState = _internAtom("_NET_WM_STATE");
+                    if (pn->atom == netState) {
+                        // Re-read the property to sync our maximized flag with WM state.
+                        // This fires when the WM snap-maximizes the window (drag-to-top).
+                        xcb_atom_t maxV = _internAtom("_NET_WM_STATE_MAXIMIZED_VERT");
+                        xcb_atom_t maxH = _internAtom("_NET_WM_STATE_MAXIMIZED_HORZ");
+                        auto cookie = xcb_get_property(m_connection, 0, m_windowId,
+                                                       netState, XCB_ATOM_ATOM, 0, 32);
+                        auto* reply = xcb_get_property_reply(m_connection, cookie, nullptr);
+                        if (reply) {
+                            bool hasV = false, hasH = false;
+                            auto* atoms = static_cast<xcb_atom_t*>(xcb_get_property_value(reply));
+                            int n = xcb_get_property_value_length(reply) / sizeof(xcb_atom_t);
+                            for (int i = 0; i < n; ++i) {
+                                if (atoms[i] == maxV) hasV = true;
+                                if (atoms[i] == maxH) hasH = true;
+                            }
+                            m_isMaximized = hasV && hasH;
+                            free(reply);
+                        }
+                    }
+                    break;
+                }
                 default: break;
             }
             free(ev);
@@ -330,6 +352,7 @@ public:
     }
 
     bool shouldClose()  const override { return m_closeRequested; }
+    void requestClose()       override { m_closeRequested = true; }
     bool consumeFocusLost()  override { bool v = m_focusLost;  m_focusLost  = false; return v; }
     bool consumeMouseLeave() override { bool v = m_mouseLeft; m_mouseLeft = false; return v; }
     void swapBuffers()        override {}
@@ -479,6 +502,87 @@ public:
         ev.data.data32[3] = 0u;
         ev.data.data32[4] = 0u;
 
+        xcb_send_event(m_connection, 0, m_rootWindow,
+                       XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
+                       reinterpret_cast<const char*>(&ev));
+        xcb_flush(m_connection);
+    }
+
+    // Iconify (minimise) the window via WM_CHANGE_STATE (works on WM-managed windows).
+    void minimize() override {
+        if (m_style == Genesis::PlatformWindowStyle::Popup) return;
+        xcb_atom_t changeState = _internAtom("WM_CHANGE_STATE");
+        if (changeState == XCB_ATOM_NONE) return;
+        xcb_client_message_event_t ev{};
+        ev.response_type  = XCB_CLIENT_MESSAGE;
+        ev.type           = changeState;
+        ev.window         = m_windowId;
+        ev.format         = 32;
+        ev.data.data32[0] = 3;  // IconicState
+        xcb_send_event(m_connection, 0, m_rootWindow,
+                       XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
+                       reinterpret_cast<const char*>(&ev));
+        xcb_flush(m_connection);
+    }
+
+    // Toggle maximize via _NET_WM_STATE_MAXIMIZED_VERT + _HORZ.
+    void setMaximized(bool on) override {
+        if (m_style == Genesis::PlatformWindowStyle::Popup) return;
+        xcb_atom_t stateAtom = _internAtom("_NET_WM_STATE");
+        xcb_atom_t maxVAtom  = _internAtom("_NET_WM_STATE_MAXIMIZED_VERT");
+        xcb_atom_t maxHAtom  = _internAtom("_NET_WM_STATE_MAXIMIZED_HORZ");
+        if (stateAtom == XCB_ATOM_NONE || maxVAtom == XCB_ATOM_NONE || maxHAtom == XCB_ATOM_NONE) return;
+        xcb_client_message_event_t ev{};
+        ev.response_type  = XCB_CLIENT_MESSAGE;
+        ev.type           = stateAtom;
+        ev.window         = m_windowId;
+        ev.format         = 32;
+        ev.data.data32[0] = on ? 1u : 0u;  // _NET_WM_STATE_ADD / REMOVE
+        ev.data.data32[1] = maxVAtom;
+        ev.data.data32[2] = maxHAtom;       // two atoms in one message
+        ev.data.data32[3] = 0u;
+        ev.data.data32[4] = 0u;
+        xcb_send_event(m_connection, 0, m_rootWindow,
+                       XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
+                       reinterpret_cast<const char*>(&ev));
+        xcb_flush(m_connection);
+        m_isMaximized = on;
+    }
+
+    bool isMaximized() const override { return m_isMaximized; }
+
+    // Hand a title-bar drag to the WM via _NET_WM_MOVERESIZE (action 8 = MOVE).
+    // The WM grabs the pointer and handles the drag natively, which restores all
+    // WM features: edge snapping, drag-to-top maximise, multi-monitor crossing.
+    // Call this on ButtonPress in the drag zone — do NOT do your own setPosition().
+    void grabKeyboardFocus() override {
+        xcb_set_input_focus(m_connection, XCB_INPUT_FOCUS_POINTER_ROOT,
+                            m_windowId, XCB_CURRENT_TIME);
+        xcb_flush(m_connection);
+    }
+
+    uintptr_t rawWindowId() const override {
+        return static_cast<uintptr_t>(m_windowId);
+    }
+
+    void startWindowMove() override {
+        if (m_style == Genesis::PlatformWindowStyle::Popup) return;
+        xcb_atom_t atom = _internAtom("_NET_WM_MOVERESIZE");
+        if (atom == XCB_ATOM_NONE) return;
+        // Release our pointer grab so the WM can grab the pointer for its own move.
+        xcb_ungrab_pointer(m_connection, XCB_CURRENT_TIME);
+        xcb_flush(m_connection);  // ensure ungrab reaches server before MOVERESIZE
+        auto [gx, gy] = globalCursorPos();
+        xcb_client_message_event_t ev{};
+        ev.response_type  = XCB_CLIENT_MESSAGE;
+        ev.type           = atom;
+        ev.window         = m_windowId;
+        ev.format         = 32;
+        ev.data.data32[0] = static_cast<uint32_t>(gx);
+        ev.data.data32[1] = static_cast<uint32_t>(gy);
+        ev.data.data32[2] = 8u;  // _NET_WM_MOVERESIZE_MOVE
+        ev.data.data32[3] = 1u;  // left button
+        ev.data.data32[4] = 1u;  // source = normal application
         xcb_send_event(m_connection, 0, m_rootWindow,
                        XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
                        reinterpret_cast<const char*>(&ev));
@@ -657,6 +761,7 @@ private:
     xcb_key_symbols_t*  m_syms{nullptr};
 
     PlatformWindowStyle m_style{PlatformWindowStyle::Normal};
+    bool m_isMaximized{false};
     float m_dpiScale{1.0f};
     int      m_screenX{0};
     int      m_screenY{0};

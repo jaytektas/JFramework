@@ -39,15 +39,69 @@
 
 namespace Genesis {
 
+// ---- DialogKeyBindings -----------------------------------------------------
+// Configurable key bindings for dialog button navigation.
+// Defaults follow standard platform conventions (Enter=OK, Escape=Cancel).
+struct DialogKeyBindings {
+    KeyEvent::Key accept  = KeyEvent::Key::Return;
+    KeyEvent::Key cancel  = KeyEvent::Key::Escape;
+    KeyEvent::Key nextBtn = KeyEvent::Key::Tab;
+    KeyEvent::Key prevBtn = KeyEvent::Key::BackTab;
+};
+
+// ---- DialogOptions ---------------------------------------------------------
+// Per-dialog options — passed to Dialog::message/confirm/input.
+// Follows the FloatingDockOptions pattern: named fields with safe defaults.
+struct DialogOptions {
+
+    // --- Position -----------------------------------------------------------
+    enum class Position : uint8_t {
+        CenterOnParent,   // centred over the spawning window (default)
+        CenterOnScreen,   // centred on the primary monitor
+        AtCursor,         // top-left at the current cursor position
+        Fixed,            // explicit (x, y) below
+        TopLeft,          // relative to parent window corners / edges
+        TopRight,
+        TopCenter,
+        BottomLeft,
+        BottomRight,
+        BottomCenter,
+    };
+    Position position = Position::CenterOnParent;
+    int x = 0, y = 0;          // used when position == Fixed
+
+    // --- Modality -----------------------------------------------------------
+    bool modal              = true;   // blocks input to the parent window
+    bool closeOnClickOutside = false; // dismiss when focus is lost (non-modal)
+
+    // --- Drag / resize ------------------------------------------------------
+    bool draggable          = true;   // title-bar drag moves the OS window
+    bool constrainToScreen  = false;  // clamp drag so the window stays on-screen
+
+    // --- Chrome -------------------------------------------------------------
+    bool showTitleBar       = true;
+    bool showCloseButton    = true;
+
+    // --- Behaviour ----------------------------------------------------------
+    bool  closeOnEscape     = true;   // Escape key fires cancel/dismiss
+    int   autoDismissMs     = 0;      // >0: auto-dismiss after N milliseconds (message only)
+
+    // --- Button layout ------------------------------------------------------
+    bool  okOnRight         = true;   // false = OK left, Cancel right (legacy/Linux convention)
+    std::string okLabel     = "OK";
+    std::string cancelLabel = "Cancel";
+};
+
 // ---- DialogRequest ---------------------------------------------------------
 // Describes a pending genesis-native overlay dialog.
 // DialogManager services one at a time; queue subsequent requests.
 struct DialogRequest {
     enum class Kind { Message, Confirm, Input };
-    Kind        kind{Kind::Message};
-    std::string title;
-    std::string body;
-    std::string placeholder;        // for Input dialogs
+    Kind          kind{Kind::Message};
+    std::string   title;
+    std::string   body;
+    std::string   placeholder;
+    DialogOptions options;
     std::function<void()>               onOk;
     std::function<void()>               onCancel;
     std::function<void(std::string)>    onInput;
@@ -73,147 +127,246 @@ public:
         return m_queue.empty() ? nullptr : &m_queue.front();
     }
 
-    // Call when the shown dialog is dismissed (button clicked).
-    void pop() {
-        if (!m_queue.empty()) m_queue.erase(m_queue.begin());
-        m_inputText.clear();
-    }
-
     // ---- Genesis-native overlay renderer -----------------------------------
     // Call once per frame after rendering the main widget tree but before
-    // hal.drawPrimitives(). Returns true if a dialog is active (input consumed).
-    //
-    // Parameters:
-    //   buf       — PrimitiveBuffer to push overlay draw commands into
-    //   screenW/H — window size in pixels
-    //   mx, my    — current mouse position
-    //   mouseDown — true the frame the primary button is pressed
-    //   keys      — key events this frame (used for input-dialog text entry)
+    // hal.drawPrimitives(). Pass the already-consumed `pressed` from the main
+    // event loop — do NOT call consumePress() again here.
+    // Returns true if a dialog is active (all input consumed).
     static bool renderAndHandle(PrimitiveBuffer& buf,
                                 float screenW, float screenH,
                                 float mx, float my,
-                                bool mouseDown,
+                                bool mousePressed,   // one-shot press event — for button clicks
+                                bool mouseHeld,      // continuous held state — for drag
                                 const std::vector<KeyEvent>& keys = {})
     {
         auto& dm  = instance();
         const DialogRequest* req = dm.front();
         if (!req) return false;
 
-        // --- Backdrop ---
-        uint8_t backdrop[4] = {0, 0, 0, 160};
-        buf.pushRectangle(0.f, 0.f, screenW, screenH, backdrop, 0.f);
+        static constexpr float kTitleH = 32.f;
+        static constexpr float kCloseW = 28.f;
+        static constexpr float kRadius = 8.f;
+        const bool hasCancel = (req->kind != DialogRequest::Kind::Message);
+        const bool needsInput = (req->kind == DialogRequest::Kind::Input);
+        const DialogKeyBindings& kb = dm.m_keyBindings;
 
-        // --- Box ---
-        float boxW = std::min(440.f, screenW * 0.8f);
-        bool  needsInput = (req->kind == DialogRequest::Kind::Input);
-        float boxH = needsInput ? 210.f : 160.f;
-        float boxX = (screenW - boxW) * 0.5f;
-        float boxY = (screenH - boxH) * 0.5f;
+        // --- Key input (processed before drawing so state is current this frame) ---
+        for (const auto& ke : keys) {
+            if (!ke.pressed) continue;
+            using K = KeyEvent::Key;
 
-        uint8_t boxBg[4]  = {30, 30, 36, 255};
-        buf.pushRectangle(boxX, boxY, boxW, boxH, boxBg, 8.f, 1.f, Colors::Border);
-
-        float lh = TextHelper::lineHeight();
-
-        // --- Title ---
-        uint8_t tc[4];
-        std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, tc);
-        float ty = boxY + 20.f;
-        TextHelper::pushText(buf, boxX + 20.f, ty, req->title, tc, boxW - 40.f);
-
-        // --- Body / prompt ---
-        uint8_t sc[4];
-        std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, sc);
-        ty += lh + 8.f;
-        TextHelper::pushText(buf, boxX + 20.f, ty, req->body, sc, boxW - 40.f);
-
-        // --- Input field ---
-        if (needsInput) {
-            ty += lh + 10.f;
-            float fieldX = boxX + 20.f;
-            float fieldW = boxW - 40.f;
-            float fieldH = 30.f;
-            uint8_t fBg[4] = {20, 20, 24, 255};
-            buf.pushRectangle(fieldX, ty, fieldW, fieldH, fBg, 4.f, 1.f, Colors::Accent);
-
-            // Handle key events for text entry
-            for (const auto& ke : keys) {
-                if (!ke.pressed) continue;
-                using K = KeyEvent::Key;
+            if (needsInput) {
+                // Text field gets printable keys; Enter/Escape are accept/cancel
                 if (ke.key == K::Backspace) {
                     if (!dm.m_inputText.empty()) dm.m_inputText.pop_back();
-                } else if (ke.key == K::Return) {
+                } else if (ke.key == kb.accept) {
                     std::string txt = dm.m_inputText;
                     if (req->onInput) req->onInput(txt);
                     if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "input.accepted");
-                    dm.pop();
-                    return true;
-                } else if (ke.key == K::Escape) {
+                    dm.pop(); return true;
+                } else if (ke.key == kb.cancel) {
                     if (req->onCancel) req->onCancel();
-                    if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "input.cancelled");
-                    dm.pop();
-                    return true;
+                    if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "cancelled");
+                    dm.pop(); return true;
                 } else if (ke.utf8[0] >= 0x20) {
                     dm.m_inputText += ke.utf8;
                 }
+            } else {
+                // Message / Confirm: navigate and activate buttons with keyboard
+                int btnCount = hasCancel ? 2 : 1;
+                if (ke.key == kb.nextBtn) {
+                    dm.m_focusedBtn = (dm.m_focusedBtn + 1) % btnCount;
+                } else if (ke.key == kb.prevBtn) {
+                    dm.m_focusedBtn = (dm.m_focusedBtn + btnCount - 1) % btnCount;
+                } else if (ke.key == kb.accept || ke.key == K::Space) {
+                    if (dm.m_focusedBtn == 0) {
+                        if (req->onOk) req->onOk();
+                        if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "ok");
+                    } else {
+                        if (req->onCancel) req->onCancel();
+                        if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "cancel");
+                    }
+                    dm.pop(); return true;
+                } else if (ke.key == kb.cancel) {
+                    if (req->onCancel) req->onCancel();
+                    if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "cancel");
+                    dm.pop(); return true;
+                }
             }
-
-            const std::string& displayText = dm.m_inputText.empty() ? req->placeholder : dm.m_inputText;
-            const uint8_t* dtc = dm.m_inputText.empty() ? Colors::TextSecondary : Colors::TextPrimary;
-            uint8_t dtcArr[4]; std::copy(dtc, dtc + 4, dtcArr);
-            if (!displayText.empty())
-                TextHelper::pushText(buf, fieldX + 8.f, ty + (fieldH - lh) * 0.5f, displayText, dtcArr, fieldW - 16.f);
-
-            ty += fieldH;
         }
 
-        // --- Buttons ---
-        bool hasCancel = (req->kind != DialogRequest::Kind::Message);
-        float btnW    = 88.f;
-        float btnH    = 30.f;
-        float btnY    = boxY + boxH - btnH - 16.f;
-        float okX     = hasCancel ? boxX + boxW - btnW * 2.f - 24.f
-                                  : boxX + (boxW - btnW) * 0.5f;
-        float cancelX = boxX + boxW - btnW - 16.f;
+        // --- Backdrop ---
+        if (req->options.modal) {
+            uint8_t backdrop[4] = {0, 0, 0, 160};
+            buf.pushRectangle(0.f, 0.f, screenW, screenH, backdrop, 0.f);
+        }
 
-        // OK button
-        bool hovOk = (mx >= okX && mx < okX + btnW && my >= btnY && my < btnY + btnH);
-        uint8_t okBg[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2],
-                            static_cast<uint8_t>(hovOk ? 255 : 200)};
-        buf.pushRectangle(okX, btnY, btnW, btnH, okBg, 4.f);
-        float okTx = okX + (btnW - TextHelper::measureWidth("OK")) * 0.5f;
-        uint8_t btnTc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, btnTc);
-        TextHelper::pushText(buf, okTx, btnY + (btnH - lh) * 0.5f, "OK", btnTc);
+        // --- Box geometry (position may be offset by drag) ---
+        float boxW = std::min(440.f, screenW * 0.8f);
+        float boxH = kTitleH + (needsInput ? 200.f : 140.f);
 
-        if (mouseDown && hovOk) {
-            if (needsInput) {
-                std::string txt = dm.m_inputText;
-                if (req->onInput) req->onInput(txt);
-            } else {
-                if (req->onOk) req->onOk();
+        // Initialise drag offset on first frame for this dialog
+        if (!dm.m_dragInit) {
+            dm.m_offsetX = (screenW - boxW) * 0.5f;
+            dm.m_offsetY = (screenH - boxH) * 0.5f;
+            dm.m_dragInit = true;
+        }
+        float boxX = dm.m_offsetX;
+        float boxY = dm.m_offsetY;
+
+        // --- Drag title bar ---
+        // Use mouseHeld (continuous) for drag — mousePressed is one-shot and
+        // would drop the drag after the first frame.
+        bool inTitle = (mx >= boxX && mx < boxX + boxW - kCloseW &&
+                        my >= boxY && my < boxY + kTitleH);
+        if (mouseHeld && inTitle && !dm.m_dragging) {
+            dm.m_dragging    = true;
+            dm.m_dragAnchorX = mx - boxX;
+            dm.m_dragAnchorY = my - boxY;
+        }
+        if (dm.m_dragging) {
+            float nx = mx - dm.m_dragAnchorX;
+            float ny = my - dm.m_dragAnchorY;
+            if (req->options.constrainToScreen) {
+                nx = std::clamp(nx, 0.f, screenW - boxW);
+                ny = std::clamp(ny, 0.f, screenH - boxH);
             }
-            if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "ok");
+            dm.m_offsetX = nx;
+            dm.m_offsetY = ny;
+            boxX = nx;
+            boxY = ny;
+        }
+        if (!mouseHeld) dm.m_dragging = false;
+
+        // --- Shadow (slight dark halo) ---
+        uint8_t shadow[4] = {0, 0, 0, 60};
+        buf.pushRectangle(boxX + 4.f, boxY + 6.f, boxW, boxH, shadow, kRadius + 2.f);
+
+        // --- Box body ---
+        uint8_t boxBg[4] = {26, 26, 32, 255};
+        buf.pushRectangle(boxX, boxY, boxW, boxH, boxBg, kRadius, 1.f, Colors::Border);
+
+        // --- Title bar strip ---
+        uint8_t titleBg[4] = {38, 38, 48, 255};
+        buf.pushRectangle(boxX, boxY, boxW, kTitleH, titleBg, kRadius);
+        // Cover bottom corners of title so it blends into body
+        buf.pushRectangle(boxX, boxY + kRadius, boxW, kTitleH - kRadius, titleBg, 0.f);
+
+        float lh = TextHelper::lineHeight();
+        uint8_t tc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, tc);
+        TextHelper::pushText(buf, boxX + 14.f, boxY + (kTitleH - lh) * 0.5f, req->title, tc,
+                             boxW - kCloseW - 20.f);
+
+        // --- Close (×) button ---
+        float cBtnX = boxX + boxW - kCloseW;
+        float cBtnY = boxY;
+        bool  hovClose = (mx >= cBtnX && mx < cBtnX + kCloseW &&
+                          my >= cBtnY && my < cBtnY + kTitleH);
+        if (hovClose) {
+            uint8_t cHov[4] = {180, 50, 50, 200};
+            buf.pushRectangle(cBtnX, cBtnY, kCloseW, kTitleH, cHov, 0.f);
+        }
+        uint8_t xc[4] = {200, 200, 210, 220};
+        float cx = cBtnX + kCloseW * 0.5f - 4.f;
+        float cy = cBtnY + kTitleH  * 0.5f - 1.f;
+        buf.pushRectangle(cx,        cy,        9.f, 2.f, xc, 1.f);  // —
+        buf.pushRectangle(cx + 3.5f, cy - 3.5f, 2.f, 9.f, xc, 1.f); // |
+        if (mousePressed && hovClose) {
+            if (req->onCancel) req->onCancel();
+            if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "close");
             dm.pop();
             return true;
         }
 
-        // Cancel button
-        if (hasCancel) {
-            bool hovCancel = (mx >= cancelX && mx < cancelX + btnW && my >= btnY && my < btnY + btnH);
-            uint8_t cBg[4] = {50, 50, 58, static_cast<uint8_t>(hovCancel ? 255 : 200)};
-            buf.pushRectangle(cancelX, btnY, btnW, btnH, cBg, 4.f, 1.f, Colors::Border);
-            float cTx = cancelX + (btnW - TextHelper::measureWidth("Cancel")) * 0.5f;
-            TextHelper::pushText(buf, cTx, btnY + (btnH - lh) * 0.5f, "Cancel", btnTc);
+        // --- Body / prompt ---
+        float ty = boxY + kTitleH + 16.f;
+        uint8_t sc[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, sc);
+        TextHelper::pushText(buf, boxX + 16.f, ty, req->body, sc, boxW - 32.f);
+        ty += lh + 10.f;
 
-            if (mouseDown && hovCancel) {
+        // --- Input field (always active — dialog owns keyboard) ---
+        if (needsInput) {
+            float fieldX = boxX + 16.f;
+            float fieldW = boxW - 32.f;
+            float fieldH = 32.f;
+
+            uint8_t fBg[4] = {18, 18, 28, 255};
+            uint8_t fBorder[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 255};
+            buf.pushRectangle(fieldX, ty, fieldW, fieldH, fBg, 4.f, 2.f, fBorder);
+
+            float textY = ty + (fieldH - lh) * 0.5f;
+            if (dm.m_inputText.empty()) {
+                uint8_t ph[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, ph);
+                TextHelper::pushText(buf, fieldX + 8.f, textY, req->placeholder, ph, fieldW - 24.f);
+            } else {
+                uint8_t ftc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, ftc);
+                TextHelper::pushText(buf, fieldX + 8.f, textY, dm.m_inputText, ftc, fieldW - 24.f);
+            }
+            float cursorX = fieldX + 8.f + TextHelper::measureWidth(dm.m_inputText) + 1.f;
+            uint8_t cursorCol[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 220};
+            buf.pushRectangle(cursorX, textY + 1.f, 2.f, lh - 2.f, cursorCol, 0.f);
+
+            ty += fieldH + 8.f;
+        }
+
+        // --- Buttons ---
+        float btnW    = 88.f;
+        float btnH    = 30.f;
+        float btnY    = boxY + boxH - btnH - 14.f;
+        float okX     = hasCancel ? boxX + boxW - btnW * 2.f - 20.f
+                                  : boxX + (boxW - btnW) * 0.5f;
+        float cancelX = boxX + boxW - btnW - 12.f;
+
+        uint8_t btnTc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, btnTc);
+
+        // Clamp keyboard focus to available buttons
+        if (!hasCancel) dm.m_focusedBtn = 0;
+
+        // OK button — keyboard-focused when m_focusedBtn==0
+        bool hovOk = (mx >= okX && mx < okX + btnW && my >= btnY && my < btnY + btnH);
+        bool kbOk  = !needsInput && (dm.m_focusedBtn == 0);
+        uint8_t okBg[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2],
+                            static_cast<uint8_t>(hovOk ? 255 : 220)};
+        buf.pushRectangle(okX, btnY, btnW, btnH, okBg, 4.f);
+        if (kbOk) { // outline-only focus ring — does not cover button fill
+            uint8_t noFill[4] = {0, 0, 0, 0};
+            uint8_t ringCol[4] = {255, 255, 255, 200};
+            buf.pushRectangle(okX - 2.f, btnY - 2.f, btnW + 4.f, btnH + 4.f, noFill, 5.f, 2.f, ringCol);
+        }
+        TextHelper::pushText(buf, okX + (btnW - TextHelper::measureWidth("OK")) * 0.5f,
+                             btnY + (btnH - lh) * 0.5f, "OK", btnTc);
+
+        if (mousePressed && hovOk) {
+            if (needsInput) { if (req->onInput) req->onInput(dm.m_inputText); }
+            else             { if (req->onOk)   req->onOk(); }
+            if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "ok");
+            dm.pop(); return true;
+        }
+
+        // Cancel button — keyboard-focused when m_focusedBtn==1
+        if (hasCancel) {
+            bool hovCancel = (mx >= cancelX && mx < cancelX + btnW &&
+                              my >= btnY    && my < btnY + btnH);
+            bool kbCancel  = !needsInput && (dm.m_focusedBtn == 1);
+            uint8_t cBg[4] = {55, 55, 65, static_cast<uint8_t>(hovCancel ? 255 : 220)};
+            uint8_t cBorder[4] = {100, 100, 110, 255};
+            buf.pushRectangle(cancelX, btnY, btnW, btnH, cBg, 4.f, 1.f, cBorder);
+            if (kbCancel) {
+                uint8_t noFill[4] = {0, 0, 0, 0};
+                uint8_t ringCol[4] = {255, 255, 255, 200};
+                buf.pushRectangle(cancelX - 2.f, btnY - 2.f, btnW + 4.f, btnH + 4.f, noFill, 5.f, 2.f, ringCol);
+            }
+            TextHelper::pushText(buf, cancelX + (btnW - TextHelper::measureWidth("Cancel")) * 0.5f,
+                                 btnY + (btnH - lh) * 0.5f, "Cancel", btnTc);
+
+            if (mousePressed && hovCancel) {
                 if (req->onCancel) req->onCancel();
                 if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "cancel");
-                dm.pop();
-                return true;
+                dm.pop(); return true;
             }
         }
 
-        return true; // dialog active, consumed this frame
+        return true;
     }
 
     // AI agent action support
@@ -229,10 +382,40 @@ public:
         return false;
     }
 
+    // Also reset drag state when queue becomes empty
+    void pop() {
+        if (!m_queue.empty()) m_queue.erase(m_queue.begin());
+        m_inputText.clear();
+        if (m_queue.empty()) {
+            m_dragInit   = false;
+            m_dragging   = false;
+            m_focusedBtn = 0;
+        }
+    }
+
+    // Configurable key bindings (set before showing dialogs)
+    static DialogKeyBindings& keyBindings() { return instance().m_keyBindings; }
+
+    // True if the front dialog is modal (should block underlying input).
+    static bool isModal() {
+        const DialogRequest* r = instance().front();
+        return r && r->options.modal;
+    }
+
 private:
     DialogManager() = default;
     std::vector<DialogRequest> m_queue;
-    std::string m_inputText;
+    std::string        m_inputText;
+    int                m_focusedBtn = 0;
+    DialogKeyBindings  m_keyBindings;
+
+    // Drag state for the title-bar drag gesture
+    bool  m_dragInit    = false;
+    bool  m_dragging    = false;
+    float m_offsetX     = 0.f;
+    float m_offsetY     = 0.f;
+    float m_dragAnchorX = 0.f;
+    float m_dragAnchorY = 0.f;
 };
 
 // ---- Public API ------------------------------------------------------------
@@ -240,35 +423,46 @@ class Dialog {
 public:
     // ---- Message box (single OK button) ------------------------------------
     static void message(const std::string& title, const std::string& body,
-                        std::function<void()> onDismiss = {}) {
+                        std::function<void()> onDismiss = {},
+                        DialogOptions opts = {}) {
         if (AiBusHook::emit) AiBusHook::emit(0, "dialog.message", title.c_str());
-        DialogManager::instance().push({
-            DialogRequest::Kind::Message, title, body, {},
-            std::move(onDismiss), {}, {}
-        });
+        DialogRequest req;
+        req.kind = DialogRequest::Kind::Message;
+        req.title = title; req.body = body;
+        req.options = opts;
+        req.onOk = std::move(onDismiss);
+        DialogManager::instance().push(std::move(req));
     }
 
     // ---- Confirm (OK / Cancel) ---------------------------------------------
     static void confirm(const std::string& title, const std::string& body,
                         std::function<void()> onConfirm,
-                        std::function<void()> onCancel = {}) {
+                        std::function<void()> onCancel = {},
+                        DialogOptions opts = {}) {
         if (AiBusHook::emit) AiBusHook::emit(0, "dialog.confirm", title.c_str());
-        DialogManager::instance().push({
-            DialogRequest::Kind::Confirm, title, body, {},
-            std::move(onConfirm), std::move(onCancel), {}
-        });
+        DialogRequest req;
+        req.kind = DialogRequest::Kind::Confirm;
+        req.title = title; req.body = body;
+        req.options = opts;
+        req.onOk = std::move(onConfirm);
+        req.onCancel = std::move(onCancel);
+        DialogManager::instance().push(std::move(req));
     }
 
     // ---- Text input --------------------------------------------------------
     static void input(const std::string& title, const std::string& prompt,
                       std::function<void(std::string)> onAccept,
-                      std::function<void()>            onCancel      = {},
-                      const std::string&               placeholder   = "") {
+                      std::function<void()>            onCancel    = {},
+                      const std::string&               placeholder = "",
+                      DialogOptions                    opts        = {}) {
         if (AiBusHook::emit) AiBusHook::emit(0, "dialog.input", title.c_str());
-        DialogManager::instance().push({
-            DialogRequest::Kind::Input, title, prompt, placeholder,
-            {}, std::move(onCancel), std::move(onAccept)
-        });
+        DialogRequest req;
+        req.kind = DialogRequest::Kind::Input;
+        req.title = title; req.body = prompt; req.placeholder = placeholder;
+        req.options = opts;
+        req.onCancel = std::move(onCancel);
+        req.onInput  = std::move(onAccept);
+        DialogManager::instance().push(std::move(req));
     }
 
     // ---- Open file ---------------------------------------------------------

@@ -81,7 +81,14 @@ public:
     virtual bool isLeftButtonDown() const { return false; }
 
     virtual std::pair<int,int> virtualDesktopSize() const { return {1920, 1080}; }
-    virtual void setFullscreen(bool on) { (void)on; }
+    virtual void setFullscreen(bool on)  { (void)on; }
+    virtual void minimize()              {}
+    virtual void setMaximized(bool on)   { (void)on; }
+    virtual bool isMaximized() const     { return false; }
+    virtual void requestClose()          {}
+    virtual void startWindowMove()       {}
+    virtual void grabKeyboardFocus()     {}
+    virtual uintptr_t rawWindowId() const { return 0; }
     virtual float dpiScale() const { return 1.0f; }
     virtual void setResizeCallback(std::function<void(uint32_t, uint32_t)> cb) { (void)cb; }
     virtual void setMinSize(uint32_t minW, uint32_t minH) { (void)minW; (void)minH; }

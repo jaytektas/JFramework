@@ -76,7 +76,7 @@ static void test_queue_is_fifo() {
 static void test_render_no_dialog_returns_false() {
     _clearDialogs();
     PrimitiveBuffer buf;
-    bool active = DialogManager::renderAndHandle(buf, 800.f, 600.f, 0.f, 0.f, false);
+    bool active = DialogManager::renderAndHandle(buf, 800.f, 600.f, 0.f, 0.f, false, false);
     assert(!active);
     assert(buf.getCommands().size() == 0);
     std::cout << "  [OK] renderAndHandle returns false when no dialog pending\n";
@@ -86,7 +86,7 @@ static void test_render_message_dialog_draws_overlay() {
     _clearDialogs();
     Dialog::message("Hello", "World");
     PrimitiveBuffer buf;
-    bool active = DialogManager::renderAndHandle(buf, 800.f, 600.f, 0.f, 0.f, false);
+    bool active = DialogManager::renderAndHandle(buf, 800.f, 600.f, 0.f, 0.f, false, false);
     assert(active);
     // Should draw backdrop + box + buttons — at least 2 primitives
     assert(buf.getCommands().size() >= 2);
@@ -105,7 +105,7 @@ static void test_render_ok_click_dismisses() {
     // okX = center: 180+(440-88)/2 = 180+176 = 356
     float okX = 356.f + 44.f; // center of OK button
     float okY = 334.f + 15.f;
-    DialogManager::renderAndHandle(buf, 800.f, 600.f, okX, okY, true);
+    DialogManager::renderAndHandle(buf, 800.f, 600.f, okX, okY, true, true);
     assert(dismissed);
     assert(!DialogManager::instance().hasPending());
     std::cout << "  [OK] renderAndHandle dismisses on OK click\n";

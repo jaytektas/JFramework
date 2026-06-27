@@ -16,6 +16,7 @@
 #include <genesis/platforms/linux/LinuxPlatformWindow.h>
 #endif
 #include <genesis/platforms/linux/FloatingDockWindow.h>
+#include <genesis/platforms/NativeDialogWindow.h>
 #include <genesis/platforms/PopupWindow.h>
 #include <genesis/core/MenuSystem.h>
 #include <genesis/core/Dialog.h>
@@ -76,10 +77,10 @@ public:
 
     Genesis::MenuBar* menuBar() const noexcept { return m_menuBar.get(); }
     Genesis::Menu* viewMenu() const noexcept { return m_menus.size() > 2 ? m_menus[2].get() : nullptr; }
-    void layoutMenuBar(float winW) {
+    void layoutMenuBar(float winW, float yOffset = 0.f) {
         if (m_menuBar) {
             auto& l = m_graph.getLayout(m_menuBar->getNodeId());
-            l.boundingBox = { 0.f, 0.f, winW, 32.f };
+            l.boundingBox = { 0.f, yOffset, winW, 32.f };
             m_graph.invalidateNode(m_menuBar->getNodeId(), DirtySelf);
             m_graph.computeLayout(m_menuBar->getNodeId(), { winW, winW, 32.f, 32.f });
         }
@@ -900,6 +901,30 @@ private:
         section("Actions");
         add<Button>(m_graph, "Primary Action", 200.0f, 36.0f);
         add<Button>(m_graph, "Secondary",      160.0f, 36.0f);
+        section("Dialogs");
+        {
+            auto* msgBtn = add<Button>(m_graph, "Message Dialog", 200.0f, 34.0f);
+            msgBtn->onClicked.connect([]{
+                Genesis::Dialog::message("Genesis UI",
+                    "This is a native genesis dialog overlay.\nNo OS dependency required.");
+            });
+            auto* cfmBtn = add<Button>(m_graph, "Confirm Dialog", 200.0f, 34.0f);
+            cfmBtn->onClicked.connect([]{
+                Genesis::Dialog::confirm("Delete File?",
+                    "Are you sure you want to delete the selected file?\nThis cannot be undone.",
+                    []{ Genesis::Dialog::message("Deleted", "File deleted."); },
+                    []{ Genesis::Dialog::message("Cancelled", "Nothing was deleted."); });
+            });
+            auto* inBtn = add<Button>(m_graph, "Input Dialog", 200.0f, 34.0f);
+            inBtn->onClicked.connect([]{
+                Genesis::Dialog::input("Rename File",
+                    "Enter the new file name:",
+                    [](std::string name){
+                        Genesis::Dialog::message("Renamed", "File renamed to: " + name);
+                    },
+                    {}, "new_name.cpp");
+            });
+        }
         add<ToggleButton>(m_graph, "Dark Mode", 180.0f, 34.0f);
         add<ToggleButton>(m_graph, "Auto-save", 180.0f, 34.0f)->setToggled(true);
         section("Project Files");
@@ -1084,9 +1109,10 @@ private:
         makeDock("Navigator",  200.f, 300.f, navLeaf);
         makeDock("Assets",     200.f, 280.f, assetLeaf);
 
-        m_dockHost->computeLayout({0.f, 32.f,
-            static_cast<float>(m_winW), static_cast<float>(m_winH) - 32.f});
-        layoutMenuBar(static_cast<float>(m_winW));
+        constexpr float kMenuY_ = 28.f + 32.f;  // kTitleH + menuBar height
+        m_dockHost->computeLayout({0.f, kMenuY_,
+            static_cast<float>(m_winW), static_cast<float>(m_winH) - kMenuY_});
+        layoutMenuBar(static_cast<float>(m_winW), 28.f);
     }
 
     // A dock panel's scrollable content: a flex-column root + the widgets it owns-by-ref,
@@ -1227,6 +1253,14 @@ int main() {
     constexpr uint32_t W = 760, H = 860;
     uint32_t curW = W, curH = H;   // swapchain size, kept locked to the window size
 
+    // ---- Custom title bar constants ----------------------------------------
+    constexpr float kTitleH  = 28.f;   // custom title bar height
+    constexpr float kMenuY   = kTitleH; // menu bar y-offset below title bar
+    constexpr float kDockY   = kMenuY + 32.f;  // dock starts below menu bar
+    constexpr float kBtnW    = 28.f;   // width of each window-control button
+
+    // (Title-bar dragging is handled by _NET_WM_MOVERESIZE — no local state needed.)
+
     Genesis::TranslationEngine::instance().setSearchPath("./translations");
     Genesis::TranslationEngine::instance().setLocale("en");
 
@@ -1234,7 +1268,8 @@ int main() {
     if (getenv("GENESIS_WIN_TITLE") != nullptr) {
         winTitle = getenv("GENESIS_WIN_TITLE");
     }
-    auto window = std::make_unique<PlatformWindowImpl>(winTitle, W, H);
+    auto window = std::make_unique<PlatformWindowImpl>(
+        winTitle, W, H, 100, 100, Genesis::PlatformWindowStyle::Borderless);
 
     NativeWindowHandle handle = window->nativeHandle();
 
@@ -1281,6 +1316,7 @@ int main() {
     Genesis::FloatingDockOptions g_dockOptions;
     catalog->dockHost().setLivePreviewEnabled(g_dockOptions.livePreviewEnabled);
     std::vector<FloatingDockWindow> floatingDocks;
+    std::vector<Genesis::NativeDialogWindow> activeDialogs;
     std::vector<std::unique_ptr<PopupWindow>> floatingMenus;
     std::unique_ptr<PopupWindow> activePopup;
     ComboBox* activePopupComboBox = nullptr;
@@ -1573,8 +1609,8 @@ int main() {
                 resized = true;
             }
             catalog->dockHost().computeLayout(
-                {0.f, 32.f, static_cast<float>(curW), static_cast<float>(curH) - 32.f});
-            catalog->layoutMenuBar(static_cast<float>(curW));
+                {0.f, kDockY, static_cast<float>(curW), static_cast<float>(curH) - kDockY});
+            catalog->layoutMenuBar(static_cast<float>(curW), kMenuY);
         }
 
         // Keep the registry's bounds current (WM may have moved or resized our window).
@@ -1586,12 +1622,20 @@ int main() {
         catalog->clearPanelVisibility();
         catalog->updateHostDockContent(catalog->dockHost(), wheel, window->mouseX(), window->mouseY());
 
+        // Block widget input only when a modal dialog is active.
+        // Modal = any active native dialog window is modal
+        bool dialogActive = std::any_of(activeDialogs.begin(), activeDialogs.end(),
+                                        [](const Genesis::NativeDialogWindow& d){ return d.isModal(); });
+
         // ---- Keyboard ----
         bool wantScreenshot = false;
         bool keyActivity    = false;
-        for (auto& ke : window->consumeAllKeys()) {
+        auto frameKeys = window->consumeAllKeys();   // consume once, share with dialog
+        for (auto& ke : frameKeys) {
             if (!ke.pressed) continue;
             keyActivity = true;
+            // When a dialog is active it owns keyboard input; skip widget/accelerator dispatch.
+            if (dialogActive) continue;
             if (Genesis::MenuManager::instance().processAccelerator(ke)) {
                 continue;
             }
@@ -1652,8 +1696,8 @@ int main() {
             }
         }
 
-        bool pressed  = window->consumePress();
-        bool released = window->consumeRelease();
+        bool pressed      = window->consumePress();
+        bool released     = window->consumeRelease();
         bool rightPressed = window->consumeRightPress();
 
         if (released && !deferredMenuPopups.empty()) {
@@ -1705,10 +1749,78 @@ int main() {
 
         window->consumeMouseLeave();  // drains the flag; m_mouseX/Y already reset in platform on leave
 
-        if (!activeMenuPopups.empty()) {
-            catalog->menuBar()->handleMouseMove(mouseX_val, mouseY_val);
-        } else {
-            catalog->handleMouse(mouseX_val, mouseY_val, pressed, released, wheel);
+        // ---- Custom title bar: buttons and drag (intercept before catalog) ----
+        // titleDragging: self-managed window drag with snap-to-maximize at screen top.
+        // dragAnchorX/Y: cursor offset within the window at drag start.
+        // titleSnapPreview: cursor within snap zone (top ~8px of screen).
+        static bool  titleDragging    = false;
+        static float dragAnchorX      = 0.f;
+        static float dragAnchorY      = 0.f;
+        static bool  titleSnapPreview = false;
+        using Clock = std::chrono::steady_clock;
+        static Clock::time_point lastTitleClick{};
+        {
+            float W       = static_cast<float>(curW);
+            float closeX  = W - kBtnW;
+            float maxX    = W - kBtnW * 2.f;
+            float minX    = W - kBtnW * 3.f;
+            bool inBar    = (mouseY_val >= 0.f && mouseY_val < kTitleH);
+            bool inClose  = inBar && (mouseX_val >= closeX);
+            bool inMax    = inBar && (mouseX_val >= maxX && mouseX_val < closeX);
+            bool inMin    = inBar && (mouseX_val >= minX && mouseX_val < maxX);
+            bool inDrag   = inBar && (mouseX_val < minX);
+
+            if (pressed) {
+                if      (inClose) { pressed = false; window->requestClose(); }
+                else if (inMax)   { pressed = false; window->setMaximized(!window->isMaximized()); }
+                else if (inMin)   { pressed = false; window->minimize(); }
+                else if (inDrag) {
+                    pressed = false;
+                    auto clickNow = Clock::now();
+                    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  clickNow - lastTitleClick).count();
+                    lastTitleClick = clickNow;
+                    if (ms < 300) {
+                        // Double-click: toggle maximize/restore
+                        window->setMaximized(!window->isMaximized());
+                        titleDragging = false;
+                    } else if (!window->isMaximized()) {
+                        titleDragging    = true;
+                        titleSnapPreview = false;
+                        auto [gx, gy] = window->globalCursorPos();
+                        dragAnchorX = static_cast<float>(gx - window->screenX());
+                        dragAnchorY = static_cast<float>(gy - window->screenY());
+                    }
+                }
+            }
+
+            bool held = window->isLeftButtonDown();
+            if (titleDragging) {
+                if (!held) {
+                    if (titleSnapPreview) window->setMaximized(true);
+                    titleDragging    = false;
+                    titleSnapPreview = false;
+                } else {
+                    auto [gx, gy] = window->globalCursorPos();
+                    auto [sw, sh] = window->virtualDesktopSize();
+                    int nx = gx - static_cast<int>(dragAnchorX);
+                    int ny = gy - static_cast<int>(dragAnchorY);
+                    nx = std::max(-(int)curW/2, std::min(nx, sw - (int)curW/2));
+                    ny = std::max(0,             ny);
+                    titleSnapPreview = (gy < 8);
+                    if (!titleSnapPreview) window->setPosition(nx, ny);
+                    pressed  = false;
+                    released = false;
+                }
+            }
+        }
+
+        if (!dialogActive) {
+            if (!activeMenuPopups.empty()) {
+                catalog->menuBar()->handleMouseMove(mouseX_val, mouseY_val);
+            } else {
+                catalog->handleMouse(mouseX_val, mouseY_val, pressed, released, wheel);
+            }
         }
         catalog->update(dt);
 
@@ -1981,17 +2093,151 @@ int main() {
         bool doRender = (redrawFrames > 0);
         if (doRender) --redrawFrames;
 
+        // ---- Spawn NativeDialogWindow for each pending dialog request ----
+        while (Genesis::DialogManager::instance().hasPending()) {
+            const auto* req = Genesis::DialogManager::instance().front();
+            const auto& opts = req->options;
+
+            int dlgW = static_cast<int>(Genesis::NativeDialogWindow::kW);
+            int dlgH = static_cast<int>(Genesis::NativeDialogWindow::calcHeight(req->kind, opts));
+
+            int dlgX, dlgY;
+            using Pos = Genesis::DialogOptions::Position;
+            switch (opts.position) {
+            case Pos::Fixed:
+                dlgX = opts.x; dlgY = opts.y;
+                break;
+            case Pos::CenterOnScreen: {
+                auto [sw, sh] = window->virtualDesktopSize();
+                dlgX = (sw - dlgW) / 2; dlgY = (sh - dlgH) / 2;
+                break;
+            }
+            case Pos::AtCursor: {
+                auto [gx, gy] = window->globalCursorPos();
+                dlgX = gx; dlgY = gy;
+                break;
+            }
+            case Pos::TopLeft:
+                dlgX = window->screenX() + 16;
+                dlgY = window->screenY() + 16;
+                break;
+            case Pos::TopRight:
+                dlgX = window->screenX() + static_cast<int>(curW) - dlgW - 16;
+                dlgY = window->screenY() + 16;
+                break;
+            case Pos::TopCenter:
+                dlgX = window->screenX() + (static_cast<int>(curW) - dlgW) / 2;
+                dlgY = window->screenY() + 16;
+                break;
+            case Pos::BottomLeft:
+                dlgX = window->screenX() + 16;
+                dlgY = window->screenY() + static_cast<int>(curH) - dlgH - 16;
+                break;
+            case Pos::BottomRight:
+                dlgX = window->screenX() + static_cast<int>(curW) - dlgW - 16;
+                dlgY = window->screenY() + static_cast<int>(curH) - dlgH - 16;
+                break;
+            case Pos::BottomCenter:
+                dlgX = window->screenX() + (static_cast<int>(curW) - dlgW) / 2;
+                dlgY = window->screenY() + static_cast<int>(curH) - dlgH - 16;
+                break;
+            case Pos::CenterOnParent:
+            default:
+                dlgX = window->screenX() + (static_cast<int>(curW) - dlgW) / 2;
+                dlgY = window->screenY() + (static_cast<int>(curH) - dlgH) / 2;
+                break;
+            }
+
+            activeDialogs.emplace_back(*req, *hal, dlgX, dlgY,
+                static_cast<Genesis::NativeDialogWindow::NativeWinHandleType>(
+                    window->rawWindowId()));
+            Genesis::DialogManager::instance().pop();
+        }
+
+        // ---- Poll and render all native dialog windows ----
+        for (auto it = activeDialogs.begin(); it != activeDialogs.end(); ) {
+            if (!it->pollAndRender(*hal, buffer)) {
+                it->destroySurface(*hal);
+                it = activeDialogs.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
         // ---- Render main window (event-driven: only when something changed) ----
         if (doRender) {
             auto frame = hal->beginFrame();
             buffer.clear();
             catalog->render(buffer);
             Widget::renderTooltips(buffer, mouseX_val, mouseY_val);
-            // Render genesis-native dialog overlays on top of everything
-            bool mouseDownThisFrame = window->consumePress();
-            Genesis::DialogManager::renderAndHandle(buffer,
-                static_cast<float>(curW), static_cast<float>(curH),
-                mouseX_val, mouseY_val, mouseDownThisFrame, window->consumeAllKeys());
+
+            // ---- Custom title bar (drawn last so it sits on top of everything) ----
+            {
+                float W = static_cast<float>(curW);
+                float lh = Genesis::TextHelper::lineHeight();
+
+                // Background strip
+                uint8_t tbg[4] = {22, 22, 28, 255};
+                buffer.pushRectangle(0.f, 0.f, W, kTitleH, tbg, 0.f);
+
+                // App title
+                uint8_t tc[4]; std::copy(Genesis::Colors::TextSecondary,
+                                         Genesis::Colors::TextSecondary + 4, tc);
+                Genesis::TextHelper::pushText(buffer, 10.f, (kTitleH - lh) * 0.5f,
+                                              winTitle, tc, W - kBtnW * 3.f - 20.f);
+
+                // Separator line between title bar and menu bar
+                uint8_t sep[4] = {Genesis::Colors::Border[0], Genesis::Colors::Border[1],
+                                  Genesis::Colors::Border[2], Genesis::Colors::Border[3]};
+                buffer.pushRectangle(0.f, kTitleH - 1.f, W, 1.f, sep, 0.f);
+
+                // Window control buttons: [−] [□/⊡] [×]
+                float closeX = W - kBtnW;
+                float maxX   = W - kBtnW * 2.f;
+                float minX   = W - kBtnW * 3.f;
+
+                auto hovBtn = [&](float bx) {
+                    return mouseY_val >= 0.f && mouseY_val < kTitleH &&
+                           mouseX_val >= bx  && mouseX_val < bx + kBtnW;
+                };
+
+                // Minimize −
+                {
+                    bool h = hovBtn(minX);
+                    if (h) { uint8_t hbg[4]={60,60,70,200}; buffer.pushRectangle(minX, 0.f, kBtnW, kTitleH, hbg, 0.f); }
+                    float cx = minX + kBtnW * 0.5f - 4.f, cy = kTitleH * 0.5f - 1.f;
+                    uint8_t ic[4] = {190,190,200,220};
+                    buffer.pushRectangle(cx, cy, 9.f, 2.f, ic, 0.f);
+                }
+
+                // Maximize □ / restore ⊡
+                {
+                    bool h = hovBtn(maxX);
+                    if (h) { uint8_t hbg[4]={60,60,70,200}; buffer.pushRectangle(maxX, 0.f, kBtnW, kTitleH, hbg, 0.f); }
+                    float cx = maxX + kBtnW * 0.5f - 4.f, cy = kTitleH * 0.5f - 4.f;
+                    uint8_t ic[4]   = {190,190,200,220};
+                    uint8_t nf[4]   = {0,0,0,0};
+                    uint8_t wbg[4]  = {22,22,28,255};
+                    if (!window->isMaximized()) {
+                        buffer.pushRectangle(cx, cy, 9.f, 9.f, nf, 1.f, 1.5f, ic);
+                    } else {
+                        // Two overlapping rects = restore icon
+                        buffer.pushRectangle(cx + 2.f, cy,      7.f, 7.f, nf,  0.f, 1.f, ic);
+                        buffer.pushRectangle(cx,        cy + 2.f, 7.f, 7.f, wbg, 0.f, 1.f, ic);
+                    }
+                }
+
+                // Close ×
+                {
+                    bool h = hovBtn(closeX);
+                    if (h) { uint8_t hbg[4]={180,40,40,220}; buffer.pushRectangle(closeX, 0.f, kBtnW, kTitleH, hbg, 0.f); }
+                    float cx = closeX + kBtnW * 0.5f - 4.f, cy = kTitleH * 0.5f - 1.f;
+                    uint8_t ic[4] = {210,210,220,230};
+                    buffer.pushRectangle(cx, cy, 9.f, 2.f, ic, 1.f);
+                    buffer.pushRectangle(cx + 3.5f, cy - 3.5f, 2.f, 9.f, ic, 1.f);
+                }
+            }
+
             hal->drawPrimitives(buffer);
             hal->submitAndPresentFrame(frame);
             if (wantScreenshot) hal->captureNextFrame("/tmp/genesis_screenshot.ppm");
