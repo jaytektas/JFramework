@@ -1,4 +1,5 @@
 #include <genesis/core/BaseWidgets.h>
+#include <genesis/core/MenuSystem.h>
 #include <genesis/core/SceneGraph.h>
 #include <genesis/graphics/RenderPrimitive.h>
 #include <cassert>
@@ -329,6 +330,64 @@ void test_datagrid_logic() {
     std::cout << "test_datagrid_logic passed" << std::endl;
 }
 
+void test_menu_and_shortcuts() {
+    SceneGraph graph;
+    Menu menu("File");
+    
+    auto* item1 = menu.add(graph, "New", {KeyEvent::Key::N, true});
+    auto* item2 = menu.add(graph, "Open", {KeyEvent::Key::O, true});
+    item2->setCheckable(true);
+    item2->setChecked(true);
+
+    assert(item1->label() == "New");
+    assert(item1->shortcut().key == KeyEvent::Key::N);
+    assert(item1->shortcut().ctrl == true);
+
+    assert(item2->isCheckable() == true);
+    assert(item2->isChecked() == true);
+
+    bool triggered = false;
+    MenuManager::instance().clearShortcuts();
+    MenuManager::instance().registerShortcut(item1->shortcut(), [&triggered]() {
+        triggered = true;
+    });
+
+    KeyEvent ke;
+    ke.pressed = true;
+    ke.key = KeyEvent::Key::N;
+    ke.ctrl = true;
+    
+    bool handled = MenuManager::instance().processAccelerator(ke);
+    assert(handled == true);
+    assert(triggered == true);
+
+    std::cout << "test_menu_and_shortcuts passed" << std::endl;
+}
+
+void test_tooltips() {
+    SceneGraph graph;
+    Button btn(graph, "TooltipButton");
+    btn.setTooltip("Click this button");
+    
+    auto& layout = graph.getLayout(btn.getNodeId());
+    layout.boundingBox = {10, 10, 100, 40};
+
+    assert(btn.tooltip() == "Click this button");
+    assert(btn.hitTest(50, 30) == true);
+    assert(btn.hitTest(200, 30) == false);
+
+    bool found = false;
+    for (Widget* w : Widget::s_activeWidgets) {
+        if (w == &btn) {
+            found = true;
+            break;
+        }
+    }
+    assert(found == true);
+
+    std::cout << "test_tooltips passed" << std::endl;
+}
+
 int main() {
     test_button_interaction();
     test_widget_rendering();
@@ -339,6 +398,8 @@ int main() {
     test_listview_logic();
     test_treeview_logic();
     test_datagrid_logic();
+    test_menu_and_shortcuts();
+    test_tooltips();
     std::cout << "All tests passed!" << std::endl;
     return 0;
 }

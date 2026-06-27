@@ -69,8 +69,8 @@ public:
 
     // Rectangle the content widget should render into
     Rect contentArea() const {
-        return { m_x + 1.0f, m_y + TITLE_H,
-                 m_w - 2.0f, m_h - TITLE_H - 1.0f };
+        float topOff = m_titleVisible ? TITLE_H : 0.f;
+        return { m_x + 1.0f, m_y + topOff, m_w - 2.0f, m_h - topOff - 1.0f };
     }
 
     void setPosition(float x, float y) { m_x = x; m_y = y; }
@@ -130,6 +130,28 @@ public:
     bool  allowsDrop(uint8_t bit) const { return (m_allowedDrops & bit) != 0u; }
     uint8_t allowedDrops() const        { return m_allowedDrops; }
 
+    // Whether drop-zones are ever offered when dragging this dock into a DockHost.
+    // When false the dock floats only — it never shows snap arrows.
+    void setDockable(bool v)        { m_dockable      = v; }
+    bool isDockable()  const        { return m_dockable; }
+
+    // Show/hide the close button in the title bar.
+    void setCloseable(bool v)       { m_closeable     = v; }
+    bool isCloseable() const        { return m_closeable; }
+
+    // Show/hide the pin button in the title bar.
+    void setPinnable(bool v)        { m_pinnable      = v; }
+    bool isPinnable() const         { return m_pinnable; }
+
+    // Allow/disallow the drag-resize handle in the bottom-right corner.
+    void setResizable(bool v)       { m_resizable     = v; }
+    bool isResizable() const        { return m_resizable; }
+
+    // Hide the title bar entirely — content fills the whole dock panel.
+    // Useful for toolbar-style panels.  Also disables drag-to-move (pinned=true).
+    void setTitleBarVisible(bool v) { m_titleVisible  = v; }
+    bool isTitleBarVisible() const  { return m_titleVisible; }
+
     // Dock-side affinity — which leaf labels this dock is willing to join.
     // Independent of the leaf's own DockAffinityRule (both must pass).
     // Empty accept list = accept any leaf label.
@@ -145,9 +167,9 @@ public:
     // --- Input ---
 
     void handleMouse(float mx, float my, bool pressed, bool released) {
-        m_hoverClose  = _inCloseBtn(mx, my);
-        m_hoverPin    = _inPinBtn(mx, my);
-        m_hoverResize = _inResizeHandle(mx, my);
+        m_hoverClose  = m_closeable  && m_titleVisible && _inCloseBtn(mx, my);
+        m_hoverPin    = m_pinnable   && m_titleVisible && _inPinBtn(mx, my);
+        m_hoverResize = m_resizable  && _inResizeHandle(mx, my);
 
         if (pressed) {
             if (m_hoverClose)  { m_closeRequested = true; return; }
@@ -160,7 +182,7 @@ public:
                 m_resizeAnchorY = my;
                 return;
             }
-            if (_inTitleBar(mx, my) && !m_pinned) {
+            if (m_titleVisible && _inTitleBar(mx, my) && !m_pinned) {
                 m_dragging = true;
                 m_dragOffX = mx - m_x;
                 m_dragOffY = my - m_y;
@@ -194,45 +216,51 @@ public:
         buf.pushRectangle(m_x, m_y, m_w, m_h, body, BORDER_R,
                           1.0f, Colors::Border);
 
-        // 3. Title bar
-        const uint8_t* titleFill = m_pinned ? Colors::AccentPress : Colors::Surface2;
-        buf.pushRectangle(m_x + 1.0f, m_y + 1.0f, m_w - 2.0f, TITLE_H - 1.0f,
-                          titleFill, BORDER_R - 1.0f);
+        if (m_titleVisible) {
+            // 3. Title bar
+            const uint8_t* titleFill = m_pinned ? Colors::AccentPress : Colors::Surface2;
+            buf.pushRectangle(m_x + 1.0f, m_y + 1.0f, m_w - 2.0f, TITLE_H - 1.0f,
+                              titleFill, BORDER_R - 1.0f);
 
-        // 4. Title text (or placeholder bars if atlas not loaded)
-        float titleBarY = m_y + (TITLE_H - 7.0f) * 0.5f;
-        if (TextHelper::hasAtlas()) {
-            uint8_t tc[4] = {210, 210, 220, 220};
-            float ty = m_y + (TITLE_H - TextHelper::lineHeight()) * 0.5f;
-            float maxTitleW = m_w - BTN_SZ * 2.0f - 24.0f; // leave room for buttons
-            TextHelper::pushText(buf, m_x + 10.0f, ty, m_title, tc, maxTitleW);
-        } else {
-            uint8_t tc[4] = {200, 200, 210, 180};
-            buf.pushRectangle(m_x + 10.0f, titleBarY, m_w * 0.30f, 7.0f, tc, 2.0f);
-        }
+            // 4. Title text
+            float titleBarY = m_y + (TITLE_H - 7.0f) * 0.5f;
+            float btnAreaW  = (m_closeable ? BTN_SZ + 2.f : 0.f)
+                            + (m_pinnable  ? BTN_SZ + 2.f : 0.f);
+            if (TextHelper::hasAtlas()) {
+                uint8_t tc[4] = {210, 210, 220, 220};
+                float ty = m_y + (TITLE_H - TextHelper::lineHeight()) * 0.5f;
+                float maxTitleW = m_w - btnAreaW - 14.0f;
+                TextHelper::pushText(buf, m_x + 10.0f, ty, m_title, tc, maxTitleW);
+            } else {
+                uint8_t tc[4] = {200, 200, 210, 180};
+                buf.pushRectangle(m_x + 10.0f, titleBarY, m_w * 0.30f, 7.0f, tc, 2.0f);
+            }
 
-        // 5. Pin button (lock icon hint)
-        float pinX = m_x + m_w - BTN_SZ * 2.0f - 8.0f;
-        float pinY = m_y + (TITLE_H - BTN_SZ) * 0.5f;
-        uint8_t pinFill[4] = {m_pinned ? (uint8_t)10  : (uint8_t)50,
-                               m_pinned ? (uint8_t)132 : (uint8_t)50,
-                               m_pinned ? (uint8_t)255 : (uint8_t)60,
-                               m_hoverPin ? (uint8_t)220 : (uint8_t)140};
-        buf.pushRectangle(pinX, pinY, BTN_SZ, BTN_SZ, pinFill, 3.0f);
-        // Pin needle (vertical bar in centre)
-        uint8_t needle[4] = {200, 200, 210, 180};
-        buf.pushRectangle(pinX + BTN_SZ * 0.42f, pinY + 2.0f, 2.5f, BTN_SZ - 4.0f, needle, 1.0f);
+            // 5. Pin button (only if pinnable)
+            float btnY = m_y + (TITLE_H - BTN_SZ) * 0.5f;
+            if (m_pinnable) {
+                float pinX = m_x + m_w - BTN_SZ * (m_closeable ? 2.0f : 1.0f) - (m_closeable ? 8.0f : 6.0f);
+                uint8_t pinFill[4] = {m_pinned ? (uint8_t)10  : (uint8_t)50,
+                                       m_pinned ? (uint8_t)132 : (uint8_t)50,
+                                       m_pinned ? (uint8_t)255 : (uint8_t)60,
+                                       m_hoverPin ? (uint8_t)220 : (uint8_t)140};
+                buf.pushRectangle(pinX, btnY, BTN_SZ, BTN_SZ, pinFill, 3.0f);
+                uint8_t needle[4] = {200, 200, 210, 180};
+                buf.pushRectangle(pinX + BTN_SZ * 0.42f, btnY + 2.0f, 2.5f, BTN_SZ - 4.0f, needle, 1.0f);
+            }
 
-        // 6. Close button
-        float closeX = m_x + m_w - BTN_SZ - 6.0f;
-        float closeY = pinY;
-        const auto& closeSrc = m_hoverClose ? Colors::CloseBtnHover : Colors::CloseBtn;
-        uint8_t closeFill[4] = {closeSrc[0], closeSrc[1], closeSrc[2], closeSrc[3]};
-        buf.pushRectangle(closeX, closeY, BTN_SZ, BTN_SZ, closeFill, 3.0f);
-        uint8_t xc[4] = {Colors::CloseBtnMark[0], Colors::CloseBtnMark[1],
-                          Colors::CloseBtnMark[2], Colors::CloseBtnMark[3]};
-        buf.pushRectangle(closeX + 3.0f, closeY + BTN_SZ * 0.42f, BTN_SZ - 6.0f, 2.5f, xc, 1.0f);
-        buf.pushRectangle(closeX + BTN_SZ * 0.42f, closeY + 3.0f, 2.5f, BTN_SZ - 6.0f, xc, 1.0f);
+            // 6. Close button (only if closeable)
+            if (m_closeable) {
+                float closeX = m_x + m_w - BTN_SZ - 6.0f;
+                const auto& closeSrc = m_hoverClose ? Colors::CloseBtnHover : Colors::CloseBtn;
+                uint8_t closeFill[4] = {closeSrc[0], closeSrc[1], closeSrc[2], closeSrc[3]};
+                buf.pushRectangle(closeX, btnY, BTN_SZ, BTN_SZ, closeFill, 3.0f);
+                uint8_t xc[4] = {Colors::CloseBtnMark[0], Colors::CloseBtnMark[1],
+                                  Colors::CloseBtnMark[2], Colors::CloseBtnMark[3]};
+                buf.pushRectangle(closeX + 3.0f, btnY + BTN_SZ * 0.42f, BTN_SZ - 6.0f, 2.5f, xc, 1.0f);
+                buf.pushRectangle(closeX + BTN_SZ * 0.42f, btnY + 3.0f, 2.5f, BTN_SZ - 6.0f, xc, 1.0f);
+            }
+        } // end m_titleVisible
 
         // 7. Content area background
         uint8_t content[4] = {14, 14, 16, 240};
@@ -245,14 +273,16 @@ public:
             buf.pushRectangle(m_x + 6.0f, m_y + m_h - 14.0f, 60.0f, 8.0f, badge, 4.0f);
         }
 
-        // 9. Resize corner handle (bottom-right) — brighter when hovered
-        uint8_t handle[4] = {m_hoverResize ? (uint8_t)140 : (uint8_t)70,
-                             m_hoverResize ? (uint8_t)140 : (uint8_t)70,
-                             m_hoverResize ? (uint8_t)160 : (uint8_t)80,
-                             m_hoverResize ? (uint8_t)240 : (uint8_t)160};
-        float hSz = 12.0f;
-        buf.pushRectangle(m_x + m_w - hSz - 2.0f, m_y + m_h - hSz - 2.0f,
-                          hSz, hSz, handle, 3.0f);
+        // 9. Resize corner handle (bottom-right) — only if resizable
+        if (m_resizable) {
+            uint8_t handle[4] = {m_hoverResize ? (uint8_t)140 : (uint8_t)70,
+                                 m_hoverResize ? (uint8_t)140 : (uint8_t)70,
+                                 m_hoverResize ? (uint8_t)160 : (uint8_t)80,
+                                 m_hoverResize ? (uint8_t)240 : (uint8_t)160};
+            float hSz = 12.0f;
+            buf.pushRectangle(m_x + m_w - hSz - 2.0f, m_y + m_h - hSz - 2.0f,
+                              hSz, hSz, handle, 3.0f);
+        }
     }
 
 private:
@@ -288,6 +318,11 @@ private:
     bool    m_floatable{true};
     bool    m_tabifiable{true};
     uint8_t m_allowedDrops{kDropAll};
+    bool    m_dockable{true};
+    bool    m_closeable{true};
+    bool    m_pinnable{true};
+    bool    m_resizable{true};
+    bool    m_titleVisible{true};
 
     // Dock-side affinity
     std::vector<std::string> m_acceptLeafLabels;

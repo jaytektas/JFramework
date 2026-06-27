@@ -331,9 +331,18 @@ public:
 
     void clearShortcuts() { m_shortcuts.clear(); }
 
+    // Global tearoff switch — overrides per-menu setting when false.
+    void setTearOffEnabled(bool v) noexcept { m_globalTearOff = v; }
+    bool isTearOffEnabled() const noexcept  { return m_globalTearOff; }
+
+    // Fired when a widget requests its context menu (local widget coords).
+    // The receiver (main loop) should offset by window screen position.
+    std::function<void(Menu*, float localX, float localY)> onContextMenuRequested;
+
 private:
     MenuManager() = default;
     std::vector<ShortcutReg> m_shortcuts;
+    bool m_globalTearOff{true};
 };
 
 // ============================================================================

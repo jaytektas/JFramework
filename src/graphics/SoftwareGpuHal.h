@@ -124,35 +124,67 @@ public:
             if (cx1 >= cx2 || cy1 >= cy2) continue;
 
             if (cmd.kind == PrimitiveBuffer::DrawCommand::Kind::Rect) {
-                int rx = static_cast<int>(cmd.rect.rectBounds[0]);
-                int ry = static_cast<int>(cmd.rect.rectBounds[1]);
-                int rw = static_cast<int>(cmd.rect.rectBounds[2]);
-                int rh = static_cast<int>(cmd.rect.rectBounds[3]);
+                float rx = cmd.rect.rectBounds[0];
+                float ry = cmd.rect.rectBounds[1];
+                float rw = cmd.rect.rectBounds[2];
+                float rh = cmd.rect.rectBounds[3];
+                float r  = cmd.rect.borderRadius;
+                float bw = cmd.rect.borderWidth;
 
-                int x1 = std::max(cx1, rx);
-                int y1 = std::max(cy1, ry);
-                int x2 = std::min(cx2, rx + rw);
-                int y2 = std::min(cy2, ry + rh);
+                // SDF rect center and half-extents (matches rect.frag sdRoundedBox inputs)
+                float ocx = rx + rw * 0.5f, ocy = ry + rh * 0.5f;
+                float hw  = rw * 0.5f,      hh  = rh * 0.5f;
 
-                uint8_t fill_r = cmd.rect.color[0], fill_g = cmd.rect.color[1], fill_b = cmd.rect.color[2], fill_a = cmd.rect.color[3];
-                uint8_t b_r = cmd.rect.borderColor[0], b_g = cmd.rect.borderColor[1], b_b = cmd.rect.borderColor[2], b_a = cmd.rect.borderColor[3];
-                int bw = static_cast<int>(cmd.rect.borderWidth);
+                // Rasterise 1px beyond bounds for AA fringe
+                int x1 = std::max(cx1, static_cast<int>(rx) - 1);
+                int y1 = std::max(cy1, static_cast<int>(ry) - 1);
+                int x2 = std::min(cx2, static_cast<int>(rx + rw) + 2);
+                int y2 = std::min(cy2, static_cast<int>(ry + rh) + 2);
 
-                for (int y = y1; y < y2; ++y) {
-                    for (int x = x1; x < x2; ++x) {
-                        bool isBorder = false;
-                        if (bw > 0) {
-                            if (x < rx + bw || x >= rx + rw - bw || y < ry + bw || y >= ry + rh - bw) {
-                                isBorder = true;
-                            }
-                        }
-                        
-                        uint32_t& dest = surf.pixels[y * surf.width + x];
-                        if (isBorder) {
-                            dest = blend(dest, b_r, b_g, b_b, b_a);
+                uint8_t fr = cmd.rect.color[0], fg = cmd.rect.color[1],
+                        fb = cmd.rect.color[2], fa = cmd.rect.color[3];
+                uint8_t bcr = cmd.rect.borderColor[0], bcg = cmd.rect.borderColor[1],
+                        bcb = cmd.rect.borderColor[2], bca = cmd.rect.borderColor[3];
+                bool hasBorder = (bw > 0.f && bca > 0);
+
+                for (int py = y1; py < y2; ++py) {
+                    for (int px = x1; px < x2; ++px) {
+                        // Pixel centre (matches GLSL fragLocalPos convention)
+                        float lx = (px + 0.5f) - rx;
+                        float ly = (py + 0.5f) - ry;
+                        float cx = lx - hw, cy = ly - hh;
+
+                        // sdRoundedBox — exact translation of the GLSL shader
+                        float qx = std::abs(cx) - hw + r;
+                        float qy = std::abs(cy) - hh + r;
+                        float mqx = std::max(qx, 0.f), mqy = std::max(qy, 0.f);
+                        float d = std::sqrt(mqx*mqx + mqy*mqy)
+                                + std::min(std::max(qx, qy), 0.f) - r;
+
+                        if (d > 0.5f) continue;   // outside — matches shader discard
+
+                        // AA coverage: 1 - smoothstep(-0.5, 0.5, d)
+                        float coverage = 1.0f - std::clamp(d + 0.5f, 0.f, 1.f);
+
+                        // Border blend: smoothstep(-bw, -bw+1, d) → mix(fill, border, t)
+                        float out_r, out_g, out_b, out_a;
+                        if (hasBorder && d > -bw) {
+                            float t = std::clamp(d + bw, 0.f, 1.f);
+                            out_r = fr + t * (bcr - (int)fr);
+                            out_g = fg + t * (bcg - (int)fg);
+                            out_b = fb + t * (bcb - (int)fb);
+                            out_a = fa + t * (bca - (int)fa);
                         } else {
-                            dest = blend(dest, fill_r, fill_g, fill_b, fill_a);
+                            out_r = fr; out_g = fg; out_b = fb; out_a = fa;
                         }
+
+                        uint8_t a = static_cast<uint8_t>(out_a * coverage);
+                        if (a == 0) continue;
+                        uint32_t& dest = surf.pixels[py * surf.width + px];
+                        dest = blend(dest,
+                                     static_cast<uint8_t>(out_r),
+                                     static_cast<uint8_t>(out_g),
+                                     static_cast<uint8_t>(out_b), a);
                     }
                 }
             } else if (cmd.kind == PrimitiveBuffer::DrawCommand::Kind::Text) {

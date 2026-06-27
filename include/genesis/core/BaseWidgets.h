@@ -51,6 +51,8 @@ public:
 // Widget — base for every element in the UI tree
 // ============================================================================
 
+class Menu;
+
 class Widget : public Core::SlotTracker, public IAIState {
 public:
     inline static std::vector<Widget*> s_activeWidgets;
@@ -72,8 +74,13 @@ public:
     Widget& operator=(const Widget&) = delete;
 
     std::string m_tooltipText;
+    Menu*       m_contextMenu{nullptr};
     void setTooltip(const std::string& text) { m_tooltipText = text; }
     const std::string& tooltip() const noexcept { return m_tooltipText; }
+
+    // Context menu — shown on right-click. The pointer is non-owning.
+    void  setContextMenu(Menu* menu) { m_contextMenu = menu; }
+    Menu* contextMenu() const        { return m_contextMenu; }
 
     static void renderTooltips(PrimitiveBuffer& buf, float mouseX, float mouseY);
 
@@ -93,6 +100,9 @@ public:
             m_graph.invalidateNode(m_nodeId, DirtySelf);
         }
     }
+
+    // Schedule a repaint for this widget.
+    void invalidate() { m_graph.invalidateNode(m_nodeId, DirtySelf); }
 
     virtual void setState(WidgetState s) {
         if (m_state != s) {
@@ -125,6 +135,10 @@ protected:
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         return mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height;
     }
+
+    // Call at the end of populateRenderPrimitives to draw a keyboard-focus ring.
+    // Defined out-of-line (after Theme) — see below.
+    void drawFocusRing(PrimitiveBuffer& buf) const;
 
     SceneGraph& m_graph;
     NodeId      m_nodeId;
@@ -201,6 +215,86 @@ namespace Colors {
     inline constexpr uint8_t CloseBtnHover[4] = {220, 50,  50,  255};
     inline constexpr uint8_t CloseBtnMark[4]  = {255, 255, 255, 200};
 }
+
+// ============================================================================
+// Theme — runtime-configurable style. Switch the whole app with Theme::apply().
+// All palette entries mirror the Colors namespace; widgets can use either, but
+// new code should prefer Theme::current() for runtime-swappability.
+// ============================================================================
+struct Theme {
+    // Palette
+    uint8_t Surface0[4]      = {18,  18,  20,  255};
+    uint8_t Surface1[4]      = {28,  28,  30,  255};
+    uint8_t Surface2[4]      = {40,  40,  42,  255};
+    uint8_t Surface3[4]      = {56,  56,  58,  255};
+    uint8_t Border[4]        = {72,  72,  76,  255};
+    uint8_t TextPrimary[4]   = {240, 240, 245, 255};
+    uint8_t TextSecondary[4] = {160, 160, 168, 255};
+    uint8_t Accent[4]        = {10,  132, 255, 255};
+    uint8_t AccentHover[4]   = {50,  160, 255, 255};
+    uint8_t AccentPress[4]   = {0,   100, 220, 255};
+    uint8_t Success[4]       = {48,  209, 88,  255};
+    uint8_t Warning[4]       = {255, 159, 10,  255};
+    uint8_t Danger[4]        = {255, 69,  58,  255};
+    uint8_t CloseBtn[4]      = {60,  40,  44,  160};
+    uint8_t CloseBtnHover[4] = {220, 50,  50,  255};
+    uint8_t CloseBtnMark[4]  = {255, 255, 255, 200};
+
+    // Style dimensions
+    float cornerRadius   = 6.f;
+    float menuItemHeight = 28.f;
+    float itemPadding    = 8.f;
+    float spacing        = 4.f;
+    float borderWidth    = 1.f;
+    float titleBarHeight = 30.f;
+    float focusRingWidth = 1.5f;
+    float animSpeed      = 1.0f;
+
+    static Theme  dark();
+    static Theme  light();
+    static Theme& current();
+    static void   apply(Theme t);
+};
+
+inline Theme Theme::dark()  { return Theme{}; }
+inline Theme Theme::light() {
+    Theme t;
+    auto s = [](uint8_t* d, uint8_t a, uint8_t b, uint8_t c, uint8_t e)
+              { d[0]=a; d[1]=b; d[2]=c; d[3]=e; };
+    s(t.Surface0,      248, 248, 250, 255);
+    s(t.Surface1,      238, 238, 242, 255);
+    s(t.Surface2,      222, 222, 228, 255);
+    s(t.Surface3,      200, 200, 208, 255);
+    s(t.Border,        168, 168, 178, 255);
+    s(t.TextPrimary,    15,  15,  22, 255);
+    s(t.TextSecondary,  90,  90, 100, 255);
+    s(t.CloseBtn,      200, 188, 188, 160);
+    return t;
+}
+inline Theme& Theme::current() { static Theme inst; return inst; }
+inline void   Theme::apply(Theme t) { current() = std::move(t); }
+
+// ============================================================================
+// Action — shareable command object. Bind to menu items, toolbar buttons,
+// and shortcuts. Changing enabled/checked propagates to all bound UI.
+// ============================================================================
+struct Action {
+    std::string label;
+    std::string shortcutText;   // display string e.g. "Ctrl+S" (informational)
+    bool enabled  {true};
+    bool checkable{false};
+    bool checked  {false};
+
+    Core::Signal<>     onTriggered;
+    Core::Signal<bool> onEnabledChanged;
+    Core::Signal<bool> onCheckedChanged;
+
+    void trigger()          { if (!enabled) return;
+                              if (checkable) setChecked(!checked);
+                              onTriggered.emit(); }
+    void setEnabled(bool e) { enabled = e;  onEnabledChanged.emit(e); }
+    void setChecked(bool c) { checked = c;  onCheckedChanged.emit(c); }
+};
 
 // ============================================================================
 // TextHelper — global font atlas + text layout for widgets
@@ -372,6 +466,17 @@ inline void Widget::renderTooltips(PrimitiveBuffer& buf, float mouseX, float mou
         uint8_t textColor[4] = {240, 240, 245, 255};
         TextHelper::pushText(buf, x + padX, y + padY, text, textColor);
     }
+}
+
+inline void Widget::drawFocusRing(PrimitiveBuffer& buf) const {
+    if (m_state != WidgetState::Focused) return;
+    const auto& bb  = m_graph.getLayoutConst(m_nodeId).boundingBox;
+    const auto& th  = Theme::current();
+    float p = th.focusRingWidth * 0.5f + 1.f;
+    uint8_t ring[4] = {th.Accent[0], th.Accent[1], th.Accent[2], 210};
+    uint8_t none[4] = {0, 0, 0, 0};
+    buf.pushRectangle(bb.x - p, bb.y - p, bb.width + p * 2.f, bb.height + p * 2.f,
+                      none, th.cornerRadius + 1.f, th.focusRingWidth, ring);
 }
 
 // ============================================================================

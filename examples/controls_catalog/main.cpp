@@ -1361,7 +1361,7 @@ int main() {
 #endif
             );
 
-            if (menu->isTearOffEnabled()) {
+            if (menu->isTearOffEnabled() && Genesis::MenuManager::instance().isTearOffEnabled()) {
                 auto* handle = popup->add<Genesis::TearOffHandle>();
                 handle->onTornOff.connect([menu, &activeMenuPopups, &deferredMenuPopups, &floatingMenus, &hal, &window, &isPollingMenuEvents, &deferredMenuActions, &catalog]() {
                     auto tearAction = [menu, &activeMenuPopups, &deferredMenuPopups, &floatingMenus, &hal, &window, &catalog]() {
@@ -1504,6 +1504,7 @@ int main() {
     std::cout << "  't' / 'T': Toggle Tab Drag Tears Out\n";
     std::cout << "  'x' / 'X': Toggle Split Drag Tears Out\n";
     std::cout << "  'l' / 'L': Toggle Live Drop Preview\n";
+    std::cout << "  'r' / 'R': Toggle Global Menu TearOff\n";
 
     while (!window->shouldClose()) {
         auto now = std::chrono::steady_clock::now();
@@ -1643,6 +1644,11 @@ int main() {
                 catalog->dockHost().setLivePreviewEnabled(g_dockOptions.livePreviewEnabled);
                 for (auto& fd : floatingDocks) fd.setOptions(g_dockOptions);
             }
+            if (ke.utf8[0] == 'r' || ke.utf8[0] == 'R') {
+                bool on = !Genesis::MenuManager::instance().isTearOffEnabled();
+                Genesis::MenuManager::instance().setTearOffEnabled(on);
+                std::cout << "[CONFIG] Global TearOff: " << (on ? "ENABLED" : "DISABLED") << "\n";
+            }
         }
 
         bool pressed  = window->consumePress();
@@ -1655,9 +1661,20 @@ int main() {
         }
 
         if (rightPressed) {
-            int sx = window->screenX() + static_cast<int>(mouseX_val);
-            int sy = window->screenY() + static_cast<int>(mouseY_val);
-            Genesis::MenuManager::instance().onOpenMenu(catalog->viewMenu(), sx, sy, false);
+            // Check for a widget-specific context menu first, fall back to the app view menu.
+            Genesis::Menu* ctxMenu = nullptr;
+            for (auto* w : Genesis::Widget::s_activeWidgets) {
+                if (w->contextMenu() && w->isVisible() && w->hitTest(mouseX_val, mouseY_val)) {
+                    ctxMenu = w->contextMenu();
+                    break;
+                }
+            }
+            if (!ctxMenu) ctxMenu = catalog->viewMenu();
+            if (ctxMenu && Genesis::MenuManager::instance().onOpenMenu) {
+                int sx = window->screenX() + static_cast<int>(mouseX_val);
+                int sy = window->screenY() + static_cast<int>(mouseY_val);
+                Genesis::MenuManager::instance().onOpenMenu(ctxMenu, sx, sy, false);
+            }
         }
 
         if (!activeMenuPopups.empty() && (pressed || rightPressed)) {

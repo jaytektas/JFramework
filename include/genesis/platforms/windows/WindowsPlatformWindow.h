@@ -121,6 +121,8 @@ public:
     float mouseY() const override { return m_mouseY; }
     bool  consumePress() override { bool v = m_pendingPress; m_pendingPress = false; return v; }
     bool  consumeRelease() override { bool v = m_pendingRelease; m_pendingRelease = false; return v; }
+    bool  consumeRightPress() override { bool v = m_pendingRightPress; m_pendingRightPress = false; return v; }
+    bool  consumeRightRelease() override { bool v = m_pendingRightRelease; m_pendingRightRelease = false; return v; }
     float consumeWheel() override { float v = m_wheelY; m_wheelY = 0.0f; return v; }
 
     bool hasKeyEvents() const override { return !m_keyQueue.empty(); }
@@ -184,6 +186,10 @@ public:
     std::pair<int,int> virtualDesktopSize() const override {
         return { GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN) };
     }
+    float dpiScale() const override { return m_dpiScaleFactor; }
+    void setResizeCallback(std::function<void(uint32_t, uint32_t)> cb) override {
+        m_resizeCallback = cb;
+    }
 
     void setFullscreen(bool on) override {
         if (on) {
@@ -222,7 +228,7 @@ private:
             case WM_MOUSEMOVE: {
                 m_mouseX = static_cast<float>(GET_X_LPARAM(lParam));
                 m_mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
-                qCDebug(Genesis::Log::Platform) << "WM_MOUSEMOVE: " << m_mouseX << ", " << m_mouseY << "\n";
+                qCDebug(LogWin32Backend) << "WM_MOUSEMOVE: " << m_mouseX << ", " << m_mouseY << "\n";
                 return 0;
             }
             case WM_LBUTTONDOWN: {
@@ -231,24 +237,36 @@ private:
                 m_pendingPress = true;
                 m_altDown = (GetKeyState(VK_MENU) & 0x8000) != 0;
                 SetCapture(hwnd);
-                qCDebug(Genesis::Log::Platform) << "WM_LBUTTONDOWN: " << m_mouseX << ", " << m_mouseY << "\n";
+                qCDebug(LogWin32Backend) << "WM_LBUTTONDOWN: " << m_mouseX << ", " << m_mouseY << "\n";
                 return 0;
             }
             case WM_LBUTTONUP: {
                 m_pendingRelease = true;
                 ReleaseCapture();
-                qCDebug(Genesis::Log::Platform) << "WM_LBUTTONUP: " << m_mouseX << ", " << m_mouseY << "\n";
+                qCDebug(LogWin32Backend) << "WM_LBUTTONUP: " << m_mouseX << ", " << m_mouseY << "\n";
+                return 0;
+            }
+            case WM_RBUTTONDOWN: {
+                m_mouseX = static_cast<float>(GET_X_LPARAM(lParam));
+                m_mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
+                m_pendingRightPress = true;
+                SetCapture(hwnd);
+                return 0;
+            }
+            case WM_RBUTTONUP: {
+                m_pendingRightRelease = true;
+                ReleaseCapture();
                 return 0;
             }
             case WM_MOUSEWHEEL: {
                 m_wheelY += static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam)) / static_cast<float>(WHEEL_DELTA);
-                qCDebug(Genesis::Log::Platform) << "WM_MOUSEWHEEL: " << m_wheelY << "\n";
+                qCDebug(LogWin32Backend) << "WM_MOUSEWHEEL: " << m_wheelY << "\n";
                 return 0;
             }
             case WM_SIZE: {
                 m_width = LOWORD(lParam);
                 m_height = HIWORD(lParam);
-                qCInfo(Genesis::Log::Platform) << "WM_SIZE: " << m_width << "x" << m_height << "\n";
+                qCInfo(LogWin32Backend) << "WM_SIZE: " << m_width << "x" << m_height << "\n";
                 return 0;
             }
             case WM_WINDOWPOSCHANGED: {
@@ -256,13 +274,13 @@ private:
                 if (wp && !(wp->flags & SWP_NOMOVE)) {
                     m_screenX = wp->x;
                     m_screenY = wp->y;
-                    qCDebug(Genesis::Log::Platform) << "WM_WINDOWPOSCHANGED position: " << m_screenX << ", " << m_screenY << "\n";
+                    qCDebug(LogWin32Backend) << "WM_WINDOWPOSCHANGED position: " << m_screenX << ", " << m_screenY << "\n";
                 }
                 break;
             }
             case WM_KILLFOCUS: {
                 m_focusLost = true;
-                qCInfo(Genesis::Log::Platform) << "WM_KILLFOCUS\n";
+                qCInfo(LogWin32Backend) << "WM_KILLFOCUS\n";
                 return 0;
             }
             case WM_DESTROY: {
@@ -270,12 +288,12 @@ private:
                     PostQuitMessage(0);
                 }
                 m_closeRequested = true;
-                qCInfo(Genesis::Log::Platform) << "WM_DESTROY\n";
+                qCInfo(LogWin32Backend) << "WM_DESTROY\n";
                 return 0;
             }
             case WM_CLOSE: {
                 m_closeRequested = true;
-                qCInfo(Genesis::Log::Platform) << "WM_CLOSE\n";
+                qCInfo(LogWin32Backend) << "WM_CLOSE\n";
                 return 0;
             }
         }
@@ -297,6 +315,8 @@ private:
     float m_wheelY{0.0f};
     bool  m_pendingPress{false};
     bool  m_pendingRelease{false};
+    bool  m_pendingRightPress{false};
+    bool  m_pendingRightRelease{false};
     bool  m_focusLost{false};
     bool  m_altDown{false};
 

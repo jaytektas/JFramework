@@ -137,6 +137,13 @@ public:
         bool  pressed  = m_window->consumePress();
         bool  released = m_window->consumeRelease();
 
+        // Mouse movement cancels keyboard selection
+        if (mx != m_lastPollMx || my != m_lastPollMy) {
+            m_keyNavIdx = -1;
+            m_lastPollMx = mx;
+            m_lastPollMy = my;
+        }
+
         bool inside = (mx >= 0.f && mx < static_cast<float>(m_winW) &&
                        my >= 0.f && my < static_cast<float>(m_winH));
 
@@ -170,8 +177,42 @@ public:
             out.activatedLabel  = clickedLabel;
         }
 
+        // Keyboard navigation — arrow keys, Enter, Escape
+        for (const auto& ke : m_window->consumeAllKeys()) {
+            if (!ke.pressed) continue;
+            using K = KeyEvent::Key;
+            if (ke.key == K::Escape) {
+                out.type = PollResult::Type::Dismissed;
+                return out;
+            }
+            if (ke.key == K::Up)   { _navStep(-1); }
+            if (ke.key == K::Down) { _navStep(1); }
+            if (ke.key == K::Return || ke.key == K::Space) {
+                if (m_keyNavIdx >= 0 && m_keyNavIdx < static_cast<int>(m_widgets.size())) {
+                    auto* w = m_widgets[m_keyNavIdx].get();
+                    if (w->isVisible() && w->isEnabled()) {
+                        const auto& bb = m_graph.getLayoutConst(w->getNodeId()).boundingBox;
+                        w->handleMousePress(bb.x + 1.f, bb.y + 1.f);
+                        out.activatedNodeId = w->getNodeId();
+                    }
+                }
+            }
+        }
+
         return out;
     }
+
+    // Keyboard-navigate the popup: call from outside if the platform routes keys here.
+    // Returns true if the key was consumed.
+    bool handleKeyNav(const KeyEvent& ke) {
+        if (!ke.pressed) return false;
+        using K = KeyEvent::Key;
+        if (ke.key == K::Up)   { _navStep(-1); return true; }
+        if (ke.key == K::Down) { _navStep(1);  return true; }
+        return false;
+    }
+
+    int keyNavIdx() const { return m_keyNavIdx; }
 
     // Poll in floating mode: no grab, no dismiss-on-outside, TearOffHandle
     // area (top kFloatHandleH pixels) drags the window using xcb_query_pointer
@@ -273,6 +314,17 @@ public:
                 w->populateRenderPrimitives(buf);
         }
 
+        // Keyboard-nav selection highlight (drawn on top of normal hover)
+        if (m_keyNavIdx >= 0 && m_keyNavIdx < static_cast<int>(m_widgets.size())) {
+            auto* w = m_widgets[m_keyNavIdx].get();
+            if (w->isVisible()) {
+                const auto& bb = m_graph.getLayoutConst(w->getNodeId()).boundingBox;
+                uint8_t sel[4]    = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 40};
+                uint8_t border[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 160};
+                buf.pushRectangle(bb.x, bb.y, bb.width, bb.height, sel, 4.f, 1.f, border);
+            }
+        }
+
         Widget::renderTooltips(buf, m_window->mouseX(), m_window->mouseY());
 
         // Close button — same style as DockWidget title-bar close button.
@@ -341,11 +393,28 @@ private:
     bool m_focusSet{false};
     bool m_hasPointerGrab{false};
     uint32_t m_surfaceW{0}, m_surfaceH{0};
-    bool m_showCloseButton{false};
-    bool m_floatFirstPollDone{false};
-    bool m_floatDragging{false};
-    int  m_floatDragStartX{0}, m_floatDragStartY{0};
-    int  m_floatWinStartX{0},  m_floatWinStartY{0};
+    bool  m_showCloseButton{false};
+    bool  m_floatFirstPollDone{false};
+    bool  m_floatDragging{false};
+    int   m_floatDragStartX{0}, m_floatDragStartY{0};
+    int   m_floatWinStartX{0},  m_floatWinStartY{0};
+    int   m_keyNavIdx{-1};
+    float m_lastPollMx{-1.f}, m_lastPollMy{-1.f};
+
+    // Move the keyboard selection by dir (+1 = down, -1 = up), skipping
+    // non-focusable items (separators etc.) and wrapping around.
+    void _navStep(int dir) {
+        int n = static_cast<int>(m_widgets.size());
+        if (n == 0) return;
+        int next = m_keyNavIdx < 0 ? (dir > 0 ? -1 : n) : m_keyNavIdx;
+        for (int i = 0; i < n; ++i) {
+            next = ((next + dir) % n + n) % n;
+            if (m_widgets[next]->isVisible() && m_widgets[next]->isFocusable()) {
+                m_keyNavIdx = next;
+                return;
+            }
+        }
+    }
 };
 
 } // namespace Genesis

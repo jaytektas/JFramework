@@ -640,6 +640,15 @@ public:
     std::optional<DockEvent> handleMouse(float mx, float my,
                                          bool pressed, bool released)
     {
+        // A new press guarantees the previous button-release was delivered (X11
+        // cannot send two presses without a release between them), so any
+        // lingering drag state must be stale (missed release event). Clear it
+        // so it doesn't block all further mouse handling.
+        if (pressed && (m_handleDrag.active || m_titleDrag.active)) {
+            m_handleDrag = {};
+            m_titleDrag  = {};
+        }
+
         // 1. Resize handles take priority.
         if (m_handleDrag.active) {
             DockNode* sp = node(m_handleDrag.parentSplit);
