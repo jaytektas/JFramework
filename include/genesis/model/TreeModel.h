@@ -6,6 +6,7 @@
 #include <atomic>
 #include <genesis/core/Signal.h>
 #include <genesis/core/MainThreadDispatcher.h>
+#include <genesis/core/Variant.h>
 
 namespace Genesis {
 
@@ -14,7 +15,9 @@ namespace Genesis {
 //
 // id    — unique key; use for programmatic find/update/remove.
 // label — display text shown in TreeView.
-// tag   — optional app payload (run ID, channel number, serialised JSON, …).
+// tag   — optional string app payload (run ID, channel number, …).
+// value — optional typed payload (Variant): numbers, structs (custom), etc.
+//         Kept last so existing positional aggregate inits stay valid.
 // ============================================================================
 struct TreeItem {
     std::string id;
@@ -22,6 +25,7 @@ struct TreeItem {
     std::string tag;
     bool expanded{false};
     std::vector<TreeItem> children;
+    Variant value;
 };
 
 // ============================================================================
@@ -87,6 +91,11 @@ public:
 
     bool setTag(const std::string& id, const std::string& tag) {
         if (auto* n = _find(m_root, id)) { n->tag = tag; _notify(); return true; }
+        return false;
+    }
+
+    bool setValue(const std::string& id, Variant value) {
+        if (auto* n = _find(m_root, id)) { n->value = std::move(value); _notify(); return true; }
         return false;
     }
 

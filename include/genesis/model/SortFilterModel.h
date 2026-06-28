@@ -76,9 +76,13 @@ public:
 
     int rowCount() const { return static_cast<int>(m_indices.size()); }
 
-    const std::vector<std::string>& row(int idx) const {
-        static const std::vector<std::string> empty;
-        if (idx < 0 || idx >= (int)m_indices.size()) return empty;
+    std::vector<std::string> row(int idx) const {
+        if (idx < 0 || idx >= (int)m_indices.size()) return {};
+        return _toStr(m_snapshot[m_indices[idx]]);
+    }
+
+    std::vector<Variant> rowVar(int idx) const {
+        if (idx < 0 || idx >= (int)m_indices.size()) return {};
         return m_snapshot[m_indices[idx]];
     }
 
@@ -95,35 +99,43 @@ public:
     std::vector<std::vector<std::string>> rows() const {
         std::vector<std::vector<std::string>> result;
         result.reserve(m_indices.size());
-        for (int i : m_indices) result.push_back(m_snapshot[i]);
+        for (int i : m_indices) result.push_back(_toStr(m_snapshot[i]));
         return result;
     }
 
 private:
     TableModel*                                       m_source{nullptr};
     Core::SlotTracker                                 m_conn;
-    std::vector<std::vector<std::string>>             m_snapshot;
+    std::vector<std::vector<Variant>>                 m_snapshot;
     std::vector<int>                                  m_indices;
     std::function<bool(const std::vector<std::string>&)> m_filter;
     int                                               m_sortCol{-1};
     bool                                              m_sortAsc{true};
 
+    static std::vector<std::string> _toStr(const std::vector<Variant>& r) {
+        std::vector<std::string> out;
+        out.reserve(r.size());
+        for (const auto& c : r) out.push_back(c.toString());
+        return out;
+    }
+
     void _rebuild() {
-        m_snapshot = m_source->rows();  // single lock, full copy
+        m_snapshot = m_source->rowsVar();  // single lock, full copy (typed)
         int n = static_cast<int>(m_snapshot.size());
         m_indices.clear();
         m_indices.reserve(n);
         for (int i = 0; i < n; ++i)
-            if (!m_filter || m_filter(m_snapshot[i]))
+            if (!m_filter || m_filter(_toStr(m_snapshot[i])))
                 m_indices.push_back(i);
         if (m_sortCol >= 0) {
             std::stable_sort(m_indices.begin(), m_indices.end(),
                 [this](int a, int b) {
-                    const auto& va = m_sortCol < (int)m_snapshot[a].size()
-                                     ? m_snapshot[a][m_sortCol] : "";
-                    const auto& vb = m_sortCol < (int)m_snapshot[b].size()
-                                     ? m_snapshot[b][m_sortCol] : "";
-                    return m_sortAsc ? (va < vb) : (va > vb);
+                    Variant va = m_sortCol < (int)m_snapshot[a].size()
+                                 ? m_snapshot[a][m_sortCol] : Variant{};
+                    Variant vb = m_sortCol < (int)m_snapshot[b].size()
+                                 ? m_snapshot[b][m_sortCol] : Variant{};
+                    return m_sortAsc ? detail::cellLess(va, vb)
+                                     : detail::cellLess(vb, va);
                 });
         }
     }

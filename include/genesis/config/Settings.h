@@ -11,31 +11,34 @@
 #include <genesis/core/Signal.h>
 #include <genesis/core/MainThreadDispatcher.h>
 #include <genesis/core/AiBusHook.h>
+#include <genesis/core/Variant.h>
+#include <genesis/core/VariantJson.h>
 
 namespace Genesis {
 
 // ============================================================================
-// Settings — thread-safe persistent key-value store backed by a plain INI file.
+// Settings — thread-safe persistent key-value store of Variant values.
 //
 // Keys use dot notation: "serial.port", "ui.theme", "window.width".
-// Values are always stored as strings; typed getters convert on read.
+// Values are stored as Variant, so types survive in memory and (with the JSON
+// backend) on disk. The legacy INI backend flattens to strings on save and
+// reloads as strings; typed getters coerce on read, so it stays compatible.
 //
-// Two usage patterns:
-//
-//   1. Global singleton (app-wide config):
-//        Settings::instance().setPath("~/.config/myapp.ini").load();
+//   1. Global singleton:
+//        Settings::instance().setPath("~/.config/app.json").loadJson();
 //        Settings::instance().set("serial.port", "/dev/ttyUSB0");
-//        auto port = Settings::instance().get<std::string>("serial.port", "/dev/ttyUSB0");
+//        Settings::instance().set("serial.baud", 115200);
+//        auto port = Settings::instance().get<std::string>("serial.port");
+//        Variant raw = Settings::instance().value("serial.baud");  // typed
 //
-//   2. Scoped instance (e.g. per-workspace):
+//   2. Scoped instance:
 //        Settings ws;
-//        ws.setPath(workspaceDir / "workspace.ini").load();
+//        ws.setPath(workspaceDir / "workspace.json").loadJson();
 // ============================================================================
 class Settings {
 public:
-    // Fires on the main thread whenever a value is set.
-    // Receives key and new value string.
-    Core::Signal<std::string, std::string> onChange;
+    // Fires on the main thread whenever a value is set, with the new Variant.
+    Core::Signal<std::string, Variant> onChange;
 
     Settings() = default;
 
@@ -60,31 +63,43 @@ public:
     const std::filesystem::path& path() const { return m_path; }
 
     // ---- Setters ------------------------------------------------------------
+    // One typed setter: any int/double/bool/string/const char* (and Variant
+    // itself) implicitly constructs a Variant.
 
-    void set(const std::string& key, std::string value) {
+    void set(const std::string& key, Variant value) {
         {
             std::lock_guard<std::mutex> lk(m_mutex);
             m_data[key] = value;
         }
-        if (AiBusHook::emit) AiBusHook::emit(0, ("settings:" + key).c_str(), value.c_str());
+        if (AiBusHook::emit) AiBusHook::emit(0, ("settings:" + key).c_str(), value.toString().c_str());
         MainThreadDispatcher::instance().post([this, key, value]() mutable {
             onChange.emit(key, value);
         });
     }
-    void set(const std::string& key, int    v) { set(key, std::to_string(v)); }
-    void set(const std::string& key, double v) { set(key, std::to_string(v)); }
-    void set(const std::string& key, bool   v) { set(key, std::string(v ? "true" : "false")); }
 
     // Set without firing onChange — use for bulk load/restore operations.
-    void setQuiet(const std::string& key, std::string value) {
+    void setQuiet(const std::string& key, Variant value) {
         std::lock_guard<std::mutex> lk(m_mutex);
         m_data[key] = std::move(value);
     }
 
-    // ---- Typed getters with defaults ----------------------------------------
+    // ---- Getters ------------------------------------------------------------
 
+    // Typed, coercing getter with default.
     template<typename T>
-    T get(const std::string& key, const T& def = T{}) const;
+    T get(const std::string& key, const T& def = T{}) const {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        auto it = m_data.find(key);
+        if (it == m_data.end()) return def;
+        return it->second.template value<T>(def);
+    }
+
+    // Raw Variant accessor (Null when absent unless a default is supplied).
+    Variant value(const std::string& key, Variant def = {}) const {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        auto it = m_data.find(key);
+        return it != m_data.end() ? it->second : def;
+    }
 
     bool has(const std::string& key) const {
         std::lock_guard<std::mutex> lk(m_mutex);
@@ -96,13 +111,11 @@ public:
         m_data.erase(key);
     }
 
-    // Clear all values but keep the file path.
     void clear() {
         std::lock_guard<std::mutex> lk(m_mutex);
         m_data.clear();
     }
 
-    // Returns all keys that start with prefix (pass "" for all keys).
     std::vector<std::string> keys(const std::string& prefix = "") const {
         std::lock_guard<std::mutex> lk(m_mutex);
         std::vector<std::string> out;
@@ -112,57 +125,77 @@ public:
         return out;
     }
 
-    // ---- Persistence --------------------------------------------------------
+    // ---- Persistence: INI (string-flattened, legacy/compatible) -------------
 
     Settings& load() {
         std::lock_guard<std::mutex> lk(m_mutex);
-        _loadUnlocked();
-        return *this;
-    }
-
-    void save() const {
-        std::lock_guard<std::mutex> lk(m_mutex);
-        _saveUnlocked();
-    }
-
-    // Write to disk on a background thread; optional cb(success) on main thread.
-    void saveAsync(std::function<void(bool)> cb = nullptr) {
-        std::unordered_map<std::string, std::string> snapshot;
-        std::filesystem::path                        path;
-        {
-            std::lock_guard<std::mutex> lk(m_mutex);
-            snapshot = m_data;
-            path     = m_path;
-        }
-        std::thread([snapshot = std::move(snapshot), path = std::move(path), cb]() {
-            bool ok = _writeFile(path, snapshot);
-            if (cb)
-                MainThreadDispatcher::instance().post([cb, ok]{ cb(ok); });
-        }).detach();
-    }
-
-private:
-    mutable std::mutex                            m_mutex;
-    std::unordered_map<std::string, std::string>  m_data;
-    std::filesystem::path                         m_path;
-
-    void _loadUnlocked() {
-        if (m_path.empty() || !std::filesystem::exists(m_path)) return;
+        if (m_path.empty() || !std::filesystem::exists(m_path)) return *this;
         std::ifstream f(m_path);
         std::string line;
         while (std::getline(f, line)) {
             if (line.empty() || line[0] == '#') continue;
             auto eq = line.find('=');
             if (eq != std::string::npos)
-                m_data[line.substr(0, eq)] = line.substr(eq + 1);
+                m_data[line.substr(0, eq)] = Variant(line.substr(eq + 1));
         }
+        return *this;
     }
 
-    void _saveUnlocked() const {
-        _writeFile(m_path, m_data);
+    void save() const {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        std::unordered_map<std::string, std::string> flat;
+        for (const auto& [k, v] : m_data) flat[k] = v.toString();
+        _writeFlat(m_path, flat);
     }
 
-    static bool _writeFile(const std::filesystem::path& path,
+    void saveAsync(std::function<void(bool)> cb = nullptr) {
+        std::unordered_map<std::string, std::string> snapshot;
+        std::filesystem::path                        path;
+        {
+            std::lock_guard<std::mutex> lk(m_mutex);
+            for (const auto& [k, v] : m_data) snapshot[k] = v.toString();
+            path = m_path;
+        }
+        std::thread([snapshot = std::move(snapshot), path = std::move(path), cb]() {
+            bool ok = _writeFlat(path, snapshot);
+            if (cb) MainThreadDispatcher::instance().post([cb, ok]{ cb(ok); });
+        }).detach();
+    }
+
+    // ---- Persistence: JSON (type-preserving) --------------------------------
+
+    bool saveJson(int indent = 2) const {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        VariantMap m;
+        m.reserve(m_data.size());
+        for (const auto& [k, v] : m_data) m.emplace_back(k, v);
+        Json j = toJson(Variant(std::move(m)));
+        if (m_path.empty()) return false;
+        std::error_code ec;
+        std::filesystem::create_directories(m_path.parent_path(), ec);
+        if (ec) return false;
+        std::ofstream f(m_path);
+        if (!f) return false;
+        f << j.dump(indent);
+        return f.good();
+    }
+
+    Settings& loadJson() {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        if (m_path.empty() || !std::filesystem::exists(m_path)) return *this;
+        auto opt = Json::tryParseFile(m_path.string());
+        if (!opt || !opt->isObject()) return *this;
+        Variant root = fromJson(*opt);
+        for (const auto& [k, v] : root.toMap()) m_data[k] = v;
+        return *this;
+    }
+
+private:
+    mutable std::mutex                        m_mutex;
+    std::unordered_map<std::string, Variant>  m_data;
+    std::filesystem::path                     m_path;
+
+    static bool _writeFlat(const std::filesystem::path& path,
                            const std::unordered_map<std::string, std::string>& data) {
         if (path.empty()) return false;
         std::error_code ec;
@@ -170,37 +203,9 @@ private:
         if (ec) return false;
         std::ofstream f(path);
         if (!f) return false;
-        for (const auto& [k, v] : data)
-            f << k << '=' << v << '\n';
+        for (const auto& [k, v] : data) f << k << '=' << v << '\n';
         return f.good();
     }
 };
-
-// ---- Typed getters ----------------------------------------------------------
-
-template<> inline std::string Settings::get<std::string>(const std::string& k, const std::string& def) const {
-    std::lock_guard<std::mutex> lk(m_mutex);
-    auto it = m_data.find(k);
-    return it != m_data.end() ? it->second : def;
-}
-template<> inline int Settings::get<int>(const std::string& k, const int& def) const {
-    std::lock_guard<std::mutex> lk(m_mutex);
-    auto it = m_data.find(k);
-    if (it == m_data.end()) return def;
-    try { return std::stoi(it->second); } catch (...) { return def; }
-}
-template<> inline double Settings::get<double>(const std::string& k, const double& def) const {
-    std::lock_guard<std::mutex> lk(m_mutex);
-    auto it = m_data.find(k);
-    if (it == m_data.end()) return def;
-    try { return std::stod(it->second); } catch (...) { return def; }
-}
-template<> inline bool Settings::get<bool>(const std::string& k, const bool& def) const {
-    std::lock_guard<std::mutex> lk(m_mutex);
-    auto it = m_data.find(k);
-    if (it == m_data.end()) return def;
-    const auto& v = it->second;
-    return v == "true" || v == "1" || v == "yes";
-}
 
 } // namespace Genesis
