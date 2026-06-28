@@ -1,7 +1,7 @@
 // test_serial.cpp — SerialPort unit tests
 // Tests that don't require real hardware: API surface, availablePorts, AI signals.
 
-#include <genesis/core/SerialPort.h>
+#include <genesis/io/SerialPort.h>
 #include <genesis/core/AiBusHook.h>
 #include <cassert>
 #include <string>

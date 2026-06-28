@@ -68,6 +68,33 @@ target_include_directories(genesis_core INTERFACE
     $<INSTALL_INTERFACE:include>
 )
 
+# --- Optional modules (Qt-style opt-in: link the module, get the feature) ---
+
+# genesis_db — SQLite3 wrapper (Database.h)
+add_library(genesis_db INTERFACE)
+target_link_libraries(genesis_db INTERFACE genesis_core)
+find_package(SQLite3 QUIET)
+if(SQLite3_FOUND)
+    target_link_libraries(genesis_db INTERFACE SQLite::SQLite3)
+else()
+    find_library(SQLITE3_LIB sqlite3)
+    if(SQLITE3_LIB)
+        target_link_libraries(genesis_db INTERFACE ${SQLITE3_LIB})
+    endif()
+endif()
+
+# genesis_io — serial port (SerialPort.h); POSIX/Win32 deps come from the OS
+add_library(genesis_io INTERFACE)
+target_link_libraries(genesis_io INTERFACE genesis_core)
+
+# genesis_config — Settings + Json (no extra deps)
+add_library(genesis_config INTERFACE)
+target_link_libraries(genesis_config INTERFACE genesis_core)
+
+# genesis_concurrent — WorkerThread (no extra deps beyond std::thread)
+add_library(genesis_concurrent INTERFACE)
+target_link_libraries(genesis_concurrent INTERFACE genesis_core)
+
 # --- Platform Implementation ---
 if(WIN32)
     # When cross-compiling, FindVulkan may fail or find native Linux libs.
@@ -84,17 +111,8 @@ if(WIN32)
 else()
     find_package(Vulkan REQUIRED)
 endif()
-find_package(SQLite3 QUIET)
 add_library(genesis_platform STATIC)
 target_link_libraries(genesis_platform PUBLIC genesis_core Vulkan::Vulkan)
-if(SQLite3_FOUND)
-    target_link_libraries(genesis_platform PUBLIC SQLite::SQLite3)
-else()
-    find_library(SQLITE3_LIB sqlite3)
-    if(SQLITE3_LIB)
-        target_link_libraries(genesis_platform PUBLIC ${SQLITE3_LIB})
-    endif()
-endif()
 add_dependencies(genesis_platform genesis_shaders)
 
 if(UNIX AND NOT APPLE)
@@ -205,6 +223,7 @@ if(GENESIS_BUILD_TESTS)
     add_genesis_test(test_dragdrop         src/tests/test_dragdrop.cpp)
     add_genesis_test(test_canvas           src/tests/test_canvas.cpp)
     add_genesis_test(test_database         src/tests/test_database.cpp)
+    target_link_libraries(test_database PRIVATE genesis_db)
     add_genesis_test(test_serial           src/tests/test_serial.cpp)
     add_genesis_test(test_dialog           src/tests/test_dialog.cpp)
     add_genesis_test(test_aipanel          src/tests/test_aipanel.cpp)

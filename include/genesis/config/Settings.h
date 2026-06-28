@@ -8,9 +8,9 @@
 #include <mutex>
 #include <thread>
 #include <functional>
-#include "Signal.h"
-#include "MainThreadDispatcher.h"
-#include "AiBusHook.h"
+#include <genesis/core/Signal.h>
+#include <genesis/core/MainThreadDispatcher.h>
+#include <genesis/core/AiBusHook.h>
 
 namespace Genesis {
 
@@ -39,7 +39,6 @@ public:
 
     Settings() = default;
 
-    // Non-copyable; movable.
     Settings(const Settings&)            = delete;
     Settings& operator=(const Settings&) = delete;
     Settings(Settings&&)                 = default;

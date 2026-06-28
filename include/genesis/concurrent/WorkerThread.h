@@ -7,7 +7,7 @@
 #include <deque>
 #include <future>
 #include <cstddef>
-#include "MainThreadDispatcher.h"
+#include <genesis/core/MainThreadDispatcher.h>
 
 namespace Genesis {
 
@@ -24,9 +24,6 @@ namespace Genesis {
 //   - Lower overhead (no thread-spawn cost per task)
 //   - Natural FIFO ordering (tasks run in the order posted)
 //   - Bounded concurrency (one background thread, not N)
-//
-// For parallel CPU-bound work across N threads, see ThreadPool (not yet
-// implemented; WorkerThread covers the common serial-I/O use case).
 //
 // Quick reference:
 //   WorkerThread worker;
@@ -56,7 +53,6 @@ public:
         m_thread = std::thread([this]{ _loop(); });
     }
 
-    // Drains all remaining tasks then joins the thread.
     ~WorkerThread() { stop(); }
 
     WorkerThread(const WorkerThread&)            = delete;
@@ -64,7 +60,6 @@ public:
 
     // ---- Posting tasks -----------------------------------------------------
 
-    // Queue a fire-and-forget task. Returns immediately.
     void post(std::function<void()> task) {
         {
             std::lock_guard<std::mutex> lk(m_mutex);
@@ -75,7 +70,6 @@ public:
     }
 
     // Run task() on the worker thread; cb(result) fires on the main thread.
-    // T must be movable. Use postWithCompletion() for void tasks.
     template<typename T>
     void postWithResult(std::function<T()> task, std::function<void(T)> cb) {
         post([task = std::move(task), cb = std::move(cb)]() mutable {
@@ -88,7 +82,6 @@ public:
     }
 
     // Run task() on the worker thread; cb() fires on the main thread when done.
-    // cb may be null if no notification is needed.
     void postWithCompletion(std::function<void()> task, std::function<void()> cb = nullptr) {
         post([task = std::move(task), cb = std::move(cb)]() mutable {
             task();
@@ -98,8 +91,7 @@ public:
 
     // ---- Control -----------------------------------------------------------
 
-    // Block the calling thread until all currently queued tasks complete.
-    // Inserts a sentinel task and waits for it — straightforward and deadlock-free.
+    // Block until all currently queued tasks complete.
     // WARNING: do not call from the main render thread; use postWithCompletion instead.
     void waitForIdle() {
         std::promise<void> p;
@@ -108,7 +100,7 @@ public:
         f.wait();
     }
 
-    // Finish all pending tasks then stop and join. Blocks the calling thread.
+    // Drain all pending tasks then stop and join.
     void stop() {
         {
             std::lock_guard<std::mutex> lk(m_mutex);
@@ -130,7 +122,6 @@ public:
         if (m_thread.joinable()) m_thread.join();
     }
 
-    // Number of tasks currently waiting in the queue (not counting the running one).
     size_t queueSize() const {
         std::lock_guard<std::mutex> lk(m_mutex);
         return m_queue.size();
@@ -147,13 +138,11 @@ private:
             std::function<void()> task;
             {
                 std::unique_lock<std::mutex> lk(m_mutex);
-                // Wait until there's work, or we're stopping.
                 m_cv.wait(lk, [this]{ return !m_queue.empty() || m_stopping; });
-                if (m_queue.empty()) break; // stopping with nothing left to do
+                if (m_queue.empty()) break;
                 task = std::move(m_queue.front());
                 m_queue.pop_front();
             }
-            // Execute outside the lock — post()/stopNow() remain responsive.
             task();
         }
     }

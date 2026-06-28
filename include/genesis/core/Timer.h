@@ -29,7 +29,14 @@ public:
         start(interval, mode);
     }
 
-    ~Timer() { stop(); }
+    ~Timer() {
+        // Invalidate queued-but-not-drained lambdas before destruction so they
+        // don't touch onTick after this object is gone.
+        if (m_alive) m_alive->store(false, std::memory_order_release);
+        m_running = false;
+        m_cv.notify_all();
+        if (m_thread.joinable()) m_thread.join();
+    }
 
     Timer(const Timer&)            = delete;
     Timer& operator=(const Timer&) = delete;
@@ -37,6 +44,8 @@ public:
     Core::Signal<> onTick;
 
     void start(std::chrono::milliseconds interval, Mode mode = Mode::Repeating) {
+        // Clear sentinel before stopping — the old thread must not fire after restart.
+        if (m_alive) m_alive->store(false, std::memory_order_release);
         stop();
         // New sentinel each start() — invalidates any callbacks still queued
         // from a previous run that haven't fired yet.
@@ -66,10 +75,11 @@ public:
         });
     }
 
-    // Stops the timer and returns immediately — does not block for the current interval.
+    // Stops the timer — no new ticks will be queued, but lambdas already posted
+    // to MainThreadDispatcher are still valid to fire (this object is still alive).
     void stop() {
         if (!m_running.exchange(false)) return;
-        if (m_alive) m_alive->store(false, std::memory_order_relaxed);
+        // Do NOT clear m_alive here — queued lambdas can safely call onTick.emit().
         m_cv.notify_all();
         if (m_thread.joinable()) m_thread.join();
     }

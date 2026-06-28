@@ -1,4 +1,4 @@
-#include <genesis/core/Database.h>
+#include <genesis/db/Database.h>
 #include <cassert>
 #include <iostream>
 #include <vector>

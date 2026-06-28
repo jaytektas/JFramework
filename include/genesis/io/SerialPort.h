@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Signal.h"
-#include "MainThreadDispatcher.h"
-#include "AiBusHook.h"
+#include <genesis/core/Signal.h>
+#include <genesis/core/MainThreadDispatcher.h>
+#include <genesis/core/AiBusHook.h>
 #include <string>
 #include <vector>
 #include <thread>
@@ -164,7 +164,7 @@ public:
     }
 
     void close() {
-        if (!m_running.exchange(false)) return; // already closed
+        if (!m_running.exchange(false)) return;
         if (AiBusHook::emit && !m_port.empty())
             AiBusHook::emit(0, "serial.close", m_port.c_str());
         m_port.clear();
@@ -237,7 +237,6 @@ public:
     static std::vector<SerialPortInfo> availablePorts() {
         std::vector<SerialPortInfo> out;
 #if defined(_WIN32)
-        // Probe COM1–COM256; read friendly names from registry.
         HKEY key;
         if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
                 "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0, KEY_READ, &key) == ERROR_SUCCESS) {
@@ -255,7 +254,6 @@ public:
             RegCloseKey(key);
         }
 #else
-        // Walk /sys/class/tty — covers ttyUSB, ttyACM, ttyS and anything else.
         const char* sysPath = "/sys/class/tty";
         DIR* dir = opendir(sysPath);
         if (!dir) return out;
@@ -263,25 +261,18 @@ public:
         while ((ent = readdir(dir)) != nullptr) {
             std::string name = ent->d_name;
             if (name == "." || name == "..") continue;
-
-            // Filter: only USB serial and ACM ports by default; include ttyS only if device link exists.
             bool isUsb = (name.rfind("ttyUSB", 0) == 0 || name.rfind("ttyACM", 0) == 0);
             std::string devPath = std::string(sysPath) + "/" + name + "/device";
             bool hasDevice = (access(devPath.c_str(), F_OK) == 0);
             if (!isUsb && !hasDevice) continue;
-
             std::string devNode = "/dev/" + name;
             if (access(devNode.c_str(), F_OK) != 0) continue;
-
             SerialPortInfo info;
-            info.port = devNode;
-
-            // Read sysfs attributes for USB devices.
-            std::string base = std::string(sysPath) + "/" + name;
+            info.port         = devNode;
+            std::string base  = std::string(sysPath) + "/" + name;
             info.description  = _sysfsAttr(base, "device/../product");
             info.manufacturer = _sysfsAttr(base, "device/../manufacturer");
             info.serialNumber = _sysfsAttr(base, "device/../serial");
-
             std::string vidStr = _sysfsAttr(base, "device/../idVendor");
             std::string pidStr = _sysfsAttr(base, "device/../idProduct");
             if (!vidStr.empty() && !pidStr.empty()) {
@@ -289,12 +280,10 @@ public:
                 info.productId = static_cast<uint16_t>(std::stoul(pidStr, nullptr, 16));
                 info.hasVidPid = true;
             }
-
             if (info.description.empty()) info.description = name;
             out.push_back(std::move(info));
         }
         closedir(dir);
-        // Sort by port name for consistent ordering.
         std::sort(out.begin(), out.end(),
                   [](const SerialPortInfo& a, const SerialPortInfo& b){ return a.port < b.port; });
 #endif
@@ -302,15 +291,12 @@ public:
     }
 
 private:
-    // ---- Read loop ----------------------------------------------------------
-
     void _readLoop() {
         std::vector<uint8_t> buf(4096);
 #if defined(_WIN32)
         OVERLAPPED ov{};
         ov.hEvent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
         HANDLE waitHandles[2] = { ov.hEvent, m_cancelEvent };
-
         while (m_running) {
             DWORD nRead = 0;
             ResetEvent(ov.hEvent);
@@ -319,17 +305,9 @@ private:
             }
             DWORD wait = WaitForMultipleObjects(2, waitHandles, FALSE, INFINITE);
             if (wait == WAIT_OBJECT_0) {
-                // Read completed.
-                if (!GetOverlappedResult(m_handle, &ov, &nRead, FALSE)) {
-                    _signalDisconnect(); break;
-                }
-                if (nRead > 0)
-                    _dispatch(std::vector<uint8_t>(buf.begin(), buf.begin() + nRead));
-            } else {
-                // Cancel event or error — exit cleanly.
-                CancelIo(m_handle);
-                break;
-            }
+                if (!GetOverlappedResult(m_handle, &ov, &nRead, FALSE)) { _signalDisconnect(); break; }
+                if (nRead > 0) _dispatch(std::vector<uint8_t>(buf.begin(), buf.begin() + nRead));
+            } else { CancelIo(m_handle); break; }
         }
         CloseHandle(ov.hEvent);
 #else
@@ -339,26 +317,17 @@ private:
             FD_SET(m_fd, &fds);
             FD_SET(m_pipeFd[0], &fds);
             int maxFd = (m_pipeFd[0] > m_fd) ? m_pipeFd[0] : m_fd;
-
             int ret = select(maxFd + 1, &fds, nullptr, nullptr, nullptr);
-            if (ret < 0) {
-                if (errno == EINTR) continue;
-                _signalDisconnect(); break;
-            }
-            if (FD_ISSET(m_pipeFd[0], &fds)) break; // woken by close()
+            if (ret < 0) { if (errno == EINTR) continue; _signalDisconnect(); break; }
+            if (FD_ISSET(m_pipeFd[0], &fds)) break;
             if (FD_ISSET(m_fd, &fds)) {
                 ssize_t n = ::read(m_fd, buf.data(), buf.size());
-                if (n > 0) {
-                    _dispatch(std::vector<uint8_t>(buf.begin(), buf.begin() + n));
-                } else if (n == 0 || (n < 0 && errno != EINTR && errno != EAGAIN)) {
-                    _signalDisconnect(); break;
-                }
+                if (n > 0) _dispatch(std::vector<uint8_t>(buf.begin(), buf.begin() + n));
+                else if (n == 0 || (n < 0 && errno != EINTR && errno != EAGAIN)) { _signalDisconnect(); break; }
             }
         }
 #endif
     }
-
-    // ---- Helpers ------------------------------------------------------------
 
     void _wakeReadThread() {
 #if defined(_WIN32)
@@ -373,9 +342,9 @@ private:
         if (m_handle != INVALID_HANDLE_VALUE) { CloseHandle(m_handle); m_handle = INVALID_HANDLE_VALUE; }
         if (m_cancelEvent)                    { CloseHandle(m_cancelEvent); m_cancelEvent = nullptr; }
 #else
-        if (m_fd >= 0)         { ::close(m_fd);         m_fd = -1; }
-        if (m_pipeFd[0] >= 0)  { ::close(m_pipeFd[0]);  m_pipeFd[0] = -1; }
-        if (m_pipeFd[1] >= 0)  { ::close(m_pipeFd[1]);  m_pipeFd[1] = -1; }
+        if (m_fd >= 0)        { ::close(m_fd);        m_fd = -1; }
+        if (m_pipeFd[0] >= 0) { ::close(m_pipeFd[0]); m_pipeFd[0] = -1; }
+        if (m_pipeFd[1] >= 0) { ::close(m_pipeFd[1]); m_pipeFd[1] = -1; }
 #endif
     }
 
@@ -390,15 +359,11 @@ private:
     }
 
     void _postError(const std::string& msg) {
-        MainThreadDispatcher::instance().post([this, msg]{
-            onError.emit(msg);
-        });
+        MainThreadDispatcher::instance().post([this, msg]{ onError.emit(msg); });
     }
 
     void _signalDisconnect() {
-        MainThreadDispatcher::instance().post([this]{
-            onDisconnect.emit();
-        });
+        MainThreadDispatcher::instance().post([this]{ onDisconnect.emit(); });
     }
 
 #if !defined(_WIN32)
