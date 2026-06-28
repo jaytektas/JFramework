@@ -173,6 +173,13 @@ public:
         if (m_textDescPool)    vkDestroyDescriptorPool(m_device, m_textDescPool, nullptr);
         if (m_textDescSetLayout) vkDestroyDescriptorSetLayout(m_device, m_textDescSetLayout, nullptr);
 
+        // Vector pipeline
+        if (m_geomVertMapped) vkUnmapMemory(m_device, m_geomVertMemory);
+        if (m_geomVertBuffer) vkDestroyBuffer(m_device, m_geomVertBuffer, nullptr);
+        if (m_geomVertMemory) vkFreeMemory(m_device, m_geomVertMemory, nullptr);
+        if (m_vectorPipeline)   vkDestroyPipeline(m_device, m_vectorPipeline, nullptr);
+        if (m_vectorPipeLayout) vkDestroyPipelineLayout(m_device, m_vectorPipeLayout, nullptr);
+
         // Image pipeline
         if (m_imagePipeline)  vkDestroyPipeline(m_device, m_imagePipeline, nullptr);
         for (auto& kv : m_textures) {
@@ -216,6 +223,8 @@ public:
         createTextPipeline();
         createTextVertexBuffer();
         createImagePipeline();
+        createVectorPipeline();
+        createGeomVertexBuffer();
         // Primary surface gets cmd buffer + sync; swapchain built by resizeSurface later.
         _allocSurfaceCmdAndSync(m_surfaces[0]);
         m_surfaces[0].alive = true;
@@ -419,6 +428,7 @@ public:
         if (cmds.empty()) return;
 
         uint32_t textCursor = 0;
+        uint32_t geomCursor = 0;
 
         using Kind = PrimitiveBuffer::DrawCommand::Kind;
         using Clip = PrimitiveBuffer::ClipRect;
@@ -437,6 +447,7 @@ public:
             _applyScissor(clip);
             if      (k == Kind::Rect)            _drawSdfBatch(cmds, i, j);
             else if (k == Kind::Image)           textCursor = _drawImageBatch(cmds, i, j, textCursor);
+            else if (k == Kind::Geometry)        geomCursor = _drawGeometryBatch(cmds, i, j, geomCursor);
             else if (m_atlasUploaded)            textCursor = _drawTextBatch(cmds, i, j, textCursor);
             i = j;
         }
@@ -784,6 +795,40 @@ private:
             vkCmdDraw(m_act->cmdBuf, r.count, 1, r.first, 0);
         }
         return vertexCursor + static_cast<uint32_t>(verts.size() / 4);
+    }
+
+    // Draw anti-aliased vector geometry (per-vertex colour triangle lists).
+    uint32_t _drawGeometryBatch(const CmdVec& cmds, size_t from, size_t to, uint32_t vertexCursor) {
+        if (!m_vectorPipeline) return vertexCursor;
+
+        std::vector<RenderVertex> verts;
+        for (size_t k = from; k < to; ++k) {
+            const auto& g = cmds[k].geom.verts;
+            verts.insert(verts.end(), g.begin(), g.end());
+        }
+        if (verts.empty()) return vertexCursor;
+
+        VkDeviceSize surfaceOffset = (VkDeviceSize)m_activeSurfaceId * MAX_GEOM_VERTS * sizeof(RenderVertex);
+        VkDeviceSize sliceBytes    = verts.size() * sizeof(RenderVertex);
+        VkDeviceSize bufferOffset  = surfaceOffset + (VkDeviceSize)vertexCursor * sizeof(RenderVertex);
+        VkDeviceSize capacity      = (VkDeviceSize)MAX_GEOM_VERTS * sizeof(RenderVertex);
+        if ((VkDeviceSize)vertexCursor * sizeof(RenderVertex) + sliceBytes > capacity) return vertexCursor;
+
+        std::memcpy(static_cast<char*>(m_geomVertMapped) + bufferOffset, verts.data(), sliceBytes);
+
+        vkCmdBindPipeline(m_act->cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_vectorPipeline);
+        VkViewport vp{0, 0, (float)m_act->extent.width, (float)m_act->extent.height, 0, 1};
+        vkCmdSetViewport(m_act->cmdBuf, 0, 1, &vp);
+
+        VkDeviceSize bindOffset = bufferOffset;
+        vkCmdBindVertexBuffers(m_act->cmdBuf, 0, 1, &m_geomVertBuffer, &bindOffset);
+
+        struct VecPC { float vpW, vpH, p0, p1; } pc{
+            (float)m_act->extent.width, (float)m_act->extent.height, 0.f, 0.f };
+        vkCmdPushConstants(m_act->cmdBuf, m_vectorPipeLayout,
+                           VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
+        vkCmdDraw(m_act->cmdBuf, static_cast<uint32_t>(verts.size()), 1, 0, 0);
+        return vertexCursor + static_cast<uint32_t>(verts.size());
     }
 
     // ---------------------------------------------------------------- Surface helpers
@@ -1194,6 +1239,42 @@ private:
         vkMapMemory(m_device, m_textVertMemory, 0, sz, 0, &m_textVertMapped);
     }
 
+    // Vector geometry pipeline: per-vertex position/uv/colour, no descriptor set,
+    // single push constant carrying the viewport size (pixels → NDC).
+    void createVectorPipeline() {
+        VkPushConstantRange pcr{};
+        pcr.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        pcr.offset     = 0;
+        pcr.size       = 16;   // float vpW, vpH, pad0, pad1
+        VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        lci.setLayoutCount         = 0; lci.pSetLayouts         = nullptr;
+        lci.pushConstantRangeCount = 1; lci.pPushConstantRanges = &pcr;
+        vkCreatePipelineLayout(m_device, &lci, nullptr, &m_vectorPipeLayout);
+
+        // RenderVertex: float position[2] @0, float texCoord[2] @8, uint8 color[4] @16, stride 20.
+        VkVertexInputBindingDescription binding{0, sizeof(RenderVertex), VK_VERTEX_INPUT_RATE_VERTEX};
+        VkVertexInputAttributeDescription attrs[3] = {
+            {0, 0, VK_FORMAT_R32G32_SFLOAT,  0},
+            {1, 0, VK_FORMAT_R32G32_SFLOAT,  8},
+            {2, 0, VK_FORMAT_R8G8B8A8_UNORM, 16},
+        };
+        auto vert = _makeModule(Shaders::kVectorVert, sizeof(Shaders::kVectorVert)/4);
+        auto frag = _makeModule(Shaders::kVectorFrag, sizeof(Shaders::kVectorFrag)/4);
+        m_vectorPipeline = _buildPipeline(vert, frag, m_vectorPipeLayout, &binding, 1, attrs, 3);
+        vkDestroyShaderModule(m_device, vert, nullptr);
+        vkDestroyShaderModule(m_device, frag, nullptr);
+        qCInfo(LogVulkan) << "Vector pipeline created.\n";
+    }
+
+    void createGeomVertexBuffer() {
+        VkDeviceSize sz = (VkDeviceSize)16 * MAX_GEOM_VERTS * sizeof(RenderVertex);
+        createBuffer(m_device, m_physicalDevice, sz,
+                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                     m_geomVertBuffer, m_geomVertMemory);
+        vkMapMemory(m_device, m_geomVertMemory, 0, sz, 0, &m_geomVertMapped);
+    }
+
     // ---------------------------------------------------------------- Members
     NativeWindowHandle m_handle;
     VkInstance         m_instance{VK_NULL_HANDLE};
@@ -1237,6 +1318,14 @@ private:
     VkDescriptorPool                              m_imageDescPool{VK_NULL_HANDLE};
     std::unordered_map<TextureHandle, VulkanTexture> m_textures;
     TextureHandle                                 m_nextTexHandle{1};
+
+    // Vector geometry pipeline (anti-aliased 2D paths, per-vertex colour)
+    VkPipelineLayout      m_vectorPipeLayout{VK_NULL_HANDLE};
+    VkPipeline            m_vectorPipeline{VK_NULL_HANDLE};
+    static constexpr uint32_t MAX_GEOM_VERTS = 1u << 16;  // per surface
+    VkBuffer              m_geomVertBuffer{VK_NULL_HANDLE};
+    VkDeviceMemory        m_geomVertMemory{VK_NULL_HANDLE};
+    void*                 m_geomVertMapped{nullptr};
 };
 
 

@@ -83,13 +83,20 @@ public:
         uint8_t tint[4]{255, 255, 255, 255}; // RGBA tint (255,255,255,255 = no tint)
     };
 
+    // ---- Vector geometry (anti-aliased 2D paths, per-vertex color) ----
+    struct GeometryData {
+        std::vector<RenderVertex> verts;            // triangle list (count % 3 == 0)
+        TextureHandle             tex{kNullTexture}; // optional; null = solid per-vertex color
+    };
+
     // ---- Unified draw command ----
     struct DrawCommand {
-        enum class Kind : uint8_t { Rect, Text, Image };
+        enum class Kind : uint8_t { Rect, Text, Image, Geometry };
         Kind             kind{Kind::Rect};
         GpuPrimitiveInstance rect{};
         TextCall             text{};
         ImageData            image{};
+        GeometryData         geom{};
         ClipRect             clip{};   // active clip when this command was recorded
     };
 
@@ -140,6 +147,18 @@ public:
             for (int i = 0; i < 4; ++i) cmd.image.tint[i] = tint[i];
         }
         cmd.clip = currentClip();
+        m_commands.push_back(std::move(cmd));
+    }
+
+    // Push a triangle-list of anti-aliased vector geometry (see VectorGraphics.h).
+    // verts.size() must be a multiple of 3. tex defaults to solid per-vertex color.
+    void pushGeometry(std::vector<RenderVertex> verts, TextureHandle tex = kNullTexture) {
+        if (verts.size() < 3) return;
+        DrawCommand cmd;
+        cmd.kind       = DrawCommand::Kind::Geometry;
+        cmd.geom.verts = std::move(verts);
+        cmd.geom.tex   = tex;
+        cmd.clip       = currentClip();
         m_commands.push_back(std::move(cmd));
     }
 

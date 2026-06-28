@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-embed_spv.py  <rect.vert.spv> <rect.frag.spv> <text.vert.spv> <text.frag.spv>
-              <image.vert.spv> <image.frag.spv> <output.h>
+embed_spv.py  <shader1.spv> [<shader2.spv> ...] <output.h>
 
 Reads SPIR-V binary files and writes a C++ header with constexpr uint32_t
-arrays.  Called automatically by the genesis_shaders CMake target.
+arrays.  Symbol names are derived from the file name:
+    rect.vert.spv   -> kRectVert
+    vector.frag.spv -> kVectorFrag
+Called automatically by the genesis_shaders CMake target.
 """
+import os
 import sys
 
 
@@ -13,32 +16,33 @@ def to_words(path: str) -> list[int]:
     data = open(path, "rb").read()
     while len(data) % 4:
         data += b"\x00"
-    return [int.from_bytes(data[i:i+4], "little") for i in range(0, len(data), 4)]
+    return [int.from_bytes(data[i:i + 4], "little") for i in range(0, len(data), 4)]
+
+
+def symbol_name(path: str) -> str:
+    base = os.path.basename(path)
+    if base.endswith(".spv"):
+        base = base[:-4]
+    parts = [p for p in base.split(".") if p]
+    return "k" + "".join(p[:1].upper() + p[1:] for p in parts)
 
 
 def format_array(name: str, words: list[int]) -> list[str]:
-    lines = [f"// {name} ({len(words)*4} bytes)",
+    lines = [f"// {name} ({len(words) * 4} bytes)",
              f"inline constexpr uint32_t {name}[{len(words)}] = {{"]
     for i in range(0, len(words), 8):
-        lines.append("    " + ", ".join(f"0x{w:08x}u" for w in words[i:i+8]) + ",")
+        lines.append("    " + ", ".join(f"0x{w:08x}u" for w in words[i:i + 8]) + ",")
     lines.append("};")
     return lines
 
 
 def main() -> None:
-    if len(sys.argv) != 8:
-        print(f"Usage: {sys.argv[0]} <rect.vert.spv> <rect.frag.spv> "
-              f"<text.vert.spv> <text.frag.spv> "
-              f"<image.vert.spv> <image.frag.spv> <output.h>", file=sys.stderr)
+    if len(sys.argv) < 3:
+        print(f"Usage: {sys.argv[0]} <shader1.spv> [...] <output.h>", file=sys.stderr)
         sys.exit(1)
 
-    rv  = to_words(sys.argv[1])
-    rf  = to_words(sys.argv[2])
-    tv  = to_words(sys.argv[3])
-    tf  = to_words(sys.argv[4])
-    iv  = to_words(sys.argv[5])
-    iif = to_words(sys.argv[6])
-    out = sys.argv[7]
+    spv_files = sys.argv[1:-1]
+    out = sys.argv[-1]
 
     lines: list[str] = [
         "#pragma once",
@@ -49,20 +53,14 @@ def main() -> None:
         "namespace Genesis::Shaders {",
         "",
     ]
-    lines += format_array("kRectVert",  rv)  + [""]
-    lines += format_array("kRectFrag",  rf)  + [""]
-    lines += format_array("kTextVert",  tv)  + [""]
-    lines += format_array("kTextFrag",  tf)  + [""]
-    lines += format_array("kImageVert", iv)  + [""]
-    lines += format_array("kImageFrag", iif) + [""]
+    for spv in spv_files:
+        lines += format_array(symbol_name(spv), to_words(spv)) + [""]
     lines += ["} // namespace Genesis::Shaders", ""]
 
     with open(out, "w") as f:
         f.write("\n".join(lines))
 
-    print(f"[shaders] {out}: rect vert={len(rv)*4}B frag={len(rf)*4}B  "
-          f"text vert={len(tv)*4}B frag={len(tf)*4}B  "
-          f"image vert={len(iv)*4}B frag={len(iif)*4}B")
+    print(f"[shaders] {out}: " + ", ".join(symbol_name(s) for s in spv_files))
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ if(GLSLC_EXECUTABLE AND Python3_Interpreter_FOUND)
     set(EMBED_SCRIPT  ${CMAKE_SOURCE_DIR}/cmake/embed_spv.py)
     file(MAKE_DIRECTORY ${SHADER_BUILD})
 
-    foreach(SH rect.vert rect.frag text.vert text.frag image.vert image.frag)
+    foreach(SH rect.vert rect.frag text.vert text.frag image.vert image.frag vector.vert vector.frag)
         add_custom_command(
             OUTPUT  ${SHADER_BUILD}/${SH}.spv
             COMMAND ${GLSLC_EXECUTABLE} ${SHADER_DIR}/${SH} -o ${SHADER_BUILD}/${SH}.spv
@@ -34,10 +34,12 @@ if(GLSLC_EXECUTABLE AND Python3_Interpreter_FOUND)
                 ${SHADER_BUILD}/rect.vert.spv ${SHADER_BUILD}/rect.frag.spv
                 ${SHADER_BUILD}/text.vert.spv ${SHADER_BUILD}/text.frag.spv
                 ${SHADER_BUILD}/image.vert.spv ${SHADER_BUILD}/image.frag.spv
+                ${SHADER_BUILD}/vector.vert.spv ${SHADER_BUILD}/vector.frag.spv
                 ${SHADER_HEADER}
         DEPENDS ${SHADER_BUILD}/rect.vert.spv ${SHADER_BUILD}/rect.frag.spv
                 ${SHADER_BUILD}/text.vert.spv ${SHADER_BUILD}/text.frag.spv
                 ${SHADER_BUILD}/image.vert.spv ${SHADER_BUILD}/image.frag.spv
+                ${SHADER_BUILD}/vector.vert.spv ${SHADER_BUILD}/vector.frag.spv
                 ${EMBED_SCRIPT}
         VERBATIM COMMENT "Embedding SPIR-V → ShaderSpirv.h"
     )
@@ -189,6 +191,9 @@ if(GENESIS_BUILD_EXAMPLES)
 
     add_executable(genesis_empty_window examples/empty_window/main.cpp)
     target_link_libraries(genesis_empty_window PRIVATE genesis_platform)
+
+    add_executable(genesis_vector_demo examples/vector_demo/main.cpp)
+    target_link_libraries(genesis_vector_demo PRIVATE genesis_platform)
 endif()
 
 # --- AI tooling: external semantic probe + agent (read & drive a running app) ---
@@ -240,4 +245,5 @@ if(GENESIS_BUILD_TESTS)
     add_genesis_test(test_new_features     src/tests/test_new_features.cpp)
     add_genesis_test(test_variant          src/tests/test_variant.cpp)
     add_genesis_test(test_variant_integration src/tests/test_variant_integration.cpp)
+    add_genesis_test(test_vector            src/tests/test_vector.cpp)
 endif()
