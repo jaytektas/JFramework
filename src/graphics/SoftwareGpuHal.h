@@ -2,6 +2,7 @@
 #include <genesis/graphics/GpuHal.h>
 #include <mutex>
 #include <map>
+#include <unordered_map>
 #include <vector>
 #include <cmath>
 #include <algorithm>
@@ -13,6 +14,11 @@
 #endif
 
 namespace Genesis {
+
+struct SoftwareTexture {
+    std::vector<uint32_t> pixels; // packed ARGB (same as SoftwareSurface format)
+    uint32_t w{0}, h{0};
+};
 
 struct SoftwareSurface {
 #if defined(_WIN32)
@@ -187,6 +193,45 @@ public:
                                      static_cast<uint8_t>(out_b), a);
                     }
                 }
+            } else if (cmd.kind == PrimitiveBuffer::DrawCommand::Kind::Image) {
+                const auto& img = cmd.image;
+                auto texIt = m_textures.find(img.tex);
+                if (texIt == m_textures.end()) continue;
+                const SoftwareTexture& tex = texIt->second;
+                if (tex.w == 0 || tex.h == 0) continue;
+
+                int ix1 = std::max(cx1, static_cast<int>(img.x));
+                int iy1 = std::max(cy1, static_cast<int>(img.y));
+                int ix2 = std::min(cx2, static_cast<int>(img.x + img.w));
+                int iy2 = std::min(cy2, static_cast<int>(img.y + img.h));
+
+                for (int py = iy1; py < iy2; ++py) {
+                    float ty = (img.h > 0.001f) ? (py - img.y) / img.h : 0.f;
+                    float v  = img.v0 + ty * (img.v1 - img.v0);
+                    int texY = std::clamp(static_cast<int>(v * tex.h), 0, static_cast<int>(tex.h) - 1);
+
+                    for (int px = ix1; px < ix2; ++px) {
+                        float tx = (img.w > 0.001f) ? (px - img.x) / img.w : 0.f;
+                        float u  = img.u0 + tx * (img.u1 - img.u0);
+                        int texX = std::clamp(static_cast<int>(u * tex.w), 0, static_cast<int>(tex.w) - 1);
+
+                        uint32_t p = tex.pixels[texY * tex.w + texX];
+                        uint8_t tr = (p >> 16) & 0xFF;
+                        uint8_t tg = (p >> 8)  & 0xFF;
+                        uint8_t tb =  p         & 0xFF;
+                        uint8_t ta = (p >> 24)  & 0xFF;
+
+                        // Apply tint
+                        tr = static_cast<uint8_t>((tr * img.tint[0]) / 255);
+                        tg = static_cast<uint8_t>((tg * img.tint[1]) / 255);
+                        tb = static_cast<uint8_t>((tb * img.tint[2]) / 255);
+                        ta = static_cast<uint8_t>((ta * img.tint[3]) / 255);
+
+                        if (ta == 0) continue;
+                        uint32_t& dest = surf.pixels[py * surf.width + px];
+                        dest = blend(dest, tr, tg, tb, ta);
+                    }
+                }
             } else if (cmd.kind == PrimitiveBuffer::DrawCommand::Kind::Text) {
                 if (m_fontAtlas.empty()) continue;
                 const auto& call = cmd.text;
@@ -300,6 +345,24 @@ public:
         qCInfo(Genesis::Log::Graphics) << "SoftwareGpuHal: destroySurface sid=" << sid << "\n";
     }
 
+    TextureHandle uploadTexture(const uint8_t* rgba, uint32_t w, uint32_t h) override {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        TextureHandle handle = m_nextTexHandle++;
+        SoftwareTexture& tex = m_textures[handle];
+        tex.w = w;
+        tex.h = h;
+        tex.pixels.resize(w * h);
+        for (uint32_t i = 0; i < w * h; ++i) {
+            tex.pixels[i] = packColor(rgba[i*4+0], rgba[i*4+1], rgba[i*4+2], rgba[i*4+3]);
+        }
+        return handle;
+    }
+
+    void releaseTexture(TextureHandle tex) override {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_textures.erase(tex);
+    }
+
 private:
     NativeWindowHandle m_mainHandle;
     std::mutex m_mutex;
@@ -311,6 +374,9 @@ private:
     std::vector<uint8_t> m_fontAtlas;
     uint32_t m_fontAtlasW{0};
     uint32_t m_fontAtlasH{0};
+
+    std::unordered_map<TextureHandle, SoftwareTexture> m_textures;
+    TextureHandle m_nextTexHandle{1};
 };
 
 } // namespace Genesis

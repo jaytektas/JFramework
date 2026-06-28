@@ -116,6 +116,13 @@ public:
     // Destroy a surface created with createSurface. Do not call on kPrimarySurface.
     virtual void destroySurface(GpuSurfaceId sid) = 0;
 
+    // Upload an RGBA8 image to GPU memory. Returns a handle for use in
+    // PrimitiveBuffer::pushImage(). Returns kNullTexture on failure.
+    virtual TextureHandle uploadTexture(const uint8_t* rgba, uint32_t w, uint32_t h) { (void)rgba; (void)w; (void)h; return kNullTexture; }
+
+    // Release a texture previously created with uploadTexture().
+    virtual void releaseTexture(TextureHandle tex) { (void)tex; }
+
 protected:
     GpuHal() = default;
 };

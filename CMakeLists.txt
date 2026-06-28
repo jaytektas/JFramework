@@ -19,7 +19,7 @@ if(GLSLC_EXECUTABLE AND Python3_Interpreter_FOUND)
     set(EMBED_SCRIPT  ${CMAKE_SOURCE_DIR}/cmake/embed_spv.py)
     file(MAKE_DIRECTORY ${SHADER_BUILD})
 
-    foreach(SH rect.vert rect.frag text.vert text.frag)
+    foreach(SH rect.vert rect.frag text.vert text.frag image.vert image.frag)
         add_custom_command(
             OUTPUT  ${SHADER_BUILD}/${SH}.spv
             COMMAND ${GLSLC_EXECUTABLE} ${SHADER_DIR}/${SH} -o ${SHADER_BUILD}/${SH}.spv
@@ -33,9 +33,11 @@ if(GLSLC_EXECUTABLE AND Python3_Interpreter_FOUND)
         COMMAND ${Python3_EXECUTABLE} ${EMBED_SCRIPT}
                 ${SHADER_BUILD}/rect.vert.spv ${SHADER_BUILD}/rect.frag.spv
                 ${SHADER_BUILD}/text.vert.spv ${SHADER_BUILD}/text.frag.spv
+                ${SHADER_BUILD}/image.vert.spv ${SHADER_BUILD}/image.frag.spv
                 ${SHADER_HEADER}
         DEPENDS ${SHADER_BUILD}/rect.vert.spv ${SHADER_BUILD}/rect.frag.spv
                 ${SHADER_BUILD}/text.vert.spv ${SHADER_BUILD}/text.frag.spv
+                ${SHADER_BUILD}/image.vert.spv ${SHADER_BUILD}/image.frag.spv
                 ${EMBED_SCRIPT}
         VERBATIM COMMENT "Embedding SPIR-V → ShaderSpirv.h"
     )
@@ -232,4 +234,5 @@ if(GENESIS_BUILD_TESTS)
     add_genesis_test(test_dialog           src/tests/test_dialog.cpp)
     add_genesis_test(test_aipanel          src/tests/test_aipanel.cpp)
     add_genesis_test(test_models           src/tests/test_models.cpp)
+    add_genesis_test(test_new_features     src/tests/test_new_features.cpp)
 endif()

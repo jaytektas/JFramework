@@ -11,6 +11,11 @@ namespace { inline constexpr auto& LogGraphicsEngine = Genesis::Log::Graphics; }
 
 namespace Genesis {
 
+// Opaque handle to a GPU-resident texture created via GpuHal::uploadTexture().
+// 0 is the null/invalid handle.
+using TextureHandle = uint32_t;
+static constexpr TextureHandle kNullTexture = 0;
+
 enum class PrimitiveType : uint32_t {
     Rectangle = 0,
     TextRun   = 1,
@@ -70,12 +75,21 @@ public:
         bool  enabled{false};
     };
 
+    // ---- Image draw data ----
+    struct ImageData {
+        float x{0}, y{0}, w{0}, h{0};   // destination rect in window pixels
+        float u0{0}, v0{0}, u1{1}, v1{1}; // source UV rect (default = full texture)
+        TextureHandle tex{kNullTexture};
+        uint8_t tint[4]{255, 255, 255, 255}; // RGBA tint (255,255,255,255 = no tint)
+    };
+
     // ---- Unified draw command ----
     struct DrawCommand {
-        enum class Kind : uint8_t { Rect, Text };
+        enum class Kind : uint8_t { Rect, Text, Image };
         Kind             kind{Kind::Rect};
         GpuPrimitiveInstance rect{};
         TextCall             text{};
+        ImageData            image{};
         ClipRect             clip{};   // active clip when this command was recorded
     };
 
@@ -106,6 +120,25 @@ public:
         DrawCommand cmd;
         cmd.kind = DrawCommand::Kind::Text;
         cmd.text = std::move(call);
+        cmd.clip = currentClip();
+        m_commands.push_back(std::move(cmd));
+    }
+
+    void pushImage(float x, float y, float w, float h, TextureHandle tex,
+                   const uint8_t tint[4] = nullptr,
+                   float u0 = 0.f, float v0 = 0.f, float u1 = 1.f, float v1 = 1.f)
+    {
+        if (tex == kNullTexture) return;
+        DrawCommand cmd;
+        cmd.kind      = DrawCommand::Kind::Image;
+        cmd.image.x   = x; cmd.image.y  = y;
+        cmd.image.w   = w; cmd.image.h  = h;
+        cmd.image.u0  = u0; cmd.image.v0 = v0;
+        cmd.image.u1  = u1; cmd.image.v1 = v1;
+        cmd.image.tex = tex;
+        if (tint) {
+            for (int i = 0; i < 4; ++i) cmd.image.tint[i] = tint[i];
+        }
         cmd.clip = currentClip();
         m_commands.push_back(std::move(cmd));
     }

@@ -24,6 +24,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
+#include <unordered_map>
 #include <cstring>
 #include <algorithm>
 
@@ -172,6 +173,17 @@ public:
         if (m_textDescPool)    vkDestroyDescriptorPool(m_device, m_textDescPool, nullptr);
         if (m_textDescSetLayout) vkDestroyDescriptorSetLayout(m_device, m_textDescSetLayout, nullptr);
 
+        // Image pipeline
+        if (m_imagePipeline)  vkDestroyPipeline(m_device, m_imagePipeline, nullptr);
+        for (auto& kv : m_textures) {
+            if (kv.second.descSet)  { /* freed via pool */ }
+            if (kv.second.view)     vkDestroyImageView(m_device, kv.second.view, nullptr);
+            if (kv.second.image)    vkDestroyImage(m_device, kv.second.image, nullptr);
+            if (kv.second.memory)   vkFreeMemory(m_device, kv.second.memory, nullptr);
+            if (kv.second.sampler)  vkDestroySampler(m_device, kv.second.sampler, nullptr);
+        }
+        if (m_imageDescPool)  vkDestroyDescriptorPool(m_device, m_imageDescPool, nullptr);
+
         // Atlas texture
         if (m_atlasView)    vkDestroyImageView(m_device, m_atlasView, nullptr);
         if (m_atlasImage)   vkDestroyImage(m_device, m_atlasImage, nullptr);
@@ -203,6 +215,7 @@ public:
         createTextDescriptorLayout();
         createTextPipeline();
         createTextVertexBuffer();
+        createImagePipeline();
         // Primary surface gets cmd buffer + sync; swapchain built by resizeSurface later.
         _allocSurfaceCmdAndSync(m_surfaces[0]);
         m_surfaces[0].alive = true;
@@ -422,8 +435,9 @@ public:
             while (j < cmds.size() && cmds[j].kind == k && sameClip(cmds[j].clip, clip)) ++j;
 
             _applyScissor(clip);
-            if (k == Kind::Rect)            _drawSdfBatch(cmds, i, j);
-            else if (m_atlasUploaded)       textCursor = _drawTextBatch(cmds, i, j, textCursor);
+            if      (k == Kind::Rect)            _drawSdfBatch(cmds, i, j);
+            else if (k == Kind::Image)           textCursor = _drawImageBatch(cmds, i, j, textCursor);
+            else if (m_atlasUploaded)            textCursor = _drawTextBatch(cmds, i, j, textCursor);
             i = j;
         }
     }
@@ -583,6 +597,192 @@ private:
             vkCmdDraw(m_act->cmdBuf, r.count, 1, r.first, 0);
         }
 
+        return vertexCursor + static_cast<uint32_t>(verts.size() / 4);
+    }
+
+    // ------------------------------------------------------------------ Images
+
+    struct VulkanTexture {
+        VkImage        image{VK_NULL_HANDLE};
+        VkDeviceMemory memory{VK_NULL_HANDLE};
+        VkImageView    view{VK_NULL_HANDLE};
+        VkSampler      sampler{VK_NULL_HANDLE};
+        VkDescriptorSet descSet{VK_NULL_HANDLE};
+    };
+
+    TextureHandle uploadTexture(const uint8_t* rgba, uint32_t w, uint32_t h) override {
+        VkDeviceSize sz = (VkDeviceSize)w * h * 4;
+
+        VkBuffer stagBuf; VkDeviceMemory stagMem;
+        createBuffer(m_device, m_physicalDevice, sz,
+                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                     stagBuf, stagMem);
+        void* ptr; vkMapMemory(m_device, stagMem, 0, sz, 0, &ptr);
+        std::memcpy(ptr, rgba, sz);
+        vkUnmapMemory(m_device, stagMem);
+
+        VulkanTexture tex;
+
+        VkImageCreateInfo imgCI{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+        imgCI.imageType     = VK_IMAGE_TYPE_2D;
+        imgCI.format        = VK_FORMAT_R8G8B8A8_SRGB;
+        imgCI.extent        = {w, h, 1};
+        imgCI.mipLevels     = 1;
+        imgCI.arrayLayers   = 1;
+        imgCI.samples       = VK_SAMPLE_COUNT_1_BIT;
+        imgCI.tiling        = VK_IMAGE_TILING_OPTIMAL;
+        imgCI.usage         = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        imgCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        if (vkCreateImage(m_device, &imgCI, nullptr, &tex.image) != VK_SUCCESS) {
+            vkDestroyBuffer(m_device, stagBuf, nullptr);
+            vkFreeMemory(m_device, stagMem, nullptr);
+            return kNullTexture;
+        }
+
+        VkMemoryRequirements req;
+        vkGetImageMemoryRequirements(m_device, tex.image, &req);
+        VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        ai.allocationSize  = req.size;
+        ai.memoryTypeIndex = findMemoryType(m_physicalDevice, req.memoryTypeBits,
+                                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        vkAllocateMemory(m_device, &ai, nullptr, &tex.memory);
+        vkBindImageMemory(m_device, tex.image, tex.memory, 0);
+
+        auto cb = beginOneShot(m_device, m_commandPool);
+        transitionImage(cb, tex.image,
+                        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                        0, VK_ACCESS_TRANSFER_WRITE_BIT);
+        VkBufferImageCopy copy{};
+        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.imageExtent      = {w, h, 1};
+        vkCmdCopyBufferToImage(cb, stagBuf, tex.image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        transitionImage(cb, tex.image,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        VK_PIPELINE_STAGE_TRANSFER_BIT,
+                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+        endOneShot(m_device, m_commandPool, m_graphicsQueue, cb);
+
+        vkDestroyBuffer(m_device, stagBuf, nullptr);
+        vkFreeMemory(m_device, stagMem, nullptr);
+
+        VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        vci.image            = tex.image;
+        vci.viewType         = VK_IMAGE_VIEW_TYPE_2D;
+        vci.format           = VK_FORMAT_R8G8B8A8_SRGB;
+        vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCreateImageView(m_device, &vci, nullptr, &tex.view);
+
+        VkSamplerCreateInfo sci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        sci.magFilter    = VK_FILTER_LINEAR;
+        sci.minFilter    = VK_FILTER_LINEAR;
+        sci.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        sci.addressModeU = sci.addressModeV = sci.addressModeW =
+            VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        vkCreateSampler(m_device, &sci, nullptr, &tex.sampler);
+
+        VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        dsai.descriptorPool     = m_imageDescPool;
+        dsai.descriptorSetCount = 1;
+        dsai.pSetLayouts        = &m_textDescSetLayout; // same layout as text
+        vkAllocateDescriptorSets(m_device, &dsai, &tex.descSet);
+
+        VkDescriptorImageInfo dii{};
+        dii.sampler     = tex.sampler;
+        dii.imageView   = tex.view;
+        dii.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkWriteDescriptorSet wr{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        wr.dstSet          = tex.descSet;
+        wr.dstBinding      = 0;
+        wr.descriptorCount = 1;
+        wr.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        wr.pImageInfo      = &dii;
+        vkUpdateDescriptorSets(m_device, 1, &wr, 0, nullptr);
+
+        TextureHandle handle = m_nextTexHandle++;
+        m_textures[handle]   = tex;
+        return handle;
+    }
+
+    void releaseTexture(TextureHandle handle) override {
+        auto it = m_textures.find(handle);
+        if (it == m_textures.end()) return;
+        waitIdle();
+        VulkanTexture& tex = it->second;
+        if (tex.view)    vkDestroyImageView(m_device, tex.view, nullptr);
+        if (tex.image)   vkDestroyImage(m_device, tex.image, nullptr);
+        if (tex.memory)  vkFreeMemory(m_device, tex.memory, nullptr);
+        if (tex.sampler) vkDestroySampler(m_device, tex.sampler, nullptr);
+        // descriptor set freed with pool on shutdown
+        m_textures.erase(it);
+    }
+
+    // Draw image quads using the image pipeline (RGBA textures).
+    uint32_t _drawImageBatch(const CmdVec& cmds, size_t from, size_t to, uint32_t vertexCursor) {
+        if (!m_imagePipeline) return vertexCursor;
+
+        std::vector<float> verts;
+        struct DrawRange { uint32_t first, count; TextureHandle tex; uint8_t tint[4]; };
+        std::vector<DrawRange> ranges;
+
+        for (size_t k = from; k < to; ++k) {
+            const auto& img = cmds[k].image;
+            auto texIt = m_textures.find(img.tex);
+            if (texIt == m_textures.end()) continue;
+
+            DrawRange r;
+            r.tex   = img.tex;
+            std::copy(img.tint, img.tint+4, r.tint);
+            r.first = static_cast<uint32_t>(verts.size() / 4);
+
+            float x0 = img.x, y0 = img.y, x1 = img.x + img.w, y1 = img.y + img.h;
+            float u0 = img.u0, v0 = img.v0, u1 = img.u1, v1 = img.v1;
+            // Triangle 1: top-left, top-right, bottom-left
+            verts.insert(verts.end(), {x0,y0,u0,v0, x1,y0,u1,v0, x0,y1,u0,v1});
+            // Triangle 2: top-right, bottom-right, bottom-left
+            verts.insert(verts.end(), {x1,y0,u1,v0, x1,y1,u1,v1, x0,y1,u0,v1});
+            r.count = static_cast<uint32_t>(verts.size() / 4) - r.first;
+            ranges.push_back(r);
+        }
+        if (verts.empty()) return vertexCursor;
+
+        VkDeviceSize surfaceOffset = (VkDeviceSize)m_activeSurfaceId * MAX_TEXT_VERTS * 4 * sizeof(float);
+        VkDeviceSize sliceBytes   = verts.size() * sizeof(float);
+        VkDeviceSize bufferOffset = surfaceOffset + (VkDeviceSize)vertexCursor * 4 * sizeof(float);
+        VkDeviceSize capacity     = (VkDeviceSize)MAX_TEXT_VERTS * 4 * sizeof(float);
+        if (vertexCursor * 4 * sizeof(float) + sliceBytes > capacity) return vertexCursor;
+
+        std::memcpy(static_cast<char*>(m_textVertMapped) + bufferOffset,
+                    verts.data(), sliceBytes);
+
+        vkCmdBindPipeline(m_act->cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_imagePipeline);
+        VkViewport vp{0,0,(float)m_act->extent.width,(float)m_act->extent.height,0,1};
+        vkCmdSetViewport(m_act->cmdBuf, 0, 1, &vp);
+
+        VkDeviceSize bindOffset = bufferOffset;
+        vkCmdBindVertexBuffers(m_act->cmdBuf, 0, 1, &m_textVertBuffer, &bindOffset);
+
+        for (auto& r : ranges) {
+            if (r.count == 0) continue;
+            auto texIt = m_textures.find(r.tex);
+            if (texIt == m_textures.end()) continue;
+
+            vkCmdBindDescriptorSets(m_act->cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    m_textPipeLayout, 0, 1, &texIt->second.descSet, 0, nullptr);
+
+            TextPC pc{};
+            pc.r   = r.tint[0] / 255.0f; pc.g = r.tint[1] / 255.0f;
+            pc.b   = r.tint[2] / 255.0f; pc.a = r.tint[3] / 255.0f;
+            pc.vpW = (float)m_act->extent.width; pc.vpH = (float)m_act->extent.height;
+            vkCmdPushConstants(m_act->cmdBuf, m_textPipeLayout,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                               0, sizeof(TextPC), &pc);
+            vkCmdDraw(m_act->cmdBuf, r.count, 1, r.first, 0);
+        }
         return vertexCursor + static_cast<uint32_t>(verts.size() / 4);
     }
 
@@ -961,6 +1161,30 @@ private:
         qCInfo(LogVulkan) << "Text pipeline created.\n";
     }
 
+    void createImagePipeline() {
+        // Allocate descriptor pool for up to 256 image textures.
+        VkDescriptorPoolSize ps{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 256};
+        VkDescriptorPoolCreateInfo pci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+        pci.poolSizeCount = 1; pci.pPoolSizes = &ps; pci.maxSets = 256;
+        pci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+        vkCreateDescriptorPool(m_device, &pci, nullptr, &m_imageDescPool);
+
+        // Image pipeline uses same vert as text but different frag (full RGBA output).
+        auto vert = _makeModule(Shaders::kImageVert, sizeof(Shaders::kImageVert)/4);
+        auto frag = _makeModule(Shaders::kImageFrag, sizeof(Shaders::kImageFrag)/4);
+
+        VkVertexInputBindingDescription binding{0, 4 * sizeof(float), VK_VERTEX_INPUT_RATE_VERTEX};
+        VkVertexInputAttributeDescription attrs[2] = {
+            {0, 0, VK_FORMAT_R32G32_SFLOAT, 0},
+            {1, 0, VK_FORMAT_R32G32_SFLOAT, 2 * sizeof(float)},
+        };
+        // Reuse the text pipeline layout (same descriptor set layout + push constants).
+        m_imagePipeline = _buildPipeline(vert, frag, m_textPipeLayout, &binding, 1, attrs, 2);
+        vkDestroyShaderModule(m_device, vert, nullptr);
+        vkDestroyShaderModule(m_device, frag, nullptr);
+        qCInfo(LogVulkan) << "Image pipeline created.\n";
+    }
+
     void createTextVertexBuffer() {
         VkDeviceSize sz = (VkDeviceSize)16 * MAX_TEXT_VERTS * 4 * sizeof(float);
         createBuffer(m_device, m_physicalDevice, sz,
@@ -1007,6 +1231,12 @@ private:
     void*                 m_textVertMapped{nullptr};
 
     uint32_t m_frameCounter{0};
+
+    // Image pipeline
+    VkPipeline                                    m_imagePipeline{VK_NULL_HANDLE};
+    VkDescriptorPool                              m_imageDescPool{VK_NULL_HANDLE};
+    std::unordered_map<TextureHandle, VulkanTexture> m_textures;
+    TextureHandle                                 m_nextTexHandle{1};
 };
 
 

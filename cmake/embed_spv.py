@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-embed_spv.py  <vert.spv> <frag.spv> <text_vert.spv> <text_frag.spv> <output.h>
+embed_spv.py  <rect.vert.spv> <rect.frag.spv> <text.vert.spv> <text.frag.spv>
+              <image.vert.spv> <image.frag.spv> <output.h>
 
 Reads SPIR-V binary files and writes a C++ header with constexpr uint32_t
 arrays.  Called automatically by the genesis_shaders CMake target.
@@ -25,16 +26,19 @@ def format_array(name: str, words: list[int]) -> list[str]:
 
 
 def main() -> None:
-    if len(sys.argv) != 6:
+    if len(sys.argv) != 8:
         print(f"Usage: {sys.argv[0]} <rect.vert.spv> <rect.frag.spv> "
-              f"<text.vert.spv> <text.frag.spv> <output.h>", file=sys.stderr)
+              f"<text.vert.spv> <text.frag.spv> "
+              f"<image.vert.spv> <image.frag.spv> <output.h>", file=sys.stderr)
         sys.exit(1)
 
-    rv = to_words(sys.argv[1])
-    rf = to_words(sys.argv[2])
-    tv = to_words(sys.argv[3])
-    tf = to_words(sys.argv[4])
-    out = sys.argv[5]
+    rv  = to_words(sys.argv[1])
+    rf  = to_words(sys.argv[2])
+    tv  = to_words(sys.argv[3])
+    tf  = to_words(sys.argv[4])
+    iv  = to_words(sys.argv[5])
+    iif = to_words(sys.argv[6])
+    out = sys.argv[7]
 
     lines: list[str] = [
         "#pragma once",
@@ -45,17 +49,20 @@ def main() -> None:
         "namespace Genesis::Shaders {",
         "",
     ]
-    lines += format_array("kRectVert", rv) + [""]
-    lines += format_array("kRectFrag", rf) + [""]
-    lines += format_array("kTextVert", tv) + [""]
-    lines += format_array("kTextFrag", tf) + [""]
+    lines += format_array("kRectVert",  rv)  + [""]
+    lines += format_array("kRectFrag",  rf)  + [""]
+    lines += format_array("kTextVert",  tv)  + [""]
+    lines += format_array("kTextFrag",  tf)  + [""]
+    lines += format_array("kImageVert", iv)  + [""]
+    lines += format_array("kImageFrag", iif) + [""]
     lines += ["} // namespace Genesis::Shaders", ""]
 
     with open(out, "w") as f:
         f.write("\n".join(lines))
 
     print(f"[shaders] {out}: rect vert={len(rv)*4}B frag={len(rf)*4}B  "
-          f"text vert={len(tv)*4}B frag={len(tf)*4}B")
+          f"text vert={len(tv)*4}B frag={len(tf)*4}B  "
+          f"image vert={len(iv)*4}B frag={len(iif)*4}B")
 
 
 if __name__ == "__main__":

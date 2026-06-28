@@ -13,6 +13,7 @@
 #include "AiBusHook.h"          // zero-dependency AI bus bridge
 #include "KeyEvent.h"
 #include "../graphics/RenderPrimitive.h"
+#include "../platform/Clipboard.h"
 #include "../graphics/FontEngine.h"
 
 namespace Genesis {
@@ -1184,8 +1185,47 @@ public:
     const std::string& text()        const { return m_text; }
     const std::string& placeholder() const { return m_placeholder; }
 
+    std::string selectedText() const {
+        if (!m_selActive || m_selStart == m_selEnd) return {};
+        size_t lo = std::min(m_selStart, m_selEnd);
+        size_t hi = std::max(m_selStart, m_selEnd);
+        return m_text.substr(lo, hi - lo);
+    }
+
     void handleMousePress(float mx, float my) override {
-        if (isPointInside(mx, my)) { onClicked.emit(); }
+        if (!isPointInside(mx, my)) return;
+        onClicked.emit();
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        float innerX = b.x + 8.0f;
+        float innerY = b.y + 8.0f;
+        float lh = TextHelper::hasAtlas() ? TextHelper::lineHeight() : 12.0f;
+
+        float relY = my - innerY + m_scrollOffset;
+        auto lines = getLines();
+        size_t clickLine = static_cast<size_t>(std::max(0.0f, relY / lh));
+        if (clickLine >= lines.size()) clickLine = lines.empty() ? 0 : lines.size() - 1;
+
+        float relX = mx - innerX;
+        size_t clickCol = 0;
+        if (TextHelper::hasAtlas() && clickLine < lines.size()) {
+            const std::string& ln = lines[clickLine];
+            float cx = 0;
+            for (size_t i = 0; i < ln.size(); ++i) {
+                float cw = TextHelper::measureWidth(ln.substr(i, 1));
+                if (cx + cw * 0.5f > relX) { clickCol = i; goto done_click; }
+                cx += cw;
+            }
+            clickCol = ln.size();
+        } else {
+            if (clickLine < lines.size()) {
+                clickCol = static_cast<size_t>(std::max(0.0f, relX / 6.0f));
+                if (clickCol > lines[clickLine].size()) clickCol = lines[clickLine].size();
+            }
+        }
+        done_click:
+        m_cursorPos = getPosFromLineCol(clickLine, clickCol);
+        m_selActive = false;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
     std::vector<std::string> getLines() const {
@@ -1242,12 +1282,64 @@ public:
     bool handleKeyEvent(const KeyEvent& ke) override {
         if (!ke.pressed) return false;
         using K = KeyEvent::Key;
-        
+
         size_t line = 0, col = 0;
         getCursorLineCol(line, col);
 
+        // ---- Ctrl shortcuts ----
+        if (ke.ctrl) {
+            if (ke.key == K::C || (ke.utf8[0]=='c'||ke.utf8[0]=='C')) {
+                std::string sel = selectedText();
+                if (!sel.empty()) Clipboard::setText(sel);
+                return true;
+            }
+            if (ke.key == K::X || (ke.utf8[0]=='x'||ke.utf8[0]=='X')) {
+                std::string sel = selectedText();
+                if (!sel.empty()) {
+                    Clipboard::setText(sel);
+                    _deleteSelection();
+                }
+                return true;
+            }
+            if (ke.key == K::V || (ke.utf8[0]=='v'||ke.utf8[0]=='V')) {
+                std::string clip = Clipboard::getText();
+                if (!clip.empty()) {
+                    _deleteSelection();
+                    m_text.insert(m_cursorPos, clip);
+                    m_cursorPos += clip.size();
+                    m_graph.invalidateNode(m_nodeId, DirtySelf);
+                    onTextChanged.emit(m_text);
+                    if (AiBusHook::emit)
+                        AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+                }
+                return true;
+            }
+            if (ke.key == K::A || (ke.utf8[0]=='a'||ke.utf8[0]=='A')) {
+                m_selStart  = 0;
+                m_selEnd    = m_text.size();
+                m_selActive = true;
+                m_cursorPos = m_selEnd;
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+                return true;
+            }
+        }
+
+        // ---- Movement / selection with optional Shift ----
+        auto moveCursor = [&](size_t newPos) {
+            if (ke.shift) {
+                if (!m_selActive) { m_selStart = m_cursorPos; m_selActive = true; }
+                m_selEnd    = newPos;
+            } else {
+                m_selActive = false;
+            }
+            m_cursorPos = newPos;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+        };
+
         if (ke.key == K::Backspace) {
-            if (m_cursorPos > 0 && !m_text.empty()) {
+            if (m_selActive && m_selStart != m_selEnd) {
+                _deleteSelection();
+            } else if (m_cursorPos > 0 && !m_text.empty()) {
                 m_text.erase(m_cursorPos - 1, 1);
                 m_cursorPos--;
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
@@ -1257,7 +1349,9 @@ public:
             }
             return true;
         } else if (ke.key == K::Delete) {
-            if (m_cursorPos < m_text.size()) {
+            if (m_selActive && m_selStart != m_selEnd) {
+                _deleteSelection();
+            } else if (m_cursorPos < m_text.size()) {
                 m_text.erase(m_cursorPos, 1);
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
                 onTextChanged.emit(m_text);
@@ -1266,6 +1360,7 @@ public:
             }
             return true;
         } else if (ke.key == K::Return) {
+            _deleteSelection();
             m_text.insert(m_cursorPos, "\n");
             m_cursorPos++;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
@@ -1274,37 +1369,40 @@ public:
                 AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
             return true;
         } else if (ke.key == K::Left) {
-            if (m_cursorPos > 0) m_cursorPos--;
-            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            if (!ke.shift && m_selActive && m_selStart != m_selEnd) {
+                m_cursorPos = std::min(m_selStart, m_selEnd);
+                m_selActive = false;
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+            } else {
+                moveCursor(m_cursorPos > 0 ? m_cursorPos - 1 : 0);
+            }
             return true;
         } else if (ke.key == K::Right) {
-            if (m_cursorPos < m_text.size()) m_cursorPos++;
-            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            if (!ke.shift && m_selActive && m_selStart != m_selEnd) {
+                m_cursorPos = std::max(m_selStart, m_selEnd);
+                m_selActive = false;
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+            } else {
+                moveCursor(m_cursorPos < m_text.size() ? m_cursorPos + 1 : m_text.size());
+            }
             return true;
         } else if (ke.key == K::Up) {
-            if (line > 0) {
-                m_cursorPos = getPosFromLineCol(line - 1, col);
-                m_graph.invalidateNode(m_nodeId, DirtySelf);
-            }
+            if (line > 0) moveCursor(getPosFromLineCol(line - 1, col));
             return true;
         } else if (ke.key == K::Down) {
             auto lines = getLines();
-            if (line + 1 < lines.size()) {
-                m_cursorPos = getPosFromLineCol(line + 1, col);
-                m_graph.invalidateNode(m_nodeId, DirtySelf);
-            }
+            if (line + 1 < lines.size()) moveCursor(getPosFromLineCol(line + 1, col));
             return true;
         } else if (ke.key == K::Home) {
-            m_cursorPos = getPosFromLineCol(line, 0);
-            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            moveCursor(getPosFromLineCol(line, 0));
             return true;
         } else if (ke.key == K::End) {
             auto lines = getLines();
-            m_cursorPos = getPosFromLineCol(line, lines[line].size());
-            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            moveCursor(getPosFromLineCol(line, lines[line].size()));
             return true;
-        } else if (ke.utf8[0] != '\0') {
+        } else if (ke.utf8[0] != '\0' && !ke.ctrl) {
             if (static_cast<uint8_t>(ke.utf8[0]) >= 32 || ke.utf8[0] == '\t') {
+                _deleteSelection();
                 m_text.insert(m_cursorPos, ke.utf8);
                 m_cursorPos += std::strlen(ke.utf8);
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
@@ -1346,6 +1444,45 @@ public:
         m_scrollOffset = std::max(0.0f, m_scrollOffset);
 
         auto lines = getLines();
+
+        // Draw selection highlights before text
+        if (m_selActive && m_selStart != m_selEnd) {
+            size_t selLo = std::min(m_selStart, m_selEnd);
+            size_t selHi = std::max(m_selStart, m_selEnd);
+            size_t loLine = 0, loCol = 0, hiLine = 0, hiCol = 0;
+            // Walk text to find line/col of selLo and selHi
+            size_t l = 0, c = 0;
+            for (size_t i = 0; i <= m_text.size(); ++i) {
+                if (i == selLo) { loLine = l; loCol = c; }
+                if (i == selHi) { hiLine = l; hiCol = c; break; }
+                if (i < m_text.size()) {
+                    if (m_text[i] == '\n') { ++l; c = 0; } else { ++c; }
+                }
+            }
+            uint8_t selColor[4] = {65, 105, 225, 100}; // semi-transparent blue
+            for (size_t sl = loLine; sl <= hiLine && sl < lines.size(); ++sl) {
+                float lineY = innerY + sl * lh - m_scrollOffset;
+                if (lineY + lh < innerY || lineY > innerY + innerH) continue;
+                float startX = innerX;
+                float endX   = innerX + (TextHelper::hasAtlas()
+                    ? TextHelper::measureWidth(lines[sl])
+                    : static_cast<float>(lines[sl].size() * 6));
+                if (sl == loLine) {
+                    std::string prefix = lines[sl].substr(0, loCol);
+                    startX = innerX + (TextHelper::hasAtlas()
+                        ? TextHelper::measureWidth(prefix)
+                        : static_cast<float>(loCol * 6));
+                }
+                if (sl == hiLine) {
+                    std::string prefix = lines[sl].substr(0, hiCol);
+                    endX = innerX + (TextHelper::hasAtlas()
+                        ? TextHelper::measureWidth(prefix)
+                        : static_cast<float>(hiCol * 6));
+                }
+                float rw = endX - startX;
+                if (rw > 0) buf.pushRectangle(startX, lineY, rw, lh, selColor);
+            }
+        }
 
         if (TextHelper::hasAtlas()) {
             if (m_text.empty() && !m_placeholder.empty()) {
@@ -1397,10 +1534,25 @@ public:
     }
 
 private:
+    void _deleteSelection() {
+        if (!m_selActive || m_selStart == m_selEnd) return;
+        size_t lo = std::min(m_selStart, m_selEnd);
+        size_t hi = std::max(m_selStart, m_selEnd);
+        m_text.erase(lo, hi - lo);
+        m_cursorPos = lo;
+        m_selActive = false;
+        onTextChanged.emit(m_text);
+        if (AiBusHook::emit)
+            AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+    }
+
     std::string m_text;
     std::string m_placeholder;
     size_t      m_cursorPos{0};
     float       m_scrollOffset{0.0f};
+    size_t      m_selStart{0};
+    size_t      m_selEnd{0};
+    bool        m_selActive{false};
 };
 
 // ============================================================================
