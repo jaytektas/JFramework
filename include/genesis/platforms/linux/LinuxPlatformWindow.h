@@ -292,6 +292,11 @@ public:
                         // offsets floated docks from the cursor.  Translate the window
                         // origin to root coordinates to get the true screen position.
                         _updateRootPosition();
+                        bool wChanged = cfg->width  > 0 && cfg->width  != m_width;
+                        bool hChanged = cfg->height > 0 && cfg->height != m_height;
+                        if (wChanged || hChanged) {
+                            m_wasResized = true;
+                        }
                         if (cfg->width  > 0) m_width  = cfg->width;
                         if (cfg->height > 0) m_height = cfg->height;
                     }
@@ -323,9 +328,13 @@ public:
                 case XCB_PROPERTY_NOTIFY: {
                     auto* pn = reinterpret_cast<xcb_property_notify_event_t*>(ev);
                     xcb_atom_t netState = _internAtom("_NET_WM_STATE");
-                    if (pn->atom == netState) {
-                        // Re-read the property to sync our maximized flag with WM state.
-                        // This fires when the WM snap-maximizes the window (drag-to-top).
+                    // When WE own the maximize state (button/double-click), Mutter does
+                    // not track it — its MAXIMIZED atoms stay false, so a _NET_WM_STATE
+                    // PropertyNotify (e.g. from minimize/un-minimize) would otherwise look
+                    // like a phantom un-maximize and wrongly restore the window. Ignore
+                    // _NET_WM_STATE in self-managed mode; only react to genuine
+                    // WM-initiated snaps (drag-to-edge), where m_selfMaximized is false.
+                    if (pn->atom == netState && !m_selfMaximized) {
                         xcb_atom_t maxV = _internAtom("_NET_WM_STATE_MAXIMIZED_VERT");
                         xcb_atom_t maxH = _internAtom("_NET_WM_STATE_MAXIMIZED_HORZ");
                         auto cookie = xcb_get_property(m_connection, 0, m_windowId,
@@ -339,8 +348,31 @@ public:
                                 if (atoms[i] == maxV) hasV = true;
                                 if (atoms[i] == maxH) hasH = true;
                             }
+                            bool wasMax = m_isMaximized;
                             m_isMaximized = hasV && hasH;
                             free(reply);
+
+                            // CSD protocol: the WM (Mutter/GNOME) flips the MAXIMIZED
+                            // atoms but does NOT resize borderless windows — we resize
+                            // ourselves. This MUST happen here (after the WM has updated
+                            // its maximized state) rather than synchronously in
+                            // setMaximized(): the WM ignores configure requests on a
+                            // window it still considers maximized, so a synchronous
+                            // restore would be dropped and the window would stay full size.
+                            // Driving it from the state transition handles button toggle,
+                            // double-click, AND drag-to-edge snapping uniformly.
+                            if (m_isMaximized && !wasMax) {
+                                // Became maximized: save pre-max geometry, fill work area.
+                                m_preMaxX = m_screenX; m_preMaxY = m_screenY;
+                                m_preMaxW = m_width;   m_preMaxH = m_height;
+                                _applyWorkArea();
+                            } else if (!m_isMaximized && wasMax && m_preMaxW > 0) {
+                                // Became un-maximized: restore pre-max geometry. The
+                                // resulting ConfigureNotify (width-shrink) drives the
+                                // MOVERESIZE-restart fallback in the application loop when
+                                // this happened mid-drag (drag-out from a snap).
+                                _restorePreMax();
+                            }
                         }
                     }
                     break;
@@ -355,6 +387,7 @@ public:
     void requestClose()       override { m_closeRequested = true; }
     bool consumeFocusLost()  override { bool v = m_focusLost;  m_focusLost  = false; return v; }
     bool consumeMouseLeave() override { bool v = m_mouseLeft; m_mouseLeft = false; return v; }
+    bool consumeWasResized() override { bool v = m_wasResized; m_wasResized = false; return v; }
     void swapBuffers()        override {}
     void setVSync(bool)       override {}
 
@@ -526,8 +559,16 @@ public:
     }
 
     // Toggle maximize via _NET_WM_STATE_MAXIMIZED_VERT + _HORZ.
+    //
+    // Mutter/GNOME does NOT honor a client-message maximize for our borderless
+    // (CSD) window — it sends no PropertyNotify and does not resize. So we drive
+    // the geometry and state ourselves here. The atom is still sent to keep the
+    // WM's notion of the window state in sync (taskbar, alt-tab, etc.). The
+    // PropertyNotify path remains for WM-INITIATED snaps (drag-to-edge), which
+    // see no transition here because we set m_isMaximized synchronously.
     void setMaximized(bool on) override {
         if (m_style == Genesis::PlatformWindowStyle::Popup) return;
+        if (on == m_isMaximized) return;  // no-op (also tames repeated button fires)
         xcb_atom_t stateAtom = _internAtom("_NET_WM_STATE");
         xcb_atom_t maxVAtom  = _internAtom("_NET_WM_STATE_MAXIMIZED_VERT");
         xcb_atom_t maxHAtom  = _internAtom("_NET_WM_STATE_MAXIMIZED_HORZ");
@@ -540,13 +581,27 @@ public:
         ev.data.data32[0] = on ? 1u : 0u;  // _NET_WM_STATE_ADD / REMOVE
         ev.data.data32[1] = maxVAtom;
         ev.data.data32[2] = maxHAtom;       // two atoms in one message
-        ev.data.data32[3] = 0u;
+        ev.data.data32[3] = 1u;             // source indication: normal application
         ev.data.data32[4] = 0u;
         xcb_send_event(m_connection, 0, m_rootWindow,
                        XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
                        reinterpret_cast<const char*>(&ev));
         xcb_flush(m_connection);
-        m_isMaximized = on;
+
+        // Apply the geometry ourselves (the WM won't for a CSD window) and mark the
+        // maximize as self-managed so the PropertyNotify path ignores Mutter's atoms.
+        if (on) {
+            m_preMaxX = m_screenX; m_preMaxY = m_screenY;
+            m_preMaxW = m_width;   m_preMaxH = m_height;
+            m_isMaximized   = true;
+            m_selfMaximized = true;
+            _applyWorkArea();
+        } else {
+            m_isMaximized   = false;
+            m_selfMaximized = false;
+            _restorePreMax();
+            m_wasUnsnapped = false;  // a button restore is not a drag
+        }
     }
 
     bool isMaximized() const override { return m_isMaximized; }
@@ -565,13 +620,23 @@ public:
         return static_cast<uintptr_t>(m_windowId);
     }
 
+    void warpCursor(int gx, int gy) override {
+        xcb_warp_pointer(m_connection, XCB_NONE, m_rootWindow,
+                         0, 0, 0, 0,
+                         static_cast<int16_t>(gx),
+                         static_cast<int16_t>(gy));
+        xcb_flush(m_connection);
+    }
+
     void startWindowMove() override {
         if (m_style == Genesis::PlatformWindowStyle::Popup) return;
         xcb_atom_t atom = _internAtom("_NET_WM_MOVERESIZE");
         if (atom == XCB_ATOM_NONE) return;
-        // Release our pointer grab so the WM can grab the pointer for its own move.
+        // Start each drag with a clean unsnap flag; only an un-maximize that
+        // happens DURING this drag should drive the MOVERESIZE-restart fallback.
+        m_wasUnsnapped = false;
         xcb_ungrab_pointer(m_connection, XCB_CURRENT_TIME);
-        xcb_flush(m_connection);  // ensure ungrab reaches server before MOVERESIZE
+        xcb_flush(m_connection);
         auto [gx, gy] = globalCursorPos();
         xcb_client_message_event_t ev{};
         ev.response_type  = XCB_CLIENT_MESSAGE;
@@ -587,6 +652,80 @@ public:
                        XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
                        reinterpret_cast<const char*>(&ev));
         xcb_flush(m_connection);
+    }
+
+    void startWindowResize(uint32_t direction) override {
+        if (m_style == Genesis::PlatformWindowStyle::Popup) return;
+        xcb_atom_t atom = _internAtom("_NET_WM_MOVERESIZE");
+        if (atom == XCB_ATOM_NONE) return;
+        xcb_ungrab_pointer(m_connection, XCB_CURRENT_TIME);
+        xcb_flush(m_connection);
+        auto [gx, gy] = globalCursorPos();
+        xcb_client_message_event_t ev{};
+        ev.response_type  = XCB_CLIENT_MESSAGE;
+        ev.type           = atom;
+        ev.window         = m_windowId;
+        ev.format         = 32;
+        ev.data.data32[0] = static_cast<uint32_t>(gx);
+        ev.data.data32[1] = static_cast<uint32_t>(gy);
+        ev.data.data32[2] = direction;
+        ev.data.data32[3] = 1u;
+        ev.data.data32[4] = 1u;
+        xcb_send_event(m_connection, 0, m_rootWindow,
+                       XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
+                       reinterpret_cast<const char*>(&ev));
+        xcb_flush(m_connection);
+    }
+
+    // Read desktop 0's work area (screen minus panels) into x,y,w,h.
+    bool _getWorkArea(int& wx, int& wy, uint32_t& ww, uint32_t& wh) {
+        xcb_atom_t waAtom = _internAtom("_NET_WORKAREA");
+        auto cookie = xcb_get_property(m_connection, 0, m_rootWindow,
+                                       waAtom, XCB_ATOM_CARDINAL, 0, 16);
+        auto* reply = xcb_get_property_reply(m_connection, cookie, nullptr);
+        bool ok = false;
+        if (reply && xcb_get_property_value_length(reply) >= static_cast<int>(4 * sizeof(uint32_t))) {
+            auto* wa = static_cast<uint32_t*>(xcb_get_property_value(reply));
+            wx = static_cast<int>(wa[0]); wy = static_cast<int>(wa[1]);
+            ww = wa[2]; wh = wa[3];
+            ok = true;
+        }
+        if (reply) free(reply);
+        return ok;
+    }
+
+    // CSD snap protocol: the WM (Mutter/GNOME) sets the MAXIMIZED atoms but doesn't
+    // resize borderless windows. Resize ourselves to fill the work area.
+    void _applyWorkArea() {
+        int wx, wy; uint32_t ww, wh;
+        if (!_getWorkArea(wx, wy, ww, wh)) return;
+        uint32_t vals[4] = { static_cast<uint32_t>(wx), static_cast<uint32_t>(wy), ww, wh };
+        uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+                        XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+        xcb_configure_window(m_connection, m_windowId, mask, vals);
+        xcb_flush(m_connection);
+        m_screenX = wx; m_screenY = wy;
+        m_width   = ww; m_height  = wh;
+        m_wasResized = true;
+    }
+
+    // Restore the geometry saved before the last WM-initiated snap.
+    void _restorePreMax() {
+        if (m_preMaxW == 0) return;
+        uint32_t vals[4] = {
+            static_cast<uint32_t>(m_preMaxX),
+            static_cast<uint32_t>(m_preMaxY),
+            m_preMaxW, m_preMaxH
+        };
+        uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+                        XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+        xcb_configure_window(m_connection, m_windowId, mask, vals);
+        xcb_flush(m_connection);
+        m_wasUnsnapped = true;
+    }
+
+    bool consumeWasUnsnapped() override {
+        bool v = m_wasUnsnapped; m_wasUnsnapped = false; return v;
     }
 
     // Returns the total virtual desktop extent (union of all monitors).
@@ -702,7 +841,8 @@ private:
         using K = KeyEvent::Key;
         switch (ks) {
             case 0xFF09: ev.key = ev.shift ? K::BackTab : K::Tab; break;
-            case 0xFF0D: ev.key = K::Return;    break;
+            case 0xFF0D:                         // XK_Return (main Enter)
+            case 0xFF8D: ev.key = K::Return;    break;  // XK_KP_Enter (numpad Enter)
             case 0x0020:
                 ev.key = K::Space;
                 ev.utf8[0] = ' ';
@@ -762,6 +902,10 @@ private:
 
     PlatformWindowStyle m_style{PlatformWindowStyle::Normal};
     bool m_isMaximized{false};
+    bool m_wasUnsnapped{false};
+    bool m_selfMaximized{false};
+    int      m_preMaxX{0}, m_preMaxY{0};
+    uint32_t m_preMaxW{0}, m_preMaxH{0};
     float m_dpiScale{1.0f};
     int      m_screenX{0};
     int      m_screenY{0};
@@ -775,6 +919,7 @@ private:
     bool  m_pendingRightPress{false};
     bool  m_pendingRightRelease{false};
     bool  m_closeRequested{false};
+    bool  m_wasResized{false};
     bool  m_focusLost{false};
     bool  m_mouseLeft{false};
     bool  m_altDown{false};

@@ -75,6 +75,8 @@ public:
     // Focus & state checks
     virtual bool consumeFocusLost()  { return false; }
     virtual bool consumeMouseLeave() { return false; }
+    virtual bool consumeWasResized() { return false; }
+    virtual bool consumeWasUnsnapped() { return false; }
     virtual bool isAltDown() const { return false; }
 
     virtual std::pair<int,int> globalCursorPos() const { return {0, 0}; }
@@ -86,7 +88,10 @@ public:
     virtual void setMaximized(bool on)   { (void)on; }
     virtual bool isMaximized() const     { return false; }
     virtual void requestClose()          {}
-    virtual void startWindowMove()       {}
+    virtual void startWindowMove()              {}
+    // dir: 0=TL,1=T,2=TR,3=R,4=BR,5=B,6=BL,7=L  (_NET_WM_MOVERESIZE directions)
+    virtual void startWindowResize(uint32_t dir) { (void)dir; }
+    virtual void warpCursor(int gx, int gy)    { (void)gx; (void)gy; }
     virtual void grabKeyboardFocus()     {}
     virtual uintptr_t rawWindowId() const { return 0; }
     virtual float dpiScale() const { return 1.0f; }

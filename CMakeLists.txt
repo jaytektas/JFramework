@@ -186,6 +186,9 @@ if(GENESIS_BUILD_EXAMPLES)
 
     add_executable(genesis_dock_window_styles examples/dock_window_styles/main.cpp)
     target_link_libraries(genesis_dock_window_styles PRIVATE genesis_platform)
+
+    add_executable(genesis_empty_window examples/empty_window/main.cpp)
+    target_link_libraries(genesis_empty_window PRIVATE genesis_platform)
 endif()
 
 # --- AI tooling: external semantic probe + agent (read & drive a running app) ---

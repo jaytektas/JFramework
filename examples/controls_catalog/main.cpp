@@ -20,6 +20,11 @@
 #include <genesis/platforms/PopupWindow.h>
 #include <genesis/core/MenuSystem.h>
 #include <genesis/core/Dialog.h>
+#include <genesis/core/Animator.h>
+#include <genesis/core/Splitter.h>
+#include <genesis/core/ImageWidget.h>
+#include <genesis/platform/Clipboard.h>
+#include <genesis/platform/FileDialog.h>
 
 #if defined(_WIN32)
 using PlatformWindowImpl = Genesis::WindowsPlatformWindow;
@@ -54,16 +59,28 @@ public:
         : m_graph(graph), m_focus(focus), m_winW(winW), m_winH(winH) { buildUI(); }
 
     void update(float dt) {
-        if (m_animPaused) return;          // frozen → nothing changes → no redraw needed
+        if (m_animPaused) return;
         m_elapsed += dt;
         if (m_progressBar)
             m_progressBar->setProgress(0.5f + 0.5f * std::sin(m_elapsed * 0.8f));
+
+        m_demoAnimator.advance(dt);
+        if (m_animBar0) m_animBar0->setProgress(m_demoAnimator.value(m_animSlot0));
+        if (m_animBar1) m_animBar1->setProgress(m_demoAnimator.value(m_animSlot1));
+        if (m_animBar2) m_animBar2->setProgress(m_demoAnimator.value(m_animSlot2));
+        if (m_demoAnimator.isDone() && m_animBar0) {
+            m_animForward = !m_animForward;
+            float tgt = m_animForward ? 1.0f : 0.0f;
+            m_demoAnimator.animateTo(m_animSlot0, tgt, 1200.0f, Genesis::Core::Easing::EaseInOut);
+            m_demoAnimator.animateTo(m_animSlot1, tgt, 1800.0f, Genesis::Core::Easing::EaseOutElastic);
+            m_demoAnimator.animateTo(m_animSlot2, tgt, 2400.0f, Genesis::Core::Easing::EaseOutBounce);
+        }
     }
 
     // True while something is visually animating and the frame must be redrawn
     // continuously.  Here only the demo progress bar animates; a real app would OR
     // together all active animators / transitions.
-    bool isAnimating() const { return !m_animPaused && m_progressBar != nullptr; }
+    bool isAnimating() const { return !m_animPaused && (m_progressBar != nullptr || !m_demoAnimator.isDone()); }
     void toggleAnimation()    { m_animPaused = !m_animPaused; }
     bool showPanelScrollbars() const { return m_showPanelScrollbars; }
     void setShowPanelScrollbars(bool show) {
@@ -1052,6 +1069,84 @@ private:
             m_widgets.push_back(std::move(sa));
         }
 
+        beginPanel("New Features");
+        section("Animator — EaseInOut / EaseOutElastic / EaseOutBounce");
+        m_animBar0 = add<ProgressBar>(m_graph, 340.0f, 12.0f);
+        m_animBar1 = add<ProgressBar>(m_graph, 340.0f, 12.0f);
+        m_animBar2 = add<ProgressBar>(m_graph, 340.0f, 12.0f);
+        m_animSlot0 = m_demoAnimator.add(0.0f);
+        m_animSlot1 = m_demoAnimator.add(0.0f);
+        m_animSlot2 = m_demoAnimator.add(0.0f);
+        m_demoAnimator.animateTo(m_animSlot0, 1.0f, 1200.0f, Genesis::Core::Easing::EaseInOut);
+        m_demoAnimator.animateTo(m_animSlot1, 1.0f, 1800.0f, Genesis::Core::Easing::EaseOutElastic);
+        m_demoAnimator.animateTo(m_animSlot2, 1.0f, 2400.0f, Genesis::Core::Easing::EaseOutBounce);
+
+        section("TextArea — Shift+Arrow selects, Ctrl+C/V/X/A");
+        {
+            auto* ta = add<TextArea>(m_graph, "", 340.0f, 80.0f);
+            ta->setText("Genesis UI — zero-dependency widget toolkit.\n"
+                        "Select text with Shift+Arrow or Ctrl+A for all.\n"
+                        "Ctrl+C copies, Ctrl+X cuts, Ctrl+V pastes.");
+        }
+
+        section("Clipboard");
+        {
+            auto* copyBtn  = add<Button>(m_graph, "Copy sample text", 200.0f, 32.0f);
+            auto* pasteBtn = add<Button>(m_graph, "Paste into label", 200.0f, 32.0f);
+            m_clipboardLabel = add<Label>(m_graph, "(click Paste to show clipboard)", 340.0f, 18.0f);
+            Label* lbl = m_clipboardLabel;
+            copyBtn->onClicked.connect([lbl] {
+                Clipboard::setText("Hello from Genesis UI clipboard!");
+                lbl->setText("Copied sample text to clipboard.");
+            });
+            pasteBtn->onClicked.connect([lbl] {
+                std::string t = Clipboard::getText();
+                lbl->setText(t.empty() ? "(clipboard is empty)" : t.substr(0, 48));
+            });
+        }
+
+        section("File Dialogs");
+        {
+            m_fileDialogLabel = add<Label>(m_graph, "(no path selected)", 340.0f, 18.0f);
+            Label* lbl = m_fileDialogLabel;
+            auto* openBtn = add<Button>(m_graph, "Open File...", 150.0f, 32.0f);
+            auto* saveBtn = add<Button>(m_graph, "Save File...", 150.0f, 32.0f);
+            auto* dirBtn  = add<Button>(m_graph, "Open Folder...", 160.0f, 32.0f);
+            openBtn->onClicked.connect([lbl] {
+                std::string f = FileDialog::openFile("Select a File");
+                lbl->setText(f.empty() ? "(cancelled)" : f);
+            });
+            saveBtn->onClicked.connect([lbl] {
+                std::string f = FileDialog::saveFile("Save As", "output.txt");
+                lbl->setText(f.empty() ? "(cancelled)" : f);
+            });
+            dirBtn->onClicked.connect([lbl] {
+                std::string f = FileDialog::openDirectory("Select Folder");
+                lbl->setText(f.empty() ? "(cancelled)" : f);
+            });
+        }
+
+        section("Image Widget");
+        m_imageWidget = add<ImageWidget>(m_graph, kNullTexture, 200.0f, 100.0f);
+        add<Label>(m_graph, "RGBA gradient via GpuHal::uploadTexture()", 340.0f, 16.0f);
+
+        section("Splitter — drag the divider");
+        {
+            auto* lblA = new Label(m_graph, "Pane A", 140.0f, 50.0f);
+            auto* lblB = new Label(m_graph, "Pane B", 140.0f, 50.0f);
+            auto split = std::make_unique<Splitter>(m_graph, Splitter::Orientation::Horizontal, 340.0f, 50.0f);
+            m_demoSplitter = split.get();
+            split->addPane(lblA, 0.5f);
+            split->addPane(lblB, 0.5f);
+            m_curPanel->widgets.push_back(lblA);
+            m_curPanel->widgets.push_back(lblB);
+            m_widgets.push_back(std::unique_ptr<Widget>(lblA));
+            m_widgets.push_back(std::unique_ptr<Widget>(lblB));
+            m_graph.addChild(m_curContainer, split->getNodeId());
+            m_curPanel->widgets.push_back(split.get());
+            m_widgets.push_back(std::move(split));
+        }
+
         // ====================================================================
         // Dock zone management — 3-column layout exercising every constraint.
         //
@@ -1104,8 +1199,9 @@ private:
         };
         makeDock("Properties", 260.f, 200.f, propsLeaf);
         makeDock("Inspector",  260.f, 200.f, inspectLeaf);
-        makeDock("Console",    260.f, 160.f, outputLeaf);
-        makeDock("Output",     260.f, 160.f, outputLeaf);
+        makeDock("Console",       260.f, 160.f, outputLeaf);
+        makeDock("Output",        260.f, 160.f, outputLeaf);
+        makeDock("New Features",  260.f, 200.f, outputLeaf);
         makeDock("Navigator",  200.f, 300.f, navLeaf);
         makeDock("Assets",     200.f, 280.f, assetLeaf);
 
@@ -1141,6 +1237,26 @@ private:
     }
 
 public:
+    void layoutExtra() {
+        if (m_demoSplitter) m_demoSplitter->layout();
+    }
+
+    void initTextures(GpuHal& hal) {
+        std::vector<uint8_t> rgba(64 * 64 * 4);
+        for (int y = 0; y < 64; ++y) {
+            for (int x = 0; x < 64; ++x) {
+                int i = (y * 64 + x) * 4;
+                rgba[i + 0] = 255;
+                rgba[i + 1] = static_cast<uint8_t>(x * 4);
+                rgba[i + 2] = static_cast<uint8_t>(y * 4);
+                rgba[i + 3] = 255;
+            }
+        }
+        m_imageTex = hal.uploadTexture(rgba.data(), 64, 64);
+        if (m_imageWidget && m_imageTex != kNullTexture)
+            m_imageWidget->setTexture(m_imageTex);
+    }
+
     void createPanelFromMenu(Genesis::Menu* menu) {
         if (panelByTitle(menu->title())) return;
 
@@ -1241,6 +1357,19 @@ public:
     std::unique_ptr<Genesis::MenuBar> m_menuBar;
     std::vector<std::unique_ptr<Genesis::Menu>> m_menus;
     std::vector<std::unique_ptr<Genesis::Menu>> m_submenus;
+
+    // ---- New-feature demos ----
+    Genesis::Core::Animator m_demoAnimator;
+    size_t         m_animSlot0{0}, m_animSlot1{0}, m_animSlot2{0};
+    ProgressBar*   m_animBar0{nullptr};
+    ProgressBar*   m_animBar1{nullptr};
+    ProgressBar*   m_animBar2{nullptr};
+    bool           m_animForward{true};
+    Splitter*      m_demoSplitter{nullptr};
+    Label*         m_clipboardLabel{nullptr};
+    Label*         m_fileDialogLabel{nullptr};
+    ImageWidget*   m_imageWidget{nullptr};
+    TextureHandle  m_imageTex{kNullTexture};
 };
 
 // ============================================================================
@@ -1293,6 +1422,7 @@ int main() {
     GApplication app;
     Genesis::FocusManager focus;
     auto catalog = std::make_unique<ControlsCatalog>(app.sceneGraph(), focus, W, H);
+    catalog->initTextures(*hal);
 
     // Register the main dock host so FloatingDockWindows can find it by cursor pos.
     DockRegistry::instance().registerHost(
@@ -1543,6 +1673,17 @@ int main() {
     std::cout << "  'l' / 'L': Toggle Live Drop Preview\n";
     std::cout << "  'r' / 'R': Toggle Global Menu TearOff\n";
 
+    // When the window is WM-maximized (full screen), the first _NET_WM_MOVERESIZE
+    // causes the WM to un-maximize (size + position change) but the drag doesn't
+    // start because the cursor is now outside the restored window bounds. We
+    // restart MOVERESIZE with the correct offset once the restore completes.
+    bool     titleMoveInitiated  = false;
+    float    titlePressLocalXFrac = 0.f;
+    float    titlePressLocalY     = 0.f;
+    uint32_t titlePressWinW       = 0;   // window width at the time of the title-bar press
+    uint32_t titlePressWinH       = 0;   // window height at the time of the title-bar press
+    bool     closePendingRelease  = false;
+
     while (!window->shouldClose()) {
         auto now = std::chrono::steady_clock::now();
         float dt  = std::chrono::duration<float>(now - lastTime).count();
@@ -1550,9 +1691,53 @@ int main() {
 
         window->pollNativeEvents();
 
+        // After we hand a drag to the WM (startWindowMove), the WM may un-dock the
+        // window. For a full-screen CSD un-maximize WE restored the geometry, so the
+        // WM's MOVERESIZE grab still references the old full-size window — restart it
+        // with the corrected offset. For native left/right tile un-tiling the WM
+        // drives everything, so stay hands-off (manual dragging would fight the WM's
+        // edge tiling and the window would land off the edge).
+        if (titleMoveInitiated) {
+            bool resized = window->consumeWasResized();
+            bool held    = window->isLeftButtonDown();
+            if (resized) {
+                uint32_t newW = window->width();
+                uint32_t newH = window->height();
+                bool widthShrunk   = (newW < titlePressWinW);
+                bool fromCSDUnsnap = window->consumeWasUnsnapped();
+                if (held && widthShrunk && fromCSDUnsnap) {
+                    titleMoveInitiated  = false;
+                    closePendingRelease = false;
+                    float restoredW = static_cast<float>(newW);
+                    auto [cx, cy] = window->globalCursorPos();
+                    titlePressLocalXFrac = (restoredW > 0.f)
+                        ? static_cast<float>(cx - window->screenX()) / restoredW
+                        : 0.f;
+                    titlePressLocalY  = static_cast<float>(cy - window->screenY());
+                    titlePressWinW    = newW;
+                    titlePressWinH    = newH;
+                    titleMoveInitiated = true;
+                    window->consumeWasResized();
+                    window->startWindowMove();
+                } else {
+                    titleMoveInitiated = false;
+                }
+            }
+        }
+        if (!window->isLeftButtonDown()) {
+            titleMoveInitiated  = false;
+            // Note: closePendingRelease is cleared in the release handler below,
+            // NOT here — the release event may arrive same frame as button-up.
+        }
+
         float mouseX_val = window->mouseX();
         float mouseY_val = window->mouseY();
-        if (!activeMenuPopups.empty()) {
+        // Detect window position change this frame so we can refresh stale coords.
+        static int prevWinX = 0, prevWinY = 0;
+        int curWinX = window->screenX(), curWinY = window->screenY();
+        bool windowMovedThisFrame = (curWinX != prevWinX || curWinY != prevWinY);
+        prevWinX = curWinX; prevWinY = curWinY;
+        if (!activeMenuPopups.empty() || windowMovedThisFrame) {
             auto [gx, gy] = window->globalCursorPos();
             mouseX_val = static_cast<float>(gx - window->screenX());
             mouseY_val = static_cast<float>(gy - window->screenY());
@@ -1621,6 +1806,7 @@ int main() {
         float wheel = window->consumeWheel();
         catalog->clearPanelVisibility();
         catalog->updateHostDockContent(catalog->dockHost(), wheel, window->mouseX(), window->mouseY());
+        catalog->layoutExtra();
 
         // Block widget input only when a modal dialog is active.
         // Modal = any active native dialog window is modal
@@ -1750,68 +1936,120 @@ int main() {
         window->consumeMouseLeave();  // drains the flag; m_mouseX/Y already reset in platform on leave
 
         // ---- Custom title bar: buttons and drag (intercept before catalog) ----
-        // titleDragging: self-managed window drag with snap-to-maximize at screen top.
-        // dragAnchorX/Y: cursor offset within the window at drag start.
-        // titleSnapPreview: cursor within snap zone (top ~8px of screen).
-        static bool  titleDragging    = false;
-        static float dragAnchorX      = 0.f;
-        static float dragAnchorY      = 0.f;
-        static bool  titleSnapPreview = false;
+        // ---- Custom title bar — WM-delegated drag/resize ----
+        // All moves and resizes hand off to _NET_WM_MOVERESIZE so the WM owns the
+        // operation: snap preview, multi-monitor crossing, and restore state all work
+        // correctly without us duplicating WM logic.
         using Clock = std::chrono::steady_clock;
         static Clock::time_point lastTitleClick{};
+        uint32_t wmResizeDir = UINT32_MAX;   // edge/corner resize direction this frame
         {
-            float W       = static_cast<float>(curW);
-            float closeX  = W - kBtnW;
-            float maxX    = W - kBtnW * 2.f;
-            float minX    = W - kBtnW * 3.f;
-            bool inBar    = (mouseY_val >= 0.f && mouseY_val < kTitleH);
-            bool inClose  = inBar && (mouseX_val >= closeX);
-            bool inMax    = inBar && (mouseX_val >= maxX && mouseX_val < closeX);
-            bool inMin    = inBar && (mouseX_val >= minX && mouseX_val < maxX);
-            bool inDrag   = inBar && (mouseX_val < minX);
+            float W      = static_cast<float>(curW);
+            float H      = static_cast<float>(curH);
+            float closeX = W - kBtnW;
+            float maxX   = W - kBtnW * 2.f;
+            float minX   = W - kBtnW * 3.f;
+            // If the window moved this frame (position changed since last poll),
+            // the XCB event_x/y coordinates are stale — query the live cursor.
+            // Otherwise use the fast cached values to avoid a synchronous round-trip.
+            float tbMx = mouseX_val;
+            float tbMy = mouseY_val;
+            if (windowMovedThisFrame) {
+                auto [tbGx, tbGy] = window->globalCursorPos();
+                tbMx = static_cast<float>(tbGx - window->screenX());
+                tbMy = static_cast<float>(tbGy - window->screenY());
+            }
+            bool inBar   = tbMy >= 0.f && tbMy < kTitleH;
+            bool inClose = inBar && tbMx >= closeX;
+            bool inMax   = inBar && tbMx >= maxX && tbMx < closeX;
+            bool inMin   = inBar && tbMx >= minX && tbMx < maxX;
+            bool inDrag  = inBar && tbMx < minX;
+
+            // Handle pending close-button release (fires on release, not press).
+            if (released) {
+                if (closePendingRelease && inClose) {
+                    window->requestClose();
+                }
+                closePendingRelease = false;
+            }
 
             if (pressed) {
-                if      (inClose) { pressed = false; window->requestClose(); }
-                else if (inMax)   { pressed = false; window->setMaximized(!window->isMaximized()); }
-                else if (inMin)   { pressed = false; window->minimize(); }
-                else if (inDrag) {
+                if (inClose) {
+                    pressed = false;
+                    closePendingRelease = true;
+                    // When maximized, also start the move so the user can drag out by
+                    // pressing-and-dragging from the close button area (common gesture).
+                    if (window->isMaximized()) {
+                        titleMoveInitiated   = true;
+                        titlePressLocalXFrac = (W > 0.f) ? mouseX_val / W : 0.f;
+                        titlePressLocalY     = mouseY_val;
+                        titlePressWinW       = window->width();
+                        titlePressWinH       = window->height();
+                        window->consumeWasResized();
+                        window->startWindowMove();
+                    }
+                } else if (inMax) {
+                    pressed = false;
+                    window->setMaximized(!window->isMaximized());
+                } else if (inMin) {
+                    pressed = false;
+                    window->minimize();
+                } else if (inDrag) {
                     pressed = false;
                     auto clickNow = Clock::now();
                     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                   clickNow - lastTitleClick).count();
                     lastTitleClick = clickNow;
                     if (ms < 300) {
-                        // Double-click: toggle maximize/restore
+                        titleMoveInitiated = false;
                         window->setMaximized(!window->isMaximized());
-                        titleDragging = false;
-                    } else if (!window->isMaximized()) {
-                        titleDragging    = true;
-                        titleSnapPreview = false;
-                        auto [gx, gy] = window->globalCursorPos();
-                        dragAnchorX = static_cast<float>(gx - window->screenX());
-                        dragAnchorY = static_cast<float>(gy - window->screenY());
+                    } else {
+                        titleMoveInitiated   = true;
+                        titlePressLocalXFrac = (W > 0.f) ? mouseX_val / W : 0.f;
+                        titlePressLocalY     = mouseY_val;
+                        titlePressWinW       = window->width();
+                        titlePressWinH       = window->height();
+                        window->consumeWasResized();  // drain any stale startup/prior resize
+                        window->startWindowMove();
+                    }
+                } else if (!window->isMaximized()) {
+                    // ---- Edge / corner resize zones ----
+                    // Top edges conflict with title bar so we skip them; left/right
+                    // start below the title bar, bottom edges cover the full width.
+                    constexpr float kEdge = 6.f;
+                    constexpr float kCorn = 14.f;
+                    bool onLeft   = mouseX_val < kEdge   && mouseY_val >= kTitleH;
+                    bool onRight  = mouseX_val >= W-kEdge && mouseY_val >= kTitleH;
+                    bool onBottom = mouseY_val >= H-kEdge;
+                    bool onBL     = mouseX_val < kCorn   && mouseY_val >= H-kCorn;
+                    bool onBR     = mouseX_val >= W-kCorn && mouseY_val >= H-kCorn;
+
+                    if      (onBL)     wmResizeDir = 6;
+                    else if (onBR)     wmResizeDir = 4;
+                    else if (onBottom) wmResizeDir = 5;
+                    else if (onLeft)   wmResizeDir = 7;
+                    else if (onRight)  wmResizeDir = 3;
+
+                    if (wmResizeDir != UINT32_MAX) {
+                        pressed = false;
+                        window->startWindowResize(wmResizeDir);
                     }
                 }
-            }
+            } else if (!window->isMaximized()) {
+                // Hover: compute resize direction for cursor shape
+                constexpr float kEdge = 6.f;
+                constexpr float kCorn = 14.f;
+                bool onLeft   = mouseX_val < kEdge   && mouseY_val >= kTitleH;
+                bool onRight  = mouseX_val >= W-kEdge && mouseY_val >= kTitleH;
+                bool onBottom = mouseY_val >= H-kEdge;
+                bool onBL     = mouseX_val < kCorn   && mouseY_val >= H-kCorn;
+                bool onBR     = mouseX_val >= W-kCorn && mouseY_val >= H-kCorn;
 
-            bool held = window->isLeftButtonDown();
-            if (titleDragging) {
-                if (!held) {
-                    if (titleSnapPreview) window->setMaximized(true);
-                    titleDragging    = false;
-                    titleSnapPreview = false;
-                } else {
-                    auto [gx, gy] = window->globalCursorPos();
-                    auto [sw, sh] = window->virtualDesktopSize();
-                    int nx = gx - static_cast<int>(dragAnchorX);
-                    int ny = gy - static_cast<int>(dragAnchorY);
-                    nx = std::max(-(int)curW/2, std::min(nx, sw - (int)curW/2));
-                    ny = std::max(0,             ny);
-                    titleSnapPreview = (gy < 8);
-                    if (!titleSnapPreview) window->setPosition(nx, ny);
-                    pressed  = false;
-                    released = false;
-                }
+                if      (onBL)     wmResizeDir = 6;
+                else if (onBR)     wmResizeDir = 4;
+                else if (onBottom) wmResizeDir = 5;
+                else if (onLeft)   wmResizeDir = 7;
+                else if (onRight)  wmResizeDir = 3;
             }
         }
 
@@ -1826,9 +2064,20 @@ int main() {
 
         // ---- DockHost mouse routing (inline docks) ----
         PlatformCursor pc = PlatformCursor::Default;
-        auto hc = catalog->dockHost().getHoverCursor(mouseX_val, mouseY_val);
-        if (hc == DockHost::HoverCursor::Horiz)      pc = PlatformCursor::ResizeLeftRight;
-        else if (hc == DockHost::HoverCursor::Vert)  pc = PlatformCursor::ResizeUpDown;
+        if (wmResizeDir != UINT32_MAX) {
+            // Map _NET_WM_MOVERESIZE direction → cursor shape
+            switch (wmResizeDir) {
+                case 0: case 4: pc = PlatformCursor::ResizeTopLeft;    break; // TL / BR
+                case 2: case 6: pc = PlatformCursor::ResizeTopRight;   break; // TR / BL
+                case 1: case 5: pc = PlatformCursor::ResizeUpDown;     break; // T  / B
+                case 3: case 7: pc = PlatformCursor::ResizeLeftRight;  break; // R  / L
+                default: break;
+            }
+        } else {
+            auto hc = catalog->dockHost().getHoverCursor(mouseX_val, mouseY_val);
+            if (hc == DockHost::HoverCursor::Horiz)     pc = PlatformCursor::ResizeLeftRight;
+            else if (hc == DockHost::HoverCursor::Vert) pc = PlatformCursor::ResizeUpDown;
+        }
         window->setCursor(pc);
 
         if (auto ev = catalog->dockHost().handleMouse(
