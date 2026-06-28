@@ -1,32 +1,37 @@
 #pragma once
 
 // ============================================================================
-// Genesis::Json — lightweight read/write JSON (Step 10)
+// Genesis::Json — lightweight read/write JSON
 //
-// Superior to Qt's QJsonDocument: no boxing via QJsonValue/QJsonObject layers,
-// no byte array round-trip. std::variant-based node tree, parse from string,
-// stringify to string. No external dependencies.
+// std::variant-based node tree. No external dependencies.
 //
-// Usage:
+// Parse:
 //   auto root = Json::parse(R"({"port":"/dev/ttyUSB0","baud":115200})");
+//   auto root = Json::parseFile("config.json");          // throws on error
+//   auto opt  = Json::tryParse(src);                     // returns nullopt on error
 //   std::string port = root["port"].str();
 //   int baud = root["baud"].number<int>();
 //
+// Build + serialise:
 //   Json obj = Json::object();
 //   obj["port"] = Json("/dev/ttyUSB0");
-//   obj["baud"] = Json(115200.0);
-//   std::string s = obj.dump(2);   // pretty-print with 2-space indent
+//   obj["baud"] = Json(115200);
+//   obj.dumpToFile("config.json");
+//   std::string s = obj.dump(2);    // pretty-print with 2-space indent
 // ============================================================================
 
 #include <string>
 #include <vector>
+#include <optional>
 #include <unordered_map>
 #include <variant>
 #include <stdexcept>
 #include <sstream>
+#include <fstream>
 #include <iomanip>
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 
 namespace Genesis {
 
@@ -34,40 +39,41 @@ class Json {
 public:
     using Null   = std::monostate;
     using Array  = std::vector<Json>;
-    using Object = std::vector<std::pair<std::string, Json>>;  // ordered
+    using Object = std::vector<std::pair<std::string, Json>>;  // insertion-ordered
 
-    Json()                    : m_val(Null{})           {}
-    Json(std::nullptr_t)      : m_val(Null{})           {}
-    Json(bool v)              : m_val(v)                {}
-    Json(double v)            : m_val(v)                {}
-    Json(int v)               : m_val(static_cast<double>(v)){}
-    Json(int64_t v)           : m_val(static_cast<double>(v)){}
-    Json(const char* v)       : m_val(std::string(v))   {}
-    Json(std::string v)       : m_val(std::move(v))     {}
-    Json(Array v)             : m_val(std::move(v))     {}
-    Json(Object v)            : m_val(std::move(v))     {}
+    Json()               : m_val(Null{})           {}
+    Json(std::nullptr_t) : m_val(Null{})           {}
+    Json(bool v)         : m_val(v)                {}
+    Json(double v)       : m_val(v)                {}
+    Json(int v)          : m_val(static_cast<double>(v)) {}
+    Json(int64_t v)      : m_val(static_cast<double>(v)) {}
+    Json(const char* v)  : m_val(std::string(v))   {}
+    Json(std::string v)  : m_val(std::move(v))     {}
+    Json(Array v)        : m_val(std::move(v))     {}
+    Json(Object v)       : m_val(std::move(v))     {}
 
     static Json object() { return Json(Object{}); }
     static Json array()  { return Json(Array{}); }
 
-    // ---- Type checks ---------------------------------------------------
-    bool isNull()   const { return std::holds_alternative<Null>(m_val);         }
-    bool isBool()   const { return std::holds_alternative<bool>(m_val);         }
-    bool isNumber() const { return std::holds_alternative<double>(m_val);       }
-    bool isString() const { return std::holds_alternative<std::string>(m_val);  }
-    bool isArray()  const { return std::holds_alternative<Array>(m_val);        }
-    bool isObject() const { return std::holds_alternative<Object>(m_val);       }
+    // ---- Type checks --------------------------------------------------------
+    bool isNull()   const { return std::holds_alternative<Null>(m_val);        }
+    bool isBool()   const { return std::holds_alternative<bool>(m_val);        }
+    bool isNumber() const { return std::holds_alternative<double>(m_val);      }
+    bool isString() const { return std::holds_alternative<std::string>(m_val); }
+    bool isArray()  const { return std::holds_alternative<Array>(m_val);       }
+    bool isObject() const { return std::holds_alternative<Object>(m_val);      }
 
-    // ---- Value accessors -----------------------------------------------
-    bool              boolean(bool def = false) const {
-        if (isBool()) return std::get<bool>(m_val);
+    // ---- Value accessors ----------------------------------------------------
+    bool boolean(bool def = false) const {
+        if (isBool())   return std::get<bool>(m_val);
         if (isNumber()) return std::get<double>(m_val) != 0.0;
         return def;
     }
-    double            number(double def = 0.0) const {
-        if (isNumber()) return std::get<double>(m_val);
-        return def;
+
+    double number(double def = 0.0) const {
+        return isNumber() ? std::get<double>(m_val) : def;
     }
+
     template<typename T>
     T number(T def = T{}) const { return static_cast<T>(number(static_cast<double>(def))); }
 
@@ -75,12 +81,20 @@ public:
         static const std::string empty;
         return isString() ? std::get<std::string>(m_val) : empty;
     }
-    const Array&  arr() const { return std::get<Array>(m_val); }
-    const Object& obj() const { return std::get<Object>(m_val); }
-    Array&        arr()       { return std::get<Array>(m_val); }
-    Object&       obj()       { return std::get<Object>(m_val); }
 
-    // ---- Object access -------------------------------------------------
+    // Safe array/object accessors — return empty ref on wrong type (like str() does).
+    const Array& arr() const {
+        static const Array empty;
+        return isArray() ? std::get<Array>(m_val) : empty;
+    }
+    const Object& obj() const {
+        static const Object empty;
+        return isObject() ? std::get<Object>(m_val) : empty;
+    }
+    Array&  arr() { return std::get<Array>(m_val);  }
+    Object& obj() { return std::get<Object>(m_val); }
+
+    // ---- Object access ------------------------------------------------------
     const Json& operator[](const std::string& key) const {
         static const Json null_val;
         if (!isObject()) return null_val;
@@ -102,27 +116,51 @@ public:
         return false;
     }
 
-    // ---- Array access --------------------------------------------------
+    void erase(const std::string& key) {
+        if (!isObject()) return;
+        auto& o = obj();
+        o.erase(std::remove_if(o.begin(), o.end(),
+                               [&](const auto& p){ return p.first == key; }),
+                o.end());
+    }
+
+    // ---- Array access -------------------------------------------------------
     const Json& operator[](size_t i) const {
         static const Json null_val;
         return isArray() && i < arr().size() ? arr()[i] : null_val;
     }
     Json& operator[](size_t i) { return arr()[i]; }
-    void  push(Json v) { arr().push_back(std::move(v)); }
+
+    void push(Json v) {
+        if (!isArray()) m_val = Array{};
+        arr().push_back(std::move(v));
+    }
+
     size_t size() const {
         if (isArray())  return arr().size();
         if (isObject()) return obj().size();
         return 0;
     }
 
-    // ---- Serialise -----------------------------------------------------
+    bool empty() const { return size() == 0; }
+
+    // ---- Serialise ----------------------------------------------------------
     std::string dump(int indent = -1) const {
         std::ostringstream out;
         _dump(out, 0, indent);
         return out.str();
     }
 
-    // ---- Parse ---------------------------------------------------------
+    bool dumpToFile(const std::string& path, int indent = 2) const {
+        std::ofstream f(path);
+        if (!f) return false;
+        f << dump(indent);
+        return f.good();
+    }
+
+    // ---- Parse --------------------------------------------------------------
+
+    // Throws std::runtime_error on malformed input.
     static Json parse(const std::string& src) {
         size_t pos = 0;
         _skip(src, pos);
@@ -130,30 +168,61 @@ public:
         return val;
     }
 
+    // Returns nullopt on any parse error — no exception.
+    static std::optional<Json> tryParse(const std::string& src) {
+        try { return parse(src); } catch (...) { return std::nullopt; }
+    }
+
+    // Reads entire file then parses. Throws on I/O or parse error.
+    static Json parseFile(const std::string& path) {
+        std::ifstream f(path);
+        if (!f) throw std::runtime_error("Json::parseFile: cannot open '" + path + "'");
+        std::string src((std::istreambuf_iterator<char>(f)),
+                         std::istreambuf_iterator<char>());
+        return parse(src);
+    }
+
+    // Returns nullopt on any error.
+    static std::optional<Json> tryParseFile(const std::string& path) {
+        try { return parseFile(path); } catch (...) { return std::nullopt; }
+    }
+
 private:
     std::variant<Null, bool, double, std::string, Array, Object> m_val;
 
-    // Serialisation
-    void _dump(std::ostringstream& out, int depth, int indent) const {
-        std::string nl  = indent >= 0 ? "\n" : "";
-        std::string pad = indent >= 0 ? std::string(size_t((depth+1)*indent), ' ') : "";
-        std::string cpad= indent >= 0 ? std::string(size_t(depth*indent), ' ') : "";
+    // ---- Serialisation ------------------------------------------------------
 
-        if (isNull())   { out << "null"; }
-        else if (isBool())  { out << (boolean() ? "true" : "false"); }
-        else if (isNumber()){ out << std::setprecision(15) << number(); }
-        else if (isString()){
-            out << '"';
-            for (char c : str()) {
-                if      (c == '"')  out << "\\\"";
-                else if (c == '\\') out << "\\\\";
-                else if (c == '\n') out << "\\n";
-                else if (c == '\r') out << "\\r";
-                else if (c == '\t') out << "\\t";
-                else                out << c;
+    static void _escapeString(std::ostringstream& out, const std::string& s) {
+        out << '"';
+        for (unsigned char c : s) {
+            switch (c) {
+                case '"':  out << "\\\""; break;
+                case '\\': out << "\\\\"; break;
+                case '\n': out << "\\n";  break;
+                case '\r': out << "\\r";  break;
+                case '\t': out << "\\t";  break;
+                default:
+                    if (c < 0x20) {
+                        out << "\\u" << std::hex << std::setw(4)
+                            << std::setfill('0') << (int)c << std::dec;
+                    } else {
+                        out << c;
+                    }
+                    break;
             }
-            out << '"';
         }
+        out << '"';
+    }
+
+    void _dump(std::ostringstream& out, int depth, int indent) const {
+        std::string nl   = indent >= 0 ? "\n" : "";
+        std::string pad  = indent >= 0 ? std::string(size_t((depth+1)*indent), ' ') : "";
+        std::string cpad = indent >= 0 ? std::string(size_t( depth   *indent), ' ') : "";
+
+        if      (isNull())   { out << "null"; }
+        else if (isBool())   { out << (boolean() ? "true" : "false"); }
+        else if (isNumber()) { out << std::setprecision(15) << number(); }
+        else if (isString()) { _escapeString(out, str()); }
         else if (isArray()) {
             out << '[';
             const auto& a = arr();
@@ -170,7 +239,9 @@ private:
             const auto& o = obj();
             for (size_t i = 0; i < o.size(); ++i) {
                 if (i) out << ',';
-                out << nl << pad << '"' << o[i].first << '"' << ':';
+                out << nl << pad;
+                _escapeString(out, o[i].first);   // keys escaped too
+                out << ':';
                 if (indent >= 0) out << ' ';
                 o[i].second._dump(out, depth+1, indent);
             }
@@ -179,23 +250,66 @@ private:
         }
     }
 
-    // Parsing
+    // ---- Parsing ------------------------------------------------------------
+
     static void _skip(const std::string& s, size_t& p) {
         while (p < s.size() && (s[p]==' '||s[p]=='\t'||s[p]=='\n'||s[p]=='\r')) ++p;
     }
 
     static Json _parse(const std::string& s, size_t& p) {
         _skip(s, p);
-        if (p >= s.size()) throw std::runtime_error("JSON: unexpected end");
+        if (p >= s.size()) throw std::runtime_error("JSON: unexpected end of input");
         char c = s[p];
         if (c == '"') return _parseString(s, p);
         if (c == '{') return _parseObject(s, p);
         if (c == '[') return _parseArray(s, p);
-        if (c == 't') { p += 4; return Json(true);  }
-        if (c == 'f') { p += 5; return Json(false); }
-        if (c == 'n') { p += 4; return Json(nullptr); }
+        if (c == 't') return _parseLiteral(s, p, "true",  Json(true));
+        if (c == 'f') return _parseLiteral(s, p, "false", Json(false));
+        if (c == 'n') return _parseLiteral(s, p, "null",  Json(nullptr));
         if (c == '-' || (c >= '0' && c <= '9')) return _parseNumber(s, p);
         throw std::runtime_error(std::string("JSON: unexpected char '") + c + "'");
+    }
+
+    static Json _parseLiteral(const std::string& s, size_t& p,
+                               const char* expected, Json result) {
+        size_t len = std::strlen(expected);
+        if (s.size() - p < len || s.compare(p, len, expected) != 0)
+            throw std::runtime_error(std::string("JSON: expected '") + expected + "'");
+        p += len;
+        return result;
+    }
+
+    // Encode a Unicode code point as UTF-8 bytes appended to out.
+    static void _encodeUtf8(std::string& out, uint32_t cp) {
+        if (cp <= 0x7F) {
+            out += static_cast<char>(cp);
+        } else if (cp <= 0x7FF) {
+            out += static_cast<char>(0xC0 | (cp >> 6));
+            out += static_cast<char>(0x80 | (cp & 0x3F));
+        } else if (cp <= 0xFFFF) {
+            out += static_cast<char>(0xE0 | (cp >> 12));
+            out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+            out += static_cast<char>(0x80 | (cp & 0x3F));
+        } else {
+            out += static_cast<char>(0xF0 | (cp >> 18));
+            out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+            out += static_cast<char>(0x80 | ((cp >> 6)  & 0x3F));
+            out += static_cast<char>(0x80 | (cp & 0x3F));
+        }
+    }
+
+    static uint32_t _parseHex4(const std::string& s, size_t& p) {
+        if (p + 4 > s.size()) throw std::runtime_error("JSON: incomplete \\u escape");
+        uint32_t val = 0;
+        for (int i = 0; i < 4; ++i, ++p) {
+            char c = s[p];
+            val <<= 4;
+            if      (c >= '0' && c <= '9') val |= static_cast<uint32_t>(c - '0');
+            else if (c >= 'a' && c <= 'f') val |= static_cast<uint32_t>(c - 'a' + 10);
+            else if (c >= 'A' && c <= 'F') val |= static_cast<uint32_t>(c - 'A' + 10);
+            else throw std::runtime_error("JSON: invalid hex digit in \\u escape");
+        }
+        return val;
     }
 
     static std::string _parseRawString(const std::string& s, size_t& p) {
@@ -205,16 +319,35 @@ private:
             if (s[p] == '\\' && p+1 < s.size()) {
                 ++p;
                 switch (s[p]) {
-                    case '"':  out += '"'; break;
-                    case '\\': out += '\\'; break;
-                    case '/':  out += '/'; break;
-                    case 'n':  out += '\n'; break;
-                    case 'r':  out += '\r'; break;
-                    case 't':  out += '\t'; break;
-                    default:   out += s[p]; break;
+                    case '"':  out += '"';  ++p; break;
+                    case '\\': out += '\\'; ++p; break;
+                    case '/':  out += '/';  ++p; break;
+                    case 'n':  out += '\n'; ++p; break;
+                    case 'r':  out += '\r'; ++p; break;
+                    case 't':  out += '\t'; ++p; break;
+                    case 'b':  out += '\b'; ++p; break;
+                    case 'f':  out += '\f'; ++p; break;
+                    case 'u': {
+                        ++p;
+                        uint32_t cp = _parseHex4(s, p);
+                        // Handle UTF-16 surrogate pair: \uD800-\uDBFF followed by \uDC00-\uDFFF
+                        if (cp >= 0xD800 && cp <= 0xDBFF &&
+                            p + 1 < s.size() && s[p] == '\\' && s[p+1] == 'u') {
+                            p += 2;
+                            uint32_t low = _parseHex4(s, p);
+                            if (low >= 0xDC00 && low <= 0xDFFF)
+                                cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
+                        }
+                        _encodeUtf8(out, cp);
+                        break;
+                    }
+                    default:
+                        throw std::runtime_error(
+                            std::string("JSON: unknown escape '\\") + s[p] + "'");
                 }
-            } else { out += s[p]; }
-            ++p;
+            } else {
+                out += s[p++];
+            }
         }
         if (p < s.size()) ++p; // skip closing "
         return out;
@@ -227,12 +360,15 @@ private:
     static Json _parseNumber(const std::string& s, size_t& p) {
         size_t start = p;
         if (s[p] == '-') ++p;
-        while (p < s.size() && (s[p]>='0'&&s[p]<='9')) ++p;
-        if (p < s.size() && s[p] == '.') { ++p; while (p < s.size() && (s[p]>='0'&&s[p]<='9')) ++p; }
-        if (p < s.size() && (s[p]=='e'||s[p]=='E')) {
+        while (p < s.size() && s[p] >= '0' && s[p] <= '9') ++p;
+        if (p < s.size() && s[p] == '.') {
             ++p;
-            if (p < s.size() && (s[p]=='+'||s[p]=='-')) ++p;
-            while (p < s.size() && (s[p]>='0'&&s[p]<='9')) ++p;
+            while (p < s.size() && s[p] >= '0' && s[p] <= '9') ++p;
+        }
+        if (p < s.size() && (s[p] == 'e' || s[p] == 'E')) {
+            ++p;
+            if (p < s.size() && (s[p] == '+' || s[p] == '-')) ++p;
+            while (p < s.size() && s[p] >= '0' && s[p] <= '9') ++p;
         }
         return Json(std::stod(s.substr(start, p - start)));
     }
@@ -244,15 +380,21 @@ private:
         if (p < s.size() && s[p] == '}') { ++p; return Json(std::move(obj)); }
         while (p < s.size()) {
             _skip(s, p);
+            if (p >= s.size() || s[p] != '"')
+                throw std::runtime_error("JSON: expected string key in object");
             std::string key = _parseRawString(s, p);
             _skip(s, p);
-            if (p < s.size() && s[p] == ':') ++p;
+            if (p >= s.size() || s[p] != ':')
+                throw std::runtime_error("JSON: expected ':' after object key");
+            ++p;
             _skip(s, p);
             Json val = _parse(s, p);
             obj.emplace_back(std::move(key), std::move(val));
             _skip(s, p);
-            if (p >= s.size() || s[p] == '}') { ++p; break; }
-            if (s[p] == ',') ++p;
+            if (p >= s.size()) throw std::runtime_error("JSON: unterminated object");
+            if (s[p] == '}') { ++p; break; }
+            if (s[p] != ',') throw std::runtime_error("JSON: expected ',' or '}' in object");
+            ++p;
         }
         return Json(std::move(obj));
     }
@@ -266,8 +408,10 @@ private:
             _skip(s, p);
             arr.push_back(_parse(s, p));
             _skip(s, p);
-            if (p >= s.size() || s[p] == ']') { ++p; break; }
-            if (s[p] == ',') ++p;
+            if (p >= s.size()) throw std::runtime_error("JSON: unterminated array");
+            if (s[p] == ']') { ++p; break; }
+            if (s[p] != ',') throw std::runtime_error("JSON: expected ',' or ']' in array");
+            ++p;
         }
         return Json(std::move(arr));
     }
