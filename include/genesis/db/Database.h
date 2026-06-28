@@ -120,7 +120,7 @@ public:
     // -------------------------------------------------------------------------
 
     bool open(const std::string& path) {
-        std::lock_guard<std::mutex> lk(m_mutex);
+        std::lock_guard<std::recursive_mutex> lk(m_mutex);
         _closeUnlocked();
         int rc = sqlite3_open(path.c_str(), &m_db);
         if (rc != SQLITE_OK) {
@@ -136,12 +136,12 @@ public:
     }
 
     void close() {
-        std::lock_guard<std::mutex> lk(m_mutex);
+        std::lock_guard<std::recursive_mutex> lk(m_mutex);
         _closeUnlocked();
     }
 
     bool isOpen() const {
-        std::lock_guard<std::mutex> lk(m_mutex);
+        std::lock_guard<std::recursive_mutex> lk(m_mutex);
         return m_db != nullptr;
     }
 
@@ -150,7 +150,7 @@ public:
     // -------------------------------------------------------------------------
 
     bool exec(const std::string& sql) {
-        std::lock_guard<std::mutex> lk(m_mutex);
+        std::lock_guard<std::recursive_mutex> lk(m_mutex);
         return _execUnlocked(sql);
     }
 
@@ -158,23 +158,23 @@ public:
     int query(const std::string& sql,
               std::vector<Bind> params,
               std::function<void(const Row&)> cb) {
-        std::lock_guard<std::mutex> lk(m_mutex);
+        std::lock_guard<std::recursive_mutex> lk(m_mutex);
         return _queryUnlocked(sql, params, cb);
     }
 
     // Parameterised exec (INSERT / UPDATE / DELETE).
     bool exec(const std::string& sql, std::vector<Bind> params) {
-        std::lock_guard<std::mutex> lk(m_mutex);
+        std::lock_guard<std::recursive_mutex> lk(m_mutex);
         return _queryUnlocked(sql, params, nullptr) >= 0;
     }
 
     int64_t lastInsertRowId() const {
-        std::lock_guard<std::mutex> lk(m_mutex);
+        std::lock_guard<std::recursive_mutex> lk(m_mutex);
         return m_db ? sqlite3_last_insert_rowid(m_db) : 0;
     }
 
     int changes() const {
-        std::lock_guard<std::mutex> lk(m_mutex);
+        std::lock_guard<std::recursive_mutex> lk(m_mutex);
         return m_db ? sqlite3_changes(m_db) : 0;
     }
 
@@ -182,7 +182,7 @@ public:
 
     // Wraps body() in BEGIN/COMMIT; rolls back on false return or exception.
     bool transaction(std::function<bool()> body) {
-        std::lock_guard<std::mutex> lk(m_mutex);
+        std::lock_guard<std::recursive_mutex> lk(m_mutex);
         _execUnlocked("BEGIN");
         try {
             if (body()) { _execUnlocked("COMMIT");   return true;  }
@@ -205,7 +205,7 @@ public:
         std::thread([this, sql, params = std::move(params), cb]() mutable {
             std::vector<RowSnapshot> rows;
             {
-                std::lock_guard<std::mutex> lk(m_mutex);
+                std::lock_guard<std::recursive_mutex> lk(m_mutex);
                 _queryUnlocked(sql, params, [&rows](const Row& r) {
                     rows.push_back(RowSnapshot::from(r));
                 });
@@ -224,7 +224,7 @@ public:
         std::thread([this, sql, params = std::move(params), cb]() mutable {
             bool ok;
             {
-                std::lock_guard<std::mutex> lk(m_mutex);
+                std::lock_guard<std::recursive_mutex> lk(m_mutex);
                 ok = _queryUnlocked(sql, params, nullptr) >= 0;
             }
             if (cb) {
@@ -239,7 +239,7 @@ public:
         std::thread([this, body = std::move(body), cb]() mutable {
             bool ok;
             {
-                std::lock_guard<std::mutex> lk(m_mutex);
+                std::lock_guard<std::recursive_mutex> lk(m_mutex);
                 _execUnlocked("BEGIN");
                 try {
                     ok = body();
@@ -256,7 +256,7 @@ public:
     }
 
 private:
-    mutable std::mutex m_mutex;
+    mutable std::recursive_mutex m_mutex;
     sqlite3*           m_db{nullptr};
     std::string        m_lastError;
 

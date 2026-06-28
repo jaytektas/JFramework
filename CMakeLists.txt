@@ -95,6 +95,10 @@ target_link_libraries(genesis_config INTERFACE genesis_core)
 add_library(genesis_concurrent INTERFACE)
 target_link_libraries(genesis_concurrent INTERFACE genesis_core)
 
+# genesis_model — TableModel, TreeModel, SortFilterModel, ModelBinding
+add_library(genesis_model INTERFACE)
+target_link_libraries(genesis_model INTERFACE genesis_core)
+
 # --- Platform Implementation ---
 if(WIN32)
     # When cross-compiling, FindVulkan may fail or find native Linux libs.
@@ -227,4 +231,5 @@ if(GENESIS_BUILD_TESTS)
     add_genesis_test(test_serial           src/tests/test_serial.cpp)
     add_genesis_test(test_dialog           src/tests/test_dialog.cpp)
     add_genesis_test(test_aipanel          src/tests/test_aipanel.cpp)
+    add_genesis_test(test_models           src/tests/test_models.cpp)
 endif()

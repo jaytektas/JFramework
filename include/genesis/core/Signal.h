@@ -108,10 +108,17 @@ public:
         });
     }
 
-    // Connect a plain callable — caller is responsible for lifetime.
-    void connect(SlotType func) {
-        std::lock_guard<std::mutex> lk(m_slotsMutex);
-        m_slots.push_back(std::make_shared<SlotInternal>(std::move(func)));
+    // Connect a plain callable — returns a disconnect function.
+    // Discard the return value to connect permanently; store it in a
+    // SlotTracker::addConnection() call to disconnect on destroy.
+    std::function<void()> connect(SlotType func) {
+        auto slotInfo = std::make_shared<SlotInternal>(std::move(func));
+        {
+            std::lock_guard<std::mutex> lk(m_slotsMutex);
+            m_slots.push_back(slotInfo);
+        }
+        auto flag = slotInfo->disconnected;
+        return [flag]() { flag->store(true, std::memory_order_release); };
     }
 
     // Fire all live slots. Copies slot list under lock then releases before
