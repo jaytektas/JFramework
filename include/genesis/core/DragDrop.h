@@ -1,5 +1,9 @@
 #pragma once
 
+// Thread-safety: MAIN THREAD ONLY.
+// Drag-and-drop state is tied to mouse events which arrive on the main thread.
+// Do not call any DragDrop methods from background threads.
+
 #include <cstdint>
 #include <functional>
 #include <memory>

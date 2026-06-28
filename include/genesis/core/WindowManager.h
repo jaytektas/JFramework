@@ -1,5 +1,8 @@
 #pragma once
 
+// Thread-safety: MAIN THREAD ONLY.
+// Window registration and surface management happen on the render/main thread.
+
 #include <vector>
 #include <memory>
 #include <unordered_map>

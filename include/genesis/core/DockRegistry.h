@@ -1,5 +1,8 @@
 #pragma once
 
+// Thread-safety: MAIN THREAD ONLY.
+// Dock layout is updated during the render loop on the main thread.
+
 #include <vector>
 #include <optional>
 #include <algorithm>

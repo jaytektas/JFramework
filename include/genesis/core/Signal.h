@@ -5,6 +5,8 @@
 #include <functional>
 #include <memory>
 #include <algorithm>
+#include <mutex>
+#include <atomic>
 #include <concepts>
 #include "muted_logging_mock.h"
 
@@ -14,9 +16,8 @@ namespace Core {
 
 class SlotTracker;
 
-/**
- * @brief Base class for automatic RAII connection management.
- */
+// RAII connection management — widgets inherit this to auto-disconnect on destroy.
+// Must be used on the main thread only.
 class SlotTracker {
 public:
     SlotTracker() = default;
@@ -26,7 +27,7 @@ public:
 
     SlotTracker(const SlotTracker&) = delete;
     SlotTracker& operator=(const SlotTracker&) = delete;
-    
+
     SlotTracker(SlotTracker&& other) noexcept : m_connections(std::move(other.m_connections)) {}
     SlotTracker& operator=(SlotTracker&& other) noexcept {
         if (this != &other) {
@@ -42,9 +43,7 @@ public:
 
     void disconnectAll() {
         for (auto& disconnect : m_connections) {
-            if (disconnect) {
-                disconnect();
-            }
+            if (disconnect) disconnect();
         }
         m_connections.clear();
     }
@@ -53,9 +52,20 @@ private:
     std::vector<std::function<void()>> m_connections;
 };
 
-/**
- * @brief Modern C++20 Type-Safe, MOC-free Signal implementation.
- */
+// ============================================================================
+// Signal<Args...> — type-safe, MOC-free signal/slot.
+//
+// Thread-safety:
+//   connect()  — safe from any thread
+//   emit()     — safe from any thread; copies the slot list under the mutex
+//                then fires callbacks WITHOUT the mutex held, so callbacks can
+//                safely call connect()/disconnect() without deadlocking
+//   ~Signal()  — safe; marks all slots disconnected under the mutex
+//
+// Slots are disconnected lazily: the disconnected flag is an atomic<bool> so
+// a slot that fires immediately after its owner is destroyed is a no-op rather
+// than a use-after-free.
+// ============================================================================
 template <typename... Args>
 class Signal {
 public:
@@ -63,16 +73,15 @@ public:
 
     Signal() = default;
     ~Signal() {
-        for (auto& slotInfo : m_slots) {
-            if (slotInfo->disconnected) {
-                *slotInfo->disconnected = true;
-            }
-        }
+        std::lock_guard<std::mutex> lk(m_slotsMutex);
+        for (auto& s : m_slots)
+            if (s && s->disconnected) s->disconnected->store(true);
     }
 
     Signal(const Signal&) = delete;
     Signal& operator=(const Signal&) = delete;
 
+    // Connect a member function — auto-disconnects when receiver is destroyed.
     template <typename T>
     requires std::derived_from<T, SlotTracker>
     void connect(T* receiver, void (T::*memberFunc)(Args...)) {
@@ -87,28 +96,35 @@ public:
             }
         );
 
-        m_slots.push_back(slotInfo);
-        
-        uintptr_t slotId = reinterpret_cast<uintptr_t>(slotInfo.get());
-        auto disconnectedFlag = slotInfo->disconnected;
+        {
+            std::lock_guard<std::mutex> lk(m_slotsMutex);
+            m_slots.push_back(slotInfo);
+        }
 
-        receiver->addConnection([this, slotId, disconnectedFlag]() {
-            *disconnectedFlag = true;
-            this->purgeDisconnected();
+        auto disconnectedFlag = slotInfo->disconnected;
+        receiver->addConnection([this, disconnectedFlag]() {
+            disconnectedFlag->store(true, std::memory_order_release);
+            purgeDisconnected();
         });
     }
 
+    // Connect a plain callable — caller is responsible for lifetime.
     void connect(SlotType func) {
+        std::lock_guard<std::mutex> lk(m_slotsMutex);
         m_slots.push_back(std::make_shared<SlotInternal>(std::move(func)));
     }
 
+    // Fire all live slots. Copies slot list under lock then releases before
+    // calling any callback — safe to connect/disconnect from inside a slot.
     void emit(Args... args) const {
-        auto activeSlots = m_slots;
-        
-        for (const auto& slotInfo : activeSlots) {
-            if (slotInfo && !*(slotInfo->disconnected)) {
-                slotInfo->callback(args...);
-            }
+        std::vector<std::shared_ptr<SlotInternal>> active;
+        {
+            std::lock_guard<std::mutex> lk(m_slotsMutex);
+            active = m_slots;
+        }
+        for (const auto& s : active) {
+            if (s && !s->disconnected->load(std::memory_order_acquire))
+                s->callback(args...);
         }
     }
 
@@ -116,25 +132,28 @@ public:
         emit(std::forward<Args>(args)...);
     }
 
-private:
-    struct SlotInternal {
-        SlotType callback;
-        std::shared_ptr<bool> disconnected;
-
-        explicit SlotInternal(SlotType cb) 
-            : callback(std::move(cb)), disconnected(std::make_shared<bool>(false)) {}
-    };
-
     void purgeDisconnected() {
+        std::lock_guard<std::mutex> lk(m_slotsMutex);
         m_slots.erase(
             std::remove_if(m_slots.begin(), m_slots.end(),
-                [](const std::shared_ptr<SlotInternal>& slot) {
-                    return !slot || *(slot->disconnected);
-                }), 
+                [](const std::shared_ptr<SlotInternal>& s) {
+                    return !s || s->disconnected->load(std::memory_order_relaxed);
+                }),
             m_slots.end()
         );
     }
 
+private:
+    struct SlotInternal {
+        SlotType                        callback;
+        std::shared_ptr<std::atomic<bool>> disconnected;
+
+        explicit SlotInternal(SlotType cb)
+            : callback(std::move(cb))
+            , disconnected(std::make_shared<std::atomic<bool>>(false)) {}
+    };
+
+    mutable std::mutex                             m_slotsMutex;
     mutable std::vector<std::shared_ptr<SlotInternal>> m_slots;
 };
 

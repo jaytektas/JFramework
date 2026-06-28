@@ -86,6 +86,10 @@ static void sendInt32Reply(DBusConnection* conn, DBusMessage* msg, int32_t v) {
 // ---- AccessibilityBridge ----------------------------------------------------
 
 bool AccessibilityBridge::start(const std::string& appName) {
+    // Enable libdbus's internal per-connection mutex so _handleMessages()
+    // and _sendEvent() can call dbus functions on the same connection concurrently.
+    dbus_threads_init_default();
+
     if (!_connectToA11yBus()) {
         qCWarning(LogA11y) << "AT-SPI: cannot connect — screen reader support disabled\n";
         return false;

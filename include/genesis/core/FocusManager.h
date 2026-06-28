@@ -1,5 +1,8 @@
 #pragma once
 
+// Thread-safety: MAIN THREAD ONLY.
+// Focus state is driven by keyboard and mouse events on the render thread.
+
 #include <vector>
 #include <algorithm>
 #include "Signal.h"

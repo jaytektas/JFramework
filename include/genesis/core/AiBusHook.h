@@ -2,7 +2,10 @@
 
 // AiBusHook — zero-dependency bridge from widget interactions to the AI control bus.
 //
-// Set once at GApplication startup via AiBusHook::install().
+// Thread-safety: install() MUST be called from the main thread before any other
+// threads start. After that, emit() is read-only and safe to call from any thread.
+// Calling install() after background threads have started is a data race.
+//
 // Every widget (Button, CheckBox, LineEdit, ToggleButton, …) calls AiBusHook::emit()
 // without needing to know about AiControlBus or GApplication directly.
 //
