@@ -5,7 +5,11 @@
 #include <functional>
 #include <stdexcept>
 #include <cstdint>
+#include <mutex>
+#include <thread>
 #include <sqlite3.h>
+
+#include <genesis/core/MainThreadDispatcher.h>
 
 // Database.h requires linking against sqlite3:
 //   target_link_libraries(myapp PRIVATE sqlite3)
@@ -13,34 +17,42 @@
 namespace Genesis {
 
 // ============================================================================
-// Database — thin SQLite3 wrapper (Step 7)
+// Database — thread-safe SQLite3 wrapper
 //
-// Superior to Qt's QSqlDatabase: no driver plugin system, no QVariant boxing,
-// no sql/ module dependency. Rows are plain C++ structs via a Row view.
+// All synchronous methods are mutex-protected — safe to call from any thread.
+// Async variants run the query on a background thread and fire the callback
+// on the main thread via MainThreadDispatcher, so UI updates are safe.
 //
-// Usage:
+// Synchronous usage (any thread):
 //   Database db;
-//   db.open(":memory:");
-//   db.exec("CREATE TABLE t (id INTEGER, name TEXT)");
-//   db.exec("INSERT INTO t VALUES (1, 'hello')");
-//   db.query("SELECT * FROM t WHERE id = ?", {1}, [](const Database::Row& r) {
-//       printf("%d  %s\n", r.integer(0), r.text(1).c_str());
+//   db.open("runs.db");
+//   db.exec("CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY, name TEXT)");
+//   db.exec("INSERT INTO runs (name) VALUES (?)", {Bind::from("run1")});
+//   db.query("SELECT * FROM runs", {}, [](const Database::Row& r) {
+//       printf("%lld  %s\n", r.integer(0), r.text(1).c_str());
+//   });
+//
+// Async usage (background write, main-thread callback):
+//   db.execAsync("INSERT INTO telemetry VALUES (?,?)", {Bind::from(ts), Bind::from(val)});
+//   db.queryAsync("SELECT * FROM runs", {}, [](std::vector<Database::RowSnapshot> rows) {
+//       for (auto& r : rows) printf("%s\n", r.text(1).c_str());
 //   });
 // ============================================================================
 class Database {
 public:
+    // ---- Live row view — valid only inside a synchronous query() callback ----
     class Row {
     public:
         explicit Row(sqlite3_stmt* s) : m_stmt(s) {}
-        int         columns()          const { return sqlite3_column_count(m_stmt); }
-        std::string text(int col)      const {
+        int         columns()           const { return sqlite3_column_count(m_stmt); }
+        std::string text(int col)       const {
             auto* p = reinterpret_cast<const char*>(sqlite3_column_text(m_stmt, col));
             return p ? p : "";
         }
-        double      real(int col)      const { return sqlite3_column_double(m_stmt, col); }
-        int64_t     integer(int col)   const { return sqlite3_column_int64(m_stmt, col); }
-        bool        isNull(int col)    const { return sqlite3_column_type(m_stmt, col) == SQLITE_NULL; }
-        std::string columnName(int col)const {
+        double      real(int col)       const { return sqlite3_column_double(m_stmt, col); }
+        int64_t     integer(int col)    const { return sqlite3_column_int64(m_stmt, col); }
+        bool        isNull(int col)     const { return sqlite3_column_type(m_stmt, col) == SQLITE_NULL; }
+        std::string columnName(int col) const {
             auto* p = sqlite3_column_name(m_stmt, col);
             return p ? p : "";
         }
@@ -48,28 +60,68 @@ public:
         sqlite3_stmt* m_stmt;
     };
 
-    // ---- Bind variants ----
+    // ---- Materialized row — used by queryAsync callbacks ----
+    // Copied off the SQLite statement while still on the background thread;
+    // safe to read on the main thread after the query completes.
+    struct RowSnapshot {
+        struct Cell {
+            int         type{SQLITE_NULL}; // SQLITE_INTEGER / SQLITE_FLOAT / SQLITE_TEXT / SQLITE_NULL
+            int64_t     ival{0};
+            double      dval{0.0};
+            std::string sval;
+            std::string name;
+        };
+        std::vector<Cell> cells;
+
+        int         columns()           const { return static_cast<int>(cells.size()); }
+        std::string text(int col)       const { return cells[col].sval; }
+        double      real(int col)       const { return cells[col].dval; }
+        int64_t     integer(int col)    const { return cells[col].ival; }
+        bool        isNull(int col)     const { return cells[col].type == SQLITE_NULL; }
+        std::string columnName(int col) const { return cells[col].name; }
+
+        static RowSnapshot from(const Row& r) {
+            RowSnapshot s;
+            int n = r.columns();
+            s.cells.resize(n);
+            for (int i = 0; i < n; ++i) {
+                s.cells[i].name = r.columnName(i);
+                s.cells[i].sval = r.text(i);
+                s.cells[i].dval = r.real(i);
+                s.cells[i].ival = r.integer(i);
+                s.cells[i].type = r.isNull(i) ? SQLITE_NULL : SQLITE_TEXT;
+            }
+            return s;
+        }
+    };
+
+    // ---- Bind parameter ----
     struct Bind {
         enum class Kind { Null, Int, Real, Text } kind{Kind::Null};
         int64_t     ival{0};
         double      dval{0};
         std::string sval;
-        static Bind null()              { return {Kind::Null, 0, 0, {}}; }
-        static Bind from(int64_t v)     { return {Kind::Int,  v, 0, {}}; }
-        static Bind from(int v)         { return {Kind::Int,  v, 0, {}}; }
-        static Bind from(double v)      { return {Kind::Real, 0, v, {}}; }
-        static Bind from(std::string v) { Bind b; b.kind=Kind::Text; b.sval=std::move(v); return b; }
-        static Bind from(const char* v) { return from(std::string(v ? v : "")); }
+        static Bind null()               { return {Kind::Null, 0, 0, {}}; }
+        static Bind from(int64_t v)      { return {Kind::Int,  v, 0, {}}; }
+        static Bind from(int v)          { return {Kind::Int,  v, 0, {}}; }
+        static Bind from(double v)       { return {Kind::Real, 0, v, {}}; }
+        static Bind from(std::string v)  { Bind b; b.kind=Kind::Text; b.sval=std::move(v); return b; }
+        static Bind from(const char* v)  { return from(std::string(v ? v : "")); }
     };
 
-    Database() = default;
+    Database()  = default;
     ~Database() { close(); }
 
     Database(const Database&)            = delete;
     Database& operator=(const Database&) = delete;
 
+    // -------------------------------------------------------------------------
+    // Lifecycle
+    // -------------------------------------------------------------------------
+
     bool open(const std::string& path) {
-        close();
+        std::lock_guard<std::mutex> lk(m_mutex);
+        _closeUnlocked();
         int rc = sqlite3_open(path.c_str(), &m_db);
         if (rc != SQLITE_OK) {
             m_lastError = sqlite3_errmsg(m_db);
@@ -78,19 +130,142 @@ public:
             return false;
         }
         sqlite3_busy_timeout(m_db, 5000);
-        exec("PRAGMA journal_mode=WAL");
-        exec("PRAGMA synchronous=NORMAL");
+        _execUnlocked("PRAGMA journal_mode=WAL");
+        _execUnlocked("PRAGMA synchronous=NORMAL");
         return true;
     }
 
     void close() {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        _closeUnlocked();
+    }
+
+    bool isOpen() const {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        return m_db != nullptr;
+    }
+
+    // -------------------------------------------------------------------------
+    // Synchronous API — safe from any thread
+    // -------------------------------------------------------------------------
+
+    bool exec(const std::string& sql) {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        return _execUnlocked(sql);
+    }
+
+    // Parameterised query with per-row callback. Returns row count or -1 on error.
+    int query(const std::string& sql,
+              std::vector<Bind> params,
+              std::function<void(const Row&)> cb) {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        return _queryUnlocked(sql, params, cb);
+    }
+
+    // Parameterised exec (INSERT / UPDATE / DELETE).
+    bool exec(const std::string& sql, std::vector<Bind> params) {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        return _queryUnlocked(sql, params, nullptr) >= 0;
+    }
+
+    int64_t lastInsertRowId() const {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        return m_db ? sqlite3_last_insert_rowid(m_db) : 0;
+    }
+
+    int changes() const {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        return m_db ? sqlite3_changes(m_db) : 0;
+    }
+
+    const std::string& lastError() const { return m_lastError; }
+
+    // Wraps body() in BEGIN/COMMIT; rolls back on false return or exception.
+    bool transaction(std::function<bool()> body) {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        _execUnlocked("BEGIN");
+        try {
+            if (body()) { _execUnlocked("COMMIT");   return true;  }
+            else        { _execUnlocked("ROLLBACK"); return false; }
+        } catch (...) {
+            _execUnlocked("ROLLBACK");
+            throw;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Async API — query/exec runs on a background thread; callback fires on
+    // the main thread via MainThreadDispatcher (safe for UI updates).
+    // -------------------------------------------------------------------------
+
+    // Runs SELECT on background thread; cb receives all rows on main thread.
+    void queryAsync(const std::string& sql,
+                    std::vector<Bind> params,
+                    std::function<void(std::vector<RowSnapshot>)> cb) {
+        std::thread([this, sql, params = std::move(params), cb]() mutable {
+            std::vector<RowSnapshot> rows;
+            {
+                std::lock_guard<std::mutex> lk(m_mutex);
+                _queryUnlocked(sql, params, [&rows](const Row& r) {
+                    rows.push_back(RowSnapshot::from(r));
+                });
+            }
+            if (cb) {
+                MainThreadDispatcher::instance().post(
+                    [cb, rows = std::move(rows)]() mutable { cb(std::move(rows)); });
+            }
+        }).detach();
+    }
+
+    // Runs INSERT/UPDATE/DELETE on background thread; optional cb(success) on main thread.
+    void execAsync(const std::string& sql,
+                   std::vector<Bind> params,
+                   std::function<void(bool)> cb = nullptr) {
+        std::thread([this, sql, params = std::move(params), cb]() mutable {
+            bool ok;
+            {
+                std::lock_guard<std::mutex> lk(m_mutex);
+                ok = _queryUnlocked(sql, params, nullptr) >= 0;
+            }
+            if (cb) {
+                MainThreadDispatcher::instance().post([cb, ok]() { cb(ok); });
+            }
+        }).detach();
+    }
+
+    // Runs a batch of writes in a single transaction on a background thread.
+    void transactionAsync(std::function<bool()> body,
+                          std::function<void(bool)> cb = nullptr) {
+        std::thread([this, body = std::move(body), cb]() mutable {
+            bool ok;
+            {
+                std::lock_guard<std::mutex> lk(m_mutex);
+                _execUnlocked("BEGIN");
+                try {
+                    ok = body();
+                    _execUnlocked(ok ? "COMMIT" : "ROLLBACK");
+                } catch (...) {
+                    _execUnlocked("ROLLBACK");
+                    ok = false;
+                }
+            }
+            if (cb) {
+                MainThreadDispatcher::instance().post([cb, ok]() { cb(ok); });
+            }
+        }).detach();
+    }
+
+private:
+    mutable std::mutex m_mutex;
+    sqlite3*           m_db{nullptr};
+    std::string        m_lastError;
+
+    void _closeUnlocked() {
         if (m_db) { sqlite3_close(m_db); m_db = nullptr; }
     }
 
-    bool isOpen() const { return m_db != nullptr; }
-
-    // Simple no-bind exec (CREATE TABLE, PRAGMA, etc.)
-    bool exec(const std::string& sql) {
+    bool _execUnlocked(const std::string& sql) {
+        if (!m_db) { m_lastError = "database not open"; return false; }
         char* err = nullptr;
         int rc = sqlite3_exec(m_db, sql.c_str(), nullptr, nullptr, &err);
         if (rc != SQLITE_OK) {
@@ -101,68 +276,25 @@ public:
         return true;
     }
 
-    // Parameterised query with row callback. Returns number of rows visited.
-    int query(const std::string& sql,
-              std::vector<Bind> params,
-              std::function<void(const Row&)> cb) {
-        sqlite3_stmt* stmt = _prepare(sql);
-        if (!stmt) return -1;
-        _bind(stmt, params);
+    int _queryUnlocked(const std::string& sql,
+                       const std::vector<Bind>& params,
+                       std::function<void(const Row&)> cb) {
+        if (!m_db) { m_lastError = "database not open"; return -1; }
+        sqlite3_stmt* stmt = nullptr;
+        int rc = sqlite3_prepare_v2(m_db, sql.c_str(), -1, &stmt, nullptr);
+        if (rc != SQLITE_OK) { m_lastError = sqlite3_errmsg(m_db); return -1; }
+        _bindUnlocked(stmt, params);
         int rows = 0;
-        int rc;
         while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
             if (cb) cb(Row(stmt));
             ++rows;
         }
         if (rc != SQLITE_DONE) m_lastError = sqlite3_errmsg(m_db);
         sqlite3_finalize(stmt);
-        return rows;
+        return (rc == SQLITE_DONE) ? rows : -1;
     }
 
-    // Exec with params but no row callback (INSERT/UPDATE/DELETE).
-    bool exec(const std::string& sql, std::vector<Bind> params) {
-        return query(sql, std::move(params), nullptr) >= 0;
-    }
-
-    // Last row id after an INSERT.
-    int64_t lastInsertRowId() const {
-        return m_db ? sqlite3_last_insert_rowid(m_db) : 0;
-    }
-
-    // Rows affected by last UPDATE/DELETE.
-    int changes() const {
-        return m_db ? sqlite3_changes(m_db) : 0;
-    }
-
-    const std::string& lastError() const { return m_lastError; }
-
-    // Convenience: wrap a block in BEGIN/COMMIT, ROLLBACK on exception.
-    bool transaction(std::function<bool()> body) {
-        exec("BEGIN");
-        try {
-            if (body()) { exec("COMMIT");   return true;  }
-            else        { exec("ROLLBACK"); return false; }
-        } catch (...) {
-            exec("ROLLBACK");
-            throw;
-        }
-    }
-
-private:
-    sqlite3* m_db{nullptr};
-    std::string m_lastError;
-
-    sqlite3_stmt* _prepare(const std::string& sql) {
-        sqlite3_stmt* s = nullptr;
-        int rc = sqlite3_prepare_v2(m_db, sql.c_str(), -1, &s, nullptr);
-        if (rc != SQLITE_OK) {
-            m_lastError = sqlite3_errmsg(m_db);
-            return nullptr;
-        }
-        return s;
-    }
-
-    static void _bind(sqlite3_stmt* s, const std::vector<Bind>& params) {
+    static void _bindUnlocked(sqlite3_stmt* s, const std::vector<Bind>& params) {
         for (int i = 0; i < static_cast<int>(params.size()); ++i) {
             const auto& p = params[i];
             switch (p.kind) {
