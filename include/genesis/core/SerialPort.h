@@ -7,11 +7,11 @@
 #include <vector>
 #include <thread>
 #include <atomic>
+#include <mutex>
 #include <cstdint>
 
 // Cross-platform serial port (POSIX termios on Linux/macOS, Win32 on Windows).
-// Superior to QSerialPort: no Qt event loop dependency, signals fire on main thread
-// via MainThreadDispatcher so callbacks can safely update widgets.
+// Signals fire on the main thread via MainThreadDispatcher — safe for widget updates.
 
 #if defined(_WIN32)
   #define WIN32_LEAN_AND_MEAN
@@ -20,11 +20,24 @@
   #include <termios.h>
   #include <fcntl.h>
   #include <unistd.h>
+  #include <dirent.h>
   #include <errno.h>
   #include <cstring>
+  #include <sys/ioctl.h>
 #endif
 
 namespace Genesis {
+
+// ---- Port info returned by availablePorts() --------------------------------
+struct SerialPortInfo {
+    std::string port;           // "/dev/ttyUSB0" or "COM3"
+    std::string description;    // human-readable device name
+    std::string manufacturer;
+    std::string serialNumber;
+    uint16_t    vendorId{0};
+    uint16_t    productId{0};
+    bool        hasVidPid{false};
+};
 
 class SerialPort {
 public:
@@ -40,14 +53,15 @@ public:
         B921600_ = 921600,
     };
 
-    enum class DataBits  { Five=5, Six=6, Seven=7, Eight=8 };
-    enum class StopBits  { One, Two };
-    enum class Parity    { None, Even, Odd };
-    enum class FlowCtrl  { None, Hardware, Software };
+    enum class DataBits { Five=5, Six=6, Seven=7, Eight=8 };
+    enum class StopBits { One, Two };
+    enum class Parity   { None, Even, Odd };
+    enum class FlowCtrl { None, Hardware, Software };
 
-    // Fires on the main thread (via MainThreadDispatcher).
+    // All signals fire on the main thread via MainThreadDispatcher.
     Core::Signal<std::vector<uint8_t>> onData;
     Core::Signal<std::string>          onError;
+    Core::Signal<>                     onDisconnect; // cable pull or device removal
 
     SerialPort() = default;
     ~SerialPort() { close(); }
@@ -56,18 +70,22 @@ public:
     SerialPort& operator=(const SerialPort&) = delete;
 
     bool open(const std::string& port,
-              BaudRate   baud     = BaudRate::B115200_,
-              DataBits   dataBits = DataBits::Eight,
-              StopBits   stopBits = StopBits::One,
-              Parity     parity   = Parity::None,
-              FlowCtrl   flow     = FlowCtrl::None)
+              BaudRate  baud     = BaudRate::B115200_,
+              DataBits  dataBits = DataBits::Eight,
+              StopBits  stopBits = StopBits::One,
+              Parity    parity   = Parity::None,
+              FlowCtrl  flow     = FlowCtrl::None)
     {
 #if defined(_WIN32)
+        // Create an event so we can cancel blocking reads on close.
+        m_cancelEvent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+
         std::string path = "\\\\.\\" + port;
         m_handle = CreateFileA(path.c_str(),
             GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
         if (m_handle == INVALID_HANDLE_VALUE) {
+            CloseHandle(m_cancelEvent); m_cancelEvent = nullptr;
             _postError("Failed to open port: " + port);
             return false;
         }
@@ -83,11 +101,12 @@ public:
         dcb.fRtsControl  = (flow == FlowCtrl::Hardware) ? RTS_CONTROL_HANDSHAKE : RTS_CONTROL_ENABLE;
         dcb.fOutX        = (flow == FlowCtrl::Software) ? TRUE : FALSE;
         dcb.fInX         = (flow == FlowCtrl::Software) ? TRUE : FALSE;
-        if (!SetCommState(m_handle, &dcb)) { _postError("SetCommState failed"); close(); return false; }
+        if (!SetCommState(m_handle, &dcb)) {
+            _postError("SetCommState failed"); _closeHandles(); return false;
+        }
+        // No timeout on overlapped reads — completion drives the loop.
         COMMTIMEOUTS to{};
-        to.ReadIntervalTimeout         = 50;
-        to.ReadTotalTimeoutMultiplier  = 10;
-        to.ReadTotalTimeoutConstant    = 50;
+        to.ReadIntervalTimeout = MAXDWORD;
         SetCommTimeouts(m_handle, &to);
 #else
         m_fd = ::open(port.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
@@ -123,14 +142,19 @@ public:
         if (flow == FlowCtrl::Software) tty.c_iflag |= (IXON | IXOFF);
         tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
         tty.c_oflag &= ~OPOST;
-        tty.c_cc[VMIN]  = 0;
-        tty.c_cc[VTIME] = 1;  // 100ms timeout
+        tty.c_cc[VMIN]  = 1;   // block until at least 1 byte
+        tty.c_cc[VTIME] = 1;   // or 100 ms
         if (tcsetattr(m_fd, TCSANOW, &tty) != 0) {
             _postError("tcsetattr failed"); ::close(m_fd); m_fd = -1; return false;
         }
-        // Switch to blocking
+        // Switch back to blocking now that VMIN/VTIME are set.
         int flags = fcntl(m_fd, F_GETFL, 0);
         fcntl(m_fd, F_SETFL, flags & ~O_NONBLOCK);
+
+        // Create a pipe so close() can wake the blocking read.
+        if (pipe(m_pipeFd) != 0) {
+            _postError("pipe failed"); ::close(m_fd); m_fd = -1; return false;
+        }
 #endif
         m_port    = port;
         m_running = true;
@@ -140,19 +164,13 @@ public:
     }
 
     void close() {
-        if (!m_port.empty() && AiBusHook::emit)
+        if (!m_running.exchange(false)) return; // already closed
+        if (AiBusHook::emit && !m_port.empty())
             AiBusHook::emit(0, "serial.close", m_port.c_str());
         m_port.clear();
-        m_running = false;
-#if defined(_WIN32)
-        if (m_handle != INVALID_HANDLE_VALUE) {
-            CloseHandle(m_handle);
-            m_handle = INVALID_HANDLE_VALUE;
-        }
-#else
-        if (m_fd >= 0) { ::close(m_fd); m_fd = -1; }
-#endif
+        _wakeReadThread();
         if (m_thread.joinable()) m_thread.join();
+        _closeHandles();
     }
 
     bool isOpen() const {
@@ -163,15 +181,39 @@ public:
 #endif
     }
 
+    // Write bytes — thread-safe, handles partial writes internally.
     bool write(const std::vector<uint8_t>& data) {
-        if (!isOpen()) return false;
+        if (!isOpen() || data.empty()) return false;
+        std::lock_guard<std::mutex> lk(m_writeMutex);
 #if defined(_WIN32)
+        OVERLAPPED ov{};
+        ov.hEvent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
         DWORD written = 0;
-        return WriteFile(m_handle, data.data(), static_cast<DWORD>(data.size()), &written, nullptr)
-               && written == data.size();
+        bool ok = true;
+        size_t offset = 0;
+        while (offset < data.size()) {
+            DWORD toWrite = static_cast<DWORD>(data.size() - offset);
+            if (!WriteFile(m_handle, data.data() + offset, toWrite, nullptr, &ov)) {
+                if (GetLastError() != ERROR_IO_PENDING) { ok = false; break; }
+            }
+            if (!GetOverlappedResult(m_handle, &ov, &written, TRUE)) { ok = false; break; }
+            offset += written;
+            ResetEvent(ov.hEvent);
+        }
+        CloseHandle(ov.hEvent);
+        return ok;
 #else
-        ssize_t n = ::write(m_fd, data.data(), data.size());
-        return n == static_cast<ssize_t>(data.size());
+        size_t offset = 0;
+        while (offset < data.size()) {
+            ssize_t n = ::write(m_fd, data.data() + offset, data.size() - offset);
+            if (n < 0) {
+                if (errno == EINTR) continue;
+                _postError(std::string("write error: ") + std::strerror(errno));
+                return false;
+            }
+            offset += static_cast<size_t>(n);
+        }
+        return true;
 #endif
     }
 
@@ -181,45 +223,160 @@ public:
         return write(v);
     }
 
-    // Available serial ports on this system.
-    static std::vector<std::string> availablePorts() {
-        std::vector<std::string> out;
+    // Discard buffered input/output.
+    void flush() {
+        if (!isOpen()) return;
 #if defined(_WIN32)
-        for (int i = 1; i <= 256; ++i) {
-            std::string p = "COM" + std::to_string(i);
-            HANDLE h = CreateFileA(("\\\\.\\" + p).c_str(),
-                GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0, nullptr);
-            if (h != INVALID_HANDLE_VALUE) { CloseHandle(h); out.push_back(p); }
+        PurgeComm(m_handle, PURGE_RXCLEAR | PURGE_TXCLEAR);
+#else
+        tcflush(m_fd, TCIOFLUSH);
+#endif
+    }
+
+    // Enumerate available ports with descriptions, manufacturer, and VID/PID.
+    static std::vector<SerialPortInfo> availablePorts() {
+        std::vector<SerialPortInfo> out;
+#if defined(_WIN32)
+        // Probe COM1–COM256; read friendly names from registry.
+        HKEY key;
+        if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+                "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0, KEY_READ, &key) == ERROR_SUCCESS) {
+            char name[256], value[256];
+            DWORD idx = 0, nameLen, valueLen, type;
+            while (true) {
+                nameLen = sizeof(name); valueLen = sizeof(value);
+                if (RegEnumValueA(key, idx++, name, &nameLen, nullptr,
+                                  &type, (LPBYTE)value, &valueLen) != ERROR_SUCCESS) break;
+                SerialPortInfo info;
+                info.port        = value;
+                info.description = name;
+                out.push_back(std::move(info));
+            }
+            RegCloseKey(key);
         }
 #else
-        for (const char* prefix : {"/dev/ttyUSB", "/dev/ttyACM", "/dev/ttyS"}) {
-            for (int i = 0; i < 16; ++i) {
-                std::string p = prefix + std::to_string(i);
-                if (::access(p.c_str(), F_OK) == 0) out.push_back(p);
+        // Walk /sys/class/tty — covers ttyUSB, ttyACM, ttyS and anything else.
+        const char* sysPath = "/sys/class/tty";
+        DIR* dir = opendir(sysPath);
+        if (!dir) return out;
+        struct dirent* ent;
+        while ((ent = readdir(dir)) != nullptr) {
+            std::string name = ent->d_name;
+            if (name == "." || name == "..") continue;
+
+            // Filter: only USB serial and ACM ports by default; include ttyS only if device link exists.
+            bool isUsb = (name.rfind("ttyUSB", 0) == 0 || name.rfind("ttyACM", 0) == 0);
+            std::string devPath = std::string(sysPath) + "/" + name + "/device";
+            bool hasDevice = (access(devPath.c_str(), F_OK) == 0);
+            if (!isUsb && !hasDevice) continue;
+
+            std::string devNode = "/dev/" + name;
+            if (access(devNode.c_str(), F_OK) != 0) continue;
+
+            SerialPortInfo info;
+            info.port = devNode;
+
+            // Read sysfs attributes for USB devices.
+            std::string base = std::string(sysPath) + "/" + name;
+            info.description  = _sysfsAttr(base, "device/../product");
+            info.manufacturer = _sysfsAttr(base, "device/../manufacturer");
+            info.serialNumber = _sysfsAttr(base, "device/../serial");
+
+            std::string vidStr = _sysfsAttr(base, "device/../idVendor");
+            std::string pidStr = _sysfsAttr(base, "device/../idProduct");
+            if (!vidStr.empty() && !pidStr.empty()) {
+                info.vendorId  = static_cast<uint16_t>(std::stoul(vidStr, nullptr, 16));
+                info.productId = static_cast<uint16_t>(std::stoul(pidStr, nullptr, 16));
+                info.hasVidPid = true;
             }
+
+            if (info.description.empty()) info.description = name;
+            out.push_back(std::move(info));
         }
+        closedir(dir);
+        // Sort by port name for consistent ordering.
+        std::sort(out.begin(), out.end(),
+                  [](const SerialPortInfo& a, const SerialPortInfo& b){ return a.port < b.port; });
 #endif
         return out;
     }
 
 private:
+    // ---- Read loop ----------------------------------------------------------
+
     void _readLoop() {
         std::vector<uint8_t> buf(4096);
-        while (m_running) {
 #if defined(_WIN32)
+        OVERLAPPED ov{};
+        ov.hEvent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+        HANDLE waitHandles[2] = { ov.hEvent, m_cancelEvent };
+
+        while (m_running) {
             DWORD nRead = 0;
-            if (!ReadFile(m_handle, buf.data(), static_cast<DWORD>(buf.size()), &nRead, nullptr))
-                break;
-            if (nRead > 0) _dispatch(std::vector<uint8_t>(buf.begin(), buf.begin() + nRead));
-#else
-            ssize_t n = ::read(m_fd, buf.data(), buf.size());
-            if (n > 0) _dispatch(std::vector<uint8_t>(buf.begin(), buf.begin() + n));
-            else if (n < 0 && errno != EINTR && errno != EAGAIN) {
-                _postError(std::string("read error: ") + std::strerror(errno));
+            ResetEvent(ov.hEvent);
+            if (!ReadFile(m_handle, buf.data(), static_cast<DWORD>(buf.size()), nullptr, &ov)) {
+                if (GetLastError() != ERROR_IO_PENDING) { _signalDisconnect(); break; }
+            }
+            DWORD wait = WaitForMultipleObjects(2, waitHandles, FALSE, INFINITE);
+            if (wait == WAIT_OBJECT_0) {
+                // Read completed.
+                if (!GetOverlappedResult(m_handle, &ov, &nRead, FALSE)) {
+                    _signalDisconnect(); break;
+                }
+                if (nRead > 0)
+                    _dispatch(std::vector<uint8_t>(buf.begin(), buf.begin() + nRead));
+            } else {
+                // Cancel event or error — exit cleanly.
+                CancelIo(m_handle);
                 break;
             }
-#endif
         }
+        CloseHandle(ov.hEvent);
+#else
+        while (m_running) {
+            fd_set fds;
+            FD_ZERO(&fds);
+            FD_SET(m_fd, &fds);
+            FD_SET(m_pipeFd[0], &fds);
+            int maxFd = (m_pipeFd[0] > m_fd) ? m_pipeFd[0] : m_fd;
+
+            int ret = select(maxFd + 1, &fds, nullptr, nullptr, nullptr);
+            if (ret < 0) {
+                if (errno == EINTR) continue;
+                _signalDisconnect(); break;
+            }
+            if (FD_ISSET(m_pipeFd[0], &fds)) break; // woken by close()
+            if (FD_ISSET(m_fd, &fds)) {
+                ssize_t n = ::read(m_fd, buf.data(), buf.size());
+                if (n > 0) {
+                    _dispatch(std::vector<uint8_t>(buf.begin(), buf.begin() + n));
+                } else if (n == 0 || (n < 0 && errno != EINTR && errno != EAGAIN)) {
+                    _signalDisconnect(); break;
+                }
+            }
+        }
+#endif
+    }
+
+    // ---- Helpers ------------------------------------------------------------
+
+    void _wakeReadThread() {
+#if defined(_WIN32)
+        if (m_cancelEvent) SetEvent(m_cancelEvent);
+#else
+        if (m_pipeFd[1] >= 0) { uint8_t b = 0; ::write(m_pipeFd[1], &b, 1); }
+#endif
+    }
+
+    void _closeHandles() {
+#if defined(_WIN32)
+        if (m_handle != INVALID_HANDLE_VALUE) { CloseHandle(m_handle); m_handle = INVALID_HANDLE_VALUE; }
+        if (m_cancelEvent)                    { CloseHandle(m_cancelEvent); m_cancelEvent = nullptr; }
+#else
+        if (m_fd >= 0)         { ::close(m_fd);         m_fd = -1; }
+        if (m_pipeFd[0] >= 0)  { ::close(m_pipeFd[0]);  m_pipeFd[0] = -1; }
+        if (m_pipeFd[1] >= 0)  { ::close(m_pipeFd[1]);  m_pipeFd[1] = -1; }
+#endif
     }
 
     void _dispatch(std::vector<uint8_t> data) {
@@ -238,10 +395,38 @@ private:
         });
     }
 
+    void _signalDisconnect() {
+        MainThreadDispatcher::instance().post([this]{
+            onDisconnect.emit();
+        });
+    }
+
+#if !defined(_WIN32)
+    static std::string _sysfsAttr(const std::string& base, const std::string& rel) {
+        std::string path = base + "/" + rel;
+        FILE* f = fopen(path.c_str(), "r");
+        if (!f) return {};
+        char buf[256] = {};
+        if (fgets(buf, sizeof(buf), f)) {
+            std::string s = buf;
+            while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' '))
+                s.pop_back();
+            fclose(f);
+            return s;
+        }
+        fclose(f);
+        return {};
+    }
+#endif
+
 #if defined(_WIN32)
-    static speed_t _posixBaud(BaudRate) { return 0; } // unused on Win32
-    HANDLE m_handle{INVALID_HANDLE_VALUE};
+    HANDLE            m_handle{INVALID_HANDLE_VALUE};
+    HANDLE            m_cancelEvent{nullptr};
+    static speed_t    _posixBaud(BaudRate) { return 0; }
 #else
+    int               m_fd{-1};
+    int               m_pipeFd[2]{-1, -1};
+
     static speed_t _posixBaud(BaudRate b) {
         switch (b) {
             case BaudRate::B1200_:   return B1200;
@@ -256,12 +441,12 @@ private:
             default:                 return B115200;
         }
     }
-    int m_fd{-1};
 #endif
 
     std::string       m_port;
     std::thread       m_thread;
     std::atomic<bool> m_running{false};
+    std::mutex        m_writeMutex;
 };
 
 } // namespace Genesis
