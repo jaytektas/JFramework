@@ -98,6 +98,9 @@ public:
             const bool pressed  = m_window->consumePress();
             const bool released = m_window->consumeRelease();
             if (pressed || released || mx != lastMx || my != lastMy) activity = true;
+            // While a button is held (drag / WM resize), render continuously — never sleep
+            // through resize events, or the swapchain lags the window and the edge flashes.
+            if (m_window->isLeftButtonDown()) activity = true;
             lastMx = mx; lastMy = my;
 
             const bool chromeAte = handleChrome(mx, my, pressed);
