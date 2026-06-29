@@ -123,6 +123,8 @@ struct VulkanSurface {
     VkSwapchainKHR  swapchain   {VK_NULL_HANDLE};
     VkCommandBuffer cmdBuf      {VK_NULL_HANDLE};
     VkFence         inFlight    {VK_NULL_HANDLE};   // signaled when GPU work done
+    VkSemaphore     imageAvailable {VK_NULL_HANDLE}; // acquire -> render submit
+    VkSemaphore     renderFinished {VK_NULL_HANDLE}; // render submit -> present
     std::vector<VkImage>       images;
     std::vector<VkImageView>   imageViews;
     std::vector<VkFramebuffer> framebuffers;
@@ -398,7 +400,7 @@ public:
         VkResult acq;
         do {
             acq = vkAcquireNextImageKHR(m_device, s.swapchain, 0,
-                                        VK_NULL_HANDLE, VK_NULL_HANDLE, &s.imageIndex);
+                                        s.imageAvailable, VK_NULL_HANDLE, &s.imageIndex);
             if (acq == VK_ERROR_OUT_OF_DATE_KHR)
                 _rebuildToCurrentExtent(s);  // window resized mid-acquire — heal in place
         } while (acq == VK_TIMEOUT || acq == VK_NOT_READY || acq == VK_ERROR_OUT_OF_DATE_KHR);
@@ -509,12 +511,17 @@ public:
 
         vkEndCommandBuffer(s.cmdBuf);
 
+        VkSemaphore          waitSems[] = {s.imageAvailable};
+        VkPipelineStageFlags waitStg[]  = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
         VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-        si.commandBufferCount = 1; si.pCommandBuffers = &s.cmdBuf;
+        si.commandBufferCount   = 1; si.pCommandBuffers = &s.cmdBuf;
+        si.waitSemaphoreCount   = 1; si.pWaitSemaphores = waitSems; si.pWaitDstStageMask = waitStg;
+        si.signalSemaphoreCount = 1; si.pSignalSemaphores = &s.renderFinished;
         vkQueueSubmit(m_graphicsQueue, 1, &si, s.inFlight);
 
         VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-        pi.waitSemaphoreCount = 0;
+        VkSemaphore presentWait[] = {s.renderFinished};
+        pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = presentWait;
         VkSwapchainKHR sc[] = {s.swapchain};
         pi.swapchainCount    = 1; pi.pSwapchains   = sc;
         pi.pImageIndices     = &s.imageIndex;
@@ -868,11 +875,16 @@ private:
         fi.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         vkCreateFence(m_device, &fi, nullptr, &s.inFlight);
 
+        VkSemaphoreCreateInfo sci{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+        vkCreateSemaphore(m_device, &sci, nullptr, &s.imageAvailable);
+        vkCreateSemaphore(m_device, &sci, nullptr, &s.renderFinished);
     }
 
     void _freeSurfaceCmdAndSync(VulkanSurface& s) {
         if (s.cmdBuf)   { vkFreeCommandBuffers(m_device, m_commandPool, 1, &s.cmdBuf); s.cmdBuf = VK_NULL_HANDLE; }
         if (s.inFlight) { vkDestroyFence(m_device, s.inFlight, nullptr); s.inFlight = VK_NULL_HANDLE; }
+        if (s.imageAvailable) { vkDestroySemaphore(m_device, s.imageAvailable, nullptr); s.imageAvailable = VK_NULL_HANDLE; }
+        if (s.renderFinished) { vkDestroySemaphore(m_device, s.renderFinished, nullptr); s.renderFinished = VK_NULL_HANDLE; }
     }
 
     // Rebuild the swapchain to the surface's current extent.  The CALLER must already

@@ -28,6 +28,8 @@
 #include <j/graphics/RenderPrimitive.h>
 
 #include <cstdint>
+#include <chrono>
+#include <thread>
 #include <functional>
 #include <memory>
 #include <string>
@@ -65,11 +67,16 @@ public:
     std::function<void(float,float,bool,bool)>          onInput;   // mx,my,pressed,released (chrome-filtered)
     std::function<void(uint32_t,uint32_t)>              onResize;  // new client size (px)
 
+    void requestRedraw() { m_needRedraw = true; }   // app asks for a frame (e.g. animation)
+
     int run() {
         if (!valid()) return -1;
         m_window->setVSync(true);
+        int   redraw = 4;                  // frames left to render (armed by activity)
+        float lastMx = -1.f, lastMy = -1.f;
         while (!m_window->shouldClose()) {
             m_window->pollNativeEvents();
+            bool activity = false;
 
             if (m_window->consumeWasResized()) {
                 m_w = m_window->width();
@@ -78,6 +85,7 @@ public:
                     m_hal->resizeSwapchain(m_w, m_h);
                     if (onResize) onResize(m_w, m_h);
                 }
+                activity = true;
             }
 
             const float mx = m_window->mouseX(), my = m_window->mouseY();
@@ -86,17 +94,31 @@ public:
                 m_window->setCursor(cursorForDir(resizeDirAt(mx, my)));
             const bool pressed  = m_window->consumePress();
             const bool released = m_window->consumeRelease();
+            if (pressed || released || mx != lastMx || my != lastMy) activity = true;
+            lastMx = mx; lastMy = my;
+
             const bool chromeAte = handleChrome(mx, my, pressed);
             if (onInput) onInput(mx, my, chromeAte ? false : pressed, released);
 
             if (auto* app = JGuiApplication::instance()) app->serviceFrame();
 
-            JPrimitiveBuffer buffer;
-            auto frame = m_hal->beginFrame();
-            drawChrome(buffer);
-            if (onRender) onRender(buffer);
-            m_hal->drawPrimitives(buffer);
-            m_hal->submitAndPresentFrame(frame);
+            if (m_needRedraw) { activity = true; m_needRedraw = false; }
+            if (activity) redraw = 4;
+
+            // Event-driven: present only while armed, idle otherwise. Continuously
+            // presenting static content flickered under the compositor — the toolkit's
+            // own loop renders in bursts and stays solid, so we do the same.
+            if (redraw > 0) {
+                --redraw;
+                JPrimitiveBuffer buffer;
+                auto frame = m_hal->beginFrame();
+                drawChrome(buffer);
+                if (onRender) onRender(buffer);
+                m_hal->drawPrimitives(buffer);
+                m_hal->submitAndPresentFrame(frame);
+            } else {
+                std::this_thread::sleep_for(std::chrono::milliseconds(8));
+            }
         }
         m_hal->waitIdle();
         return 0;
@@ -217,6 +239,7 @@ private:
     uint32_t                         m_w{0}, m_h{0};
     float                            m_mx{-1.0f}, m_my{-1.0f};
     float                            m_titleH{28.0f};
+    bool                             m_needRedraw{false};
 };
 
 }  // namespace jf
