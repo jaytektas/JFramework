@@ -977,8 +977,10 @@ private:
         vkGetPhysicalDeviceSurfacePresentModesKHR(m_physicalDevice, surf, &n, nullptr);
         std::vector<VkPresentModeKHR> modes(n);
         vkGetPhysicalDeviceSurfacePresentModesKHR(m_physicalDevice, surf, &n, modes.data());
-        for (auto m : modes) if (m == VK_PRESENT_MODE_IMMEDIATE_KHR) return m;
-        for (auto m : modes) if (m == VK_PRESENT_MODE_MAILBOX_KHR)   return m;
+        // Prefer tear-free modes: MAILBOX (vsync + low-latency) then FIFO (always
+        // available, vsync). IMMEDIATE tears under continuous rendering and is never
+        // chosen by default — an app that wants it can opt in via vsync-off later.
+        for (auto m : modes) if (m == VK_PRESENT_MODE_MAILBOX_KHR) return m;
         return VK_PRESENT_MODE_FIFO_KHR;
     }
 
