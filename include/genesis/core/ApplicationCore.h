@@ -107,7 +107,7 @@ public:
     using Task = std::function<void()>;
 
     Application() : m_isRunning(false), m_targetFrameTime(std::chrono::microseconds(16666)) {} 
-    ~Application() { shutdown(); }
+    virtual ~Application() { shutdown(); }   // base of the GUI application tier
 
     Application(const Application&) = delete;
     Application& operator=(const Application&) = delete;
@@ -209,11 +209,18 @@ private:
 
     void updateEngineSystems(double deltaTime) {
         // Always drain the main-thread dispatcher so Timer/SerialPort callbacks
-        // reach the UI even when used without GApplication.
+        // reach the UI even when used without a GUI application.
         Genesis::MainThreadDispatcher::instance().drain();
+        onFrameTick(deltaTime);                 // GUI tier (subclass) injects per-frame work
         if (onFrameUpdate) onFrameUpdate(deltaTime);
     }
 
+protected:
+    // Per-frame hook for the derived GUI application tier (it publishes its semantic
+    // snapshot here), keeping the public onFrameUpdate free for the user's own callback.
+    virtual void onFrameTick(double /*deltaTime*/) {}
+
+private:
     std::atomic<bool> m_isRunning;
     std::unique_ptr<PlatformWindow> m_window;
     

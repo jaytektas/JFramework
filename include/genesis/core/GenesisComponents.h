@@ -41,7 +41,7 @@ private:
 // GApplication — coordinates the event loop, SceneGraph, AI Control Bus,
 //                MainThreadDispatcher drain, and full semantic publishing.
 // ============================================================================
-class GApplication : public GObject {
+class GApplication : public GObject, public Core::Application {
 public:
     GApplication() : GObject("GApplication") {
         assert(s_instance == nullptr && "Only one GApplication may exist.");
@@ -57,13 +57,8 @@ public:
             m_aiBus.publishSignal(nodeId, sig, val);
         });
 
-        // Every frame: drain main-thread callbacks (Timer ticks, SerialPort data, etc.),
-        // publish the full rich semantic snapshot, then service any pending AI action.
-        m_runtimeLoop.onFrameUpdate = [this](double) {
-            MainThreadDispatcher::instance().drain();
-            publishSemanticSnapshot();
-            _pollAndDispatchAction();
-        };
+        // Per-frame GUI work is done in onFrameTick() (overridden below) — the base
+        // loop drains the dispatcher and calls it, leaving onFrameUpdate for the user.
     }
 
     ~GApplication() {
@@ -74,7 +69,6 @@ public:
     static GApplication* instance() noexcept { return s_instance; }
     SceneGraph&    sceneGraph()  noexcept { return m_sceneGraph; }
     AiControlBus&  aiBus()       noexcept { return m_aiBus; }
-    Core::Application& runtimeLoop() noexcept { return m_runtimeLoop; }
 
     void publishSignal(uint32_t nodeId, const char* signal, const char* value) {
         m_aiBus.publishSignal(nodeId, signal, value);
@@ -139,7 +133,15 @@ public:
     }
 
     int exec(std::unique_ptr<Core::PlatformWindow> nativeWindow) {
-        return m_runtimeLoop.run(std::move(nativeWindow));
+        return run(std::move(nativeWindow));   // run() inherited from Core::Application
+    }
+
+protected:
+    // GUI per-frame work: publish the rich semantic snapshot + service any pending AI
+    // action. The base loop calls this each frame after draining the dispatcher.
+    void onFrameTick(double) override {
+        publishSemanticSnapshot();
+        _pollAndDispatchAction();
     }
 
 private:
@@ -165,7 +167,6 @@ private:
     static GApplication* s_instance;
     SceneGraph   m_sceneGraph;
     AiControlBus m_aiBus;
-    Core::Application m_runtimeLoop;
     SharedBusMemory   m_fallbackPool{};
     std::vector<AiNodeDescriptor> m_descriptors;  // reused each frame to avoid alloc
 };
@@ -173,46 +174,26 @@ private:
 inline GApplication* GApplication::s_instance = nullptr;
 
 // ============================================================================
-// GWidget — high-level Widget wrapper onto the flat SceneGraph.
+// GMainWindow — top-level window. One widget base only: it IS a Widget (the
+// parallel GWidget base is gone). It pulls the shared SceneGraph from the
+// application singleton, so a caller still just constructs it by title.
 // ============================================================================
-class GWidget : public GObject {
-public:
-    explicit GWidget(std::string name = "") : GObject(std::move(name)) {
-        m_graphRef = &GApplication::instance()->sceneGraph();
-        m_nodeId   = m_graphRef->createNode(objectName());
-    }
-    virtual ~GWidget() = default;
-
-    NodeId nodeId() const noexcept { return m_nodeId; }
-
-    void setFlexDirection(FlexDirection direction) {
-        m_graphRef->getLayout(m_nodeId).direction = direction;
-    }
-    void setJustifyContent(JustifyContent justify) {
-        m_graphRef->getLayout(m_nodeId).justifyContent = justify;
-    }
-
-protected:
-    SceneGraph* m_graphRef;
-    NodeId      m_nodeId;
-};
-
-// ============================================================================
-// GMainWindow — top-level window, triggers layout + initial AI snapshot.
-// ============================================================================
-class GMainWindow : public GWidget {
+class GMainWindow : public Widget {
 public:
     explicit GMainWindow(std::string title = "Genesis Window")
-        : GWidget(std::move(title))
+        : Widget(GApplication::instance()->sceneGraph(), std::move(title))
     {
-        setFlexDirection(FlexDirection::Column);
-        setJustifyContent(JustifyContent::FlexStart);
+        m_graph.getLayout(m_nodeId).direction      = FlexDirection::Column;
+        m_graph.getLayout(m_nodeId).justifyContent = JustifyContent::FlexStart;
     }
 
+    // A window is a container; its children paint themselves.
+    void populateRenderPrimitives(PrimitiveBuffer&) override {}
+
     void show() {
-        qCInfo(LogWidget) << "Showing main window: " << objectName() << std::endl;
+        qCInfo(LogWidget) << "Showing main window: " << m_debugName << std::endl;
         Constraints constraints{800.0f, 1920.0f, 600.0f, 1080.0f};
-        m_graphRef->computeLayout(m_nodeId, constraints);
+        m_graph.computeLayout(m_nodeId, constraints);
         // Publish initial snapshot immediately (before the first frame fires).
         GApplication::instance()->publishSemanticSnapshot();
     }
