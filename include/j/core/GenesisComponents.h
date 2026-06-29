@@ -136,6 +136,16 @@ public:
         return run(std::move(nativeWindow));   // run() inherited from jf::JApplication
     }
 
+    // One frame of framework housekeeping: drain main-thread callbacks (Timer/SerialPort),
+    // publish the semantic snapshot, and service any pending AI action. Called by the
+    // app-window runner (JAppWindow) each frame; equivalent to what onFrameTick does inside
+    // the bare jf::JApplication::run() loop.
+    void serviceFrame() {
+        JMainThreadDispatcher::instance().drain();
+        publishSemanticSnapshot();
+        _pollAndDispatchAction();
+    }
+
 protected:
     // GUI per-frame work: publish the rich semantic snapshot + service any pending AI
     // action. The base loop calls this each frame after draining the dispatcher.

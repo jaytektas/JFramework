@@ -122,6 +122,8 @@ endif()
 add_library(j_platform STATIC)
 target_link_libraries(j_platform PUBLIC j_core Vulkan::Vulkan)
 add_dependencies(j_platform j_shaders)
+# Native-window factory (jf::createPlatformWindow) — keeps app code free of xcb/win32.
+target_sources(j_platform PRIVATE src/platforms/PlatformFactory.cpp)
 
 if(UNIX AND NOT APPLE)
     target_sources(j_platform PRIVATE
@@ -194,6 +196,9 @@ if(GENESIS_BUILD_EXAMPLES)
 
     add_executable(j_vector_demo examples/vector_demo/main.cpp)
     target_link_libraries(j_vector_demo PRIVATE j_platform)
+
+    add_executable(j_app_shell examples/app_shell/main.cpp)
+    target_link_libraries(j_app_shell PRIVATE j_platform)
 
     add_executable(j_chart_demo examples/chart_demo/main.cpp)
     target_link_libraries(j_chart_demo PRIVATE j_platform)
