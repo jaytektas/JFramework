@@ -510,6 +510,16 @@ public:
         xcb_flush(m_connection);
     }
 
+    // Window translucency via _NET_WM_WINDOW_OPACITY (compositor-applied). 1 = opaque.
+    void setOpacity(float a) {
+        a = a < 0.f ? 0.f : (a > 1.f ? 1.f : a);
+        uint32_t v = static_cast<uint32_t>(a * 4294967295.0f);
+        xcb_atom_t atom = _internAtom("_NET_WM_WINDOW_OPACITY");
+        xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
+                            atom, XCB_ATOM_CARDINAL, 32, 1, &v);
+        xcb_flush(m_connection);
+    }
+
     // Inform the WM of our minimum window size via WM_NORMAL_HINTS so the
     // WM enforces it during interactive resize and never sends us a
     // ConfigureNotify below this threshold.

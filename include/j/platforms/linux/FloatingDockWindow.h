@@ -222,6 +222,22 @@ public:
         m_window->pollNativeEvents();
         m_lastWheel = m_window->consumeWheel();
 
+        // Escape aborts the drag. The float window often holds keyboard focus while it is
+        // being dragged, so check its own key queue here (the host also checks the main
+        // window). We only flag the request — the host owns the revert (it must restore the
+        // source dock tree), so it polls consumeAbortRequest().
+        if (m_state == JState::InitialDrag || m_state == JState::HeaderDrag) {
+            for (const auto& k : m_window->consumeAllKeys())
+                if (k.key == JKeyEvent::JKey::Escape) { m_abortRequested = true; return JPollResult{}; }
+        }
+
+        // Translucent while dragging so the drop targets/areas underneath show through.
+        const bool dragging = (m_state == JState::InitialDrag || m_state == JState::HeaderDrag);
+        if (dragging != m_wasDragging) {
+            m_window->setOpacity(dragging ? 0.6f : 1.0f);
+            m_wasDragging = dragging;
+        }
+
         const bool btnDown = m_window->isLeftButtonDown();
         const bool press   = m_window->consumePress();
         const bool release = m_window->consumeRelease();
@@ -249,6 +265,12 @@ public:
             }
             m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(m_winW), static_cast<float>(m_winH) - topOffset});
             JDockRegistry::instance().updateBounds(*m_dockHost, m_window->screenX(), m_window->screenY(), m_winW, m_winH);
+            // The dock's stored size IS its floating size: keep it synced to the float
+            // window so resizing the float becomes the new floating size (and thus the size
+            // it tears out / re-docks at). Docking and dock-splitter resizes never run this
+            // path, so they don't disturb the floating size.
+            if (!m_docks.empty())
+                m_docks[0]->setSize(static_cast<float>(m_winW), static_cast<float>(m_winH));
         }
 
         switch (m_state) {
@@ -269,9 +291,12 @@ public:
                         gy - static_cast<int>(hit->localY),
                         draggedDock);
                 }
-            } else {
-                _clearAllHostDrags();
             }
+            // Only the hovered host shows a preview; clear every other host each frame, or
+            // dragging across multiple area hosts leaves stale highlights behind (and makes
+            // the commit target ambiguous).
+            if (hoveredHost) _clearHostDragsExcept(hoveredHost);
+            else             _clearAllHostDrags();
 
             if (!btnDown) {
                 m_state = JState::Idle;
@@ -301,9 +326,12 @@ public:
                         gy - static_cast<int>(hit->localY),
                         draggedDock);
                 }
-            } else {
-                _clearAllHostDrags();
             }
+            // Only the hovered host shows a preview; clear every other host each frame, or
+            // dragging across multiple area hosts leaves stale highlights behind (and makes
+            // the commit target ambiguous).
+            if (hoveredHost) _clearHostDragsExcept(hoveredHost);
+            else             _clearAllHostDrags();
 
             if (!btnDown) {
                 m_state = JState::Idle;
@@ -603,6 +631,9 @@ public:
 
     bool isInInitialDrag() const { return m_state == JState::InitialDrag; }
     bool isDragging()      const { return m_state != JState::Idle; }
+
+    // True once after Escape is pressed mid-drag; the host consumes it and reverts.
+    bool consumeAbortRequest() { bool v = m_abortRequested; m_abortRequested = false; return v; }
     bool shouldClose()     const { return m_shouldClose; }
     float lastWheel()      const { return m_lastWheel; }
 
@@ -676,6 +707,8 @@ private:
     std::function<void(float, float, bool, bool, float)> m_contentInputHost;
 
     JState m_state{JState::Idle};
+    bool   m_abortRequested{false};   // Escape pressed mid-drag; host reverts
+    bool   m_wasDragging{false};      // tracks drag state for translucency toggling
     bool  m_shouldClose{false};
     bool  m_wasDown{false};
     int   m_dragOffX{0}, m_dragOffY{0};

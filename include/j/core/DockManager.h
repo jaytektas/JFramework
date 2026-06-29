@@ -58,6 +58,9 @@ struct JDockConstraints {
     float minW{48.f}, minH{48.f};
     float maxW{1e9f}, maxH{1e9f};
     float preferredW{0.f}, preferredH{0.f};  // 0 = no preference
+    bool  allowTabDrop{true};                // false = docks can split AROUND this leaf
+                                             // (edge drops) but never tabify INTO it
+                                             // — e.g. a non-dockable centre/editor area.
 };
 
 struct JDockAffinityRule {
@@ -471,6 +474,17 @@ public:
         return true;
     }
 
+    // Convenience: place a dock in this host in one call. Tabifies into the first leaf if
+    // there is one, otherwise creates a leaf (with optional affinity, e.g. to restrict who
+    // may dock here). Lets callers just declare "this dock lives here" — no leaf plumbing.
+    JDockNodeId addDock(JDockWidget* dock, JDockAffinityRule affinity = {}) {
+        for (auto& n : m_nodes)
+            if (n.type == JDockNode::JType::Leaf && !n.tabs.empty()) { insertDock(dock, n.id); return n.id; }
+        JDockNodeId leaf = addLeaf(rootId(), "", 1.0f, std::move(affinity));
+        insertDock(dock, leaf);
+        return leaf;
+    }
+
     void removeDock(JDockWidget* dock) {
         for (auto& n : m_nodes) {
             if (n.type != JDockNode::JType::Leaf) continue;
@@ -571,7 +585,8 @@ public:
             constexpr float kEdge = 0.25f;
 
             JDropPos zone;
-            if      (rx < kEdge)        zone = JDropPos::Left;
+            if      (n.tabs.empty())    zone = JDropPos::Center;  // empty leaf: only fill it
+            else if (rx < kEdge)        zone = JDropPos::Left;
             else if (rx > 1.f - kEdge)  zone = JDropPos::Right;
             else if (ry < kEdge)        zone = JDropPos::Top;
             else if (ry > 1.f - kEdge)  zone = JDropPos::Bottom;
@@ -588,8 +603,12 @@ public:
         }
 
         if (m_livePreviewEnabled && m_activeTarget && m_activeTarget->allowed && m_activeTarget->pos != JDropPos::Center) {
-            _splitLeaf(m_activeTarget->leaf, m_activeTarget->pos);
+            JDockNodeId newLeaf = _splitLeaf(m_activeTarget->leaf, m_activeTarget->pos);
             _computeNodeLayout(rootId(), m_hostRect);
+            // The blue highlight IS the live preview: use the new leaf's actual laid-out
+            // rect (where the dock will land) rather than a separate estimate, so the
+            // highlight always matches the preview exactly.
+            if (const JDockNode* nl = node(newLeaf)) m_activeTarget->previewRect = nl->rect;
         } else {
             _computeNodeLayout(rootId(), m_hostRect);
         }
@@ -656,9 +675,30 @@ public:
                 int a = m_handleDrag.handleIdx;
                 int b = a + 1;
                 if (b < static_cast<int>(sp->weights.size())) {
-                    float cursor = (sp->splitDir == JSplitDir::Horizontal) ? mx : my;
-                    float total  = (sp->splitDir == JSplitDir::Horizontal)
-                                       ? sp->rect.width : sp->rect.height;
+                    bool horizD  = (sp->splitDir == JSplitDir::Horizontal);
+                    float cursor = horizD ? mx : my;
+
+                    // If either side is a fixed-size (preferred-px) leaf, the handle drag
+                    // must resize that leaf's PIXEL size — its weight is ignored by layout,
+                    // so adjusting weights would silently push the flexible siblings around.
+                    if (m_handleDrag.startPrefA > 0.f || m_handleDrag.startPrefB > 0.f) {
+                        float pxDelta = cursor - m_handleDrag.startCursor;
+                        JDockNode* ca = node(sp->children[a]);
+                        JDockNode* cb = node(sp->children[b]);
+                        if (m_handleDrag.startPrefA > 0.f && ca) {
+                            float np = std::max(48.f, m_handleDrag.startPrefA + pxDelta);
+                            if (horizD) ca->constraints.preferredW = np; else ca->constraints.preferredH = np;
+                        }
+                        if (m_handleDrag.startPrefB > 0.f && cb) {
+                            float np = std::max(48.f, m_handleDrag.startPrefB - pxDelta);
+                            if (horizD) cb->constraints.preferredW = np; else cb->constraints.preferredH = np;
+                        }
+                        computeLayout(m_hostRect);
+                        if (released) m_handleDrag = {};
+                        return std::nullopt;
+                    }
+
+                    float total  = horizD ? sp->rect.width : sp->rect.height;
                     float delta  = (total > 1.f)
                                        ? (cursor - m_handleDrag.startCursor) / total : 0.f;
                     float wa = m_handleDrag.startWeightA + delta;
@@ -711,6 +751,10 @@ public:
                     if (mx >= hx && mx <= hx + hw &&
                         my >= hy && my <= hy + hh)
                     {
+                        // Guard against a stale handle on a node whose weights/children
+                        // were shrunk (tombstoned) without its handleRects being cleared.
+                        if (i + 1 >= static_cast<int>(n.weights.size()) ||
+                            i + 1 >= static_cast<int>(n.children.size())) continue;
                         m_handleDrag.parentSplit = n.id;
                         m_handleDrag.handleIdx   = i;
                         m_handleDrag.active      = true;
@@ -718,6 +762,13 @@ public:
                             (n.splitDir == JSplitDir::Horizontal) ? mx : my;
                         m_handleDrag.startWeightA = n.weights[i];
                         m_handleDrag.startWeightB = n.weights[i + 1];
+                        bool h = (n.splitDir == JSplitDir::Horizontal);
+                        const JDockNode* ca = node(n.children[i]);
+                        const JDockNode* cb = node(n.children[i + 1]);
+                        m_handleDrag.startPrefA = (ca && ca->type == JDockNode::JType::Leaf)
+                                                      ? (h ? ca->constraints.preferredW : ca->constraints.preferredH) : 0.f;
+                        m_handleDrag.startPrefB = (cb && cb->type == JDockNode::JType::Leaf)
+                                                      ? (h ? cb->constraints.preferredW : cb->constraints.preferredH) : 0.f;
                         return std::nullopt;
                     }
                 }
@@ -851,6 +902,19 @@ public:
         const JDockNode* leaf = node(leafId);
         if (!leaf || leaf->type != JDockNode::JType::Leaf) return JRect{};
         return _leafContentRect(*leaf);
+    }
+
+    // --- Raw tree save/restore (deep copy of the node arena) ---
+    // Preserves EVERYTHING — structure, weights, fixed-size constraints — unlike the
+    // title-based snapshot below (which is for serialization). Used to revert a drag to
+    // its exact pre-drag state. Dock pointers are copied as-is; retargetDock() fixes any
+    // that moved (e.g. a torn-out dock that was re-homed).
+    struct JSavedTree { std::vector<JDockNode> nodes; uint32_t nextId{0}; };
+    JSavedTree saveTree() const { return { m_nodes, m_nextId }; }
+    void restoreTree(const JSavedTree& s) {
+        m_nodes = s.nodes; m_nextId = s.nextId;
+        m_handleDrag = {}; m_dropTargets.clear(); m_activeTarget = nullptr; m_draggedDock = nullptr;
+        computeLayout(m_hostRect);
     }
 
     // --- Layout snapshot / restore ---
@@ -1049,9 +1113,35 @@ private:
         std::vector<JRect>       handles;
         handles.reserve(count > 0 ? count - 1 : 0);
 
+        // Fixed-size pass: a leaf child that declares a preferred size along this axis
+        // (JDockConstraints::preferredW/H) gets exactly that many pixels; the remaining
+        // space distributes among the flexible children by weight. No preferred sizes ->
+        // identical to a pure weighted split.
+        std::vector<float> fixed(count, 0.f);
+        float fixedTotal = 0.f, flexWeight = 0.f;
+        for (size_t i = 0; i < count; ++i) {
+            const JDockNode* c = node(children[i]);
+            // Honour a preferred (fixed) size on leaves AND splits — a split that wraps a
+            // fixed-width column (e.g. after a vertical split) carries the fixed width.
+            float pref = c ? (horiz ? c->constraints.preferredW : c->constraints.preferredH) : 0.f;
+            if (pref > 0.f) { fixed[i] = pref; fixedTotal += pref; }
+            else            { flexWeight += weights[i]; }
+        }
+        float flexSpace = std::max(0.f, usable - fixedTotal);
+
+        // Safety net: if every child is fixed (no flexible sibling to absorb slack), scale
+        // them to fill — rare now that a split target always flexes, but prevents a gap.
+        if (flexWeight <= 0.f && fixedTotal > 0.f) {
+            float scale = usable / fixedTotal;
+            for (auto& f : fixed) f *= scale;
+            flexSpace = 0.f;
+        }
+
         float cursor = horiz ? rect.x : rect.y;
         for (size_t i = 0; i < count; ++i) {
-            float seg = usable * weights[i];
+            float seg = (fixed[i] > 0.f)
+                            ? fixed[i]
+                            : (flexWeight > 0.f ? flexSpace * (weights[i] / flexWeight) : 0.f);
             JRect childRect;
             if (horiz) childRect = { cursor, rect.y, seg, rect.height };
             else       childRect = { rect.x, cursor, rect.width, seg };
@@ -1229,14 +1319,14 @@ private:
         const JRect& a = dt.indicatorRect;
 
         if (dt.highlighted) {
-            // Semi-transparent preview of where the dock would land.
-            uint8_t preview[4] = {10, 132, 255, 70};
-            uint8_t pBorder[4] = {10, 132, 255, 200};
+            // Semi-transparent preview of where the dock would land — scheme accent.
+            uint8_t preview[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 70};
+            uint8_t pBorder[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 200};
             buf.pushRectangle(dt.previewRect.x, dt.previewRect.y,
                               dt.previewRect.width, dt.previewRect.height,
                               preview, 4.0f, 2.0f, pBorder);
             // Bright accent arrow background.
-            uint8_t bg[4] = {10, 132, 255, 235};
+            uint8_t bg[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 235};
             buf.pushRectangle(a.x, a.y, a.width, a.height, bg, 6.0f);
             _renderArrow(dt, buf, /*white=*/true);
         } else {
@@ -1326,13 +1416,19 @@ private:
             auto isAllowed = [&](JDropPos pos) -> bool {
                 if (!n.affinity.accepts(tag)) return false;
                 if (!dock->acceptsLeafLabel(n.label)) return false;
+                // An empty leaf (e.g. a collapsed area's placeholder) can only be FILLED —
+                // splitting nothing yields a silly thin slice, so offer Center only.
+                if (n.tabs.empty() && pos != JDropPos::Center) return false;
                 if (static_cast<uint8_t>(pos) <= static_cast<uint8_t>(JDropPos::Bottom)) {
                     uint8_t bit = static_cast<uint8_t>(1u << static_cast<uint8_t>(pos));
                     if (!dock->allowsDrop(bit)) return false;
                 }
-                if (pos == JDropPos::Center && !n.tabs.empty()) {
-                    if (!dock->isTabifiable()) return false;
-                    if (leafBlocksTab)         return false;
+                if (pos == JDropPos::Center) {
+                    if (!n.constraints.allowTabDrop) return false;   // non-dockable centre
+                    if (!n.tabs.empty()) {
+                        if (!dock->isTabifiable()) return false;
+                        if (leafBlocksTab)         return false;
+                    }
                 }
                 return true;
             };
@@ -1345,12 +1441,19 @@ private:
             auto centerRect = [&](float ox, float oy) -> JRect {
                 return { cx + ox - half, cy + oy - half, ARROW_SZ, ARROW_SZ };
             };
+            // The landing preview matches the size the dock will actually take on drop —
+            // its retained PIXEL size (clamped to the target), mirroring the fixed-px split
+            // in _splitLeaf — so the highlight equals where the dock lands, not a fraction.
             auto sidePreview = [&](JDropPos pos) -> JRect {
+                bool vert = (pos == JDropPos::Top || pos == JDropPos::Bottom);
+                float targetDim = vert ? r.height : r.width;
+                float dockDim   = vert ? dock->height() : dock->width();
+                float sz = (dockDim > 0.f) ? std::min(dockDim, targetDim) : targetDim * 0.5f;
                 switch (pos) {
-                    case JDropPos::Left:   return { r.x, r.y, r.width * 0.5f, r.height };
-                    case JDropPos::Right:  return { r.x + r.width * 0.5f, r.y, r.width * 0.5f, r.height };
-                    case JDropPos::Top:    return { r.x, r.y, r.width, r.height * 0.5f };
-                    case JDropPos::Bottom: return { r.x, r.y + r.height * 0.5f, r.width, r.height * 0.5f };
+                    case JDropPos::Left:   return { r.x, r.y, sz, r.height };
+                    case JDropPos::Right:  return { r.x + r.width - sz, r.y, sz, r.height };
+                    case JDropPos::Top:    return { r.x, r.y, r.width, sz };
+                    case JDropPos::Bottom: return { r.x, r.y + r.height - sz, r.width, sz };
                     default:              return r;
                 }
             };
@@ -1369,6 +1472,9 @@ private:
             const JDockNode* el = node(edgeLeaf);
             auto edgeAllowed = [&](JDropPos pos) -> bool {
                 if (!el) return false;
+                // Empty host (only a placeholder): no host-edge splits — fill it (per-leaf
+                // Center) only, so an empty area offers exactly one drop position.
+                if (el->tabs.empty()) return false;
                 if (!el->affinity.accepts(tag)) return false;
                 if (!dock->acceptsLeafLabel(el->label)) return false;
                 if (static_cast<uint8_t>(pos) <= static_cast<uint8_t>(JDropPos::Bottom)) {
@@ -1434,6 +1540,7 @@ private:
         leaf->type     = JDockNode::JType::Split;
         leaf->parent   = InvalidDockNodeId;
         leaf->tabs.clear();
+        leaf->handleRects.clear();
 
         // If the parent split now has only one child, lift that child up to
         // replace the parent in the grandparent, eliminating the redundant split.
@@ -1487,8 +1594,11 @@ private:
         if (survivor) survivor->parent = grandpaId;
 
         // Tombstone the old split (orphaned empty split, never reached from root).
+        // Clear handleRects too: leaf/handle-scan loops key off these, and a stale
+        // handle on a node with no weights causes an out-of-bounds weights access.
         split->children.clear();
         split->weights.clear();
+        split->handleRects.clear();
         split->parent = InvalidDockNodeId;
     }
 
@@ -1515,37 +1625,87 @@ private:
             if (parent->children[i] == leafId) { idx = i; break; }
         if (idx < 0) return InvalidDockNodeId;
 
+        // A dock re-docked via an edge split keeps its RETAINED size: the new leaf is
+        // pinned to the dragged dock's pixel dimension along the split axis (a fixed-size
+        // leaf), so it reserves its own space and the target keeps its size instead of a
+        // 50/50 carve-up. This also makes splitter drags between the resulting docks behave
+        // (both sides are fixed-px). `frac` is the weighted-split fallback for programmatic
+        // splits with no active drag. Captured before any _allocNode invalidates pointers.
+        float dockDim  = m_draggedDock ? (wantVertical ? m_draggedDock->height()
+                                                        : m_draggedDock->width()) : 0.f;
+        // Clamp the dropped dock's size so the target keeps at least its min — otherwise a
+        // dock as large as the target takes everything and squishes the target to zero.
+        if (m_draggedDock) {
+            const float tdim = wantVertical ? leaf->rect.height : leaf->rect.width;
+            const float tmin = wantVertical ? _minHeightOfNode(leafId) : _minWidthOfNode(leafId);
+            const float dmin = wantVertical ? m_draggedDock->minH() : m_draggedDock->minW();
+            if (tdim - tmin > dmin) dockDim = std::clamp(dockDim, dmin, tdim - tmin);
+        }
+        bool  fixedNew = (dockDim > 0.f);
+        // Target's fixed sizes, captured before any _allocNode invalidates `leaf` — a
+        // Case B split must inherit the fixed size on the axis perpendicular to the split
+        // so a fixed-width column stays fixed-width when stacked top/bottom.
+        float origPrefW = leaf->constraints.preferredW;
+        float origPrefH = leaf->constraints.preferredH;
+        float frac     = 0.5f;
+        if (fixedNew) {
+            float targetDim = wantVertical ? leaf->rect.height : leaf->rect.width;
+            if (targetDim > 0.f) frac = std::clamp(dockDim / targetDim, 0.1f, 0.9f);
+        }
+        auto pinNewLeaf = [&](JDockNode& nl) {
+            if (!fixedNew) return;
+            if (desired == JSplitDir::Horizontal) nl.constraints.preferredW = dockDim;
+            else                                  nl.constraints.preferredH = dockDim;
+        };
+
+        // The split target flexes along the split axis so the dropped (fixed-size) dock
+        // keeps its exact size and the two together fill the region — the dropped dock's
+        // size decides where it lands, the target absorbs the rest (no gap, no 50/50).
+        if (fixedNew) {
+            if (desired == JSplitDir::Horizontal) leaf->constraints.preferredW = 0.f;
+            else                                  leaf->constraints.preferredH = 0.f;
+        }
+
         // Case A: parent already splits along the desired direction — just
         // insert the new leaf as a sibling next to the target.
         if (parent->splitDir == desired) {
             JDockNodeId newLeaf = _allocNode();
-            { JDockNode& nl = m_nodes[newLeaf.v]; nl.type = JDockNode::JType::Leaf; nl.parent = parentId; }
+            { JDockNode& nl = m_nodes[newLeaf.v]; nl.type = JDockNode::JType::Leaf; nl.parent = parentId; pinNewLeaf(nl); }
             parent = node(parentId);
             float w = parent->weights[idx];
-            float half = w * 0.5f;
-            parent->weights[idx] = half;
             int insertAt = before ? idx : idx + 1;
-            parent->children.insert(parent->children.begin() + insertAt, newLeaf);
-            parent->weights.insert(parent->weights.begin() + insertAt, half);
+            if (fixedNew) {
+                // Fixed-px new leaf reserves its own pixels — target keeps its weight.
+                parent->children.insert(parent->children.begin() + insertAt, newLeaf);
+                parent->weights.insert(parent->weights.begin() + insertAt, w);
+            } else {
+                float newW = w * frac;
+                parent->weights[idx] = w - newW;
+                parent->children.insert(parent->children.begin() + insertAt, newLeaf);
+                parent->weights.insert(parent->weights.begin() + insertAt, newW);
+            }
             _rebalanceWeights(parentId);
             return newLeaf;
         }
 
         // Case B: introduce a new SplitNode in the target's slot, holding the
-        // original leaf and the new leaf as 50/50 children.
+        // original leaf and the new leaf.
         JDockNodeId splitId = _allocNode();
-        { JDockNode& sp = m_nodes[splitId.v]; sp.type = JDockNode::JType::Split; sp.parent = parentId; sp.splitDir = desired; }
+        { JDockNode& sp = m_nodes[splitId.v]; sp.type = JDockNode::JType::Split; sp.parent = parentId; sp.splitDir = desired;
+          // Keep the target's fixed size on the perpendicular axis (column width stays
+          // fixed when split into top/bottom; row height when split left/right).
+          if (desired == JSplitDir::Vertical) sp.constraints.preferredW = origPrefW;
+          else                                sp.constraints.preferredH = origPrefH; }
         JDockNodeId newLeaf = _allocNode();
-        { JDockNode& nl = m_nodes[newLeaf.v]; nl.type = JDockNode::JType::Leaf; nl.parent = splitId; }
+        { JDockNode& nl = m_nodes[newLeaf.v]; nl.type = JDockNode::JType::Leaf; nl.parent = splitId; pinNewLeaf(nl); }
 
         // Reparent the original leaf under the new split.
         leaf = node(leafId);
         leaf->parent = splitId;
 
         JDockNode& sp = m_nodes[splitId.v];
-        if (before) sp.children = { newLeaf, leafId };
-        else        sp.children = { leafId, newLeaf };
-        sp.weights = { 0.5f, 0.5f };
+        if (before) { sp.children = { newLeaf, leafId }; sp.weights = { frac, 1.f - frac }; }
+        else        { sp.children = { leafId, newLeaf }; sp.weights = { 1.f - frac, frac }; }
 
         // Swap the split node into the slot the leaf occupied in its parent.
         parent = node(parentId);
@@ -1650,6 +1810,7 @@ private:
         int        handleIdx{0};
         float      startCursor{0.f};
         float      startWeightA{0.f}, startWeightB{0.f};
+        float      startPrefA{0.f},   startPrefB{0.f};   // fixed-size leaves on each side
         bool       active{false};
     } m_handleDrag{};
 

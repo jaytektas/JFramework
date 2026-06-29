@@ -48,15 +48,26 @@ public:
 
     struct JEntry {
         JDockHost* host{nullptr};
-        int       screenX{0}, screenY{0};
+        int       screenX{0}, screenY{0};   // hit bounds (where the host visually is)
         uint32_t  width{0},   height{0};
+        int       originX{0}, originY{0};   // coord origin (subtracted to get host-local)
     };
 
     void registerHost(JDockHost& host, int sx, int sy, uint32_t w, uint32_t h) {
+        registerHostEx(host, sx, sy, w, h, sx, sy);   // origin == hit bounds
+    }
+
+    // Register with a separate coordinate origin: the host occupies the screen rect
+    // (hitSx,hitSy,w,h) but its node coordinates are measured from (originSx,originSy).
+    // Used by JDockSpace — each area host occupies its area rect but shares the window's
+    // coordinate origin, so its nodes stay in window space (no per-area render offset).
+    void registerHostEx(JDockHost& host, int hitSx, int hitSy, uint32_t w, uint32_t h,
+                        int originSx, int originSy) {
         for (auto& e : m_entries) {
-            if (e.host == &host) { e.screenX = sx; e.screenY = sy; e.width = w; e.height = h; return; }
+            if (e.host == &host) { e.screenX = hitSx; e.screenY = hitSy; e.width = w; e.height = h;
+                                   e.originX = originSx; e.originY = originSy; return; }
         }
-        m_entries.push_back({&host, sx, sy, w, h});
+        m_entries.push_back({&host, hitSx, hitSy, w, h, originSx, originSy});
     }
 
     void unregisterHost(JDockHost& host) {
@@ -85,8 +96,8 @@ public:
             {
                 return JHitResult{
                     e.host,
-                    static_cast<float>(globalX - e.screenX),
-                    static_cast<float>(globalY - e.screenY)
+                    static_cast<float>(globalX - e.originX),
+                    static_cast<float>(globalY - e.originY)
                 };
             }
         }

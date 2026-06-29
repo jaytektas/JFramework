@@ -128,8 +128,18 @@ public:
             m_descriptors.push_back(d);
         }
 
+        // Let registered contributors append non-widget nodes (e.g. dock-space areas) so
+        // they show up on the bus for external monitoring.
+        for (auto& c : m_snapshotContributors) c(m_descriptors);
+
         m_aiBus.publishNodes(m_descriptors.data(),
                              static_cast<uint32_t>(m_descriptors.size()));
+    }
+
+    // Register a callback that appends extra AI-bus nodes on every publish — surfaces
+    // structures that aren't JWidgets (dock areas, etc.) on the bus.
+    void addSnapshotContributor(std::function<void(std::vector<JAiNodeDescriptor>&)> fn) {
+        m_snapshotContributors.push_back(std::move(fn));
     }
 
     int exec(std::unique_ptr<jf::JPlatformWindow> nativeWindow) {
@@ -179,6 +189,7 @@ private:
     JAiControlBus m_aiBus;
     JSharedBusMemory   m_fallbackPool{};
     std::vector<JAiNodeDescriptor> m_descriptors;  // reused each frame to avoid alloc
+    std::vector<std::function<void(std::vector<JAiNodeDescriptor>&)>> m_snapshotContributors;
 };
 
 inline JGuiApplication* JGuiApplication::s_instance = nullptr;

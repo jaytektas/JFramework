@@ -132,7 +132,10 @@ public:
             m_hasPointerGrab = grabReply && grabReply->status == XCB_GRAB_STATUS_SUCCESS;
             free(grabReply);
 #endif
-            m_focusSet = true;
+            // Retry next frame if the grab failed — it commonly does when the menu opens on a
+            // button PRESS while the parent still holds the button's implicit grab. Without the
+            // retry the popup never captures the pointer and its hover/clicks stall.
+            m_focusSet = m_hasPointerGrab;
         }
 
         float mx = m_window->mouseX();

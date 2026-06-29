@@ -44,3 +44,6 @@ docs/architecture/*.html
 
 # In-source test binaries (root only)
 /test_*
+build-native/
+build/
+genesis.log
