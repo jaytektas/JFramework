@@ -78,13 +78,16 @@ public:
             m_window->pollNativeEvents();
             bool activity = false;
 
-            if (m_window->consumeWasResized()) {
-                m_w = m_window->width();
-                m_h = m_window->height();
-                if (m_w && m_h) {
-                    m_hal->resizeSwapchain(m_w, m_h);
-                    if (onResize) onResize(m_w, m_h);
-                }
+            // Sync the swapchain to the window's CURRENT size every iteration, by direct
+            // comparison rather than the resize flag (which can lag/coalesce). If the
+            // swapchain ever trails the window by a frame, the newly exposed edge flashes
+            // — the main source of resize flicker. width()/height() keep them in lockstep.
+            m_window->consumeWasResized();   // drain the flag; we resize by size-compare
+            const uint32_t curW = m_window->width(), curH = m_window->height();
+            if (curW > 0 && curH > 0 && (curW != m_w || curH != m_h)) {
+                m_w = curW; m_h = curH;
+                m_hal->resizeSwapchain(m_w, m_h);
+                if (onResize) onResize(m_w, m_h);
                 activity = true;
             }
 
