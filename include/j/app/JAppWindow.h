@@ -42,6 +42,7 @@ public:
         m_window = createPlatformWindow(title, width, height, 100, 100,
                                         JPlatformWindowStyle::Borderless);
         if (!m_window) return;
+        m_window->setMinSize(200, 150);   // declare a sane minimum -> WM treats it resizable
         m_hal = JGpuHal::create(JGpuApiType::Vulkan, m_window->nativeHandle());
         if (m_hal) m_hal->resizeSwapchain(width, height);
         if (m_font.loadSystemFont() && m_hal) {
@@ -81,6 +82,8 @@ public:
 
             const float mx = m_window->mouseX(), my = m_window->mouseY();
             m_mx = mx; m_my = my;   // remembered for chrome hover in drawChrome()
+            if (!m_window->isMaximized())   // resize-edge cursor feedback (makes edges discoverable)
+                m_window->setCursor(cursorForDir(resizeDirAt(mx, my)));
             const bool pressed  = m_window->consumePress();
             const bool released = m_window->consumeRelease();
             const bool chromeAte = handleChrome(mx, my, pressed);
@@ -102,19 +105,43 @@ public:
 private:
     static constexpr float kBtnW = 28.0f;   // width of each window-control button (toolkit value)
 
+    // Resize direction under (mx,my): _NET_WM_MOVERESIZE dirs 3=R,4=BR,5=B,6=BL,7=L, or
+    // -1. Top edge is intentionally skipped — it conflicts with the title bar (catalog).
+    int resizeDirAt(float mx, float my) const {
+        const float W = static_cast<float>(m_w), H = static_cast<float>(m_h);
+        constexpr float kEdge = 6.0f, kCorn = 14.0f;
+        const bool onLeft   = mx < kEdge   && my >= m_titleH;
+        const bool onRight  = mx >= W-kEdge && my >= m_titleH;
+        const bool onBottom = my >= H-kEdge;
+        const bool onBL     = mx < kCorn   && my >= H-kCorn;
+        const bool onBR     = mx >= W-kCorn && my >= H-kCorn;
+        if (onBL)     return 6;
+        if (onBR)     return 4;
+        if (onBottom) return 5;
+        if (onLeft)   return 7;
+        if (onRight)  return 3;
+        return -1;
+    }
+
+    static JPlatformCursor cursorForDir(int d) {
+        switch (d) {
+            case 4: return JPlatformCursor::ResizeBottomRight;
+            case 6: return JPlatformCursor::ResizeBottomLeft;
+            case 5: return JPlatformCursor::ResizeUpDown;
+            case 3: case 7: return JPlatformCursor::ResizeLeftRight;
+            default: return JPlatformCursor::Default;
+        }
+    }
+
     // Hit-test the chrome on a fresh press; act on it. Returns true if it consumed the press.
     bool handleChrome(float mx, float my, bool pressed) {
         if (!pressed) return false;
-        const float W = static_cast<float>(m_w), H = static_cast<float>(m_h), e = 6.0f;
+        const float W = static_cast<float>(m_w);
 
-        // Resize edges/corners first (dir: 0=TL,1=T,2=TR,3=R,4=BR,5=B,6=BL,7=L).
-        const bool L = mx < e, R = mx >= W - e, T = my < e, B = my >= H - e;
-        int dir = -1;
-        if      (T && L) dir = 0; else if (T && R) dir = 2;
-        else if (B && R) dir = 4; else if (B && L) dir = 6;
-        else if (T)      dir = 1; else if (R)      dir = 3;
-        else if (B)      dir = 5; else if (L)      dir = 7;
-        if (dir >= 0) { m_window->startWindowResize(static_cast<uint32_t>(dir)); return true; }
+        if (!m_window->isMaximized()) {
+            const int dir = resizeDirAt(mx, my);
+            if (dir >= 0) { m_window->startWindowResize(static_cast<uint32_t>(dir)); return true; }
+        }
 
         // Title bar: window-control buttons (right-aligned), else drag.
         if (my < m_titleH) {
@@ -130,8 +157,13 @@ private:
     // The toolkit's own title bar — matches controls_catalog exactly (flat 28px strip,
     // Colors palette, a 1px separator, and vector-drawn min/max/close with hover).
     void drawChrome(JPrimitiveBuffer& buf) {
-        const float W  = static_cast<float>(m_w);
+        const float W  = static_cast<float>(m_w), H = static_cast<float>(m_h);
         const float lh = JTextHelper::hasAtlas() ? JTextHelper::lineHeight() : 14.0f;
+
+        // Opaque full-window background FIRST — every pixel is written each frame, so the
+        // swapchain's images can't cycle stale content (that was the resize flicker).
+        uint8_t bg[4] = {Colors::Surface0[0], Colors::Surface0[1], Colors::Surface0[2], 255};
+        buf.pushRectangle(0.f, 0.f, W, H, bg, 0.f);
 
         uint8_t tbg[4] = {22, 22, 28, 255};
         buf.pushRectangle(0.f, 0.f, W, m_titleH, tbg, 0.f);
