@@ -194,6 +194,9 @@ if(GENESIS_BUILD_EXAMPLES)
 
     add_executable(genesis_vector_demo examples/vector_demo/main.cpp)
     target_link_libraries(genesis_vector_demo PRIVATE genesis_platform)
+
+    add_executable(genesis_chart_demo examples/chart_demo/main.cpp)
+    target_link_libraries(genesis_chart_demo PRIVATE genesis_platform)
 endif()
 
 # --- AI tooling: external semantic probe + agent (read & drive a running app) ---
@@ -246,5 +249,6 @@ if(GENESIS_BUILD_TESTS)
     add_genesis_test(test_variant          src/tests/test_variant.cpp)
     add_genesis_test(test_variant_integration src/tests/test_variant_integration.cpp)
     add_genesis_test(test_vector            src/tests/test_vector.cpp)
+    add_genesis_test(test_chart             src/tests/test_chart.cpp)
     add_genesis_test(test_reference         src/tests/test_reference.cpp)
 endif()
