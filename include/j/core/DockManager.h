@@ -28,6 +28,7 @@
 #include "BaseWidgets.h"   // Colors, Rect, PrimitiveBuffer, TextHelper
 #include "DockWidget.h"    // DockWidget
 #include "DockRegistry.h"
+#include "Style.h"         // JStyle/style() cascade — JTabBarEdge, JTabFill
 
 inline namespace jf {
 
@@ -37,7 +38,7 @@ inline namespace jf {
 
 enum class JSplitDir : uint8_t { Horizontal, Vertical };
 
-enum class JTabBarEdge : uint8_t { Top, Bottom, Left, Right };
+// JTabBarEdge / JTabFill now live in Style.h (shared with the global stylesheet).
 
 // Drop placement relative to a node.
 enum class JDropPos : uint8_t {
@@ -340,7 +341,8 @@ struct JDockLayoutSnapshot {
 
 class JDockHost {
 public:
-    static constexpr float TAB_BAR_SZ   = 28.0f;  // tab bar / title bar thickness
+    static constexpr float TAB_BAR_SZ   = 28.0f;  // tab bar / title bar thickness (Top/Bottom)
+    static constexpr float V_TAB_BAR_W  = 32.0f;  // tab bar thickness for Left/Right (rotated labels)
     static constexpr float HANDLE_HALF  = 3.0f;   // half the 6px split handle hit width
     static constexpr float HANDLE_VIS   = 2.0f;   // visible divider line thickness
     static constexpr float ARROW_SZ     = 32.0f;  // drop indicator icon size
@@ -527,6 +529,18 @@ public:
     }
 
     void setLivePreviewEnabled(bool enabled) { m_livePreviewEnabled = enabled; }
+
+    // Where this host draws its leaves' tab bars (Top / Bottom / Left / Right). Applies to
+    // every existing leaf and becomes the default for new ones.
+    // Tab style overrides for THIS host. Unset = inherit the global stylesheet (style()).
+    // Read effective-* each frame so a global change reflows un-overridden hosts live.
+    void setTabEdge(JTabBarEdge e) { m_tabEdge = e; }
+    void clearTabEdge()            { m_tabEdge.reset(); }
+    JTabBarEdge effectiveTabEdge() const { return m_tabEdge.value_or(style().tabEdge); }
+
+    void setTabFill(JTabFill f) { m_tabFill = f; }
+    void clearTabFill()         { m_tabFill.reset(); }
+    JTabFill effectiveTabFill() const { return m_tabFill.value_or(style().tabFill); }
     bool isLivePreviewEnabled() const { return m_livePreviewEnabled; }
 
     // --- Per-frame drag tracking ---
@@ -817,12 +831,10 @@ public:
         if (pressed) {
             for (auto& n : m_nodes) {
                 if (n.type != JDockNode::JType::Leaf || n.tabs.size() < 2) continue;
-                JRect bar = _tabBarRect(n);
-                if (!_inRect(bar, mx, my)) continue;
-                float tabW = bar.width / static_cast<float>(n.tabs.size());
-                int idx = std::clamp(static_cast<int>((mx - bar.x) / tabW),
-                                     0, static_cast<int>(n.tabs.size()) - 1);
-                n.activeTab = idx;
+                if (!_inRect(_tabBarRect(n), mx, my)) continue;
+                const auto slots = _tabSlots(n);
+                for (int i = 0; i < static_cast<int>(slots.size()); ++i)
+                    if (_inRect(slots[i], mx, my)) { n.activeTab = i; break; }
             }
         }
 
@@ -1162,22 +1174,57 @@ private:
 
     JRect _tabBarRect(const JDockNode& leaf) const {
         const JRect& r = leaf.rect;
-        switch (leaf.tabBarEdge) {
+        switch (effectiveTabEdge()) {
             case JTabBarEdge::Top:    return { r.x, r.y, r.width, TAB_BAR_SZ };
             case JTabBarEdge::Bottom: return { r.x, r.y + r.height - TAB_BAR_SZ, r.width, TAB_BAR_SZ };
-            case JTabBarEdge::Left:   return { r.x, r.y, TAB_BAR_SZ, r.height };
-            case JTabBarEdge::Right:  return { r.x + r.width - TAB_BAR_SZ, r.y, TAB_BAR_SZ, r.height };
+            case JTabBarEdge::Left:   return { r.x, r.y, V_TAB_BAR_W, r.height };
+            case JTabBarEdge::Right:  return { r.x + r.width - V_TAB_BAR_W, r.y, V_TAB_BAR_W, r.height };
         }
         return { r.x, r.y, r.width, TAB_BAR_SZ };
     }
 
+    // Per-tab rects along the bar, honouring the effective tab edge + fill. Horizontal bars
+    // (Top/Bottom) lay tabs left-to-right; vertical bars (Left/Right) stack them top-to-bottom.
+    //   Fill     — equal share of the bar
+    //   Left     — natural extent, justified to the start (trailing space empty)
+    //   Compress — natural if they fit, else shrink equally
+    std::vector<JRect> _tabSlots(const JDockNode& leaf) const {
+        const JRect bar = _tabBarRect(leaf);
+        const int n = static_cast<int>(leaf.tabs.size());
+        std::vector<JRect> out;
+        if (n <= 0) return out;
+        const JTabBarEdge edge = effectiveTabEdge();
+        const bool vert = (edge == JTabBarEdge::Left || edge == JTabBarEdge::Right);
+        const float barLen = vert ? bar.height : bar.width;
+        std::vector<float> ext(n);
+        float sum = 0.f;
+        for (int i = 0; i < n; ++i) {
+            // Natural extent along the bar = the label run length (rotated for vertical bars).
+            float nat = (JTextHelper::hasAtlas() && leaf.tabs[i])
+                            ? JTextHelper::measureWidth(leaf.tabs[i]->title()) + 28.f : 90.f;
+            ext[i] = nat; sum += nat;
+        }
+        const JTabFill fill = effectiveTabFill();
+        if (fill == JTabFill::Fill || (fill == JTabFill::Compress && sum > barLen)) {
+            const float e = barLen / static_cast<float>(n);
+            for (auto& x : ext) x = e;
+        }
+        float off = 0.f;
+        for (int i = 0; i < n; ++i) {
+            out.push_back(vert ? JRect{ bar.x, bar.y + off, bar.width, ext[i] }
+                               : JRect{ bar.x + off, bar.y, ext[i], bar.height });
+            off += ext[i];
+        }
+        return out;
+    }
+
     JRect _leafContentRect(const JDockNode& leaf) const {
         const JRect& r = leaf.rect;
-        switch (leaf.tabBarEdge) {
+        switch (effectiveTabEdge()) {
             case JTabBarEdge::Top:    return { r.x, r.y + TAB_BAR_SZ, r.width, r.height - TAB_BAR_SZ };
             case JTabBarEdge::Bottom: return { r.x, r.y, r.width, r.height - TAB_BAR_SZ };
-            case JTabBarEdge::Left:   return { r.x + TAB_BAR_SZ, r.y, r.width - TAB_BAR_SZ, r.height };
-            case JTabBarEdge::Right:  return { r.x, r.y, r.width - TAB_BAR_SZ, r.height };
+            case JTabBarEdge::Left:   return { r.x + V_TAB_BAR_W, r.y, r.width - V_TAB_BAR_W, r.height };
+            case JTabBarEdge::Right:  return { r.x, r.y, r.width - V_TAB_BAR_W, r.height };
         }
         return { r.x, r.y + TAB_BAR_SZ, r.width, r.height - TAB_BAR_SZ };
     }
@@ -1242,25 +1289,44 @@ private:
                                      leaf.tabs[0]->title(), tc, bar.width - BTN_SZ - 24.f);
             }
         } else {
-            float tabW = bar.width / static_cast<float>(tabCount);
-            for (int i = 0; i < tabCount; ++i) {
-                float tx = bar.x + i * tabW;
+            const JTabBarEdge edge = effectiveTabEdge();
+            const bool vert = (edge == JTabBarEdge::Left || edge == JTabBarEdge::Right);
+            const float lineH = JTextHelper::lineHeight();
+            const auto slots = _tabSlots(leaf);
+            for (int i = 0; i < tabCount && i < static_cast<int>(slots.size()); ++i) {
+                const JRect& t = slots[i];
                 bool active = (i == leaf.activeTab);
                 const uint8_t* fill = active ? Colors::Surface3 : Colors::Surface1;
-                buf.pushRectangle(tx + 1.f, bar.y + 1.f, tabW - 2.f, bar.height - 2.f, fill, 0.0f);
-                if (active)
-                    buf.pushRectangle(tx + 4.f, bar.y + bar.height - 3.f,
-                                      tabW - 8.f, 2.5f, Colors::Accent, 1.0f);
-                if (JTextHelper::hasAtlas()) {
+                buf.pushRectangle(t.x + 1.f, t.y + 1.f, t.width - 2.f, t.height - 2.f, fill, 0.0f);
+                if (active) {
+                    if (vert) {
+                        float sx = (edge == JTabBarEdge::Left) ? (t.x + t.width - 3.f) : t.x + 0.5f;
+                        buf.pushRectangle(sx, t.y + 4.f, 2.5f, t.height - 8.f, Colors::Accent, 1.0f);
+                    } else {
+                        buf.pushRectangle(t.x + 4.f, t.y + t.height - 3.f, t.width - 8.f, 2.5f, Colors::Accent, 1.0f);
+                    }
+                }
+                if (JTextHelper::hasAtlas() && leaf.tabs[i]) {
                     std::string label = leaf.tabs[i]->title();
                     float lw = JTextHelper::measureWidth(label);
                     uint8_t lc[4] = {active ? (uint8_t)220 : (uint8_t)150,
                                      active ? (uint8_t)220 : (uint8_t)150,
                                      active ? (uint8_t)228 : (uint8_t)158,
                                      active ? (uint8_t)220 : (uint8_t)150};
-                    float ly = bar.y + (bar.height - JTextHelper::lineHeight()) * 0.5f;
-                    JTextHelper::pushText(buf, tx + std::max(6.f, (tabW - lw) * 0.5f), ly,
-                                         label, lc, tabW - 10.f);
+                    if (vert) {
+                        // Left edge reads bottom->top (CCW), right edge top->bottom (CW).
+                        const bool cw = (edge == JTabBarEdge::Right);
+                        const float run = std::min(lw, t.height - 12.f);
+                        const float px = cw ? (t.x + t.width * 0.5f + lineH * 0.5f)
+                                            : (t.x + t.width * 0.5f - lineH * 0.5f);
+                        const float py = cw ? (t.y + (t.height - run) * 0.5f)
+                                            : (t.y + (t.height + run) * 0.5f);
+                        JTextHelper::pushTextVertical(buf, px, py, label, lc, t.height - 12.f, cw);
+                    } else {
+                        float ly = t.y + (t.height - lineH) * 0.5f;
+                        JTextHelper::pushText(buf, t.x + std::max(6.f, (t.width - lw) * 0.5f), ly,
+                                             label, lc, t.width - 10.f);
+                    }
                 }
             }
         }
@@ -1800,6 +1866,8 @@ private:
     JDropTarget*             m_activeTarget{nullptr};
     JDockWidget*             m_draggedDock{nullptr};
 
+    std::optional<JTabBarEdge> m_tabEdge;   // unset = inherit style().tabEdge
+    std::optional<JTabFill>    m_tabFill;   // unset = inherit style().tabFill
     std::vector<JDockNode>   m_savedNodes;
     uint32_t                m_savedNextId{0};
     bool                    m_hasSavedState{false};

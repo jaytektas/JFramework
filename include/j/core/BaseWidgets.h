@@ -433,6 +433,64 @@ public:
         if (!call.verts.empty()) buf.pushTextCall(std::move(call));
     }
 
+    // Text rotated 90° (for vertical tab bars). cw=true reads top->bottom (tilt head right);
+    // cw=false reads bottom->top. (x,y) is the rotation pivot; the run advances along the
+    // screen Y axis. maxLen caps the run length (in the unrotated text width).
+    static void pushTextVertical(JPrimitiveBuffer& buf,
+                                 float x, float y,
+                                 const std::string& text,
+                                 const uint8_t color[4],
+                                 float maxLen = 0.0f,
+                                 bool  cw = true)
+    {
+        const auto& atl = get();
+        if (!atl.valid || text.empty()) return;
+
+        JPrimitiveBuffer::JTextCall call;
+        std::copy(color, color + 4, call.color);
+
+        // Lay out in local (lx along the run, ly across the baseline), then rotate to screen.
+        auto rot = [&](float lx, float ly, float& sx, float& sy) {
+            if (cw) { sx = x - ly; sy = y + lx; }   // CW 90°
+            else    { sx = x + ly; sy = y - lx; }   // CCW 90°
+        };
+
+        float pen = 0.f;
+        float baseline = atl.ascent;
+        size_t i = 0;
+        while (i < text.size()) {
+            uint32_t cp = _decodeUtf8(text, i);
+            if (cp == 0) continue;
+            auto it = atl.glyphs.find(cp);
+            if (it == atl.glyphs.end()) {
+                cp = _substitute(cp);
+                it = atl.glyphs.find(cp);
+                if (it == atl.glyphs.end()) { pen += atl.ascent * 0.35f; continue; }
+            }
+            const JGlyphInfo& g = it->second;
+            if (maxLen > 0.0f && (pen + g.advanceX) > maxLen) break;
+            pen += g.advanceX;
+            if (g.pixelW < 0.5f || g.pixelH < 0.5f) continue;
+
+            float lx = pen - g.advanceX + g.bearingX;
+            float ly = baseline + g.bearingY;
+            float gw = g.pixelW, gh = g.pixelH;
+
+            float ax, ay, bx, by, cx, cy, dx, dy;
+            rot(lx,      ly,      ax, ay);
+            rot(lx + gw, ly,      bx, by);
+            rot(lx + gw, ly + gh, cx, cy);
+            rot(lx,      ly + gh, dx, dy);
+            call.verts.push_back({ax, ay, g.u0, g.v0});
+            call.verts.push_back({bx, by, g.u1, g.v0});
+            call.verts.push_back({cx, cy, g.u1, g.v1});
+            call.verts.push_back({cx, cy, g.u1, g.v1});
+            call.verts.push_back({dx, dy, g.u0, g.v1});
+            call.verts.push_back({ax, ay, g.u0, g.v0});
+        }
+        if (!call.verts.empty()) buf.pushTextCall(std::move(call));
+    }
+
     /** Measure rendered width of a UTF-8 string using the shared atlas. */
     static float measureWidth(const std::string& text) {
         const auto& atl = get();
