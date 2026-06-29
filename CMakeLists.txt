@@ -252,3 +252,57 @@ if(GENESIS_BUILD_TESTS)
     add_genesis_test(test_chart             src/tests/test_chart.cpp)
     add_genesis_test(test_reference         src/tests/test_reference.cpp)
 endif()
+
+# ============================================================================
+# Install / export — makes Genesis consumable via find_package(Genesis CONFIG).
+# A consumer (an app sitting on the framework) does:
+#     find_package(Genesis 0.1 CONFIG REQUIRED)
+#     target_link_libraries(myapp PRIVATE Genesis::platform)   # or Genesis::core
+# and never touches the framework source. This is the one seam between Genesis
+# and the apps on top of it; the framework knows nothing about those apps.
+# ============================================================================
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+# Public headers: the genesis/** tree + the bundled stb header FontEngine.h needs.
+install(DIRECTORY include/genesis DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(DIRECTORY ${STB_INCLUDE_DIR}/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING PATTERN "stb_*.h")
+
+# Clean exported names: Genesis::core / Genesis::platform (not Genesis::genesis_*).
+set_target_properties(genesis_core       PROPERTIES EXPORT_NAME core)
+set_target_properties(genesis_io         PROPERTIES EXPORT_NAME io)
+set_target_properties(genesis_config     PROPERTIES EXPORT_NAME config)
+set_target_properties(genesis_concurrent PROPERTIES EXPORT_NAME concurrent)
+set_target_properties(genesis_model      PROPERTIES EXPORT_NAME model)
+set_target_properties(genesis_platform   PROPERTIES EXPORT_NAME platform)
+
+# Export the core + header-only modules + the static platform lib under Genesis::.
+# genesis_db is intentionally omitted (optional SQLite module) — add it later with
+# its own find_dependency(SQLite3) when a consumer actually needs the database.
+install(TARGETS
+            genesis_core genesis_io genesis_config genesis_concurrent
+            genesis_model genesis_platform
+        EXPORT GenesisTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
+install(EXPORT GenesisTargets
+        FILE GenesisTargets.cmake
+        NAMESPACE Genesis::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Genesis)
+
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenesisConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/GenesisConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Genesis)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/GenesisConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion)
+
+install(FILES
+            ${CMAKE_CURRENT_BINARY_DIR}/GenesisConfig.cmake
+            ${CMAKE_CURRENT_BINARY_DIR}/GenesisConfigVersion.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Genesis)
