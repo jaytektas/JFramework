@@ -1,5 +1,5 @@
-#include <genesis/core/DockManager.h>
-#include <genesis/core/DockRegistry.h>
+#include <j/core/DockManager.h>
+#include <j/core/DockRegistry.h>
 #include <cassert>
 #include <iostream>
 

@@ -19,7 +19,7 @@
 //   Watch live user-interaction events from the app (Ctrl-C to exit):
 //     genesis_ai_agent --watch-signals
 //
-#include <genesis/core/AiControlBus.h>
+#include <j/core/AiControlBus.h>
 
 #include <cstdio>
 #include <cstring>
@@ -38,7 +38,7 @@
 
 using namespace jf;
 
-static const AiNodeDescriptor* findNode(const std::vector<AiNodeDescriptor>& v,
+static const JAiNodeDescriptor* findNode(const std::vector<JAiNodeDescriptor>& v,
                                         const char* role, const char* label) {
     for (const auto& d : v) {
         bool rok = !role  || !*role  || std::strcmp(d.role, role) == 0;
@@ -86,21 +86,21 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "ai-agent: cannot open '%s' (app running?)\n", name);
         return 1;
     }
-    void* p = mmap(nullptr, sizeof(SharedBusMemory), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    void* p = mmap(nullptr, sizeof(JSharedBusMemory), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     ::close(fd);
     if (p == MAP_FAILED) { std::fprintf(stderr, "ai-agent: mmap failed\n"); return 1; }
-    SharedBusMemory* bus = reinterpret_cast<SharedBusMemory*>(p);
+    JSharedBusMemory* bus = reinterpret_cast<JSharedBusMemory*>(p);
     if (bus->magicCookie != SharedMagicCookie || bus->version != SharedBusVersion) {
         std::fprintf(stderr, "ai-agent: bus version mismatch (expected %u, got %u)\n",
                      SharedBusVersion, bus->version);
         return 1;
     }
     std::printf("ai-agent: attached to '%s'  (version=%u, %zu bytes)\n\n",
-                name, bus->version, sizeof(SharedBusMemory));
+                name, bus->version, sizeof(JSharedBusMemory));
 
     // Helper: dump the full semantic tree
     auto dumpSnapshot = [&]() {
-        std::vector<AiNodeDescriptor> snap;
+        std::vector<JAiNodeDescriptor> snap;
         JAiControlBus::snapshot(bus, snap);
         std::printf("  Semantic tree (%zu nodes):\n", snap.size());
         for (const auto& d : snap) {
@@ -111,9 +111,9 @@ int main(int argc, char** argv) {
 
     // Helper: find -> act -> verify (addressed by identity, never pixels)
     auto step = [&](const char* r, const char* l, const char* act) {
-        std::vector<AiNodeDescriptor> snap;
+        std::vector<JAiNodeDescriptor> snap;
         JAiControlBus::snapshot(bus, snap);
-        const AiNodeDescriptor* t = findNode(snap, r, l);
+        const JAiNodeDescriptor* t = findNode(snap, r, l);
         if (!t) {
             std::printf("  [skip]  no %s matching '%s'\n", r ? r : "*", l ? l : "*");
             return;
@@ -126,9 +126,9 @@ int main(int argc, char** argv) {
         int res = JAiControlBus::submitActionBlocking(bus, id, act);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(60));
-        std::vector<AiNodeDescriptor> snap2;
+        std::vector<JAiNodeDescriptor> snap2;
         JAiControlBus::snapshot(bus, snap2);
-        const AiNodeDescriptor* t2 = findNode(snap2, r, l);
+        const JAiNodeDescriptor* t2 = findNode(snap2, r, l);
         const char* okstr = res == 1 ? "OK"
                           : res == 0 ? "not-understood"
                           : res == -1? "no-target" : "timeout/err";
@@ -150,7 +150,7 @@ int main(int argc, char** argv) {
     // ---- Dump tree ----
     if (dumpTree) {
         dumpSnapshot();
-        munmap(p, sizeof(SharedBusMemory));
+        munmap(p, sizeof(JSharedBusMemory));
         return 0;
     }
 
@@ -174,7 +174,7 @@ int main(int argc, char** argv) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
         std::printf("\nai-agent: signal watch stopped.\n");
-        munmap(p, sizeof(SharedBusMemory));
+        munmap(p, sizeof(JSharedBusMemory));
         return 0;
     }
 
@@ -183,7 +183,7 @@ int main(int argc, char** argv) {
         std::string injectAction = std::string("inject:") + inject;
         broadcast(injectAction.c_str());
         dumpSnapshot();
-        munmap(p, sizeof(SharedBusMemory));
+        munmap(p, sizeof(JSharedBusMemory));
         return 0;
     }
 
@@ -191,14 +191,14 @@ int main(int argc, char** argv) {
     if (removeW) {
         std::string removeAction = std::string("remove_widget:") + removeW;
         broadcast(removeAction.c_str());
-        munmap(p, sizeof(SharedBusMemory));
+        munmap(p, sizeof(JSharedBusMemory));
         return 0;
     }
 
     // ---- Single explicit command ----
     if (action) {
         step(role, label, action);
-        munmap(p, sizeof(SharedBusMemory));
+        munmap(p, sizeof(JSharedBusMemory));
         return 0;
     }
 
@@ -218,7 +218,7 @@ int main(int argc, char** argv) {
     broadcast("inject:label:Inspector:Live AI status: OK");
 
     std::printf("\nai-agent: done.\n");
-    munmap(p, sizeof(SharedBusMemory));
+    munmap(p, sizeof(JSharedBusMemory));
     return 0;
 #endif
 }

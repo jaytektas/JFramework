@@ -1,9 +1,9 @@
-#include <genesis/core/ApplicationCore.h>
-#include <genesis/core/SceneGraph.h>
-#include <genesis/core/BaseWidgets.h>
-#include <genesis/core/AiControlBus.h>
-#include <genesis/graphics/RenderPrimitive.h>
-#include <genesis/graphics/GpuHal.h>
+#include <j/core/ApplicationCore.h>
+#include <j/core/SceneGraph.h>
+#include <j/core/BaseWidgets.h>
+#include <j/core/AiControlBus.h>
+#include <j/graphics/RenderPrimitive.h>
+#include <j/graphics/GpuHal.h>
 #include <iostream>
 #include <iomanip>
 #include <vector>
@@ -127,7 +127,7 @@ int main() {
     JAiControlBus aiBus;
     
     // Setup Shared Memory for AI Bus (Simulated for this demo)
-    SharedBusMemory sharedMem;
+    JSharedBusMemory sharedMem;
     aiBus.attach(&sharedMem);
 
     PerformancePanel panel(graph, aiBus);

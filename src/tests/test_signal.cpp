@@ -1,4 +1,4 @@
-#include <genesis/core/Signal.h>
+#include <j/core/Signal.h>
 #include <cassert>
 #include <string>
 

@@ -1,30 +1,30 @@
-#include <genesis/core/ApplicationCore.h>
-#include <genesis/core/GenesisComponents.h>
-#include <genesis/core/BaseWidgets.h>
-#include <genesis/core/DockWidget.h>
-#include <genesis/core/DockManager.h>
-#include <genesis/core/DockRegistry.h>
-#include <genesis/core/TranslationEngine.h>
-#include <genesis/core/FocusManager.h>
-#include <genesis/core/AccessibilityBridge.h>
-#include <genesis/graphics/GpuHal.h>
-#include <genesis/graphics/RenderPrimitive.h>
-#include <genesis/graphics/FontEngine.h>
+#include <j/core/ApplicationCore.h>
+#include <j/core/GenesisComponents.h>
+#include <j/core/BaseWidgets.h>
+#include <j/core/DockWidget.h>
+#include <j/core/DockManager.h>
+#include <j/core/DockRegistry.h>
+#include <j/core/TranslationEngine.h>
+#include <j/core/FocusManager.h>
+#include <j/core/AccessibilityBridge.h>
+#include <j/graphics/GpuHal.h>
+#include <j/graphics/RenderPrimitive.h>
+#include <j/graphics/FontEngine.h>
 #if defined(_WIN32)
-#include <genesis/platforms/windows/WindowsPlatformWindow.h>
+#include <j/platforms/windows/WindowsPlatformWindow.h>
 #else
-#include <genesis/platforms/linux/LinuxPlatformWindow.h>
+#include <j/platforms/linux/LinuxPlatformWindow.h>
 #endif
-#include <genesis/platforms/linux/FloatingDockWindow.h>
-#include <genesis/platforms/NativeDialogWindow.h>
-#include <genesis/platforms/PopupWindow.h>
-#include <genesis/core/MenuSystem.h>
-#include <genesis/core/Dialog.h>
-#include <genesis/core/Animator.h>
-#include <genesis/core/Splitter.h>
-#include <genesis/core/ImageWidget.h>
-#include <genesis/platform/Clipboard.h>
-#include <genesis/platform/FileDialog.h>
+#include <j/platforms/linux/FloatingDockWindow.h>
+#include <j/platforms/NativeDialogWindow.h>
+#include <j/platforms/PopupWindow.h>
+#include <j/core/MenuSystem.h>
+#include <j/core/Dialog.h>
+#include <j/core/Animator.h>
+#include <j/core/Splitter.h>
+#include <j/core/ImageWidget.h>
+#include <j/platform/Clipboard.h>
+#include <j/platform/FileDialog.h>
 
 #if defined(_WIN32)
 using PlatformWindowImpl = jf::JWindowsPlatformWindow;
@@ -197,12 +197,12 @@ public:
 
     // Build the semantic snapshot the AI side sees: per widget its role, label,
     // current value, live state flags, and geometry — addressed by node id, not pixels.
-    void collectAiNodes(std::vector<AiNodeDescriptor>& out) const {
+    void collectAiNodes(std::vector<JAiNodeDescriptor>& out) const {
         out.clear();
         out.reserve(m_widgets.size() + 20);
 
         auto addWidgetNode = [&](const JWidget* w) {
-            AiNodeDescriptor d{};
+            JAiNodeDescriptor d{};
             NodeId nid = w->getNodeId();
             d.id = nid;
             const auto& bb = m_graph.getLayoutConst(nid).boundingBox;
@@ -232,7 +232,7 @@ public:
             // Expose the menu bar item buttons individually so they can be clicked
             for (size_t i = 0; i < m_menuBar->entries().size(); ++i) {
                 const auto& entry = m_menuBar->entries()[i];
-                AiNodeDescriptor d{};
+                JAiNodeDescriptor d{};
                 d.id = entry.btnId;
                 const auto& bb = m_graph.getLayoutConst(entry.btnId).boundingBox;
                 d.x = bb.x; d.y = bb.y; d.width = bb.width; d.height = bb.height;
@@ -252,7 +252,7 @@ public:
             uint32_t dockId = kDockAiIdBase;
             m_dockHost->forEachDockPanel(
                 [&](const JDockWidget* dock, const JRect& r, bool active, int tabCount) {
-                    AiNodeDescriptor d{};
+                    JAiNodeDescriptor d{};
                     d.id = dockId++;
                     d.x = r.x; d.y = r.y; d.width = r.width; d.height = r.height;
                     aiSetField(d.role,  sizeof(d.role),  "DockPanel");
@@ -1429,7 +1429,7 @@ int main() {
         catalog->dockHost(), window->screenX(), window->screenY(), W, H);
 
     JPrimitiveBuffer buffer;
-    std::vector<AiNodeDescriptor> aiNodes;   // reused per-frame semantic snapshot buffer
+    std::vector<JAiNodeDescriptor> aiNodes;   // reused per-frame semantic snapshot buffer
     auto lastTime = std::chrono::steady_clock::now();
     int  frame60  = 0;
 
@@ -2504,7 +2504,7 @@ int main() {
             // Also append active popup menus so they are visible to the AI agent
             for (const auto& popup : activeMenuPopups) {
                 for (const auto& w : popup->widgets()) {
-                    AiNodeDescriptor d{};
+                    JAiNodeDescriptor d{};
                     NodeId nid = w->getNodeId();
                     d.id = nid;
                     // Global screen coordinates of popup widgets

@@ -5,7 +5,7 @@
 //
 //   usage: genesis_ai_probe [shm_name] [--frames N]
 //
-#include <genesis/core/AiControlBus.h>
+#include <j/core/AiControlBus.h>
 
 #include <cstdio>
 #include <cstring>
@@ -44,15 +44,15 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "ai-probe: could not open '%s' (is a Genesis app running?)\n", name);
         return 1;
     }
-    void* p = mmap(nullptr, sizeof(SharedBusMemory), PROT_READ, MAP_SHARED, fd, 0);
+    void* p = mmap(nullptr, sizeof(JSharedBusMemory), PROT_READ, MAP_SHARED, fd, 0);
     ::close(fd);
     if (p == MAP_FAILED) { std::fprintf(stderr, "ai-probe: mmap failed\n"); return 1; }
 
-    const SharedBusMemory* bus = reinterpret_cast<const SharedBusMemory*>(p);
+    const JSharedBusMemory* bus = reinterpret_cast<const JSharedBusMemory*>(p);
     std::printf("ai-probe: attached to '%s'  (magic=%#x version=%u, %zu bytes)\n",
-                name, bus->magicCookie, bus->version, sizeof(SharedBusMemory));
+                name, bus->magicCookie, bus->version, sizeof(JSharedBusMemory));
 
-    std::vector<AiNodeDescriptor> nodes;
+    std::vector<JAiNodeDescriptor> nodes;
     uint64_t lastFrame = ~0ull;
     int printed = 0;
     for (int iter = 0; iter < 600 && printed < frames; ++iter) {
@@ -79,7 +79,7 @@ int main(int argc, char** argv) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    munmap(p, sizeof(SharedBusMemory));
+    munmap(p, sizeof(JSharedBusMemory));
     return 0;
 #endif
 }

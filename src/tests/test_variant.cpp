@@ -1,6 +1,6 @@
-#include <genesis/core/Variant.h>
-#include <genesis/core/MetaObject.h>
-#include <genesis/core/VariantJson.h>
+#include <j/core/Variant.h>
+#include <j/core/MetaObject.h>
+#include <j/core/VariantJson.h>
 #include <cassert>
 #include <iostream>
 #include <string>

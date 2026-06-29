@@ -1,15 +1,15 @@
 // Vector drawing showcase — exercises the Genesis 2D vector layer
 // (gradients, gauges, charts, AA strokes/fills) on the GPU vector pipeline.
-#include <genesis/core/ApplicationCore.h>
-#include <genesis/graphics/GpuHal.h>
-#include <genesis/graphics/RenderPrimitive.h>
-#include <genesis/graphics/VectorGraphics.h>
-#include <genesis/graphics/FontEngine.h>
+#include <j/core/ApplicationCore.h>
+#include <j/graphics/GpuHal.h>
+#include <j/graphics/RenderPrimitive.h>
+#include <j/graphics/VectorGraphics.h>
+#include <j/graphics/FontEngine.h>
 #if defined(_WIN32)
-#include <genesis/platforms/windows/WindowsPlatformWindow.h>
+#include <j/platforms/windows/WindowsPlatformWindow.h>
 using PlatformWindowImpl = jf::JWindowsPlatformWindow;
 #else
-#include <genesis/platforms/linux/LinuxPlatformWindow.h>
+#include <j/platforms/linux/LinuxPlatformWindow.h>
 using PlatformWindowImpl = jf::JLinuxPlatformWindow;
 #endif
 

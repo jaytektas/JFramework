@@ -9,13 +9,13 @@
 //   genesis_moved.ppm        — Popup moved to secondary monitor coords
 //   genesis_fullscreen.ppm   — Borderless after _NET_WM_STATE_FULLSCREEN
 
-#include <genesis/graphics/GpuHal.h>
-#include <genesis/graphics/RenderPrimitive.h>
-#include <genesis/graphics/FontEngine.h>
+#include <j/graphics/GpuHal.h>
+#include <j/graphics/RenderPrimitive.h>
+#include <j/graphics/FontEngine.h>
 #if defined(_WIN32)
-#include <genesis/platforms/windows/WindowsPlatformWindow.h>
+#include <j/platforms/windows/WindowsPlatformWindow.h>
 #else
-#include <genesis/platforms/linux/LinuxPlatformWindow.h>
+#include <j/platforms/linux/LinuxPlatformWindow.h>
 #endif
 
 #include <iostream>

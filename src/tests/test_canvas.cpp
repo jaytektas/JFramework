@@ -1,5 +1,5 @@
-#include <genesis/core/CanvasWidget.h>
-#include <genesis/core/SceneGraph.h>
+#include <j/core/CanvasWidget.h>
+#include <j/core/SceneGraph.h>
 #include <cassert>
 #include <iostream>
 #include <cstring>

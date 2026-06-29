@@ -50,12 +50,12 @@ def main() -> None:
         "// Recompile: cmake --build <build-dir> --target genesis_shaders",
         "#include <cstdint>",
         "",
-        "namespace Genesis::Shaders {",
+        "inline namespace jf { namespace Shaders {",
         "",
     ]
     for spv in spv_files:
         lines += format_array(symbol_name(spv), to_words(spv)) + [""]
-    lines += ["} // namespace Genesis::Shaders", ""]
+    lines += ["}} // namespace Shaders (in jf)", ""]
 
     with open(out, "w") as f:
         f.write("\n".join(lines))

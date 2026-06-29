@@ -1,4 +1,4 @@
-#include <genesis/config/Json.h>
+#include <j/config/Json.h>
 #include <cassert>
 #include <iostream>
 #include <cmath>

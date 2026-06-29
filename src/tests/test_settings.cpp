@@ -1,4 +1,4 @@
-#include <genesis/config/Settings.h>
+#include <j/config/Settings.h>
 #include <cassert>
 #include <iostream>
 #include <cstdio>

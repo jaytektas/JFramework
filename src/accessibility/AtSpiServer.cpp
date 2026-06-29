@@ -3,8 +3,8 @@
  * Responds to Accessible.GetName/GetRole/GetState so Orca can describe widgets.
  */
 
-#include <genesis/core/AccessibilityBridge.h>
-#include <genesis/core/muted_logging_mock.h>
+#include <j/core/AccessibilityBridge.h>
+#include <j/core/muted_logging_mock.h>
 #include <dbus/dbus.h>
 #include <cstring>
 
@@ -115,7 +115,7 @@ void JAccessibilityBridge::stop() {
     }
 }
 
-void JAccessibilityBridge::update(const std::vector<AiNodeDescriptor>& nodes) {
+void JAccessibilityBridge::update(const std::vector<JAiNodeDescriptor>& nodes) {
     std::lock_guard<std::mutex> lk(m_nodesMutex);
     m_nodes = nodes;
     m_dirty = true;

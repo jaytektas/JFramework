@@ -14,11 +14,11 @@
 #include <xcb/xcb.h>
 #endif
 
-#include <genesis/graphics/GpuHal.h>
-#include <genesis/graphics/RenderPrimitive.h>
-#include <genesis/graphics/ShaderSpirv.h>
-#include <genesis/core/GenesisComponents.h>
-#include <genesis/core/muted_logging_mock.h>
+#include <j/graphics/GpuHal.h>
+#include <j/graphics/RenderPrimitive.h>
+#include <j/graphics/ShaderSpirv.h>
+#include <j/core/GenesisComponents.h>
+#include <j/core/muted_logging_mock.h>
 #include "SoftwareGpuHal.h"
 
 #include <iostream>
@@ -539,12 +539,12 @@ private:
         // Scissor is set by the caller (drawPrimitives) from the batch's clip rect.
 
         for (size_t k = from; k < to; ++k) {
-            GpuPrimitiveInstance copy = cmds[k].rect;
+            JGpuPrimitiveInstance copy = cmds[k].rect;
             copy.padding[0] = (float)m_act->extent.width;
             copy.padding[1] = (float)m_act->extent.height;
             vkCmdPushConstants(m_act->cmdBuf, m_pipelineLayout,
                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                               0, sizeof(GpuPrimitiveInstance), &copy);
+                               0, sizeof(JGpuPrimitiveInstance), &copy);
             vkCmdDraw(m_act->cmdBuf, 6, 1, 0, 0);
         }
     }
@@ -1089,10 +1089,10 @@ private:
     }
 
     void createSdfPipelineLayout() {
-        static_assert(sizeof(GpuPrimitiveInstance) % 16 == 0);
+        static_assert(sizeof(JGpuPrimitiveInstance) % 16 == 0);
         VkPushConstantRange pcr{};
         pcr.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-        pcr.size       = sizeof(GpuPrimitiveInstance);
+        pcr.size       = sizeof(JGpuPrimitiveInstance);
         VkPipelineLayoutCreateInfo ci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         ci.pushConstantRangeCount = 1; ci.pPushConstantRanges = &pcr;
         vkCreatePipelineLayout(m_device, &ci, nullptr, &m_pipelineLayout);

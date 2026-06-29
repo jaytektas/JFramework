@@ -1,7 +1,7 @@
-#include <genesis/model/TableModel.h>
-#include <genesis/model/TreeModel.h>
-#include <genesis/model/SortFilterModel.h>
-#include <genesis/core/MainThreadDispatcher.h>
+#include <j/model/TableModel.h>
+#include <j/model/TreeModel.h>
+#include <j/model/SortFilterModel.h>
+#include <j/core/MainThreadDispatcher.h>
 #include <cassert>
 #include <iostream>
 #include <thread>

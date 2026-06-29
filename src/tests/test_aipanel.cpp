@@ -1,9 +1,9 @@
 // test_aipanel.cpp — JAIPanel widget unit tests
 // Tests semantic node, logAction API, and that JAIPanel is a proper JWidget.
 
-#include <genesis/core/AIPanel.h>
-#include <genesis/core/SceneGraph.h>
-#include <genesis/core/AiBusHook.h>
+#include <j/core/AIPanel.h>
+#include <j/core/SceneGraph.h>
+#include <j/core/AiBusHook.h>
 #include <cassert>
 #include <string>
 #include <iostream>

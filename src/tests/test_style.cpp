@@ -1,5 +1,5 @@
-#include <genesis/core/StyleEngine.h>
-#include <genesis/core/SceneGraph.h>
+#include <j/core/StyleEngine.h>
+#include <j/core/SceneGraph.h>
 #include <cassert>
 #include <iostream>
 

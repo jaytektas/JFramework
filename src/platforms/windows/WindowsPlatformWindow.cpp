@@ -1,4 +1,4 @@
-#include <genesis/core/AccessibilityBridge.h>
+#include <j/core/AccessibilityBridge.h>
 
 inline namespace jf {
 
@@ -12,7 +12,7 @@ void JAccessibilityBridge::stop() {
     m_running = false;
 }
 
-void JAccessibilityBridge::update(const std::vector<AiNodeDescriptor>& nodes) {
+void JAccessibilityBridge::update(const std::vector<JAiNodeDescriptor>& nodes) {
     (void)nodes;
 }
 

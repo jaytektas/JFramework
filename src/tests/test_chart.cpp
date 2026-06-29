@@ -1,5 +1,5 @@
-#include <genesis/graphics/Chart.h>
-#include <genesis/graphics/RenderPrimitive.h>
+#include <j/graphics/Chart.h>
+#include <j/graphics/RenderPrimitive.h>
 #include <cassert>
 #include <iostream>
 #include <cmath>

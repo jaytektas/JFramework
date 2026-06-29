@@ -1,5 +1,5 @@
-#include <genesis/core/AssetPipeline.h>
-#include <genesis/core/ApplicationCore.h>
+#include <j/core/AssetPipeline.h>
+#include <j/core/ApplicationCore.h>
 #include <cassert>
 #include <iostream>
 #include <chrono>

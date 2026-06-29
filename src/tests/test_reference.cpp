@@ -3,9 +3,9 @@
 //   JEvaluator          — opt-in, precompiled, pure/reentrant/thread-safe expression eval
 //   (the test itself plays the "app": a derived-value store with memo + cycle guard
 //    built ON TOP of the generic framework, proving the framework needs no knowledge of it)
-#include <genesis/core/ReferenceResolver.h>
-#include <genesis/core/ReferenceEvaluator.h>
-#include <genesis/core/SceneGraph.h>
+#include <j/core/ReferenceResolver.h>
+#include <j/core/ReferenceEvaluator.h>
+#include <j/core/SceneGraph.h>
 
 #include <cassert>
 #include <cmath>

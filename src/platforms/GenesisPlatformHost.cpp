@@ -1,7 +1,7 @@
-#include <genesis/core/ApplicationCore.h>
-#include <genesis/core/GenesisComponents.h>
-#include <genesis/graphics/GpuHal.h>
-#include <genesis/graphics/RenderPrimitive.h>
+#include <j/core/ApplicationCore.h>
+#include <j/core/GenesisComponents.h>
+#include <j/graphics/GpuHal.h>
+#include <j/graphics/RenderPrimitive.h>
 
 #include <iostream>
 #include <memory>

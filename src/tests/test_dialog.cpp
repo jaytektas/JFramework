@@ -1,8 +1,8 @@
 // test_dialog.cpp — JDialog / JDialogManager unit tests
 // Tests queue logic, renderAndHandle in headless mode, and AI signal emission.
 
-#include <genesis/core/Dialog.h>
-#include <genesis/core/AiBusHook.h>
+#include <j/core/Dialog.h>
+#include <j/core/AiBusHook.h>
 #include <cassert>
 #include <string>
 #include <iostream>

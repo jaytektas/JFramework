@@ -1,5 +1,5 @@
-#include <genesis/graphics/VectorGraphics.h>
-#include <genesis/graphics/RenderPrimitive.h>
+#include <j/graphics/VectorGraphics.h>
+#include <j/graphics/RenderPrimitive.h>
 #include <cassert>
 #include <iostream>
 #include <cmath>

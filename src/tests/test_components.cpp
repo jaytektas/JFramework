@@ -1,4 +1,4 @@
-#include <genesis/core/GenesisComponents.h>
+#include <j/core/GenesisComponents.h>
 
 // --- Mock Platform JWindow For Verification Testing Loop ---
 class MockPlatformWindow : public jf::JPlatformWindow {

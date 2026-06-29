@@ -1,4 +1,4 @@
-#include <genesis/graphics/RenderPrimitive.h>
+#include <j/graphics/RenderPrimitive.h>
 #include <cassert>
 #include <iostream>
 
@@ -28,8 +28,8 @@ void test_primitive_packing() {
 }
 
 void test_memory_alignment() {
-    assert(alignof(GpuPrimitiveInstance) == 16);
-    assert(sizeof(GpuPrimitiveInstance) % 16 == 0);
+    assert(alignof(JGpuPrimitiveInstance) == 16);
+    assert(sizeof(JGpuPrimitiveInstance) % 16 == 0);
     std::cout << "test_memory_alignment passed" << std::endl;
 }
 

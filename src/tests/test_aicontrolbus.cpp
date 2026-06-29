@@ -1,12 +1,12 @@
-#include <genesis/core/AiControlBus.h>
-#include <genesis/core/SceneGraph.h>
+#include <j/core/AiControlBus.h>
+#include <j/core/SceneGraph.h>
 #include <cassert>
 #include <iostream>
 
 using namespace jf;
 
 void test_telemetry_sync() {
-    SharedBusMemory sharedMem;
+    JSharedBusMemory sharedMem;
     JAiControlBus bus;
     bus.attach(&sharedMem);
     
@@ -31,23 +31,23 @@ void test_telemetry_sync() {
 }
 
 void test_inbound_commands() {
-    SharedBusMemory sharedMem;
+    JSharedBusMemory sharedMem;
     JAiControlBus bus;
     bus.attach(&sharedMem);
     
-    AiVirtualInput cmd;
+    JAiVirtualInput cmd;
     
     // No command initially
     assert(bus.pollInboundCommand(cmd) == false);
     
     // AI injects a command
-    sharedMem.inboundCommand.type.store(AiVirtualInput::JCommandType::MouseClick);
+    sharedMem.inboundCommand.type.store(JAiVirtualInput::JCommandType::MouseClick);
     sharedMem.inboundCommand.targetX = 150.0f;
     sharedMem.inboundCommand.targetY = 200.0f;
     sharedMem.inboundCommand.sequenceId.store(1, std::memory_order_release);
     
     assert(bus.pollInboundCommand(cmd) == true);
-    assert(cmd.type.load() == AiVirtualInput::JCommandType::MouseClick);
+    assert(cmd.type.load() == JAiVirtualInput::JCommandType::MouseClick);
     assert(cmd.targetX == 150.0f);
     
     // Command already processed
@@ -61,7 +61,7 @@ void test_inbound_commands() {
 }
 
 void test_publish_signal() {
-    SharedBusMemory sharedMem;
+    JSharedBusMemory sharedMem;
     JAiControlBus bus;
     bus.attach(&sharedMem);
 
@@ -93,7 +93,7 @@ void test_publish_signal() {
 }
 
 void test_outbound_initial_state() {
-    SharedBusMemory sharedMem{};
+    JSharedBusMemory sharedMem{};
     JAiControlBus bus;
     bus.attach(&sharedMem);
 

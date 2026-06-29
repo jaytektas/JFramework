@@ -1,8 +1,8 @@
-#include <genesis/core/Window.h>
-#include <genesis/core/SceneGraph.h>
-#include <genesis/core/StyleEngine.h>
-#include <genesis/graphics/RenderPrimitive.h>
-#include <genesis/platforms/linux/LinuxPlatformWindow.h>
+#include <j/core/Window.h>
+#include <j/core/SceneGraph.h>
+#include <j/core/StyleEngine.h>
+#include <j/graphics/RenderPrimitive.h>
+#include <j/platforms/linux/LinuxPlatformWindow.h>
 #include <cassert>
 #include <iostream>
 #include <xcb/xcb.h>

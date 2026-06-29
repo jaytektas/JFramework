@@ -1,7 +1,7 @@
-#include <genesis/core/BaseWidgets.h>
-#include <genesis/core/MenuSystem.h>
-#include <genesis/core/SceneGraph.h>
-#include <genesis/graphics/RenderPrimitive.h>
+#include <j/core/BaseWidgets.h>
+#include <j/core/MenuSystem.h>
+#include <j/core/SceneGraph.h>
+#include <j/graphics/RenderPrimitive.h>
 #include <cassert>
 #include <iostream>
 

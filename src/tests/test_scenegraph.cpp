@@ -1,4 +1,4 @@
-#include <genesis/core/SceneGraph.h>
+#include <j/core/SceneGraph.h>
 #include <cassert>
 #include <iostream>
 

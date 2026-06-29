@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(GenesisUI VERSION 0.1.0 LANGUAGES CXX)
+project(JFramework VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,7 +15,7 @@ find_package(Python3 COMPONENTS Interpreter QUIET)
 if(GLSLC_EXECUTABLE AND Python3_Interpreter_FOUND)
     set(SHADER_DIR    ${CMAKE_SOURCE_DIR}/src/shaders)
     set(SHADER_BUILD  ${CMAKE_BINARY_DIR}/shaders)
-    set(SHADER_HEADER ${CMAKE_SOURCE_DIR}/include/genesis/graphics/ShaderSpirv.h)
+    set(SHADER_HEADER ${CMAKE_SOURCE_DIR}/include/j/graphics/ShaderSpirv.h)
     set(EMBED_SCRIPT  ${CMAKE_SOURCE_DIR}/cmake/embed_spv.py)
     file(MAKE_DIRECTORY ${SHADER_BUILD})
 
@@ -43,10 +43,10 @@ if(GLSLC_EXECUTABLE AND Python3_Interpreter_FOUND)
                 ${EMBED_SCRIPT}
         VERBATIM COMMENT "Embedding SPIR-V → ShaderSpirv.h"
     )
-    add_custom_target(genesis_shaders DEPENDS ${SHADER_HEADER})
+    add_custom_target(j_shaders DEPENDS ${SHADER_HEADER})
     message(STATUS "Genesis shaders: auto-compile enabled (${GLSLC_EXECUTABLE})")
 else()
-    add_custom_target(genesis_shaders)
+    add_custom_target(j_shaders)
     message(STATUS "Genesis shaders: using pre-built ShaderSpirv.h")
 endif()
 
@@ -65,8 +65,8 @@ endif()
 set(STB_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/third_party)
 
 # --- Core Library (header-only interface) ---
-add_library(genesis_core INTERFACE)
-target_include_directories(genesis_core INTERFACE
+add_library(j_core INTERFACE)
+target_include_directories(j_core INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${STB_INCLUDE_DIR}>
     $<INSTALL_INTERFACE:include>
@@ -74,34 +74,34 @@ target_include_directories(genesis_core INTERFACE
 
 # --- Optional modules (Qt-style opt-in: link the module, get the feature) ---
 
-# genesis_db — SQLite3 wrapper (Database.h)
-add_library(genesis_db INTERFACE)
-target_link_libraries(genesis_db INTERFACE genesis_core)
+# j_db — SQLite3 wrapper (Database.h)
+add_library(j_db INTERFACE)
+target_link_libraries(j_db INTERFACE j_core)
 find_package(SQLite3 QUIET)
 if(SQLite3_FOUND)
-    target_link_libraries(genesis_db INTERFACE SQLite::SQLite3)
+    target_link_libraries(j_db INTERFACE SQLite::SQLite3)
 else()
     find_library(SQLITE3_LIB sqlite3)
     if(SQLITE3_LIB)
-        target_link_libraries(genesis_db INTERFACE ${SQLITE3_LIB})
+        target_link_libraries(j_db INTERFACE ${SQLITE3_LIB})
     endif()
 endif()
 
-# genesis_io — serial port (SerialPort.h); POSIX/Win32 deps come from the OS
-add_library(genesis_io INTERFACE)
-target_link_libraries(genesis_io INTERFACE genesis_core)
+# j_io — serial port (SerialPort.h); POSIX/Win32 deps come from the OS
+add_library(j_io INTERFACE)
+target_link_libraries(j_io INTERFACE j_core)
 
-# genesis_config — Settings + Json (no extra deps)
-add_library(genesis_config INTERFACE)
-target_link_libraries(genesis_config INTERFACE genesis_core)
+# j_config — Settings + Json (no extra deps)
+add_library(j_config INTERFACE)
+target_link_libraries(j_config INTERFACE j_core)
 
-# genesis_concurrent — WorkerThread (no extra deps beyond std::thread)
-add_library(genesis_concurrent INTERFACE)
-target_link_libraries(genesis_concurrent INTERFACE genesis_core)
+# j_concurrent — WorkerThread (no extra deps beyond std::thread)
+add_library(j_concurrent INTERFACE)
+target_link_libraries(j_concurrent INTERFACE j_core)
 
-# genesis_model — TableModel, TreeModel, SortFilterModel, ModelBinding
-add_library(genesis_model INTERFACE)
-target_link_libraries(genesis_model INTERFACE genesis_core)
+# j_model — TableModel, TreeModel, SortFilterModel, ModelBinding
+add_library(j_model INTERFACE)
+target_link_libraries(j_model INTERFACE j_core)
 
 # --- Platform Implementation ---
 if(WIN32)
@@ -119,45 +119,45 @@ if(WIN32)
 else()
     find_package(Vulkan REQUIRED)
 endif()
-add_library(genesis_platform STATIC)
-target_link_libraries(genesis_platform PUBLIC genesis_core Vulkan::Vulkan)
-add_dependencies(genesis_platform genesis_shaders)
+add_library(j_platform STATIC)
+target_link_libraries(j_platform PUBLIC j_core Vulkan::Vulkan)
+add_dependencies(j_platform j_shaders)
 
 if(UNIX AND NOT APPLE)
-    target_sources(genesis_platform PRIVATE
+    target_sources(j_platform PRIVATE
         src/platforms/linux/LinuxPlatformWindow.cpp
         src/graphics/VulkanGpuHal.cpp
         src/graphics/FontEngineImpl.cpp
         src/accessibility/AtSpiServer.cpp
     )
-    target_include_directories(genesis_platform PRIVATE
+    target_include_directories(j_platform PRIVATE
         ${XCB_INCLUDE_DIRS}
         ${XCB_KEYSYMS_INCLUDE_DIRS}
         ${DBUS_INCLUDE_DIRS}
         ${STB_INCLUDE_DIR}
     )
-    target_link_libraries(genesis_platform PRIVATE
+    target_link_libraries(j_platform PRIVATE
         ${XCB_LIBRARIES}
         ${XCB_KEYSYMS_LIBRARIES}
         ${DBUS_LIBRARIES}
         rt          # POSIX shared memory (AI control bus)
     )
     if(ATSPI_FOUND)
-        target_include_directories(genesis_platform PRIVATE ${ATSPI_INCLUDE_DIRS})
-        target_link_libraries(genesis_platform PRIVATE ${ATSPI_LIBRARIES})
-        target_compile_definitions(genesis_platform PRIVATE GENESIS_ATSPI=1)
+        target_include_directories(j_platform PRIVATE ${ATSPI_INCLUDE_DIRS})
+        target_link_libraries(j_platform PRIVATE ${ATSPI_LIBRARIES})
+        target_compile_definitions(j_platform PRIVATE GENESIS_ATSPI=1)
     endif()
 elseif(WIN32)
-    target_sources(genesis_platform PRIVATE
+    target_sources(j_platform PRIVATE
         src/platforms/windows/WindowsPlatformWindow.cpp
         src/graphics/VulkanGpuHal.cpp
         src/graphics/FontEngineImpl.cpp
     )
-    target_include_directories(genesis_platform PRIVATE
+    target_include_directories(j_platform PRIVATE
         ${STB_INCLUDE_DIR}
     )
     # Windows native winsock, gdi, etc.
-    target_link_libraries(genesis_platform PRIVATE
+    target_link_libraries(j_platform PRIVATE
         ws2_32
         gdi32
         user32
@@ -169,44 +169,44 @@ endif()
 
 # --- Platform Host ---
 add_executable(GenesisPlatformHost src/platforms/GenesisPlatformHost.cpp)
-target_link_libraries(GenesisPlatformHost PRIVATE genesis_platform)
+target_link_libraries(GenesisPlatformHost PRIVATE j_platform)
 
 # --- Examples ---
 if(GENESIS_BUILD_EXAMPLES)
-    add_executable(genesis_performance_panel examples/performance_panel/main.cpp)
-    target_link_libraries(genesis_performance_panel PRIVATE genesis_platform)
+    add_executable(j_performance_panel examples/performance_panel/main.cpp)
+    target_link_libraries(j_performance_panel PRIVATE j_platform)
 
-    add_executable(genesis_controls_catalog examples/controls_catalog/main.cpp)
-    target_link_libraries(genesis_controls_catalog PRIVATE genesis_platform)
+    add_executable(j_controls_catalog examples/controls_catalog/main.cpp)
+    target_link_libraries(j_controls_catalog PRIVATE j_platform)
     # Copy translation files next to the binary
-    add_custom_command(TARGET genesis_controls_catalog POST_BUILD
+    add_custom_command(TARGET j_controls_catalog POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
                 ${CMAKE_SOURCE_DIR}/translations
-                $<TARGET_FILE_DIR:genesis_controls_catalog>/translations
+                $<TARGET_FILE_DIR:j_controls_catalog>/translations
         COMMENT "Copying translations"
     )
 
-    add_executable(genesis_dock_window_styles examples/dock_window_styles/main.cpp)
-    target_link_libraries(genesis_dock_window_styles PRIVATE genesis_platform)
+    add_executable(j_dock_window_styles examples/dock_window_styles/main.cpp)
+    target_link_libraries(j_dock_window_styles PRIVATE j_platform)
 
-    add_executable(genesis_empty_window examples/empty_window/main.cpp)
-    target_link_libraries(genesis_empty_window PRIVATE genesis_platform)
+    add_executable(j_empty_window examples/empty_window/main.cpp)
+    target_link_libraries(j_empty_window PRIVATE j_platform)
 
-    add_executable(genesis_vector_demo examples/vector_demo/main.cpp)
-    target_link_libraries(genesis_vector_demo PRIVATE genesis_platform)
+    add_executable(j_vector_demo examples/vector_demo/main.cpp)
+    target_link_libraries(j_vector_demo PRIVATE j_platform)
 
-    add_executable(genesis_chart_demo examples/chart_demo/main.cpp)
-    target_link_libraries(genesis_chart_demo PRIVATE genesis_platform)
+    add_executable(j_chart_demo examples/chart_demo/main.cpp)
+    target_link_libraries(j_chart_demo PRIVATE j_platform)
 endif()
 
 # --- AI tooling: external semantic probe + agent (read & drive a running app) ---
-add_executable(genesis_ai_probe tools/ai_probe.cpp)
-target_link_libraries(genesis_ai_probe PRIVATE genesis_core)
-add_executable(genesis_ai_agent tools/ai_agent.cpp)
-target_link_libraries(genesis_ai_agent PRIVATE genesis_core)
+add_executable(j_ai_probe tools/ai_probe.cpp)
+target_link_libraries(j_ai_probe PRIVATE j_core)
+add_executable(j_ai_agent tools/ai_agent.cpp)
+target_link_libraries(j_ai_agent PRIVATE j_core)
 if(UNIX AND NOT APPLE)
-    target_link_libraries(genesis_ai_probe PRIVATE rt pthread)
-    target_link_libraries(genesis_ai_agent PRIVATE rt pthread)
+    target_link_libraries(j_ai_probe PRIVATE rt pthread)
+    target_link_libraries(j_ai_agent PRIVATE rt pthread)
 endif()
 
 # --- Tests ---
@@ -214,7 +214,7 @@ if(GENESIS_BUILD_TESTS)
     enable_testing()
     function(add_genesis_test name src)
         add_executable(${name} ${src})
-        target_link_libraries(${name} PRIVATE genesis_platform)
+        target_link_libraries(${name} PRIVATE j_platform)
         add_test(NAME ${name} COMMAND ${name})
     endfunction()
 
@@ -240,7 +240,7 @@ if(GENESIS_BUILD_TESTS)
     add_genesis_test(test_dragdrop         src/tests/test_dragdrop.cpp)
     add_genesis_test(test_canvas           src/tests/test_canvas.cpp)
     add_genesis_test(test_database         src/tests/test_database.cpp)
-    target_link_libraries(test_database PRIVATE genesis_db)
+    target_link_libraries(test_database PRIVATE j_db)
     add_genesis_test(test_serial           src/tests/test_serial.cpp)
     add_genesis_test(test_dialog           src/tests/test_dialog.cpp)
     add_genesis_test(test_aipanel          src/tests/test_aipanel.cpp)
@@ -265,44 +265,44 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 # Public headers: the genesis/** tree + the bundled stb header FontEngine.h needs.
-install(DIRECTORY include/genesis DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(DIRECTORY include/j DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(DIRECTORY ${STB_INCLUDE_DIR}/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
         FILES_MATCHING PATTERN "stb_*.h")
 
-# Clean exported names: Genesis::core / Genesis::platform (not Genesis::genesis_*).
-set_target_properties(genesis_core       PROPERTIES EXPORT_NAME core)
-set_target_properties(genesis_io         PROPERTIES EXPORT_NAME io)
-set_target_properties(genesis_config     PROPERTIES EXPORT_NAME config)
-set_target_properties(genesis_concurrent PROPERTIES EXPORT_NAME concurrent)
-set_target_properties(genesis_model      PROPERTIES EXPORT_NAME model)
-set_target_properties(genesis_platform   PROPERTIES EXPORT_NAME platform)
+# Clean exported names: Genesis::core / Genesis::platform (not Genesis::j_*).
+set_target_properties(j_core       PROPERTIES EXPORT_NAME core)
+set_target_properties(j_io         PROPERTIES EXPORT_NAME io)
+set_target_properties(j_config     PROPERTIES EXPORT_NAME config)
+set_target_properties(j_concurrent PROPERTIES EXPORT_NAME concurrent)
+set_target_properties(j_model      PROPERTIES EXPORT_NAME model)
+set_target_properties(j_platform   PROPERTIES EXPORT_NAME platform)
 
 # Export the core + header-only modules + the static platform lib under Genesis::.
-# genesis_db is intentionally omitted (optional SQLite module) — add it later with
+# j_db is intentionally omitted (optional SQLite module) — add it later with
 # its own find_dependency(SQLite3) when a consumer actually needs the database.
 install(TARGETS
-            genesis_core genesis_io genesis_config genesis_concurrent
-            genesis_model genesis_platform
-        EXPORT GenesisTargets
+            j_core j_io j_config j_concurrent
+            j_model j_platform
+        EXPORT JFrameworkTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
-install(EXPORT GenesisTargets
-        FILE GenesisTargets.cmake
-        NAMESPACE Genesis::
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Genesis)
+install(EXPORT JFrameworkTargets
+        FILE JFrameworkTargets.cmake
+        NAMESPACE JFramework::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/JFramework)
 
 configure_package_config_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenesisConfig.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/GenesisConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Genesis)
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/JFrameworkConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/JFrameworkConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/JFramework)
 
 write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/GenesisConfigVersion.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/JFrameworkConfigVersion.cmake
     VERSION ${PROJECT_VERSION}
     COMPATIBILITY SameMajorVersion)
 
 install(FILES
-            ${CMAKE_CURRENT_BINARY_DIR}/GenesisConfig.cmake
-            ${CMAKE_CURRENT_BINARY_DIR}/GenesisConfigVersion.cmake
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Genesis)
+            ${CMAKE_CURRENT_BINARY_DIR}/JFrameworkConfig.cmake
+            ${CMAKE_CURRENT_BINARY_DIR}/JFrameworkConfigVersion.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/JFramework)

@@ -1,5 +1,5 @@
-#include <genesis/core/MainThreadDispatcher.h>
-#include <genesis/core/Timer.h>
+#include <j/core/MainThreadDispatcher.h>
+#include <j/core/Timer.h>
 #include <cassert>
 #include <iostream>
 #include <thread>

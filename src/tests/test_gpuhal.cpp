@@ -1,4 +1,4 @@
-#include <genesis/graphics/GpuHal.h>
+#include <j/graphics/GpuHal.h>
 #include <cassert>
 
 using namespace jf;

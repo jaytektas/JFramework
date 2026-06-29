@@ -1,9 +1,9 @@
 // Integration tests for JVariant adoption across JSettings + models (goal 1-3).
-#include <genesis/config/Settings.h>
-#include <genesis/model/TableModel.h>
-#include <genesis/model/SortFilterModel.h>
-#include <genesis/model/TreeModel.h>
-#include <genesis/core/VariantJson.h>
+#include <j/config/Settings.h>
+#include <j/model/TableModel.h>
+#include <j/model/SortFilterModel.h>
+#include <j/model/TreeModel.h>
+#include <j/core/VariantJson.h>
 #include <cassert>
 #include <iostream>
 #include <filesystem>

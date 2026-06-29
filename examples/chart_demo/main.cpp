@@ -1,15 +1,15 @@
 // JChart showcase — a live scrolling telemetry chart + a static sweep chart,
 // both built on jf::JChart over the JVectorCanvas 2D layer.
-#include <genesis/core/ApplicationCore.h>
-#include <genesis/graphics/GpuHal.h>
-#include <genesis/graphics/RenderPrimitive.h>
-#include <genesis/graphics/Chart.h>
-#include <genesis/graphics/FontEngine.h>
+#include <j/core/ApplicationCore.h>
+#include <j/graphics/GpuHal.h>
+#include <j/graphics/RenderPrimitive.h>
+#include <j/graphics/Chart.h>
+#include <j/graphics/FontEngine.h>
 #if defined(_WIN32)
-#include <genesis/platforms/windows/WindowsPlatformWindow.h>
+#include <j/platforms/windows/WindowsPlatformWindow.h>
 using PlatformWindowImpl = jf::JWindowsPlatformWindow;
 #else
-#include <genesis/platforms/linux/LinuxPlatformWindow.h>
+#include <j/platforms/linux/LinuxPlatformWindow.h>
 using PlatformWindowImpl = jf::JLinuxPlatformWindow;
 #endif
 

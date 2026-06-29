@@ -1,15 +1,15 @@
 // Minimal empty Genesis window — for testing window-management behavior
 // (drag, snap/tile, maximize/restore, minimize, edge-resize) in isolation,
 // without any dock content inflating the minimum size.
-#include <genesis/core/ApplicationCore.h>
-#include <genesis/graphics/GpuHal.h>
-#include <genesis/graphics/RenderPrimitive.h>
-#include <genesis/graphics/FontEngine.h>
+#include <j/core/ApplicationCore.h>
+#include <j/graphics/GpuHal.h>
+#include <j/graphics/RenderPrimitive.h>
+#include <j/graphics/FontEngine.h>
 #if defined(_WIN32)
-#include <genesis/platforms/windows/WindowsPlatformWindow.h>
+#include <j/platforms/windows/WindowsPlatformWindow.h>
 using PlatformWindowImpl = jf::JWindowsPlatformWindow;
 #else
-#include <genesis/platforms/linux/LinuxPlatformWindow.h>
+#include <j/platforms/linux/LinuxPlatformWindow.h>
 using PlatformWindowImpl = jf::JLinuxPlatformWindow;
 #endif
 

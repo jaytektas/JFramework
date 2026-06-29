@@ -1,4 +1,4 @@
-#include <genesis/core/ApplicationCore.h>
+#include <j/core/ApplicationCore.h>
 #include <cassert>
 #include <thread>
 #include <vector>

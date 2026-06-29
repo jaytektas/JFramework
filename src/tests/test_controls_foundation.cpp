@@ -1,5 +1,5 @@
-#include <genesis/core/BaseWidgets.h>
-#include <genesis/core/SceneGraph.h>
+#include <j/core/BaseWidgets.h>
+#include <j/core/SceneGraph.h>
 #include <cassert>
 #include <iostream>
 

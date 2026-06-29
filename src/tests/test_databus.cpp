@@ -1,6 +1,6 @@
-#include <genesis/core/DataBus.h>
-#include <genesis/core/SceneGraph.h>
-#include <genesis/core/BaseWidgets.h>
+#include <j/core/DataBus.h>
+#include <j/core/SceneGraph.h>
+#include <j/core/BaseWidgets.h>
 #include <cassert>
 #include <iostream>
 
