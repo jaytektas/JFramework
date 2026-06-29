@@ -2,7 +2,7 @@
 
 // Thread-safety: MAIN THREAD ONLY.
 // Drag-and-drop state is tied to mouse events which arrive on the main thread.
-// Do not call any DragDrop methods from background threads.
+// Do not call any JDragDrop methods from background threads.
 
 #include <cstdint>
 #include <functional>
@@ -16,50 +16,50 @@ namespace Genesis {
 // ============================================================================
 // Typed Drag & Drop — Step 5
 //
-// No MIME strings. The payload is a typed C++ object. Type mismatches are
+// No MIME strings. The payload is a typed C++ object. JType mismatches are
 // caught at compile time via template specialisation, not runtime string checks.
 //
 // Sender:
-//   DragDrop::start<FileList>(myFiles, myWidget, dragCursorLabel);
+//   JDragDrop::start<FileList>(myFiles, myWidget, dragCursorLabel);
 //
 // Receiver (in handleMouseRelease):
-//   DragDrop::accept<FileList>([](const FileList& files, float x, float y) {
+//   JDragDrop::accept<FileList>([](const FileList& files, float x, float y) {
 //       importFiles(files);
 //   });
 //
 // Or in handleMouseMove, to highlight a valid drop target:
-//   if (DragDrop::canAccept<FileList>()) { showDropHighlight(); }
+//   if (JDragDrop::canAccept<FileList>()) { showDropHighlight(); }
 // ============================================================================
-class DragDrop {
+class JDragDrop {
 public:
-    // ---- Payload wrapper ---------------------------------------------------
-    struct PayloadBase {
-        virtual ~PayloadBase() = default;
+    // ---- JPayload wrapper ---------------------------------------------------
+    struct JPayloadBase {
+        virtual ~JPayloadBase() = default;
         virtual std::type_index type() const = 0;
         virtual std::string     label() const = 0;
     };
 
     template<typename T>
-    struct Payload : PayloadBase {
+    struct JPayload : JPayloadBase {
         T value;
         std::string m_label;
-        explicit Payload(T v, std::string lbl)
+        explicit JPayload(T v, std::string lbl)
             : value(std::move(v)), m_label(std::move(lbl)) {}
         std::type_index type()  const override { return std::type_index(typeid(T)); }
         std::string     label() const override { return m_label; }
     };
 
     // ---- Drag session ------------------------------------------------------
-    struct Session {
-        std::unique_ptr<PayloadBase> payload;
+    struct JSession {
+        std::unique_ptr<JPayloadBase> payload;
         float startX{0}, startY{0};
         float curX{0},   curY{0};
         bool  active{false};
     };
 
     // ---- Global state (one active drag at a time) -------------------------
-    static Session& current() {
-        static Session s;
+    static JSession& current() {
+        static JSession s;
         return s;
     }
 
@@ -69,7 +69,7 @@ public:
     static void start(T value, float startX, float startY,
                       std::string label = "drag") {
         auto& s = current();
-        s.payload = std::make_unique<Payload<T>>(std::move(value), std::move(label));
+        s.payload = std::make_unique<JPayload<T>>(std::move(value), std::move(label));
         s.startX  = startX;
         s.startY  = startY;
         s.curX    = startX;
@@ -106,7 +106,7 @@ public:
                        std::function<void(const T&, float x, float y)> handler) {
         if (!canAccept<T>()) return false;
         auto& s = current();
-        const T& val = static_cast<Payload<T>*>(s.payload.get())->value;
+        const T& val = static_cast<JPayload<T>*>(s.payload.get())->value;
         handler(val, dropX, dropY);
         cancel();
         return true;
@@ -131,16 +131,16 @@ public:
 
 // ---- Common payload types -------------------------------------------------
 
-struct FileListPayload {
+struct JFileListPayload {
     std::vector<std::string> paths;
 };
 
-struct TextPayload {
+struct JTextPayload {
     std::string text;
 };
 
-// Widget reorder payload — used by DockManager, ListView, TreeView
-struct WidgetIdPayload {
+// JWidget reorder payload — used by DockManager, JListView, JTreeView
+struct JWidgetIdPayload {
     uint32_t nodeId{0};
     std::string debugName;
 };

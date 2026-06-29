@@ -3,7 +3,7 @@
 
 using namespace Genesis;
 
-class MockGpuHal : public GpuHal {
+class MockGpuHal : public JGpuHal {
 public:
     bool initialized = false;
     uint32_t currentWidth = 0;
@@ -20,22 +20,22 @@ public:
         currentHeight = height;
     }
 
-    GpuFrameContext beginFrame(GpuSurfaceId sid = kPrimarySurface) override {
-        GpuFrameContext ctx{};
+    JGpuFrameContext beginFrame(GpuSurfaceId sid = kPrimarySurface) override {
+        JGpuFrameContext ctx{};
         ctx.frameIndex = frameCounter++;
         ctx.surfaceId  = sid;
         return ctx;
     }
 
-    void submitAndPresentFrame(const GpuFrameContext& /*context*/) override {}
+    void submitAndPresentFrame(const JGpuFrameContext& /*context*/) override {}
 
     bool uploadFontAtlas(const uint8_t*, uint32_t, uint32_t) override { return true; }
-    void drawPrimitives(const PrimitiveBuffer&) override {}
+    void drawPrimitives(const JPrimitiveBuffer&) override {}
     void waitIdle() override {}
 
-    GpuApiType getBackendType() const noexcept override { return GpuApiType::Vulkan; }
+    JGpuApiType getBackendType() const noexcept override { return JGpuApiType::Vulkan; }
 
-    GpuSurfaceId createSurface(const NativeWindowHandle& /*window*/,
+    GpuSurfaceId createSurface(const JNativeWindowHandle& /*window*/,
                                uint32_t /*w*/, uint32_t /*h*/) override {
         return kPrimarySurface + 1; // stub
     }
@@ -44,25 +44,25 @@ public:
 };
 
 // Fulfilling the factory method for testing
-std::unique_ptr<GpuHal> GpuHal::create(GpuApiType api, const NativeWindowHandle& windowHandle) {
+std::unique_ptr<JGpuHal> JGpuHal::create(JGpuApiType api, const JNativeWindowHandle& windowHandle) {
     (void)api; (void)windowHandle;
     return std::make_unique<MockGpuHal>();
 }
 
 void test_gpuhal_factory() {
-    NativeWindowHandle handle{ GpuApiType::Vulkan, nullptr, nullptr };
-    auto hal = GpuHal::create(GpuApiType::Vulkan, handle);
+    JNativeWindowHandle handle{ JGpuApiType::Vulkan, nullptr, nullptr };
+    auto hal = JGpuHal::create(JGpuApiType::Vulkan, handle);
 
     assert(hal != nullptr);
     assert(hal->initialize() == true);
-    assert(hal->getBackendType() == GpuApiType::Vulkan);
+    assert(hal->getBackendType() == JGpuApiType::Vulkan);
 
     std::cout << "test_gpuhal_factory passed" << std::endl;
 }
 
 void test_gpuhal_lifecycle() {
-    NativeWindowHandle handle{ GpuApiType::Vulkan, nullptr, nullptr };
-    auto hal = GpuHal::create(GpuApiType::Vulkan, handle);
+    JNativeWindowHandle handle{ JGpuApiType::Vulkan, nullptr, nullptr };
+    auto hal = JGpuHal::create(JGpuApiType::Vulkan, handle);
 
     hal->initialize();
     hal->resizeSwapchain(1920, 1080); // uses compat shim

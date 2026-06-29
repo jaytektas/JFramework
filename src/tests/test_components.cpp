@@ -1,7 +1,7 @@
 #include <genesis/core/GenesisComponents.h>
 
-// --- Mock Platform Window For Verification Testing Loop ---
-class MockPlatformWindow : public Core::PlatformWindow {
+// --- Mock Platform JWindow For Verification Testing Loop ---
+class MockPlatformWindow : public Core::JPlatformWindow {
 public:
     MockPlatformWindow() : m_frames(0) {}
     void pollNativeEvents() override {}
@@ -16,15 +16,15 @@ private:
  * @brief Execution test verifying clean API replacements for standard toolkits.
  */
 int main() {
-    Genesis::GApplication app;
+    Genesis::JGuiApplication app;
     
-    Genesis::GMainWindow mainWindow("Genesis Main Performance Deck");
+    Genesis::JMainWindow mainWindow("Genesis Main Performance Deck");
     mainWindow.show();
 
     // Pasting this single block replaces standard Qt application orchestration paths cleanly
     auto mockWindow = std::make_unique<MockPlatformWindow>();
     int ret = app.exec(std::move(mockWindow));
     
-    std::cout << "[GENESIS RUNTIME] Application exited with code: " << ret << std::endl;
+    std::cout << "[GENESIS RUNTIME] JApplication exited with code: " << ret << std::endl;
     return ret;
 }

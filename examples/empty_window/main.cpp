@@ -7,10 +7,10 @@
 #include <genesis/graphics/FontEngine.h>
 #if defined(_WIN32)
 #include <genesis/platforms/windows/WindowsPlatformWindow.h>
-using PlatformWindowImpl = Genesis::WindowsPlatformWindow;
+using PlatformWindowImpl = Genesis::JWindowsPlatformWindow;
 #else
 #include <genesis/platforms/linux/LinuxPlatformWindow.h>
-using PlatformWindowImpl = Genesis::LinuxPlatformWindow;
+using PlatformWindowImpl = Genesis::JLinuxPlatformWindow;
 #endif
 
 #include <iostream>
@@ -20,7 +20,7 @@ using PlatformWindowImpl = Genesis::LinuxPlatformWindow;
 using namespace Genesis;
 
 int main() {
-    std::cout << "[GENESIS] Empty Window test starting...\n";
+    std::cout << "[GENESIS] Empty JWindow test starting...\n";
 
     constexpr uint32_t W = 600, H = 400;
     uint32_t curW = W, curH = H;
@@ -29,25 +29,25 @@ int main() {
     constexpr float kBtnW   = 28.f;   // width of each window-control button
 
     auto window = std::make_unique<PlatformWindowImpl>(
-        "Genesis Empty Window", W, H, 100, 100,
-        Genesis::PlatformWindowStyle::Borderless);
+        "Genesis Empty JWindow", W, H, 100, 100,
+        Genesis::JPlatformWindowStyle::Borderless);
 
-    NativeWindowHandle handle = window->nativeHandle();
-    auto hal = GpuHal::create(GpuApiType::Vulkan, handle);
+    JNativeWindowHandle handle = window->nativeHandle();
+    auto hal = JGpuHal::create(JGpuApiType::Vulkan, handle);
     if (!hal) { std::cerr << "[GENESIS] Failed to create Vulkan HAL\n"; return -1; }
     hal->resizeSwapchain(W, H);
 
-    Genesis::FontEngine fontEngine;
+    Genesis::JFontEngine fontEngine;
     if (fontEngine.loadSystemFont()) {
         auto atlas = fontEngine.buildAtlas(14.0f * window->dpiScale());
-        Genesis::TextHelper::setAtlas(atlas);
+        Genesis::JTextHelper::setAtlas(atlas);
         hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
     }
 
     // Tiny minimum size so the WM can freely tile this window to any half/quarter.
     window->setMinSize(200, 150);
 
-    // ---- Window-management state (mirrors controls_catalog) ----
+    // ---- JWindow-management state (mirrors controls_catalog) ----
     bool     titleMoveInitiated  = false;
     float    titlePressLocalXFrac = 0.f;
     float    titlePressLocalY     = 0.f;
@@ -58,7 +58,7 @@ int main() {
     using Clock = std::chrono::steady_clock;
     Clock::time_point lastTitleClick{};
 
-    PrimitiveBuffer buffer;
+    JPrimitiveBuffer buffer;
 
     while (!window->shouldClose()) {
         window->pollNativeEvents();
@@ -212,10 +212,10 @@ int main() {
         // Title bar
         uint8_t tbg[4] = {22, 22, 28, 255};
         buffer.pushRectangle(0.f, 0.f, Wf, kTitleH, tbg, 0.f);
-        float lh = Genesis::TextHelper::lineHeight();
+        float lh = Genesis::JTextHelper::lineHeight();
         uint8_t tc[4] = {190, 190, 200, 220};
-        Genesis::TextHelper::pushText(buffer, 10.f, (kTitleH - lh) * 0.5f,
-                                      "Genesis Empty Window", tc, Wf - kBtnW * 3.f - 20.f);
+        Genesis::JTextHelper::pushText(buffer, 10.f, (kTitleH - lh) * 0.5f,
+                                      "Genesis Empty JWindow", tc, Wf - kBtnW * 3.f - 20.f);
         uint8_t sep[4] = {60, 60, 70, 255};
         buffer.pushRectangle(0.f, kTitleH - 1.f, Wf, 1.f, sep, 0.f);
 
@@ -260,6 +260,6 @@ int main() {
         hal->submitAndPresentFrame(frame);
     }
 
-    std::cout << "[GENESIS] Empty Window test exiting.\n";
+    std::cout << "[GENESIS] Empty JWindow test exiting.\n";
     return 0;
 }

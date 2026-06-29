@@ -16,37 +16,37 @@
 
 namespace Genesis {
 
-class PopupWindow {
+class JPopupWindow {
 public:
-    enum class Style { Borderless, Bordered };
+    enum class JStyle { Borderless, Bordered };
 
-    struct PollResult {
-        enum class Type {
+    struct JPollResult {
+        enum class JType {
             None,
             Dismissed,
-        } type{Type::None};
+        } type{JType::None};
         uint32_t activatedNodeId{0};
         std::string activatedLabel;
     };
 
 #if defined(_WIN32)
-    using PlatformWinType = WindowsPlatformWindow;
+    using PlatformWinType = JWindowsPlatformWindow;
     using NativeWinHandleType = HWND;
 #else
-    using PlatformWinType = LinuxPlatformWindow;
+    using PlatformWinType = JLinuxPlatformWindow;
     using NativeWinHandleType = xcb_window_t;
 #endif
 
-    PopupWindow(int screenX, int screenY,
+    JPopupWindow(int screenX, int screenY,
                 uint32_t width, uint32_t height,
-                GpuHal& hal,
-                Style style = Style::Borderless,
+                JGpuHal& hal,
+                JStyle style = JStyle::Borderless,
                 NativeWinHandleType parentWindow = {},
                 void* sharedContext = nullptr)
         : m_winW(width), m_winH(height), m_style(style)
         , m_window(std::make_unique<PlatformWinType>(
               "Popup", width, height, screenX, screenY,
-              PlatformWindowStyle::Popup, parentWindow,
+              JPlatformWindowStyle::Popup, parentWindow,
 #if defined(_WIN32)
               static_cast<HINSTANCE>(sharedContext)
 #else
@@ -58,11 +58,11 @@ public:
         m_root = m_graph.createNode("PopupRoot");
         auto& l = m_graph.getLayout(m_root);
         l.boundingBox = { 0.f, 0.f, static_cast<float>(width), static_cast<float>(height) };
-        if (AiBusHook::emit) AiBusHook::emit(0, "popup.open", "");
+        if (JAiBusHook::emit) JAiBusHook::emit(0, "popup.open", "");
     }
 
-    ~PopupWindow() {
-        if (AiBusHook::emit) AiBusHook::emit(0, "popup.close", "");
+    ~JPopupWindow() {
+        if (JAiBusHook::emit) JAiBusHook::emit(0, "popup.close", "");
 #if defined(_WIN32)
         ReleaseCapture();
 #else
@@ -86,7 +86,7 @@ public:
     void computeNaturalHeight() {
         m_graph.computeMinSize(m_root);
         float h = m_graph.getLayoutConst(m_root).minHeight;
-        if (m_style == Style::Bordered) h += m_kBorderPad * 2.f;
+        if (m_style == JStyle::Bordered) h += m_kBorderPad * 2.f;
         m_winH = static_cast<uint32_t>(std::max(1.f, h));
         m_window->setSize(m_winW, m_winH);
 
@@ -97,18 +97,18 @@ public:
         m_graph.computeLayout(m_root, { static_cast<float>(m_winW), static_cast<float>(m_winW), 0.0f, 100000.f });
     }
 
-    SceneGraph& graph()  { return m_graph; }
+    JSceneGraph& graph()  { return m_graph; }
     NodeId      root()   const { return m_root; }
     uint32_t    width()  const { return m_winW; }
     uint32_t    height() const { return m_winH; }
-    Style       style()  const { return m_style; }
+    JStyle       style()  const { return m_style; }
 
-    PollResult pollEvents(GpuHal& hal) {
+    JPollResult pollEvents(JGpuHal& hal) {
         m_window->pollNativeEvents();
-        PollResult out{};
+        JPollResult out{};
 
         if (m_window->shouldClose() || m_window->consumeFocusLost()) {
-            out.type = PollResult::Type::Dismissed;
+            out.type = JPollResult::JType::Dismissed;
             return out;
         }
 
@@ -151,7 +151,7 @@ public:
                        my >= 0.f && my < static_cast<float>(m_winH));
 
         if (!inside && pressed) {
-            out.type = PollResult::Type::Dismissed;
+            out.type = JPollResult::JType::Dismissed;
             return out;
         }
 
@@ -165,7 +165,7 @@ public:
                 w->handleMousePress(mx, my);
                 if (w->hitTest(mx, my)) {
                     clickedId = w->getNodeId();
-                    if (auto* pi = dynamic_cast<PopupItem*>(w.get())) {
+                    if (auto* pi = dynamic_cast<JPopupItem*>(w.get())) {
                         clickedLabel = pi->label();
                     }
                 }
@@ -183,9 +183,9 @@ public:
         // Keyboard navigation — arrow keys, Enter, Escape
         for (const auto& ke : m_window->consumeAllKeys()) {
             if (!ke.pressed) continue;
-            using K = KeyEvent::Key;
+            using K = JKeyEvent::JKey;
             if (ke.key == K::Escape) {
-                out.type = PollResult::Type::Dismissed;
+                out.type = JPollResult::JType::Dismissed;
                 return out;
             }
             if (ke.key == K::Up)   { _navStep(-1); }
@@ -207,9 +207,9 @@ public:
 
     // Keyboard-navigate the popup: call from outside if the platform routes keys here.
     // Returns true if the key was consumed.
-    bool handleKeyNav(const KeyEvent& ke) {
+    bool handleKeyNav(const JKeyEvent& ke) {
         if (!ke.pressed) return false;
-        using K = KeyEvent::Key;
+        using K = JKeyEvent::JKey;
         if (ke.key == K::Up)   { _navStep(-1); return true; }
         if (ke.key == K::Down) { _navStep(1);  return true; }
         return false;
@@ -217,13 +217,13 @@ public:
 
     int keyNavIdx() const { return m_keyNavIdx; }
 
-    // Poll in floating mode: no grab, no dismiss-on-outside, TearOffHandle
+    // Poll in floating mode: no grab, no dismiss-on-outside, JTearOffHandle
     // area (top kFloatHandleH pixels) drags the window using xcb_query_pointer
     // so no pointer grab is required. The top-right 16×16 corner is a close btn.
-    enum class FloatPollResult { Alive, Close };
-    FloatPollResult pollFloating() {
+    enum class JFloatPollResult { Alive, Close };
+    JFloatPollResult pollFloating() {
         m_window->pollNativeEvents();
-        if (m_window->shouldClose()) return FloatPollResult::Close;
+        if (m_window->shouldClose()) return JFloatPollResult::Close;
 
         float mx = m_window->mouseX();
         float my = m_window->mouseY();
@@ -252,10 +252,10 @@ public:
         bool inClose  = inHandle && (mx >= closeX && mx < closeX + kFloatHandleH);
 
         // Close button — must be checked before drag so the click isn't consumed as a drag.
-        if (pressed && inClose) return FloatPollResult::Close;
+        if (pressed && inClose) return JFloatPollResult::Close;
 
         // Drag-to-move: press in the handle strip (but not close button) starts a move.
-        // Consuming the press prevents it reaching TearOffHandle (would fire onTornOff again).
+        // Consuming the press prevents it reaching JTearOffHandle (would fire onTornOff again).
         if (pressed && inHandle) {
 #if !defined(_WIN32)
             auto [gx, gy] = m_window->globalCursorPos();
@@ -288,10 +288,10 @@ public:
             if (pressed)  w->handleMousePress(mx, my);
             if (released) w->handleMouseRelease(mx, my);
         }
-        return FloatPollResult::Alive;
+        return JFloatPollResult::Alive;
     }
 
-    void render(GpuHal& hal, PrimitiveBuffer& buf) {
+    void render(JGpuHal& hal, JPrimitiveBuffer& buf) {
         if (m_surfaceW != m_winW || m_surfaceH != m_winH) {
             hal.resizeSurface(m_surface, m_winW, m_winH);
             m_surfaceW = m_winW;
@@ -300,7 +300,7 @@ public:
 
         buf.clear();  // each popup renders to its own surface — start with a clean buffer
 
-        if (m_style == Style::Bordered) {
+        if (m_style == JStyle::Bordered) {
             uint8_t bg[4] = {22, 22, 26, 255};
             buf.pushRectangle(0.f, 0.f,
                               static_cast<float>(m_winW), static_cast<float>(m_winH),
@@ -328,9 +328,9 @@ public:
             }
         }
 
-        Widget::renderTooltips(buf, m_window->mouseX(), m_window->mouseY());
+        JWidget::renderTooltips(buf, m_window->mouseX(), m_window->mouseY());
 
-        // Close button — same style as DockWidget title-bar close button.
+        // Close button — same style as JDockWidget title-bar close button.
         if (m_showCloseButton) {
             float cw  = static_cast<float>(m_winW);
             float cx  = cw - kFloatHandleH - 1.f;
@@ -354,7 +354,7 @@ public:
         hal.submitAndPresentFrame(frame);
     }
 
-    void destroySurface(GpuHal& hal) {
+    void destroySurface(JGpuHal& hal) {
         if (m_surface != kPrimarySurface) {
             hal.destroySurface(m_surface);
             m_surface = kPrimarySurface;
@@ -378,18 +378,18 @@ public:
     PlatformWinType&       window()       { return *m_window; }
     const PlatformWinType& window() const { return *m_window; }
     bool                   isViewable() const { return m_focusSet; }
-    const std::vector<std::unique_ptr<Widget>>& widgets() const { return m_widgets; }
+    const std::vector<std::unique_ptr<JWidget>>& widgets() const { return m_widgets; }
 
 private:
     static constexpr float m_kBorderPad  = 4.f;
     static constexpr float kFloatHandleH = 16.f;
 
-    Style     m_style;
+    JStyle     m_style;
     uint32_t  m_winW, m_winH;
 
-    SceneGraph m_graph;
+    JSceneGraph m_graph;
     NodeId     m_root{0};
-    std::vector<std::unique_ptr<Widget>> m_widgets;
+    std::vector<std::unique_ptr<JWidget>> m_widgets;
 
     std::unique_ptr<PlatformWinType> m_window;
     GpuSurfaceId m_surface{kPrimarySurface};

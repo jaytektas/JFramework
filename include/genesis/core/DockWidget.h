@@ -12,25 +12,25 @@
 namespace Genesis {
 
 // ============================================================================
-// DockWidget — a floating panel that renders at an absolute screen position,
-// independent of the SceneGraph layout.
+// JDockWidget — a floating panel that renders at an absolute screen position,
+// independent of the JSceneGraph layout.
 //
 // Lifecycle:
 //   1. Created fresh by the app (general panel).
-//   2. Created from a TornTabState (torn-off tab) — carries re-dock provenance.
+//   2. Created from a JTornTabState (torn-off tab) — carries re-dock provenance.
 //   3. Destroyed when the user presses Close, or when re-docked.
 //
-// The DockWidget does NOT inherit Widget — it lives outside the layout tree
+// The JDockWidget does NOT inherit JWidget — it lives outside the layout tree
 // and positions itself via explicit x/y coordinates.  Content is rendered by
 // the owner (app/catalog) which calls contentWidget->populateRenderPrimitives
 // then offsets by contentArea().
 // ============================================================================
 
-class DockWidget : public IAIState {
+class JDockWidget : public JIAIState {
 public:
-    // All live DockWidgets register here so GApplication::publishSemanticSnapshot()
+    // All live DockWidgets register here so JGuiApplication::publishSemanticSnapshot()
     // can include floating panels in the AI bus alongside regular widgets.
-    inline static std::vector<DockWidget*> s_activeDocks;
+    inline static std::vector<JDockWidget*> s_activeDocks;
 
     static constexpr float TITLE_H     = 30.0f;
     static constexpr float BTN_SZ      = 16.0f;  // close / pin button size
@@ -39,8 +39,8 @@ public:
     static constexpr float SNAP_DIST   = 14.0f;
 
     // Bit positions for setAllowedDrops().
-    // These match the ordinal values of DropPos (Center=0, Left=1, Right=2,
-    // Top=3, Bottom=4) so DockManager can compute the bit as 1<<DropPos.
+    // These match the ordinal values of JDropPos (Center=0, Left=1, Right=2,
+    // Top=3, Bottom=4) so DockManager can compute the bit as 1<<JDropPos.
     static constexpr uint8_t kDropCenter = 1 << 0;
     static constexpr uint8_t kDropLeft   = 1 << 1;
     static constexpr uint8_t kDropRight  = 1 << 2;
@@ -51,22 +51,22 @@ public:
 
     // --- Constructors ---
 
-    DockWidget(std::string title, float x, float y, float w, float h)
+    JDockWidget(std::string title, float x, float y, float w, float h)
         : m_title(std::move(title)), m_x(x), m_y(y), m_w(w), m_h(h)
     { s_activeDocks.push_back(this); }
 
-    DockWidget(TornTabState state, float x, float y, float w = 320.0f, float h = 240.0f)
+    JDockWidget(JTornTabState state, float x, float y, float w = 320.0f, float h = 240.0f)
         : m_title(state.title), m_x(x), m_y(y), m_w(w), m_h(h)
         , m_tornState(std::move(state))
     { s_activeDocks.push_back(this); }
 
-    ~DockWidget() {
+    ~JDockWidget() {
         auto& v = s_activeDocks;
         v.erase(std::remove(v.begin(), v.end(), this), v.end());
     }
 
     // Move transfers registry entry
-    DockWidget(DockWidget&& o) noexcept
+    JDockWidget(JDockWidget&& o) noexcept
         : m_title(std::move(o.m_title)), m_tag(std::move(o.m_tag))
         , m_x(o.m_x), m_y(o.m_y), m_w(o.m_w), m_h(o.m_h)
         , m_tornState(std::move(o.m_tornState))
@@ -90,10 +90,10 @@ public:
         if (it != v.end()) *it = this;
         else v.push_back(this);
     }
-    DockWidget& operator=(DockWidget&&) = delete;
+    JDockWidget& operator=(JDockWidget&&) = delete;
 
-    DockWidget(const DockWidget&)            = delete;
-    DockWidget& operator=(const DockWidget&) = delete;
+    JDockWidget(const JDockWidget&)            = delete;
+    JDockWidget& operator=(const JDockWidget&) = delete;
 
     // --- Geometry ---
 
@@ -103,7 +103,7 @@ public:
     float height() const { return m_h; }
 
     // Rectangle the content widget should render into
-    Rect contentArea() const {
+    JRect contentArea() const {
         float topOff = m_titleVisible ? TITLE_H : 0.f;
         return { m_x + 1.0f, m_y + topOff, m_w - 2.0f, m_h - topOff - 1.0f };
     }
@@ -121,24 +121,24 @@ public:
         m_y = std::max(0.0f, m_y);
     }
 
-    // --- State queries ---
+    // --- JState queries ---
 
     bool closeRequested() const { return m_closeRequested; }
     bool isPinned()       const { return m_pinned; }
     bool isDragging()     const { return m_dragging; }
 
     bool hasTornState()               const { return m_tornState.has_value(); }
-    TornTabState& tornState()               { return *m_tornState; }
-    const TornTabState& tornState()   const { return *m_tornState; }
+    JTornTabState& tornState()               { return *m_tornState; }
+    const JTornTabState& tornState()   const { return *m_tornState; }
 
     const std::string& title() const { return m_title; }
 
-    // Affinity tag used by DockHost to accept/reject docks per leaf zone.
+    // Affinity tag used by JDockHost to accept/reject docks per leaf zone.
     void setTag(std::string t) { m_tag = std::move(t); }
     const std::string& tag() const { return m_tag; }
 
     // --- Size constraints ---
-    // Applied during floating resize and respected by DockHost layout.
+    // Applied during floating resize and respected by JDockHost layout.
 
     void  setMinSize(float w, float h) { m_minW = w; m_minH = h; }
     void  setMaxSize(float w, float h) { m_maxW = w; m_maxH = h; }
@@ -149,7 +149,7 @@ public:
 
     // --- Behaviour flags ---
 
-    // Can be torn out of the DockHost into a floating OS window.
+    // Can be torn out of the JDockHost into a floating OS window.
     void setFloatable(bool v)  { m_floatable  = v; }
     bool isFloatable()  const  { return m_floatable; }
 
@@ -165,7 +165,7 @@ public:
     bool  allowsDrop(uint8_t bit) const { return (m_allowedDrops & bit) != 0u; }
     uint8_t allowedDrops() const        { return m_allowedDrops; }
 
-    // Whether drop-zones are ever offered when dragging this dock into a DockHost.
+    // Whether drop-zones are ever offered when dragging this dock into a JDockHost.
     // When false the dock floats only — it never shows snap arrows.
     void setDockable(bool v)        { m_dockable      = v; }
     bool isDockable()  const        { return m_dockable; }
@@ -188,7 +188,7 @@ public:
     bool isTitleBarVisible() const  { return m_titleVisible; }
 
     // Dock-side affinity — which leaf labels this dock is willing to join.
-    // Independent of the leaf's own DockAffinityRule (both must pass).
+    // Independent of the leaf's own JDockAffinityRule (both must pass).
     // Empty accept list = accept any leaf label.
     void setAcceptLeafLabels(std::vector<std::string> v) { m_acceptLeafLabels = std::move(v); }
     void setRejectLeafLabels(std::vector<std::string> v) { m_rejectLeafLabels = std::move(v); }
@@ -209,12 +209,12 @@ public:
         if (pressed) {
             if (m_hoverClose)  {
                 m_closeRequested = true;
-                if (AiBusHook::emit) AiBusHook::emit(0, "dock.close", m_title.c_str());
+                if (JAiBusHook::emit) JAiBusHook::emit(0, "dock.close", m_title.c_str());
                 return;
             }
             if (m_hoverPin) {
                 m_pinned = !m_pinned;
-                if (AiBusHook::emit) AiBusHook::emit(0, m_pinned ? "dock.pin" : "dock.unpin", m_title.c_str());
+                if (JAiBusHook::emit) JAiBusHook::emit(0, m_pinned ? "dock.pin" : "dock.unpin", m_title.c_str());
                 return;
             }
             if (m_hoverResize) {
@@ -248,9 +248,9 @@ public:
 
     // --- AI bus interface ---
 
-    AISemanticNode getSemanticNode() const override {
+    JAISemanticNode getSemanticNode() const override {
         std::string state = m_pinned ? "pinned" : "floating";
-        return {"DockWidget", m_title, state, true};
+        return {"JDockWidget", m_title, state, true};
     }
 
     bool executeSemanticAction(const std::string& a) override {
@@ -284,7 +284,7 @@ public:
 
     // --- Rendering ---
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) const {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) const {
         // 1. Drop shadow
         uint8_t shadow[4] = {0, 0, 0, 100};
         buf.pushRectangle(m_x + SHADOW_OFF, m_y + SHADOW_OFF,
@@ -305,11 +305,11 @@ public:
             float titleBarY = m_y + (TITLE_H - 7.0f) * 0.5f;
             float btnAreaW  = (m_closeable ? BTN_SZ + 2.f : 0.f)
                             + (m_pinnable  ? BTN_SZ + 2.f : 0.f);
-            if (TextHelper::hasAtlas()) {
+            if (JTextHelper::hasAtlas()) {
                 uint8_t tc[4] = {210, 210, 220, 220};
-                float ty = m_y + (TITLE_H - TextHelper::lineHeight()) * 0.5f;
+                float ty = m_y + (TITLE_H - JTextHelper::lineHeight()) * 0.5f;
                 float maxTitleW = m_w - btnAreaW - 14.0f;
-                TextHelper::pushText(buf, m_x + 10.0f, ty, m_title, tc, maxTitleW);
+                JTextHelper::pushText(buf, m_x + 10.0f, ty, m_title, tc, maxTitleW);
             } else {
                 uint8_t tc[4] = {200, 200, 210, 180};
                 buf.pushRectangle(m_x + 10.0f, titleBarY, m_w * 0.30f, 7.0f, tc, 2.0f);
@@ -422,7 +422,7 @@ private:
     bool m_hoverPin{false};
     bool m_hoverResize{false};
 
-    std::optional<TornTabState> m_tornState;
+    std::optional<JTornTabState> m_tornState;
 };
 
 } // namespace Genesis

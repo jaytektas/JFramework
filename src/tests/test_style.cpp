@@ -5,13 +5,13 @@
 
 using namespace Genesis;
 
-namespace Genesis::Style {
-    constexpr StyleKey<Color> ThemeColor{ 0x10 };
+namespace Genesis::JStyle {
+    constexpr JStyleKey<JColor> ThemeColor{ 0x10 };
 }
 
 void test_style_inheritance() {
-    SceneGraph graph;
-    StyleEngine styles(graph);
+    JSceneGraph graph;
+    JStyleEngine styles(graph);
     
     NodeId root = graph.createNode("Root");
     NodeId parent = graph.createNode("Parent");
@@ -20,26 +20,26 @@ void test_style_inheritance() {
     graph.addChild(root, parent);
     graph.addChild(parent, child);
     
-    Color rootColor = {255, 0, 0, 255}; // Red
-    Color parentColor = {0, 255, 0, 255}; // Green
-    Color defaultColor = {0, 0, 0, 255}; // Black
+    JColor rootColor = {255, 0, 0, 255}; // Red
+    JColor parentColor = {0, 255, 0, 255}; // Green
+    JColor defaultColor = {0, 0, 0, 255}; // Black
     
     // 1. Root defines style
-    styles.setLocal(root, Style::ThemeColor, rootColor);
+    styles.setLocal(root, JStyle::ThemeColor, rootColor);
     
     // Child should inherit from Root
-    assert(styles.lookup(child, Style::ThemeColor, defaultColor) == rootColor);
+    assert(styles.lookup(child, JStyle::ThemeColor, defaultColor) == rootColor);
     
     // 2. Parent overrides style
-    styles.setLocal(parent, Style::ThemeColor, parentColor);
+    styles.setLocal(parent, JStyle::ThemeColor, parentColor);
     
     // Child should now inherit from Parent (the closest ancestor)
-    assert(styles.lookup(child, Style::ThemeColor, defaultColor) == parentColor);
+    assert(styles.lookup(child, JStyle::ThemeColor, defaultColor) == parentColor);
     
     // 3. Child overrides locally
-    Color childColor = {0, 0, 255, 255}; // Blue
-    styles.setLocal(child, Style::ThemeColor, childColor);
-    assert(styles.lookup(child, Style::ThemeColor, defaultColor) == childColor);
+    JColor childColor = {0, 0, 255, 255}; // Blue
+    styles.setLocal(child, JStyle::ThemeColor, childColor);
+    assert(styles.lookup(child, JStyle::ThemeColor, defaultColor) == childColor);
     
     std::cout << "test_style_inheritance passed" << std::endl;
 }

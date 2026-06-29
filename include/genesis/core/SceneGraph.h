@@ -15,30 +15,30 @@ namespace Genesis {
 using NodeId = uint32_t;
 constexpr NodeId InvalidNodeId = 0xFFFFFFFF;
 
-enum class FlexDirection { Row, Column };
-enum class JustifyContent { FlexStart, Center, FlexEnd, SpaceBetween, SpaceAround };
+enum class JFlexDirection { JRow, Column };
+enum class JJustifyContent { FlexStart, Center, FlexEnd, SpaceBetween, SpaceAround };
 // Cross-axis alignment of children within a container.
-enum class AlignItems { Start, Center, End, Stretch };
+enum class JAlignItems { Start, Center, End, Stretch };
 
 /**
  * @brief Per-side edge values (padding / margin).  Implicitly constructs/assigns from a
  *        single float so `layout.padding = 12.0f` still means "12 on all sides".
  */
-struct Edges {
+struct JEdges {
     float left{0.0f}, top{0.0f}, right{0.0f}, bottom{0.0f};
-    Edges() = default;
-    Edges(float all) : left(all), top(all), right(all), bottom(all) {}
-    Edges(float h, float v) : left(h), top(v), right(h), bottom(v) {}
-    Edges(float l, float t, float r, float b) : left(l), top(t), right(r), bottom(b) {}
-    Edges& operator=(float all) { left = top = right = bottom = all; return *this; }
+    JEdges() = default;
+    JEdges(float all) : left(all), top(all), right(all), bottom(all) {}
+    JEdges(float h, float v) : left(h), top(v), right(h), bottom(v) {}
+    JEdges(float l, float t, float r, float b) : left(l), top(t), right(r), bottom(b) {}
+    JEdges& operator=(float all) { left = top = right = bottom = all; return *this; }
     float horizontal() const { return left + right; }
     float vertical()   const { return top + bottom; }
     // Main / cross axis helpers, resolved against a flex direction.
-    float mainLeading (FlexDirection d) const { return d == FlexDirection::Row ? left : top; }
-    float mainTrailing(FlexDirection d) const { return d == FlexDirection::Row ? right : bottom; }
-    float mainSum     (FlexDirection d) const { return d == FlexDirection::Row ? horizontal() : vertical(); }
-    float crossLeading(FlexDirection d) const { return d == FlexDirection::Row ? top : left; }
-    float crossSum    (FlexDirection d) const { return d == FlexDirection::Row ? vertical() : horizontal(); }
+    float mainLeading (JFlexDirection d) const { return d == JFlexDirection::JRow ? left : top; }
+    float mainTrailing(JFlexDirection d) const { return d == JFlexDirection::JRow ? right : bottom; }
+    float mainSum     (JFlexDirection d) const { return d == JFlexDirection::JRow ? horizontal() : vertical(); }
+    float crossLeading(JFlexDirection d) const { return d == JFlexDirection::JRow ? top : left; }
+    float crossSum    (JFlexDirection d) const { return d == JFlexDirection::JRow ? vertical() : horizontal(); }
 };
 
 /**
@@ -53,14 +53,14 @@ enum LayoutFlag : uint8_t {
 /**
  * @brief Geometric primitives decoupled from layout logic to preserve raw cache locality.
  */
-struct Rect {
+struct JRect {
     float x{0.0f};
     float y{0.0f};
     float width{0.0f};
     float height{0.0f};
 };
 
-struct Constraints {
+struct JConstraints {
     float minWidth{0.0f};
     float maxWidth{100000.0f};
     float minHeight{0.0f};
@@ -70,45 +70,45 @@ struct Constraints {
 /**
  * @brief Pure Layout Node Properties. 
  */
-struct LayoutComponent {
-    FlexDirection  direction{FlexDirection::Column};
-    JustifyContent justifyContent{JustifyContent::FlexStart};  // main-axis distribution
-    AlignItems     alignItems{AlignItems::Start};              // cross-axis for children
-    // Per-child override of the parent's alignItems (-1 = inherit, else AlignItems value).
+struct JLayoutComponent {
+    JFlexDirection  direction{JFlexDirection::Column};
+    JJustifyContent justifyContent{JJustifyContent::FlexStart};  // main-axis distribution
+    JAlignItems     alignItems{JAlignItems::Start};              // cross-axis for children
+    // Per-child override of the parent's alignItems (-1 = inherit, else JAlignItems value).
     int            alignSelf{-1};
     float          flexGrow{0.0f};   // share of leftover main-axis space this node claims
-    Edges          padding{};        // inner inset (per-side; float = all sides)
-    Edges          margin{};         // outer spacing (per-side; float = all sides)
+    JEdges          padding{};        // inner inset (per-side; float = all sides)
+    JEdges          margin{};         // outer spacing (per-side; float = all sides)
     float          gap{0.0f};        // space inserted between consecutive children
     float          minWidth{0.0f};
     float          minHeight{0.0f};
 
     // Calculated output geometry bounds
-    Rect boundingBox;
+    JRect boundingBox;
 };
 
 /**
  * @brief Flat, array-backed Scene Graph with Invalidation Vector.
  */
-class SceneGraph {
+class JSceneGraph {
 public:
-    SceneGraph() = default;
-    ~SceneGraph() = default;
+    JSceneGraph() = default;
+    ~JSceneGraph() = default;
 
-    SceneGraph(const SceneGraph&) = delete;
-    SceneGraph& operator=(const SceneGraph&) = delete;
+    JSceneGraph(const JSceneGraph&) = delete;
+    JSceneGraph& operator=(const JSceneGraph&) = delete;
 
     /**
      * @brief Instantiates a node flatly inside the memory arena.
      */
     // Global layout defaults applied to every new node — set these once at startup for
     // app-wide spacing/alignment, then override any individual node locally via getLayout().
-    LayoutComponent& defaultLayout() { return m_defaultLayout; }
+    JLayoutComponent& defaultLayout() { return m_defaultLayout; }
 
     NodeId createNode(const std::string& debugName = "") {
         NodeId id = static_cast<NodeId>(m_layouts.size());
         m_layouts.emplace_back(m_defaultLayout);   // inherit global defaults; override locally
-        m_hierarchy.emplace_back(HierarchyComponent{InvalidNodeId, {}, debugName});
+        m_hierarchy.emplace_back(JHierarchyComponent{InvalidNodeId, {}, debugName});
         m_dirtyFlags.emplace_back(DirtySelf); // New nodes start dirty
         return id;
     }
@@ -143,12 +143,12 @@ public:
         }
     }
 
-    LayoutComponent& getLayout(NodeId id) { 
+    JLayoutComponent& getLayout(NodeId id) { 
         invalidateNode(id, DirtySelf); 
         return m_layouts[id]; 
     }
 
-    const LayoutComponent& getLayoutConst(NodeId id) const { return m_layouts[id]; }
+    const JLayoutComponent& getLayoutConst(NodeId id) const { return m_layouts[id]; }
     const std::vector<NodeId>& getChildren(NodeId id) const { return m_hierarchy[id].childrenIds; }
     NodeId getParent(NodeId id) const { return m_hierarchy[id].parentId; }
     size_t totalNodes() const { return m_layouts.size(); }
@@ -164,7 +164,7 @@ public:
         _computeMinSize(nodeId);
     }
 
-    void computeLayout(NodeId nodeId, const Constraints& constraints) {
+    void computeLayout(NodeId nodeId, const JConstraints& constraints) {
         if (nodeId >= m_layouts.size()) return;
         if (m_dirtyFlags[nodeId] == Clean) return;
         
@@ -186,13 +186,13 @@ public:
     }
 
     // --- Phase 1: size the subtree (bottom-up). Applies flexGrow + cross-axis stretch. ---
-    void _measure(NodeId nodeId, const Constraints& c) {
+    void _measure(NodeId nodeId, const JConstraints& c) {
         auto& L = m_layouts[nodeId];
         const auto& kids = m_hierarchy[nodeId].childrenIds;
-        const FlexDirection d = L.direction;
-        const bool row = (d == FlexDirection::Row);
-        auto mainOf  = [&](const Rect& r){ return row ? r.width  : r.height; };
-        auto crossOf = [&](const Rect& r){ return row ? r.height : r.width;  };
+        const JFlexDirection d = L.direction;
+        const bool row = (d == JFlexDirection::JRow);
+        auto mainOf  = [&](const JRect& r){ return row ? r.width  : r.height; };
+        auto crossOf = [&](const JRect& r){ return row ? r.height : r.width;  };
 
         if (kids.empty()) {
             L.boundingBox.width  = clampF(L.boundingBox.width,  std::max(c.minWidth, L.minWidth),  c.maxWidth);
@@ -200,7 +200,7 @@ public:
             return;
         }
 
-        const Edges& pad = L.padding;
+        const JEdges& pad = L.padding;
         const float  gap = L.gap;
         const size_t n   = kids.size();
 
@@ -213,7 +213,7 @@ public:
             // min bound to avail so an oversized control shrinks instead of asserting.
             float childMinW = std::max(cl.minWidth, std::min(cl.boundingBox.width, availW));
             float childMinH = std::max(cl.minHeight, std::min(cl.boundingBox.height, availH));
-            Constraints cc{
+            JConstraints cc{
                 childMinW, availW,
                 childMinH, availH
             };
@@ -242,7 +242,7 @@ public:
                 if (row) cl.boundingBox.width = nm; else cl.boundingBox.height = nm;
                 if (!m_hierarchy[k].childrenIds.empty()) {
                     float w = cl.boundingBox.width, h = cl.boundingBox.height;
-                    _measure(k, Constraints{w, w, h, h});
+                    _measure(k, JConstraints{w, w, h, h});
                 }
             }
         }
@@ -251,13 +251,13 @@ public:
         float innerCross = selfCross - pad.crossSum(d);
         for (NodeId k : kids) {
             auto& cl = m_layouts[k];
-            AlignItems a = cl.alignSelf >= 0 ? static_cast<AlignItems>(cl.alignSelf) : L.alignItems;
-            if (a == AlignItems::Stretch) {
+            JAlignItems a = cl.alignSelf >= 0 ? static_cast<JAlignItems>(cl.alignSelf) : L.alignItems;
+            if (a == JAlignItems::Stretch) {
                 float t = std::max(0.0f, innerCross - cl.margin.crossSum(d));
                 if (row) cl.boundingBox.height = t; else cl.boundingBox.width = t;
                 if (!m_hierarchy[k].childrenIds.empty()) {
                     float w = cl.boundingBox.width, h = cl.boundingBox.height;
-                    _measure(k, Constraints{w, w, h, h});
+                    _measure(k, JConstraints{w, w, h, h});
                 }
             }
         }
@@ -271,13 +271,13 @@ public:
         const auto& kids = m_hierarchy[nodeId].childrenIds;
         if (kids.empty()) return;
 
-        const FlexDirection d = L.direction;
-        const bool row = (d == FlexDirection::Row);
-        const Edges& pad = L.padding;
+        const JFlexDirection d = L.direction;
+        const bool row = (d == JFlexDirection::JRow);
+        const JEdges& pad = L.padding;
         const float  gap = L.gap;
         const size_t n   = kids.size();
-        auto mainOf  = [&](const Rect& r){ return row ? r.width  : r.height; };
-        auto crossOf = [&](const Rect& r){ return row ? r.height : r.width;  };
+        auto mainOf  = [&](const JRect& r){ return row ? r.width  : r.height; };
+        auto crossOf = [&](const JRect& r){ return row ? r.height : r.width;  };
 
         float innerMain  = (row ? L.boundingBox.width  : L.boundingBox.height) - pad.mainSum(d);
         float innerCross = (row ? L.boundingBox.height : L.boundingBox.width)  - pad.crossSum(d);
@@ -293,11 +293,11 @@ public:
         float between   = gap;
         if (remaining > 0.5f) {
             switch (L.justifyContent) {
-                case JustifyContent::FlexStart:    break;
-                case JustifyContent::Center:       startOff += remaining * 0.5f; break;
-                case JustifyContent::FlexEnd:      startOff += remaining; break;
-                case JustifyContent::SpaceBetween: if (n > 1) between += remaining / (n - 1); break;
-                case JustifyContent::SpaceAround:  { float s = remaining / n; startOff += s * 0.5f; between += s; } break;
+                case JJustifyContent::FlexStart:    break;
+                case JJustifyContent::Center:       startOff += remaining * 0.5f; break;
+                case JJustifyContent::FlexEnd:      startOff += remaining; break;
+                case JJustifyContent::SpaceBetween: if (n > 1) between += remaining / (n - 1); break;
+                case JJustifyContent::SpaceAround:  { float s = remaining / n; startOff += s * 0.5f; between += s; } break;
             }
         }
 
@@ -307,11 +307,11 @@ public:
         for (size_t i = 0; i < n; ++i) {
             NodeId k = kids[i];
             auto& cl = m_layouts[k];
-            AlignItems a = cl.alignSelf >= 0 ? static_cast<AlignItems>(cl.alignSelf) : L.alignItems;
+            JAlignItems a = cl.alignSelf >= 0 ? static_cast<JAlignItems>(cl.alignSelf) : L.alignItems;
             float crossPos  = originCross + pad.crossLeading(d) + cl.margin.crossLeading(d);
             float crossFree = innerCross - cl.margin.crossSum(d) - crossOf(cl.boundingBox);
-            if      (a == AlignItems::Center) crossPos += std::max(0.0f, crossFree) * 0.5f;
-            else if (a == AlignItems::End)    crossPos += std::max(0.0f, crossFree);
+            if      (a == JAlignItems::Center) crossPos += std::max(0.0f, crossFree) * 0.5f;
+            else if (a == JAlignItems::End)    crossPos += std::max(0.0f, crossFree);
 
             cursor += cl.margin.mainLeading(d);
             _arrange(k, row ? cursor : crossPos, row ? crossPos : cursor);
@@ -326,9 +326,9 @@ public:
             return;
         }
 
-        const FlexDirection d = L.direction;
-        const bool row = (d == FlexDirection::Row);
-        const Edges& pad = L.padding;
+        const JFlexDirection d = L.direction;
+        const bool row = (d == JFlexDirection::JRow);
+        const JEdges& pad = L.padding;
         const float  gap = L.gap;
         const size_t n   = kids.size();
 
@@ -363,15 +363,15 @@ public:
     }
 
 private:
-    struct HierarchyComponent {
+    struct JHierarchyComponent {
         NodeId parentId{InvalidNodeId};
         std::vector<NodeId> childrenIds;
         std::string name;
     };
 
-    LayoutComponent              m_defaultLayout{};   // global defaults for new nodes
-    std::vector<LayoutComponent> m_layouts;
-    std::vector<HierarchyComponent> m_hierarchy;
+    JLayoutComponent              m_defaultLayout{};   // global defaults for new nodes
+    std::vector<JLayoutComponent> m_layouts;
+    std::vector<JHierarchyComponent> m_hierarchy;
     std::vector<uint8_t> m_dirtyFlags;
 };
 

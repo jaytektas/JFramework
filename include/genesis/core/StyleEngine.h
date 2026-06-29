@@ -12,35 +12,35 @@ namespace Genesis {
 /**
  * @brief Normalized RGBA8 linear color primitive.
  */
-struct Color {
+struct JColor {
     uint8_t r, g, b, a;
-    bool operator==(const Color& other) const {
+    bool operator==(const JColor& other) const {
         return r == other.r && g == other.g && b == other.b && a == other.a;
     }
 };
 
 /**
- * @brief Type-safe style property key.
+ * @brief JType-safe style property key.
 ...
  * Encapsulates a unique ID and the expected value type.
  */
 template<typename T>
-struct StyleKey {
+struct JStyleKey {
     uint32_t id;
 };
 
 /**
  * @brief Sparse storage for visual properties at a specific node.
  */
-class StyleStore {
+class JStyleStore {
 public:
     template<typename T>
-    void set(StyleKey<T> key, T value) {
+    void set(JStyleKey<T> key, T value) {
         m_properties[key.id] = std::make_any<T>(value);
     }
 
     template<typename T>
-    std::optional<T> get(StyleKey<T> key) const {
+    std::optional<T> get(JStyleKey<T> key) const {
         auto it = m_properties.find(key.id);
         if (it != m_properties.end()) {
             return std::any_cast<T>(it->second);
@@ -57,17 +57,17 @@ private:
 };
 
 /**
- * @brief The Style Engine manages the cascading lookup logic across the SceneGraph.
+ * @brief The JStyle Engine manages the cascading lookup logic across the JSceneGraph.
  */
-class StyleEngine {
+class JStyleEngine {
 public:
-    StyleEngine(const SceneGraph& graph) : m_graph(graph) {}
+    JStyleEngine(const JSceneGraph& graph) : m_graph(graph) {}
 
     /**
      * @brief Looks up a property, traversing up the parent hierarchy if not found locally.
      */
     template<typename T>
-    T lookup(NodeId id, StyleKey<T> key, T defaultValue) const {
+    T lookup(NodeId id, JStyleKey<T> key, T defaultValue) const {
         NodeId current = id;
         while (current != InvalidNodeId) {
             auto it = m_nodeStyles.find(current);
@@ -78,40 +78,40 @@ public:
                 }
             }
             // Traverse up the hierarchy
-            // Note: We need a way to get parent from SceneGraph, 
-            // but our SceneGraph currently stores hierarchy privately.
-            // I will assume for now we can access it or we update SceneGraph.
+            // Note: We need a way to get parent from JSceneGraph, 
+            // but our JSceneGraph currently stores hierarchy privately.
+            // I will assume for now we can access it or we update JSceneGraph.
             current = getParentId(current);
         }
         return defaultValue;
     }
 
     template<typename T>
-    void setLocal(NodeId id, StyleKey<T> key, T value) {
+    void setLocal(NodeId id, JStyleKey<T> key, T value) {
         m_nodeStyles[id].set(key, value);
     }
 
 private:
-    // This requires exposing parentId in SceneGraph or keeping a mirror here.
+    // This requires exposing parentId in JSceneGraph or keeping a mirror here.
     // For this architectural demo, I'll mirror it or assume a helper.
     NodeId getParentId(NodeId id) const {
         return m_graph.getParent(id);
     }
 
-    const SceneGraph& m_graph;
-    std::unordered_map<NodeId, StyleStore> m_nodeStyles;
+    const JSceneGraph& m_graph;
+    std::unordered_map<NodeId, JStyleStore> m_nodeStyles;
 };
 
 /**
- * @brief Standard Style Keys for the Toolkit.
+ * @brief Standard JStyle Keys for the Toolkit.
  */
-namespace Style {
-    constexpr StyleKey<uint32_t[4]> BackgroundColor{ 0x01 }; // RGBA8
-    constexpr StyleKey<float> CornerRadius{ 0x02 };
-    constexpr StyleKey<float> BorderWidth{ 0x03 };
-    constexpr StyleKey<float> RowHeight{ 0x50 };
-    constexpr StyleKey<float> HeaderHeight{ 0x51 };
-    constexpr StyleKey<float> CellPadding{ 0x52 };
+namespace JStyle {
+    constexpr JStyleKey<uint32_t[4]> BackgroundColor{ 0x01 }; // RGBA8
+    constexpr JStyleKey<float> CornerRadius{ 0x02 };
+    constexpr JStyleKey<float> BorderWidth{ 0x03 };
+    constexpr JStyleKey<float> RowHeight{ 0x50 };
+    constexpr JStyleKey<float> HeaderHeight{ 0x51 };
+    constexpr JStyleKey<float> CellPadding{ 0x52 };
 }
 
 } // namespace Genesis

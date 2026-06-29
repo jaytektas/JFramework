@@ -20,10 +20,10 @@
 namespace Genesis {
 
 // ============================================================================
-// Widget states
+// JWidget states
 // ============================================================================
 
-enum class WidgetState : uint32_t {
+enum class JWidgetState : uint32_t {
     Normal,
     Hovered,
     Pressed,
@@ -35,79 +35,79 @@ enum class WidgetState : uint32_t {
 // AI semantic layer
 // ============================================================================
 
-struct AISemanticNode {
+struct JAISemanticNode {
     std::string role;
     std::string label;
     std::string value;
     bool interactable{true};
 };
 
-class IAIState {
+class JIAIState {
 public:
-    virtual ~IAIState() = default;
-    virtual AISemanticNode getSemanticNode() const = 0;
+    virtual ~JIAIState() = default;
+    virtual JAISemanticNode getSemanticNode() const = 0;
     virtual bool executeSemanticAction(const std::string& action) = 0;
 
     // Typed, named read access to a control's own state — the reference-resolution
-    // seam (e.g. "value", "checked", "cursorRow"). Returns a Null Variant for an
+    // seam (e.g. "value", "checked", "cursorRow"). Returns a Null JVariant for an
     // unknown key. Keys are the element's NATIVE member names: no translation layer,
     // so a renamed member renames its reference. A Map/List return lets a resolver
     // descend further (uid.axis.sigid, uid.bins[3]) — see ReferenceResolver.h.
-    virtual Variant getRef(const std::string& key) const { return Variant{}; }
+    virtual JVariant getRef(const std::string& key) const { return JVariant{}; }
 };
 
 // ============================================================================
-// Widget — base for every element in the UI tree
+// JWidget — base for every element in the UI tree
 // ============================================================================
 
-class Menu;
+class JMenu;
 
-class Widget : public Core::SlotTracker, public IAIState {
+class JWidget : public Core::JSlotTracker, public JIAIState {
 public:
-    inline static std::vector<Widget*> s_activeWidgets;
+    inline static std::vector<JWidget*> s_activeWidgets;
 
-    Widget(SceneGraph& graph, const std::string& debugName = "")
-        : m_graph(graph), m_state(WidgetState::Normal), m_debugName(debugName)
+    JWidget(JSceneGraph& graph, const std::string& debugName = "")
+        : m_graph(graph), m_state(JWidgetState::Normal), m_debugName(debugName)
     {
         m_nodeId = m_graph.createNode(debugName);
         s_activeWidgets.push_back(this);
     }
 
-    virtual ~Widget() {
+    virtual ~JWidget() {
         auto it = std::find(s_activeWidgets.begin(), s_activeWidgets.end(), this);
         if (it != s_activeWidgets.end()) {
             s_activeWidgets.erase(it);
         }
     }
-    Widget(const Widget&)            = delete;
-    Widget& operator=(const Widget&) = delete;
+    JWidget(const JWidget&)            = delete;
+    JWidget& operator=(const JWidget&) = delete;
 
     std::string m_tooltipText;
-    Menu*       m_contextMenu{nullptr};
+    JMenu*       m_contextMenu{nullptr};
     void setTooltip(const std::string& text) { m_tooltipText = text; }
     const std::string& tooltip() const noexcept { return m_tooltipText; }
 
     // Context menu — shown on right-click. The pointer is non-owning.
-    void  setContextMenu(Menu* menu) { m_contextMenu = menu; }
-    Menu* contextMenu() const        { return m_contextMenu; }
+    void  setContextMenu(JMenu* menu) { m_contextMenu = menu; }
+    JMenu* contextMenu() const        { return m_contextMenu; }
 
-    static void renderTooltips(PrimitiveBuffer& buf, float mouseX, float mouseY);
+    static void renderTooltips(JPrimitiveBuffer& buf, float mouseX, float mouseY);
 
     NodeId      getNodeId()  const noexcept { return m_nodeId; }
-    WidgetState getState()   const noexcept { return m_state;  }
+    JWidgetState getState()   const noexcept { return m_state;  }
     bool        isVisible()  const noexcept { return m_visible; }
-    bool        isEnabled()  const noexcept { return m_state != WidgetState::Disabled; }
+    bool        isEnabled()  const noexcept { return m_state != JWidgetState::Disabled; }
     bool        isFocused()  const noexcept { return m_focused; }
 
-    struct BBox { float x, y, width, height; };
-    BBox getBoundingBox() const {
+    struct JBBox { float x, y, width, height; };
+    JBBox getBoundingBox() const {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         return {b.x, b.y, b.width, b.height};
     }
 
     void setVisible(bool v) { m_visible = v; }
     void setEnabled(bool e) {
-        setState(e ? WidgetState::Normal : WidgetState::Disabled);
+        setState(e ? JWidgetState::Normal : JWidgetState::Disabled);
     }
     void setFocused(bool f) {
         if (m_focused != f) {
@@ -119,7 +119,7 @@ public:
     // Schedule a repaint for this widget.
     void invalidate() { m_graph.invalidateNode(m_nodeId, DirtySelf); }
 
-    virtual void setState(WidgetState s) {
+    virtual void setState(JWidgetState s) {
         if (m_state != s) {
             m_state = s;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
@@ -130,18 +130,18 @@ public:
     bool hitTest(float mx, float my) const { return isPointInside(mx, my); }
 
     // Render primitive emission — subclasses paint into the shared buffer
-    virtual void populateRenderPrimitives(PrimitiveBuffer& buf) = 0;
+    virtual void populateRenderPrimitives(JPrimitiveBuffer& buf) = 0;
 
-    // Input routing — virtual no-ops so the render loop can call these on any Widget
+    // Input routing — virtual no-ops so the render loop can call these on any JWidget
     virtual void handleMouseMove(float, float)    {}
     virtual void handleMousePress(float, float)   {}
     virtual void handleMouseRelease(float, float) {}
-    virtual bool handleKeyEvent(const KeyEvent&) { return false; }
+    virtual bool handleKeyEvent(const JKeyEvent&) { return false; }
     virtual bool handleScroll(float /*mx*/, float /*my*/, float /*wheel*/) { return false; }
 
     // AI interface
-    AISemanticNode getSemanticNode() const override {
-        return {"Widget", m_debugName, "", true};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JWidget", m_debugName, "", true};
     }
     bool executeSemanticAction(const std::string&) override { return false; }
 
@@ -149,7 +149,7 @@ public:
     // own members (and to return a real number for "value" instead of the semantic
     // string). Geometry mirrors the layout box; identity/role/label/value mirror the
     // semantic node, so the reference scheme and the AI bus read one model.
-    Variant getRef(const std::string& key) const override {
+    JVariant getRef(const std::string& key) const override {
         if (key == "id")      return static_cast<int64_t>(m_nodeId);
         if (key == "role")    return getSemanticNode().role;
         if (key == "label" || key == "name") return getSemanticNode().label;
@@ -158,13 +158,13 @@ public:
         if (key == "visible") return isVisible();
         if (key == "focused") return isFocused();
         if (key == "x" || key == "y" || key == "width" || key == "height") {
-            const BBox b = getBoundingBox();
+            const JBBox b = getBoundingBox();
             if (key == "x")     return b.x;
             if (key == "y")     return b.y;
             if (key == "width") return b.width;
             return b.height;
         }
-        return Variant{};
+        return JVariant{};
     }
 
 protected:
@@ -174,52 +174,52 @@ protected:
     }
 
     // Call at the end of populateRenderPrimitives to draw a keyboard-focus ring.
-    // Defined out-of-line (after Theme) — see below.
-    void drawFocusRing(PrimitiveBuffer& buf) const;
+    // Defined out-of-line (after JTheme) — see below.
+    void drawFocusRing(JPrimitiveBuffer& buf) const;
 
-    SceneGraph& m_graph;
+    JSceneGraph& m_graph;
     NodeId      m_nodeId;
-    WidgetState m_state;
+    JWidgetState m_state;
     std::string m_debugName;
     bool        m_visible{true};
     bool        m_focused{false};
 };
 
 // ============================================================================
-// Control — interactive widget with hover/press/click signals
+// JControl — interactive widget with hover/press/click signals
 // ============================================================================
 
-class Control : public Widget {
+class JControl : public JWidget {
 public:
-    Core::Signal<>     onHoverEntered;
-    Core::Signal<>     onHoverExited;
-    Core::Signal<>     onClicked;
-    Core::Signal<bool> onFocusChanged;
+    Core::JSignal<>     onHoverEntered;
+    Core::JSignal<>     onHoverExited;
+    Core::JSignal<>     onClicked;
+    Core::JSignal<bool> onFocusChanged;
 
-    Control(SceneGraph& graph, const std::string& name) : Widget(graph, name) {}
+    JControl(JSceneGraph& graph, const std::string& name) : JWidget(graph, name) {}
 
     bool isFocusable() const override { return true; }
 
     void handleMouseMove(float mx, float my) override {
-        if (m_state == WidgetState::Disabled) return;
+        if (m_state == JWidgetState::Disabled) return;
         bool inside = isPointInside(mx, my);
-        if (inside && m_state == WidgetState::Normal)   { setState(WidgetState::Hovered); onHoverEntered.emit(); }
-        else if (!inside && m_state == WidgetState::Hovered) { setState(WidgetState::Normal);  onHoverExited.emit();  }
+        if (inside && m_state == JWidgetState::Normal)   { setState(JWidgetState::Hovered); onHoverEntered.emit(); }
+        else if (!inside && m_state == JWidgetState::Hovered) { setState(JWidgetState::Normal);  onHoverExited.emit();  }
     }
 
     void handleMousePress(float mx, float my) override {
-        if (m_state == WidgetState::Disabled) return;
-        if (isPointInside(mx, my)) { setState(WidgetState::Pressed); onClicked.emit(); }
+        if (m_state == JWidgetState::Disabled) return;
+        if (isPointInside(mx, my)) { setState(JWidgetState::Pressed); onClicked.emit(); }
     }
 
     void handleMouseRelease(float mx, float my) override {
-        if (m_state == WidgetState::Disabled) return;
-        if (m_state == WidgetState::Pressed)
-            setState(isPointInside(mx, my) ? WidgetState::Hovered : WidgetState::Normal);
+        if (m_state == JWidgetState::Disabled) return;
+        if (m_state == JWidgetState::Pressed)
+            setState(isPointInside(mx, my) ? JWidgetState::Hovered : JWidgetState::Normal);
     }
 
     bool executeSemanticAction(const std::string& a) override {
-        if (m_state == WidgetState::Disabled) return false;
+        if (m_state == JWidgetState::Disabled) return false;
         if (a == "click" || a == "activate") {
             onClicked.emit();
             return true;
@@ -229,7 +229,7 @@ public:
 };
 
 // ============================================================================
-// Color helpers
+// JColor helpers
 // ============================================================================
 namespace Colors {
     // Genesis palette (dark theme)
@@ -247,18 +247,18 @@ namespace Colors {
     inline constexpr uint8_t Warning[4]   = {255, 159, 10,  255}; // amber
     inline constexpr uint8_t Danger[4]    = {255, 69,  58,  255}; // red
     inline constexpr uint8_t Transparent[4] = {0, 0, 0, 0};
-    // Close-button shared style — used by DockWidget and floating popup windows
+    // Close-button shared style — used by JDockWidget and floating popup windows
     inline constexpr uint8_t CloseBtn[4]      = {60,  40,  44,  160};
     inline constexpr uint8_t CloseBtnHover[4] = {220, 50,  50,  255};
     inline constexpr uint8_t CloseBtnMark[4]  = {255, 255, 255, 200};
 }
 
 // ============================================================================
-// Theme — runtime-configurable style. Switch the whole app with Theme::apply().
+// JTheme — runtime-configurable style. Switch the whole app with JTheme::apply().
 // All palette entries mirror the Colors namespace; widgets can use either, but
-// new code should prefer Theme::current() for runtime-swappability.
+// new code should prefer JTheme::current() for runtime-swappability.
 // ============================================================================
-struct Theme {
+struct JTheme {
     // Palette
     uint8_t Surface0[4]      = {18,  18,  20,  255};
     uint8_t Surface1[4]      = {28,  28,  30,  255};
@@ -277,7 +277,7 @@ struct Theme {
     uint8_t CloseBtnHover[4] = {220, 50,  50,  255};
     uint8_t CloseBtnMark[4]  = {255, 255, 255, 200};
 
-    // Style dimensions
+    // JStyle dimensions
     float cornerRadius   = 6.f;
     float menuItemHeight = 28.f;
     float itemPadding    = 8.f;
@@ -287,15 +287,15 @@ struct Theme {
     float focusRingWidth = 1.5f;
     float animSpeed      = 1.0f;
 
-    static Theme  dark();
-    static Theme  light();
-    static Theme& current();
-    static void   apply(Theme t);
+    static JTheme  dark();
+    static JTheme  light();
+    static JTheme& current();
+    static void   apply(JTheme t);
 };
 
-inline Theme Theme::dark()  { return Theme{}; }
-inline Theme Theme::light() {
-    Theme t;
+inline JTheme JTheme::dark()  { return JTheme{}; }
+inline JTheme JTheme::light() {
+    JTheme t;
     auto s = [](uint8_t* d, uint8_t a, uint8_t b, uint8_t c, uint8_t e)
               { d[0]=a; d[1]=b; d[2]=c; d[3]=e; };
     s(t.Surface0,      248, 248, 250, 255);
@@ -308,23 +308,23 @@ inline Theme Theme::light() {
     s(t.CloseBtn,      200, 188, 188, 160);
     return t;
 }
-inline Theme& Theme::current() { static Theme inst; return inst; }
-inline void   Theme::apply(Theme t) { current() = std::move(t); }
+inline JTheme& JTheme::current() { static JTheme inst; return inst; }
+inline void   JTheme::apply(JTheme t) { current() = std::move(t); }
 
 // ============================================================================
-// Action — shareable command object. Bind to menu items, toolbar buttons,
+// JAction — shareable command object. JBind to menu items, toolbar buttons,
 // and shortcuts. Changing enabled/checked propagates to all bound UI.
 // ============================================================================
-struct Action {
+struct JAction {
     std::string label;
     std::string shortcutText;   // display string e.g. "Ctrl+S" (informational)
     bool enabled  {true};
     bool checkable{false};
     bool checked  {false};
 
-    Core::Signal<>     onTriggered;
-    Core::Signal<bool> onEnabledChanged;
-    Core::Signal<bool> onCheckedChanged;
+    Core::JSignal<>     onTriggered;
+    Core::JSignal<bool> onEnabledChanged;
+    Core::JSignal<bool> onCheckedChanged;
 
     void trigger()          { if (!enabled) return;
                               if (checkable) setChecked(!checked);
@@ -334,18 +334,18 @@ struct Action {
 };
 
 // ============================================================================
-// TextHelper — global font atlas + text layout for widgets
+// JTextHelper — global font atlas + text layout for widgets
 // ============================================================================
 
 /**
- * Single shared FontAtlas used by all widgets.
- * Set once at app startup: TextHelper::setAtlas(fontEngine.buildAtlas(14.f));
+ * Single shared JFontAtlas used by all widgets.
+ * Set once at app startup: JTextHelper::setAtlas(fontEngine.buildAtlas(14.f));
  * After that, every populateRenderPrimitives call can emit real text glyphs.
  */
-class TextHelper {
+class JTextHelper {
 public:
-    static void setAtlas(FontAtlas atlas) { get() = std::move(atlas); }
-    static const FontAtlas& atlas()       { return get(); }
+    static void setAtlas(JFontAtlas atlas) { get() = std::move(atlas); }
+    static const JFontAtlas& atlas()       { return get(); }
     static bool hasAtlas()                { return get().valid; }
 
     /** Decode one UTF-8 codepoint from src[i], advance i, return codepoint. */
@@ -382,8 +382,8 @@ public:
         return '?';
     }
 
-    /** Push 6 verts (2 triangles) per glyph into a TextCall and add to buf. */
-    static void pushText(PrimitiveBuffer& buf,
+    /** Push 6 verts (2 triangles) per glyph into a JTextCall and add to buf. */
+    static void pushText(JPrimitiveBuffer& buf,
                          float x, float y,
                          const std::string& text,
                          const uint8_t color[4],
@@ -392,7 +392,7 @@ public:
         const auto& atl = get();
         if (!atl.valid || text.empty()) return;
 
-        PrimitiveBuffer::TextCall call;
+        JPrimitiveBuffer::JTextCall call;
         std::copy(color, color + 4, call.color);
 
         float penX    = x;
@@ -409,7 +409,7 @@ public:
                 it = atl.glyphs.find(cp);
                 if (it == atl.glyphs.end()) { penX += atl.ascent * 0.35f; continue; }
             }
-            const GlyphInfo& g = it->second;
+            const JGlyphInfo& g = it->second;
 
             if (maxWidth > 0.0f && (penX - x + g.advanceX) > maxWidth) break;
 
@@ -455,16 +455,16 @@ public:
     }
 
 private:
-    static FontAtlas& get() { static FontAtlas s; return s; }
+    static JFontAtlas& get() { static JFontAtlas s; return s; }
 };
 
-inline void Widget::renderTooltips(PrimitiveBuffer& buf, float mouseX, float mouseY) {
-    static Widget* lastHovered = nullptr;
+inline void JWidget::renderTooltips(JPrimitiveBuffer& buf, float mouseX, float mouseY) {
+    static JWidget* lastHovered = nullptr;
     static auto hoverStart = std::chrono::steady_clock::now();
 
-    Widget* hovered = nullptr;
+    JWidget* hovered = nullptr;
     for (auto it = s_activeWidgets.rbegin(); it != s_activeWidgets.rend(); ++it) {
-        Widget* w = *it;
+        JWidget* w = *it;
         if (w && w->isVisible() && !w->tooltip().empty() && w->hitTest(mouseX, mouseY)) {
             hovered = w;
             break;
@@ -486,8 +486,8 @@ inline void Widget::renderTooltips(PrimitiveBuffer& buf, float mouseX, float mou
         float padX = 8.0f;
         float padY = 6.0f;
         std::string text = hovered->tooltip();
-        float textW = TextHelper::measureWidth(text);
-        float textH = TextHelper::lineHeight();
+        float textW = JTextHelper::measureWidth(text);
+        float textH = JTextHelper::lineHeight();
         float tooltipW = textW + padX * 2.0f;
         float tooltipH = textH + padY * 2.0f;
         float x = mouseX + 12.0f;
@@ -501,14 +501,14 @@ inline void Widget::renderTooltips(PrimitiveBuffer& buf, float mouseX, float mou
         buf.pushRectangle(x, y, tooltipW, tooltipH, fill, 4.0f, 1.0f, border);
 
         uint8_t textColor[4] = {240, 240, 245, 255};
-        TextHelper::pushText(buf, x + padX, y + padY, text, textColor);
+        JTextHelper::pushText(buf, x + padX, y + padY, text, textColor);
     }
 }
 
-inline void Widget::drawFocusRing(PrimitiveBuffer& buf) const {
-    if (m_state != WidgetState::Focused) return;
+inline void JWidget::drawFocusRing(JPrimitiveBuffer& buf) const {
+    if (m_state != JWidgetState::Focused) return;
     const auto& bb  = m_graph.getLayoutConst(m_nodeId).boundingBox;
-    const auto& th  = Theme::current();
+    const auto& th  = JTheme::current();
     float p = th.focusRingWidth * 0.5f + 1.f;
     uint8_t ring[4] = {th.Accent[0], th.Accent[1], th.Accent[2], 210};
     uint8_t none[4] = {0, 0, 0, 0};
@@ -517,57 +517,57 @@ inline void Widget::drawFocusRing(PrimitiveBuffer& buf) const {
 }
 
 // ============================================================================
-// Separator
+// JSeparator
 // ============================================================================
 
-class Separator : public Widget {
+class JSeparator : public JWidget {
 public:
-    enum class Orientation { Horizontal, Vertical };
+    enum class JOrientation { Horizontal, Vertical };
 
-    Separator(SceneGraph& graph, Orientation orient = Orientation::Horizontal,
+    JSeparator(JSceneGraph& graph, JOrientation orient = JOrientation::Horizontal,
               float size = 280.0f)
-        : Widget(graph, "Separator"), m_orient(orient)
+        : JWidget(graph, "JSeparator"), m_orient(orient)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        if (orient == Orientation::Horizontal) { l.boundingBox.width = size; l.boundingBox.height = 1.0f; }
+        if (orient == JOrientation::Horizontal) { l.boundingBox.width = size; l.boundingBox.height = 1.0f; }
         else                                   { l.boundingBox.width = 1.0f; l.boundingBox.height = size; }
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Border);
     }
 
-    AISemanticNode getSemanticNode() const override { return {"Separator", "", "", false}; }
+    JAISemanticNode getSemanticNode() const override { return {"JSeparator", "", "", false}; }
     bool executeSemanticAction(const std::string&) override { return false; }
 
 private:
-    Orientation m_orient;
+    JOrientation m_orient;
 };
 
 // ============================================================================
-// Label
+// JLabel
 // ============================================================================
 
-class Label : public Widget {
+class JLabel : public JWidget {
 public:
-    Label(SceneGraph& graph, const std::string& text, float w = 240.0f, float h = 20.0f)
-        : Widget(graph, "Label: " + text), m_text(text)
+    JLabel(JSceneGraph& graph, const std::string& text, float w = 240.0f, float h = 20.0f)
+        : JWidget(graph, "JLabel: " + text), m_text(text)
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
-        l.minWidth = TextHelper::hasAtlas() ? TextHelper::measureWidth(m_text) : w;
+        l.minWidth = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(m_text) : w;
         l.minHeight = h;
     }
 
     void setText(const std::string& t) { m_text = t; m_graph.invalidateNode(m_nodeId, DirtySelf); }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        if (TextHelper::hasAtlas()) {
+        if (JTextHelper::hasAtlas()) {
             uint8_t c[4] = {200, 200, 210, 200};
-            float ty = b.y + (b.height - TextHelper::lineHeight()) * 0.5f;
-            TextHelper::pushText(buf, b.x, ty, tr(m_text), c, b.width);
+            float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
+            JTextHelper::pushText(buf, b.x, ty, tr(m_text), c, b.width);
         } else {
             // Fallback placeholder bars
             float cy = b.y + b.height * 0.5f - 3.0f;
@@ -576,7 +576,7 @@ public:
         }
     }
 
-    AISemanticNode getSemanticNode() const override { return {"Label", m_text, "", false}; }
+    JAISemanticNode getSemanticNode() const override { return {"JLabel", m_text, "", false}; }
     bool executeSemanticAction(const std::string&) override { return false; }
 
 private:
@@ -584,52 +584,52 @@ private:
 };
 
 // ============================================================================
-class Button : public Control {
+class JButton : public JControl {
 public:
-    Button(SceneGraph& graph, const std::string& label,
+    JButton(JSceneGraph& graph, const std::string& label,
            float w = 160.0f, float h = 36.0f)
-        : Control(graph, "Button"), m_label(label)
+        : JControl(graph, "JButton"), m_label(label)
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
-        l.minWidth = TextHelper::hasAtlas() ? (TextHelper::measureWidth(m_label) + 24.f) : w;
+        l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(m_label) + 24.f) : w;
         l.minHeight = h;
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         const uint8_t* fill = Colors::Surface2;
-        if (m_state == WidgetState::Hovered) fill = Colors::Surface3;
-        if (m_state == WidgetState::Pressed) fill = Colors::Accent;
+        if (m_state == JWidgetState::Hovered) fill = Colors::Surface3;
+        if (m_state == JWidgetState::Pressed) fill = Colors::Accent;
         bool focused = isFocused();
         drawBackground(buf, b, fill, focused);
         drawLabel(buf, b);
     }
 
-    AISemanticNode getSemanticNode() const override { return {"Button", m_label, "", true}; }
+    JAISemanticNode getSemanticNode() const override { return {"JButton", m_label, "", true}; }
     bool executeSemanticAction(const std::string& a) override {
         if (a == "click") {
             onClicked.emit();
-            if (AiBusHook::emit) AiBusHook::emit(m_nodeId, AiBusHook::kClick, m_label.c_str());
+            if (JAiBusHook::emit) JAiBusHook::emit(m_nodeId, JAiBusHook::kClick, m_label.c_str());
             return true;
         }
         return false;
     }
 
 protected:
-    virtual void drawBackground(PrimitiveBuffer& buf, const Rect& b, const uint8_t* fill, bool focused) {
+    virtual void drawBackground(JPrimitiveBuffer& buf, const JRect& b, const uint8_t* fill, bool focused) {
         buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f,
                           focused ? 1.5f : 1.0f,
                           focused ? Colors::Accent : Colors::Border);
     }
-    virtual void drawLabel(PrimitiveBuffer& buf, const Rect& b) {
-        if (TextHelper::hasAtlas()) {
+    virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b) {
+        if (JTextHelper::hasAtlas()) {
             std::string txt = tr(m_label);
-            float tw = TextHelper::measureWidth(txt);
+            float tw = JTextHelper::measureWidth(txt);
             float tx = b.x + (b.width  - tw) * 0.5f;
-            float ty = b.y + (b.height - TextHelper::lineHeight()) * 0.5f;
+            float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             uint8_t tc[4] = {220, 220, 228, 230};
-            TextHelper::pushText(buf, tx, ty, txt, tc);
+            JTextHelper::pushText(buf, tx, ty, txt, tc);
         } else {
             float tw = b.width * 0.5f;
             float tx = b.x + (b.width - tw) * 0.5f;
@@ -643,20 +643,20 @@ private:
 };
 
 // ============================================================================
-// ToggleButton
+// JToggleButton
 // ============================================================================
 
-class ToggleButton : public Control {
+class JToggleButton : public JControl {
 public:
-    Core::Signal<bool> onToggled;
+    Core::JSignal<bool> onToggled;
 
-    ToggleButton(SceneGraph& graph, const std::string& label,
+    JToggleButton(JSceneGraph& graph, const std::string& label,
                  float w = 160.0f, float h = 36.0f)
-        : Control(graph, "ToggleButton"), m_label(label)
+        : JControl(graph, "JToggleButton"), m_label(label)
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
-        l.minWidth = TextHelper::hasAtlas() ? (TextHelper::measureWidth(m_label) + 24.f) : w;
+        l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(m_label) + 24.f) : w;
         l.minHeight = h;
     }
 
@@ -665,25 +665,25 @@ public:
             m_toggled = v;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onToggled.emit(v);
-            if (AiBusHook::emit)
-                AiBusHook::emit(m_nodeId, AiBusHook::kToggled, m_toggled ? "true" : "false");
+            if (JAiBusHook::emit)
+                JAiBusHook::emit(m_nodeId, JAiBusHook::kToggled, m_toggled ? "true" : "false");
         }
     }
     bool isToggled() const { return m_toggled; }
 
     void handleMousePress(float mx, float my) override {
-        if (isPointInside(mx, my)) setState(WidgetState::Pressed);
+        if (isPointInside(mx, my)) setState(JWidgetState::Pressed);
     }
     void handleMouseRelease(float mx, float my) override {
-        if (m_state == WidgetState::Pressed && isPointInside(mx, my)) setToggled(!m_toggled);
-        Control::handleMouseRelease(mx, my);
+        if (m_state == JWidgetState::Pressed && isPointInside(mx, my)) setToggled(!m_toggled);
+        JControl::handleMouseRelease(mx, my);
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         const uint8_t* fill = m_toggled ? Colors::Accent : Colors::Surface2;
         uint8_t hover[4];
-        if (m_state == WidgetState::Hovered) {
+        if (m_state == JWidgetState::Hovered) {
             std::copy(fill, fill+4, hover);
             for (int i=0;i<3;i++) hover[i] = static_cast<uint8_t>(std::min(255, hover[i]+20));
             fill = hover;
@@ -693,8 +693,8 @@ public:
         drawLabel(buf, b);
     }
 
-    AISemanticNode getSemanticNode() const override {
-        return {"ToggleButton", m_label, m_toggled ? "true" : "false", true};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JToggleButton", m_label, m_toggled ? "true" : "false", true};
     }
     bool executeSemanticAction(const std::string& a) override {
         if (a == "toggle") { setToggled(!m_toggled); return true; }
@@ -702,18 +702,18 @@ public:
     }
 
 protected:
-    virtual void drawBackground(PrimitiveBuffer& buf, const Rect& b, const uint8_t* fill, bool focused) {
+    virtual void drawBackground(JPrimitiveBuffer& buf, const JRect& b, const uint8_t* fill, bool focused) {
         buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f,
                           focused ? 1.5f : 1.0f,
                           focused ? Colors::Accent : Colors::Border);
     }
-    virtual void drawLabel(PrimitiveBuffer& buf, const Rect& b) {
-        if (TextHelper::hasAtlas()) {
+    virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b) {
+        if (JTextHelper::hasAtlas()) {
             std::string txt = tr(m_label);
-            float tw = TextHelper::measureWidth(txt);
+            float tw = JTextHelper::measureWidth(txt);
             uint8_t tc[4] = {220, 220, 228, 230};
-            TextHelper::pushText(buf, b.x + (b.width-tw)*0.5f,
-                                 b.y + (b.height-TextHelper::lineHeight())*0.5f, txt, tc);
+            JTextHelper::pushText(buf, b.x + (b.width-tw)*0.5f,
+                                 b.y + (b.height-JTextHelper::lineHeight())*0.5f, txt, tc);
         } else {
             float tw = b.width * 0.5f;
             uint8_t tc[4] = {220, 220, 228, 200};
@@ -727,19 +727,19 @@ private:
 };
 
 // ============================================================================
-// CheckBox
+// JCheckBox
 // ============================================================================
 
-class CheckBox : public Control {
+class JCheckBox : public JControl {
 public:
-    Core::Signal<bool> onStateChanged;
+    Core::JSignal<bool> onStateChanged;
 
-    CheckBox(SceneGraph& graph, const std::string& label, float w = 200.0f, float h = 22.0f)
-        : Control(graph, "CheckBox"), m_label(label)
+    JCheckBox(JSceneGraph& graph, const std::string& label, float w = 200.0f, float h = 22.0f)
+        : JControl(graph, "JCheckBox"), m_label(label)
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
-        l.minWidth = TextHelper::hasAtlas() ? (TextHelper::measureWidth(m_label) + 28.f) : w;
+        l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(m_label) + 28.f) : w;
         l.minHeight = h;
     }
 
@@ -748,24 +748,24 @@ public:
             m_checked = v;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onStateChanged.emit(v);
-            if (AiBusHook::emit)
-                AiBusHook::emit(m_nodeId,
-                                m_checked ? AiBusHook::kChecked : AiBusHook::kUnchecked,
+            if (JAiBusHook::emit)
+                JAiBusHook::emit(m_nodeId,
+                                m_checked ? JAiBusHook::kChecked : JAiBusHook::kUnchecked,
                                 m_checked ? "true" : "false");
         }
     }
     bool isChecked() const { return m_checked; }
 
-    Variant getRef(const std::string& key) const override {
+    JVariant getRef(const std::string& key) const override {
         if (key == "checked" || key == "value") return m_checked;
-        return Widget::getRef(key);
+        return JWidget::getRef(key);
     }
 
     void handleMousePress(float mx, float my) override {
         if (isPointInside(mx, my)) setChecked(!m_checked);
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float boxSz = b.height;
         const uint8_t* fill = m_checked ? Colors::Accent : Colors::Surface1;
@@ -774,8 +774,8 @@ public:
         drawLabel(buf, b, boxSz);
     }
 
-    AISemanticNode getSemanticNode() const override {
-        return {"CheckBox", m_label, m_checked ? "checked" : "unchecked", true};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JCheckBox", m_label, m_checked ? "checked" : "unchecked", true};
     }
     bool executeSemanticAction(const std::string& a) override {
         if (a == "check")   { setChecked(true);  return true; }
@@ -784,7 +784,7 @@ public:
     }
 
 protected:
-    virtual void drawBox(PrimitiveBuffer& buf, const Rect& b, float boxSz, const uint8_t* fill, bool focused) {
+    virtual void drawBox(JPrimitiveBuffer& buf, const JRect& b, float boxSz, const uint8_t* fill, bool focused) {
         buf.pushRectangle(b.x, b.y, boxSz, boxSz, fill, 4.0f,
                           focused ? 2.0f : 1.5f,
                           focused ? Colors::Accent : Colors::Border);
@@ -794,11 +794,11 @@ protected:
             buf.pushRectangle(b.x + boxSz*0.5f - 1.5f, b.y + 3.0f, 3.0f, boxSz - 6.0f, white, 1.5f);
         }
     }
-    virtual void drawLabel(PrimitiveBuffer& buf, const Rect& b, float boxSz) {
-        if (TextHelper::hasAtlas()) {
+    virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b, float boxSz) {
+        if (JTextHelper::hasAtlas()) {
             uint8_t lc[4] = {200, 200, 210, 200};
-            TextHelper::pushText(buf, b.x + boxSz + 8.0f,
-                                 b.y + (b.height - TextHelper::lineHeight()) * 0.5f,
+            JTextHelper::pushText(buf, b.x + boxSz + 8.0f,
+                                 b.y + (b.height - JTextHelper::lineHeight()) * 0.5f,
                                  tr(m_label), lc, b.width - boxSz - 8.0f);
         } else {
             uint8_t lc[4] = {180, 180, 190, 140};
@@ -813,20 +813,20 @@ private:
 };
 
 // ============================================================================
-// RadioButton
+// JRadioButton
 // ============================================================================
 
-class RadioButton : public Control {
+class JRadioButton : public JControl {
 public:
-    Core::Signal<bool> onSelected;
+    Core::JSignal<bool> onSelected;
 
-    RadioButton(SceneGraph& graph, const std::string& label,
+    JRadioButton(JSceneGraph& graph, const std::string& label,
                 float w = 200.0f, float h = 22.0f)
-        : Control(graph, "RadioButton"), m_label(label)
+        : JControl(graph, "JRadioButton"), m_label(label)
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
-        l.minWidth = TextHelper::hasAtlas() ? (TextHelper::measureWidth(m_label) + 28.f) : w;
+        l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(m_label) + 28.f) : w;
         l.minHeight = h;
     }
 
@@ -839,7 +839,7 @@ public:
         if (isPointInside(mx, my)) setSelected(true);
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float r = b.height;
         const uint8_t* ring = m_selected ? Colors::Accent : Colors::Surface1;
@@ -848,8 +848,8 @@ public:
         drawLabel(buf, b, r);
     }
 
-    AISemanticNode getSemanticNode() const override {
-        return {"RadioButton", m_label, m_selected ? "selected" : "unselected", true};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JRadioButton", m_label, m_selected ? "selected" : "unselected", true};
     }
     bool executeSemanticAction(const std::string& a) override {
         if (a == "select") { setSelected(true); return true; }
@@ -857,7 +857,7 @@ public:
     }
 
 protected:
-    virtual void drawCircle(PrimitiveBuffer& buf, const Rect& b, float r, const uint8_t* ring, bool focused) {
+    virtual void drawCircle(JPrimitiveBuffer& buf, const JRect& b, float r, const uint8_t* ring, bool focused) {
         float borderW = 1.5f;
         buf.pushRectangle(b.x, b.y, r, r, ring, r * 0.5f,
                           focused ? 2.0f : borderW,
@@ -867,11 +867,11 @@ protected:
             buf.pushRectangle(b.x + offset, b.y + offset, dot, dot, Colors::TextPrimary, dot * 0.5f);
         }
     }
-    virtual void drawLabel(PrimitiveBuffer& buf, const Rect& b, float r) {
-        if (TextHelper::hasAtlas()) {
+    virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b, float r) {
+        if (JTextHelper::hasAtlas()) {
             uint8_t lc[4] = {200, 200, 210, 200};
-            TextHelper::pushText(buf, b.x + r + 8.0f,
-                                 b.y + (b.height - TextHelper::lineHeight()) * 0.5f,
+            JTextHelper::pushText(buf, b.x + r + 8.0f,
+                                 b.y + (b.height - JTextHelper::lineHeight()) * 0.5f,
                                  tr(m_label), lc, b.width - r - 8.0f);
         } else {
             uint8_t lc[4] = {180, 180, 190, 140};
@@ -886,15 +886,15 @@ private:
 };
 
 // ============================================================================
-// Slider
+// JSlider
 // ============================================================================
 
-class Slider : public Control {
+class JSlider : public JControl {
 public:
-    Core::Signal<float> onValueChanged;
+    Core::JSignal<float> onValueChanged;
 
-    Slider(SceneGraph& graph, float w = 280.0f, float h = 24.0f)
-        : Control(graph, "Slider"), m_value(0.5f)
+    JSlider(JSceneGraph& graph, float w = 280.0f, float h = 24.0f)
+        : JControl(graph, "JSlider"), m_value(0.5f)
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
@@ -908,27 +908,27 @@ public:
     }
     float getValue() const { return m_value; }
 
-    Variant getRef(const std::string& key) const override {
+    JVariant getRef(const std::string& key) const override {
         if (key == "value") return static_cast<double>(m_value);
-        return Widget::getRef(key);
+        return JWidget::getRef(key);
     }
 
     void handleMouseMove(float mx, float my) override {
-        Control::handleMouseMove(mx, my);
-        if (m_state == WidgetState::Pressed) {
+        JControl::handleMouseMove(mx, my);
+        if (m_state == JWidgetState::Pressed) {
             const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
             setValue((mx - b.x) / b.width);
         }
     }
     void handleMousePress(float mx, float my) override {
         if (isPointInside(mx, my)) {
-            setState(WidgetState::Pressed);
+            setState(JWidgetState::Pressed);
             const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
             setValue((mx - b.x) / b.width);
         }
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float trackH = 4.0f, trackY = b.y + (b.height - trackH) * 0.5f;
         float fillW  = b.width * m_value;
@@ -937,13 +937,13 @@ public:
         float thumbW = 16.0f, thumbH = b.height;
         float thumbX = b.x + fillW - thumbW * 0.5f;
         thumbX = std::clamp(thumbX, b.x, b.x + b.width - thumbW);
-        const uint8_t* tc = (m_state == WidgetState::Pressed) ? Colors::AccentPress : Colors::TextPrimary;
+        const uint8_t* tc = (m_state == JWidgetState::Pressed) ? Colors::AccentPress : Colors::TextPrimary;
         bool focused = isFocused();
         drawThumb(buf, b, thumbX, thumbW, thumbH, tc, focused);
     }
 
-    AISemanticNode getSemanticNode() const override {
-        return {"Slider", "Slider", std::to_string(m_value), true};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JSlider", "JSlider", std::to_string(m_value), true};
     }
     bool executeSemanticAction(const std::string& a) override {
         if (a.rfind("set_value:", 0) == 0) {
@@ -953,12 +953,12 @@ public:
     }
 
 protected:
-    virtual void drawTrack(PrimitiveBuffer& buf, const Rect& b, float trackY, float trackH, float fillW) {
+    virtual void drawTrack(JPrimitiveBuffer& buf, const JRect& b, float trackY, float trackH, float fillW) {
         buf.pushRectangle(b.x, trackY, b.width, trackH, Colors::Surface3, 2.0f);
         if (fillW > 0.5f)
             buf.pushRectangle(b.x, trackY, fillW, trackH, Colors::Accent, 2.0f);
     }
-    virtual void drawThumb(PrimitiveBuffer& buf, const Rect& b, float thumbX, float thumbW, float thumbH, const uint8_t* tc, bool focused) {
+    virtual void drawThumb(JPrimitiveBuffer& buf, const JRect& b, float thumbX, float thumbW, float thumbH, const uint8_t* tc, bool focused) {
         buf.pushRectangle(thumbX, b.y, thumbW, thumbH, tc, thumbW * 0.5f,
                           focused ? 1.5f : 0.0f,
                           focused ? Colors::Accent : Colors::Border);
@@ -969,13 +969,13 @@ private:
 };
 
 // ============================================================================
-// ProgressBar
+// JProgressBar
 // ============================================================================
 
-class ProgressBar : public Widget {
+class JProgressBar : public JWidget {
 public:
-    ProgressBar(SceneGraph& graph, float w = 280.0f, float h = 12.0f)
-        : Widget(graph, "ProgressBar"), m_progress(0.0f)
+    JProgressBar(JSceneGraph& graph, float w = 280.0f, float h = 12.0f)
+        : JWidget(graph, "JProgressBar"), m_progress(0.0f)
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
@@ -986,14 +986,14 @@ public:
     void setProgress(float p) { m_progress = std::clamp(p, 0.0f, 1.0f); m_graph.invalidateNode(m_nodeId, DirtySelf); }
     float getProgress() const { return m_progress; }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         drawTrack(buf, b);
         drawProgressFill(buf, b, m_progress);
     }
 
-    AISemanticNode getSemanticNode() const override {
-        return {"ProgressBar", "", std::to_string(int(m_progress * 100)) + "%", false};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JProgressBar", "", std::to_string(int(m_progress * 100)) + "%", false};
     }
     bool executeSemanticAction(const std::string& a) override {
         if (a.rfind("set_value:", 0) == 0) {
@@ -1003,10 +1003,10 @@ public:
     }
 
 protected:
-    virtual void drawTrack(PrimitiveBuffer& buf, const Rect& b) {
+    virtual void drawTrack(JPrimitiveBuffer& buf, const JRect& b) {
         buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface2, 6.0f);
     }
-    virtual void drawProgressFill(PrimitiveBuffer& buf, const Rect& b, float progress) {
+    virtual void drawProgressFill(JPrimitiveBuffer& buf, const JRect& b, float progress) {
         if (progress > 0.005f)
             buf.pushRectangle(b.x, b.y, b.width * progress, b.height, Colors::Success, 6.0f);
     }
@@ -1016,16 +1016,16 @@ private:
 };
 
 // ============================================================================================
-// ScrollBar
+// JScrollBar
 // ============================================================================
 
-class ScrollBar : public Control {
+class JScrollBar : public JControl {
 public:
-    Core::Signal<float> onScrolled; // emits 0..1 position
+    Core::JSignal<float> onScrolled; // emits 0..1 position
 
-    ScrollBar(SceneGraph& graph, float w = 280.0f, float h = 14.0f,
+    JScrollBar(JSceneGraph& graph, float w = 280.0f, float h = 14.0f,
               float thumbRatio = 0.3f)
-        : Control(graph, "ScrollBar"), m_thumbRatio(std::clamp(thumbRatio, 0.05f, 1.0f))
+        : JControl(graph, "JScrollBar"), m_thumbRatio(std::clamp(thumbRatio, 0.05f, 1.0f))
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
@@ -1041,31 +1041,31 @@ public:
 
     void handleMousePress(float mx, float my) override {
         if (!isPointInside(mx, my)) return;
-        setState(WidgetState::Pressed);
+        setState(JWidgetState::Pressed);
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         setScrollPosition((mx - b.x) / b.width - m_thumbRatio * 0.5f);
     }
     void handleMouseMove(float mx, float my) override {
-        Control::handleMouseMove(mx, my);
-        if (m_state == WidgetState::Pressed) {
+        JControl::handleMouseMove(mx, my);
+        if (m_state == JWidgetState::Pressed) {
             const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
             setScrollPosition((mx - b.x) / b.width - m_thumbRatio * 0.5f);
         }
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1, 7.0f);
         float tw = b.width * m_thumbRatio;
         float tx = b.x + m_position * (b.width - tw);
-        const uint8_t* tc = (m_state == WidgetState::Pressed) ? Colors::AccentPress
-                           : (m_state == WidgetState::Hovered) ? Colors::Surface3
+        const uint8_t* tc = (m_state == JWidgetState::Pressed) ? Colors::AccentPress
+                           : (m_state == JWidgetState::Hovered) ? Colors::Surface3
                                                                 : Colors::Border;
         buf.pushRectangle(tx, b.y + 1.0f, tw, b.height - 2.0f, tc, 6.0f);
     }
 
-    AISemanticNode getSemanticNode() const override {
-        return {"ScrollBar", "", std::to_string(m_position), true};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JScrollBar", "", std::to_string(m_position), true};
     }
     bool executeSemanticAction(const std::string& a) override {
         if (a.rfind("set_value:", 0) == 0 || a.rfind("scroll_to:", 0) == 0) {
@@ -1081,17 +1081,17 @@ private:
 };
 
 // ============================================================================
-// LineEdit
+// JLineEdit
 // ============================================================================
 
-class LineEdit : public Control {
+class JLineEdit : public JControl {
 public:
-    Core::Signal<std::string> onTextChanged;
-    Core::Signal<>            onReturnPressed;
+    Core::JSignal<std::string> onTextChanged;
+    Core::JSignal<>            onReturnPressed;
 
-    LineEdit(SceneGraph& graph, const std::string& placeholder = "",
+    JLineEdit(JSceneGraph& graph, const std::string& placeholder = "",
              float w = 280.0f, float h = 32.0f)
-        : Control(graph, "LineEdit"), m_placeholder(placeholder)
+        : JControl(graph, "JLineEdit"), m_placeholder(placeholder)
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
@@ -1104,8 +1104,8 @@ public:
             m_text = t;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onTextChanged.emit(t);
-            if (AiBusHook::emit)
-                AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+            if (JAiBusHook::emit)
+                JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
         }
     }
     const std::string& text()        const { return m_text; }
@@ -1115,16 +1115,16 @@ public:
         if (isPointInside(mx, my)) { onClicked.emit(); }
     }
 
-    bool handleKeyEvent(const KeyEvent& ke) override {
+    bool handleKeyEvent(const JKeyEvent& ke) override {
         if (!ke.pressed) return false;
-        using K = KeyEvent::Key;
+        using K = JKeyEvent::JKey;
         if (ke.key == K::Backspace) {
             if (!m_text.empty()) {
                 m_text.pop_back();
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
                 onTextChanged.emit(m_text);
-                if (AiBusHook::emit)
-                    AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+                if (JAiBusHook::emit)
+                    JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
             }
             return true;
         } else if (ke.key == K::Return) {
@@ -1136,15 +1136,15 @@ public:
                 m_text += ke.utf8;
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
                 onTextChanged.emit(m_text);
-                if (AiBusHook::emit)
-                    AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+                if (JAiBusHook::emit)
+                    JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
                 return true;
             }
         }
         return false;
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         bool focused = isFocused();
 
@@ -1157,14 +1157,14 @@ public:
         float innerW = b.width - 16.0f;
         float midY   = b.y + (b.height - 7.0f) * 0.5f;
 
-        if (TextHelper::hasAtlas()) {
-            float ty = b.y + (b.height - TextHelper::lineHeight()) * 0.5f;
+        if (JTextHelper::hasAtlas()) {
+            float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             if (m_text.empty()) {
                 uint8_t pc[4] = {100, 100, 110, 160};
-                TextHelper::pushText(buf, innerX, ty, m_placeholder, pc, innerW);
+                JTextHelper::pushText(buf, innerX, ty, m_placeholder, pc, innerW);
             } else {
                 uint8_t tc[4] = {220, 220, 228, 220};
-                TextHelper::pushText(buf, innerX, ty, m_text, tc, innerW);
+                JTextHelper::pushText(buf, innerX, ty, m_text, tc, innerW);
             }
         } else {
             if (m_text.empty()) {
@@ -1183,7 +1183,7 @@ public:
         }
     }
 
-    AISemanticNode getSemanticNode() const override { return {"LineEdit", m_placeholder, m_text, true}; }
+    JAISemanticNode getSemanticNode() const override { return {"JLineEdit", m_placeholder, m_text, true}; }
     bool executeSemanticAction(const std::string& a) override {
         if (a.rfind("set_text:", 0) == 0) { setText(a.substr(9)); return true; }
         return false;
@@ -1195,16 +1195,16 @@ private:
 };
 
 // ============================================================================
-// TextArea
+// JTextArea
 // ============================================================================
 
-class TextArea : public Control {
+class JTextArea : public JControl {
 public:
-    Core::Signal<std::string> onTextChanged;
+    Core::JSignal<std::string> onTextChanged;
 
-    TextArea(SceneGraph& graph, const std::string& placeholder = "",
+    JTextArea(JSceneGraph& graph, const std::string& placeholder = "",
              float w = 340.0f, float h = 120.0f)
-        : Control(graph, "TextArea"), m_placeholder(placeholder)
+        : JControl(graph, "JTextArea"), m_placeholder(placeholder)
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
@@ -1218,8 +1218,8 @@ public:
             m_cursorPos = m_text.size();
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onTextChanged.emit(t);
-            if (AiBusHook::emit)
-                AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+            if (JAiBusHook::emit)
+                JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
         }
     }
     const std::string& text()        const { return m_text; }
@@ -1238,7 +1238,7 @@ public:
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float innerX = b.x + 8.0f;
         float innerY = b.y + 8.0f;
-        float lh = TextHelper::hasAtlas() ? TextHelper::lineHeight() : 12.0f;
+        float lh = JTextHelper::hasAtlas() ? JTextHelper::lineHeight() : 12.0f;
 
         float relY = my - innerY + m_scrollOffset;
         auto lines = getLines();
@@ -1247,11 +1247,11 @@ public:
 
         float relX = mx - innerX;
         size_t clickCol = 0;
-        if (TextHelper::hasAtlas() && clickLine < lines.size()) {
+        if (JTextHelper::hasAtlas() && clickLine < lines.size()) {
             const std::string& ln = lines[clickLine];
             float cx = 0;
             for (size_t i = 0; i < ln.size(); ++i) {
-                float cw = TextHelper::measureWidth(ln.substr(i, 1));
+                float cw = JTextHelper::measureWidth(ln.substr(i, 1));
                 if (cx + cw * 0.5f > relX) { clickCol = i; goto done_click; }
                 cx += cw;
             }
@@ -1319,9 +1319,9 @@ public:
         return i;
     }
 
-    bool handleKeyEvent(const KeyEvent& ke) override {
+    bool handleKeyEvent(const JKeyEvent& ke) override {
         if (!ke.pressed) return false;
-        using K = KeyEvent::Key;
+        using K = JKeyEvent::JKey;
 
         size_t line = 0, col = 0;
         getCursorLineCol(line, col);
@@ -1330,27 +1330,27 @@ public:
         if (ke.ctrl) {
             if (ke.key == K::C || (ke.utf8[0]=='c'||ke.utf8[0]=='C')) {
                 std::string sel = selectedText();
-                if (!sel.empty()) Clipboard::setText(sel);
+                if (!sel.empty()) JClipboard::setText(sel);
                 return true;
             }
             if (ke.key == K::X || (ke.utf8[0]=='x'||ke.utf8[0]=='X')) {
                 std::string sel = selectedText();
                 if (!sel.empty()) {
-                    Clipboard::setText(sel);
+                    JClipboard::setText(sel);
                     _deleteSelection();
                 }
                 return true;
             }
             if (ke.key == K::V || (ke.utf8[0]=='v'||ke.utf8[0]=='V')) {
-                std::string clip = Clipboard::getText();
+                std::string clip = JClipboard::getText();
                 if (!clip.empty()) {
                     _deleteSelection();
                     m_text.insert(m_cursorPos, clip);
                     m_cursorPos += clip.size();
                     m_graph.invalidateNode(m_nodeId, DirtySelf);
                     onTextChanged.emit(m_text);
-                    if (AiBusHook::emit)
-                        AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+                    if (JAiBusHook::emit)
+                        JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
                 }
                 return true;
             }
@@ -1384,8 +1384,8 @@ public:
                 m_cursorPos--;
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
                 onTextChanged.emit(m_text);
-                if (AiBusHook::emit)
-                    AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+                if (JAiBusHook::emit)
+                    JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
             }
             return true;
         } else if (ke.key == K::Delete) {
@@ -1395,8 +1395,8 @@ public:
                 m_text.erase(m_cursorPos, 1);
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
                 onTextChanged.emit(m_text);
-                if (AiBusHook::emit)
-                    AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+                if (JAiBusHook::emit)
+                    JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
             }
             return true;
         } else if (ke.key == K::Return) {
@@ -1405,8 +1405,8 @@ public:
             m_cursorPos++;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onTextChanged.emit(m_text);
-            if (AiBusHook::emit)
-                AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+            if (JAiBusHook::emit)
+                JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
             return true;
         } else if (ke.key == K::Left) {
             if (!ke.shift && m_selActive && m_selStart != m_selEnd) {
@@ -1447,15 +1447,15 @@ public:
                 m_cursorPos += std::strlen(ke.utf8);
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
                 onTextChanged.emit(m_text);
-                if (AiBusHook::emit)
-                    AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+                if (JAiBusHook::emit)
+                    JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
                 return true;
             }
         }
         return false;
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         bool focused = isFocused();
 
@@ -1469,7 +1469,7 @@ public:
         float innerW = b.width - 16.0f;
         float innerH = b.height - 16.0f;
 
-        float lh = TextHelper::hasAtlas() ? TextHelper::lineHeight() : 12.0f;
+        float lh = JTextHelper::hasAtlas() ? JTextHelper::lineHeight() : 12.0f;
 
         size_t cursorLine = 0, cursorCol = 0;
         getCursorLineCol(cursorLine, cursorCol);
@@ -1504,19 +1504,19 @@ public:
                 float lineY = innerY + sl * lh - m_scrollOffset;
                 if (lineY + lh < innerY || lineY > innerY + innerH) continue;
                 float startX = innerX;
-                float endX   = innerX + (TextHelper::hasAtlas()
-                    ? TextHelper::measureWidth(lines[sl])
+                float endX   = innerX + (JTextHelper::hasAtlas()
+                    ? JTextHelper::measureWidth(lines[sl])
                     : static_cast<float>(lines[sl].size() * 6));
                 if (sl == loLine) {
                     std::string prefix = lines[sl].substr(0, loCol);
-                    startX = innerX + (TextHelper::hasAtlas()
-                        ? TextHelper::measureWidth(prefix)
+                    startX = innerX + (JTextHelper::hasAtlas()
+                        ? JTextHelper::measureWidth(prefix)
                         : static_cast<float>(loCol * 6));
                 }
                 if (sl == hiLine) {
                     std::string prefix = lines[sl].substr(0, hiCol);
-                    endX = innerX + (TextHelper::hasAtlas()
-                        ? TextHelper::measureWidth(prefix)
+                    endX = innerX + (JTextHelper::hasAtlas()
+                        ? JTextHelper::measureWidth(prefix)
                         : static_cast<float>(hiCol * 6));
                 }
                 float rw = endX - startX;
@@ -1524,16 +1524,16 @@ public:
             }
         }
 
-        if (TextHelper::hasAtlas()) {
+        if (JTextHelper::hasAtlas()) {
             if (m_text.empty() && !m_placeholder.empty()) {
                 uint8_t pc[4] = {100, 100, 110, 160};
-                TextHelper::pushText(buf, innerX, innerY, m_placeholder, pc, innerW);
+                JTextHelper::pushText(buf, innerX, innerY, m_placeholder, pc, innerW);
             } else {
                 uint8_t tc[4] = {220, 220, 228, 220};
                 for (size_t i = 0; i < lines.size(); ++i) {
                     float lineY = innerY + i * lh - m_scrollOffset;
                     if (lineY + lh >= innerY && lineY <= innerY + innerH) {
-                        TextHelper::pushText(buf, innerX, lineY, lines[i], tc, innerW);
+                        JTextHelper::pushText(buf, innerX, lineY, lines[i], tc, innerW);
                     }
                 }
             }
@@ -1558,7 +1558,7 @@ public:
             float cx = innerX;
             if (!m_text.empty() && cursorLine < lines.size()) {
                 std::string currentLineText = lines[cursorLine].substr(0, cursorCol);
-                cx = innerX + (TextHelper::hasAtlas() ? TextHelper::measureWidth(currentLineText) : cursorCol * 6.0f);
+                cx = innerX + (JTextHelper::hasAtlas() ? JTextHelper::measureWidth(currentLineText) : cursorCol * 6.0f);
             }
             float cy = innerY + cursorLine * lh - m_scrollOffset;
             if (cy + lh >= innerY && cy <= innerY + innerH) {
@@ -1567,7 +1567,7 @@ public:
         }
     }
 
-    AISemanticNode getSemanticNode() const override { return {"TextArea", m_placeholder, m_text, true}; }
+    JAISemanticNode getSemanticNode() const override { return {"JTextArea", m_placeholder, m_text, true}; }
     bool executeSemanticAction(const std::string& a) override {
         if (a.rfind("set_text:", 0) == 0) { setText(a.substr(9)); return true; }
         return false;
@@ -1582,8 +1582,8 @@ private:
         m_cursorPos = lo;
         m_selActive = false;
         onTextChanged.emit(m_text);
-        if (AiBusHook::emit)
-            AiBusHook::emit(m_nodeId, AiBusHook::kTextChanged, m_text.c_str());
+        if (JAiBusHook::emit)
+            JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
     }
 
     std::string m_text;
@@ -1596,16 +1596,16 @@ private:
 };
 
 // ============================================================================
-// SpinBox
+// JSpinBox
 // ============================================================================
 
-class SpinBox : public Control {
+class JSpinBox : public JControl {
 public:
-    Core::Signal<int> onValueChanged;
+    Core::JSignal<int> onValueChanged;
 
-    SpinBox(SceneGraph& graph, int minVal = 0, int maxVal = 100,
+    JSpinBox(JSceneGraph& graph, int minVal = 0, int maxVal = 100,
             float w = 140.0f, float h = 32.0f)
-        : Control(graph, "SpinBox"), m_min(minVal), m_max(maxVal), m_value(minVal)
+        : JControl(graph, "JSpinBox"), m_min(minVal), m_max(maxVal), m_value(minVal)
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
@@ -1624,10 +1624,10 @@ public:
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float btnW = b.height * 0.7f;
         if (mx >= b.x + b.width - btnW)          setValue(m_value + (my < b.y + b.height * 0.5f ? 1 : -1));
-        else                                       setState(WidgetState::Pressed);
+        else                                       setState(JWidgetState::Pressed);
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float btnW = b.height * 0.7f;
         float fieldW = b.width - btnW;
@@ -1638,10 +1638,10 @@ public:
                           focused ? 1.5f : 1.0f,
                           focused ? Colors::Accent : Colors::Border);
         // Value text
-        if (TextHelper::hasAtlas()) {
+        if (JTextHelper::hasAtlas()) {
             uint8_t vc[4] = {210, 210, 220, 220};
-            float ty = b.y + (b.height - TextHelper::lineHeight()) * 0.5f;
-            TextHelper::pushText(buf, b.x + 8.0f, ty, std::to_string(m_value), vc, fieldW - 8.0f);
+            float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
+            JTextHelper::pushText(buf, b.x + 8.0f, ty, std::to_string(m_value), vc, fieldW - 8.0f);
         } else {
             uint8_t vc[4] = {200, 200, 210, 180};
             buf.pushRectangle(b.x + 8.0f, b.y + (b.height-7.0f)*0.5f, fieldW * 0.6f, 7.0f, vc, 2.0f);
@@ -1658,8 +1658,8 @@ public:
         buf.pushRectangle(ax, b.y + halfH + halfH * 0.55f, aw, 2.0f, ac); // down mark
     }
 
-    AISemanticNode getSemanticNode() const override {
-        return {"SpinBox", "", std::to_string(m_value), true};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JSpinBox", "", std::to_string(m_value), true};
     }
     bool executeSemanticAction(const std::string& a) override {
         if (a.rfind("set_value:", 0) == 0) { try { setValue(std::stoi(a.substr(10))); return true; } catch (...) {} }
@@ -1673,29 +1673,29 @@ private:
 };
 
 // ============================================================================
-// PopupItem — a flat, borderless, full-width clickable text row.
+// JPopupItem — a flat, borderless, full-width clickable text row.
 //
 // The standard building block for popup list content (combo-boxes, menus,
 // tree-pickers, etc.).  It has no border and no background of its own;
-// the containing PopupWindow supplies the backdrop.  On hover it shows a
+// the containing JPopupWindow supplies the backdrop.  On hover it shows a
 // subtle tint so the user knows it is interactive.
 //
 // onActivated fires on mouse-release while the cursor is inside.
 // ============================================================================
 
-class PopupItem : public Control {
+class JPopupItem : public JControl {
 public:
-    Core::Signal<> onActivated;
+    Core::JSignal<> onActivated;
 
-    PopupItem(SceneGraph& graph, const std::string& label,
+    JPopupItem(JSceneGraph& graph, const std::string& label,
               float width = 200.f, float itemHeight = 28.f)
-        : Control(graph, "PopupItem"), m_label(label)
+        : JControl(graph, "JPopupItem"), m_label(label)
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width  = width;
         l.boundingBox.height = itemHeight;
-        l.minWidth  = TextHelper::hasAtlas()
-                        ? (TextHelper::measureWidth(label) + 24.f)
+        l.minWidth  = JTextHelper::hasAtlas()
+                        ? (JTextHelper::measureWidth(label) + 24.f)
                         : width;
         l.minHeight = itemHeight;
     }
@@ -1703,49 +1703,49 @@ public:
     void setLabel(const std::string& s) {
         m_label = s;
         auto& l = m_graph.getLayout(m_nodeId);
-        l.minWidth = TextHelper::hasAtlas()
-                       ? (TextHelper::measureWidth(s) + 24.f)
+        l.minWidth = JTextHelper::hasAtlas()
+                       ? (JTextHelper::measureWidth(s) + 24.f)
                        : l.boundingBox.width;
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
     const std::string& label() const { return m_label; }
 
     void handleMouseRelease(float mx, float my) override {
-        if (m_state == WidgetState::Pressed && isPointInside(mx, my)) {
+        if (m_state == JWidgetState::Pressed && isPointInside(mx, my)) {
             onClicked.emit();
             onActivated.emit();
         }
-        Control::handleMouseRelease(mx, my);
+        JControl::handleMouseRelease(mx, my);
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
 
         // Hover highlight — subtle tint only; no border, no solid fill at rest.
-        if (m_state == WidgetState::Hovered || m_state == WidgetState::Pressed) {
+        if (m_state == JWidgetState::Hovered || m_state == JWidgetState::Pressed) {
             uint8_t hi[4] = {255, 255, 255, 18};
             buf.pushRectangle(b.x, b.y, b.width, b.height, hi, 3.0f);
         }
 
-        // Label text
-        if (TextHelper::hasAtlas()) {
+        // JLabel text
+        if (JTextHelper::hasAtlas()) {
             uint8_t tc[4] = {220, 220, 228, 230};
-            float ty = b.y + (b.height - TextHelper::lineHeight()) * 0.5f;
-            TextHelper::pushText(buf, b.x + 10.f, ty, tr(m_label), tc,
+            float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
+            JTextHelper::pushText(buf, b.x + 10.f, ty, tr(m_label), tc,
                                  b.width - 16.f);
         } else {
             // Fallback: coloured bar representing the text
             uint8_t tc[4] = {200, 200, 210, 180};
-            float bw = TextHelper::hasAtlas()
-                       ? TextHelper::measureWidth(m_label)
+            float bw = JTextHelper::hasAtlas()
+                       ? JTextHelper::measureWidth(m_label)
                        : b.width * 0.6f;
             buf.pushRectangle(b.x + 10.f, b.y + (b.height - 6.f) * 0.5f,
                               bw, 6.f, tc, 2.f);
         }
     }
 
-    AISemanticNode getSemanticNode() const override {
-        return {"PopupItem", m_label, "", true};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JPopupItem", m_label, "", true};
     }
     bool executeSemanticAction(const std::string& a) override {
         if (a == "click" || a == "activate") {
@@ -1761,23 +1761,23 @@ private:
 };
 
 // ============================================================================
-// ComboBox
+// JComboBox
 // ============================================================================
 
-enum class ComboBoxMode {
+enum class JComboBoxMode {
     Cycling,
     Popup
 };
 
-class ComboBox : public Control {
+class JComboBox : public JControl {
 public:
-    Core::Signal<int>         onIndexChanged;
-    Core::Signal<std::string> onTextChanged;
-    Core::Signal<ComboBox*>   onPopupRequested;
+    Core::JSignal<int>         onIndexChanged;
+    Core::JSignal<std::string> onTextChanged;
+    Core::JSignal<JComboBox*>   onPopupRequested;
 
-    ComboBox(SceneGraph& graph, std::vector<std::string> items = {},
+    JComboBox(JSceneGraph& graph, std::vector<std::string> items = {},
              float w = 200.0f, float h = 36.0f)
-        : Control(graph, "ComboBox"), m_items(std::move(items))
+        : JControl(graph, "JComboBox"), m_items(std::move(items))
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
@@ -1804,26 +1804,26 @@ public:
     }
     const std::vector<std::string>& items() const { return m_items; }
 
-    ComboBoxMode mode() const { return m_mode; }
-    void setMode(ComboBoxMode mode) { m_mode = mode; }
+    JComboBoxMode mode() const { return m_mode; }
+    void setMode(JComboBoxMode mode) { m_mode = mode; }
 
     void handleMousePress(float mx, float my) override {
         if (isPointInside(mx, my)) {
             onClicked.emit();
             if (!m_items.empty()) {
-                if (m_mode == ComboBoxMode::Cycling) {
+                if (m_mode == JComboBoxMode::Cycling) {
                     setCurrentIndex((m_currentIndex + 1) % (int)m_items.size());
-                } else if (m_mode == ComboBoxMode::Popup) {
+                } else if (m_mode == JComboBoxMode::Popup) {
                     onPopupRequested.emit(this);
                 }
             }
         }
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float arrowW = b.height * 0.75f;
-        const uint8_t* fill = (m_state == WidgetState::Hovered) ? Colors::Surface3 : Colors::Surface2;
+        const uint8_t* fill = (m_state == JWidgetState::Hovered) ? Colors::Surface3 : Colors::Surface2;
         // Main box
         bool focused = isFocused();
         buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f,
@@ -1838,10 +1838,10 @@ public:
         buf.pushRectangle(ax - 4.0f, ay, 5.0f, 2.0f, ac, 1.0f);
         buf.pushRectangle(ax + 1.0f, ay, 5.0f, 2.0f, ac, 1.0f);
         // Selected item text
-        if (TextHelper::hasAtlas() && !currentText().empty()) {
+        if (JTextHelper::hasAtlas() && !currentText().empty()) {
             uint8_t tc[4] = {210, 210, 220, 220};
-            float ty = b.y + (b.height - TextHelper::lineHeight()) * 0.5f;
-            TextHelper::pushText(buf, b.x + 8.0f, ty, tr(currentText()), tc, b.width - arrowW - 14.0f);
+            float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
+            JTextHelper::pushText(buf, b.x + 8.0f, ty, tr(currentText()), tc, b.width - arrowW - 14.0f);
         } else {
             uint8_t tc[4] = {200, 200, 210, 180};
             buf.pushRectangle(b.x + 8.0f, b.y + (b.height-7.0f)*0.5f,
@@ -1849,8 +1849,8 @@ public:
         }
     }
 
-    AISemanticNode getSemanticNode() const override {
-        return {"ComboBox", "", currentText(), true};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JComboBox", "", currentText(), true};
     }
     bool executeSemanticAction(const std::string& a) override {
         if (a.rfind("select:", 0) == 0) {
@@ -1860,12 +1860,12 @@ public:
         }
         if (a == "click" || a == "activate") {
             onClicked.emit();
-            if (!m_items.empty() && m_mode == ComboBoxMode::Popup) {
+            if (!m_items.empty() && m_mode == JComboBoxMode::Popup) {
                 onPopupRequested.emit(this);
             }
             return true;
         }
-        return Control::executeSemanticAction(a);
+        return JControl::executeSemanticAction(a);
     }
 
 private:
@@ -1873,7 +1873,7 @@ private:
         auto& l = m_graph.getLayout(m_nodeId);
         float maxItemW = 0.f;
         for (const auto& item : m_items) {
-            float lw = TextHelper::hasAtlas() ? TextHelper::measureWidth(tr(item)) : 40.f;
+            float lw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(tr(item)) : 40.f;
             if (lw > maxItemW) maxItemW = lw;
         }
         l.minWidth = maxItemW + 36.0f;
@@ -1882,37 +1882,37 @@ private:
 
     std::vector<std::string> m_items;
     int m_currentIndex{-1};
-    ComboBoxMode m_mode{ComboBoxMode::Cycling};
+    JComboBoxMode m_mode{JComboBoxMode::Cycling};
 };
 
 // ============================================================================
-// TornTabState — provenance carried by a DockWidget born from a tear-off.
+// JTornTabState — provenance carried by a JDockWidget born from a tear-off.
 // Value type: no vtable, cheap to move.
 // ============================================================================
 
-struct TornTabState {
+struct JTornTabState {
     std::string title;
     int         originIndex{-1};
     NodeId      contentNode{InvalidNodeId};
-    // Called when the DockWidget is dragged back over a valid DockZone.
+    // Called when the JDockWidget is dragged back over a valid DockZone.
     // Args: (originIndex, contentNode) — the bar re-inserts the tab.
     std::function<void(int, NodeId)> reattach;
 };
 
 // ============================================================================
-// TabBar
+// JTabBar
 // ============================================================================
 
-class TabBar : public Control {
+class JTabBar : public JControl {
 public:
     static constexpr float TEAR_THRESHOLD = 8.0f; // px of movement to initiate a tear
 
-    Core::Signal<int>          onTabChanged;
-    Core::Signal<int, NodeId>  onTabTorn;   // (tabIndex, contentNode) — app should create a DockWidget
+    Core::JSignal<int>          onTabChanged;
+    Core::JSignal<int, NodeId>  onTabTorn;   // (tabIndex, contentNode) — app should create a JDockWidget
 
-    TabBar(SceneGraph& graph, std::vector<std::string> tabs = {},
+    JTabBar(JSceneGraph& graph, std::vector<std::string> tabs = {},
            float w = 400.0f, float h = 36.0f)
-        : Control(graph, "TabBar"), m_tabs(std::move(tabs))
+        : JControl(graph, "JTabBar"), m_tabs(std::move(tabs))
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
@@ -1939,7 +1939,7 @@ public:
     void setTearable(bool t) { m_tearable = t; }
     bool isTearable() const  { return m_tearable; }
 
-    // Associate a SceneGraph content subtree with a tab (required for tear-off)
+    // Associate a JSceneGraph content subtree with a tab (required for tear-off)
     void setTabContentNode(int index, NodeId node) {
         if (index >= 0 && index < (int)m_contentNodes.size())
             m_contentNodes[index] = node;
@@ -1947,17 +1947,17 @@ public:
 
     // Peek whether a tab was torn this frame — consumed by the application
     bool hasTornTab() const { return m_pendingTorn.has_value(); }
-    TornTabState consumeTornTab() {
+    JTornTabState consumeTornTab() {
         auto s = std::move(*m_pendingTorn);
         m_pendingTorn.reset();
         return s;
     }
 
-    // Last drag cursor position — used to place the new DockWidget on creation
+    // Last drag cursor position — used to place the new JDockWidget on creation
     float lastDragX() const { return m_drag.curX; }
     float lastDragY() const { return m_drag.curY; }
 
-    // Called by the app when a DockWidget is re-docked onto this bar
+    // Called by the app when a JDockWidget is re-docked onto this bar
     void reinsertTab(int originIndex, NodeId contentNode, const std::string& title) {
         int clampedIdx = std::clamp(originIndex, 0, (int)m_tabs.size());
         m_tabs.insert(m_tabs.begin() + clampedIdx, title);
@@ -1969,7 +1969,7 @@ public:
     }
 
     // Draw a translucent ghost tab at the current drag position (call from render loop)
-    void populateDragGhost(PrimitiveBuffer& buf) const {
+    void populateDragGhost(JPrimitiveBuffer& buf) const {
         if (!m_drag.active || !m_drag.tornOff) return;
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float tabW = m_tabs.empty() ? 120.0f : b.width / static_cast<float>(m_tabs.size() + 1);
@@ -1997,7 +1997,7 @@ public:
     }
 
     void handleMouseMove(float mx, float my) override {
-        Control::handleMouseMove(mx, my);
+        JControl::handleMouseMove(mx, my);
         if (!m_drag.active && m_drag.pressedIndex < 0) return;
 
         m_drag.curX = mx;
@@ -2027,13 +2027,13 @@ public:
             setActiveTab(m_drag.pressedIndex);
         }
         m_drag = {};
-        Control::handleMouseRelease(mx, my);
+        JControl::handleMouseRelease(mx, my);
     }
 
     // Programmatically tear off a tab — useful for keyboard shortcuts and testing.
     void forceTear(int idx) { _emitTear(idx); }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         if (m_tabs.empty()) return;
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float tabW = b.width / static_cast<float>(m_tabs.size());
@@ -2064,15 +2064,15 @@ public:
                 buf.pushRectangle(tx + tabW - 8.0f, b.y + 5.0f, 3.0f, 3.0f, dot, 1.5f);
             }
 
-            if (TextHelper::hasAtlas()) {
+            if (JTextHelper::hasAtlas()) {
                 std::string label = tr(m_tabs[i]);
-                float lw = TextHelper::measureWidth(label);
+                float lw = JTextHelper::measureWidth(label);
                 uint8_t lc[4] = {active ? (uint8_t)220 : (uint8_t)140,
                                   active ? (uint8_t)220 : (uint8_t)140,
                                   active ? (uint8_t)228 : (uint8_t)148,
                                   active ? (uint8_t)220 : (uint8_t)140};
-                float ly = b.y + (b.height - TextHelper::lineHeight()) * 0.5f;
-                TextHelper::pushText(buf, tx + (tabW - lw) * 0.5f, ly, label, lc);
+                float ly = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
+                JTextHelper::pushText(buf, tx + (tabW - lw) * 0.5f, ly, label, lc);
             } else {
                 uint8_t lc[4] = {active ? (uint8_t)220 : (uint8_t)140,
                                   active ? (uint8_t)220 : (uint8_t)140,
@@ -2084,8 +2084,8 @@ public:
         }
     }
 
-    AISemanticNode getSemanticNode() const override {
-        return {"TabBar", "", std::to_string(m_activeIndex), true};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JTabBar", "", std::to_string(m_activeIndex), true};
     }
     bool executeSemanticAction(const std::string& a) override {
         if (a.rfind("select_tab:", 0) == 0) { try { setActiveTab(std::stoi(a.substr(11))); return true; } catch (...) {} }
@@ -2097,7 +2097,7 @@ private:
         auto& l = m_graph.getLayout(m_nodeId);
         float totalTextW = 0.0f;
         for (const auto& tab : m_tabs) {
-            float lw = TextHelper::hasAtlas() ? TextHelper::measureWidth(tr(tab)) : 50.0f;
+            float lw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(tr(tab)) : 50.0f;
             totalTextW += lw + 24.0f;
         }
         l.minWidth = totalTextW + 8.0f;
@@ -2117,8 +2117,8 @@ private:
         m_graph.invalidateNode(m_nodeId, DirtySelf);
         _updateMinSize();
 
-        // Build TornTabState with a re-attach closure bound to this TabBar
-        TornTabState state;
+        // Build JTornTabState with a re-attach closure bound to this JTabBar
+        JTornTabState state;
         state.title       = title;
         state.originIndex = idx;
         state.contentNode = content;
@@ -2130,7 +2130,7 @@ private:
         onTabTorn.emit(idx, content);
     }
 
-    struct DragState {
+    struct JDragState {
         int   pressedIndex{-1};
         float pressX{0}, pressY{0};
         float curX{0},   curY{0};
@@ -2142,29 +2142,29 @@ private:
     std::vector<NodeId>      m_contentNodes;
     int    m_activeIndex{-1};
     bool   m_tearable{false};
-    DragState                m_drag{};
-    std::optional<TornTabState> m_pendingTorn;
+    JDragState                m_drag{};
+    std::optional<JTornTabState> m_pendingTorn;
 };
 
 // ============================================================================
-// GroupBox  (labelled container panel)
+// JGroupBox  (labelled container panel)
 // ============================================================================
 
-class GroupBox : public Widget {
+class JGroupBox : public JWidget {
 public:
-    GroupBox(SceneGraph& graph, const std::string& title,
+    JGroupBox(JSceneGraph& graph, const std::string& title,
              float w = 320.0f, float h = 120.0f)
-        : Widget(graph, "GroupBox: " + title), m_title(title)
+        : JWidget(graph, "JGroupBox: " + title), m_title(title)
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width  = w;
         l.boundingBox.height = h;
         l.padding = 12.0f;
         l.gap     = 8.0f;
-        l.direction = FlexDirection::Column;
+        l.direction = JFlexDirection::Column;
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         // Panel body
         uint8_t panelFill[4] = {22, 22, 25, 180};
@@ -2173,17 +2173,17 @@ public:
         uint8_t titleBg[4] = {36, 36, 40, 200};
         buf.pushRectangle(b.x + 1.0f, b.y + 1.0f, b.width - 2.0f, 24.0f, titleBg, 7.0f);
         // Title text
-        if (TextHelper::hasAtlas()) {
+        if (JTextHelper::hasAtlas()) {
             uint8_t tc[4] = {200, 200, 210, 200};
-            float ty = b.y + (24.0f - TextHelper::lineHeight()) * 0.5f;
-            TextHelper::pushText(buf, b.x + 10.0f, ty, tr(m_title), tc, b.width - 20.0f);
+            float ty = b.y + (24.0f - JTextHelper::lineHeight()) * 0.5f;
+            JTextHelper::pushText(buf, b.x + 10.0f, ty, tr(m_title), tc, b.width - 20.0f);
         } else {
             uint8_t tc[4] = {200, 200, 210, 180};
             buf.pushRectangle(b.x + 10.0f, b.y + 9.0f, b.width * 0.4f, 7.0f, tc, 2.0f);
         }
     }
 
-    AISemanticNode getSemanticNode() const override { return {"GroupBox", m_title, "", false}; }
+    JAISemanticNode getSemanticNode() const override { return {"JGroupBox", m_title, "", false}; }
     bool executeSemanticAction(const std::string&) override { return false; }
 
 private:
@@ -2191,30 +2191,30 @@ private:
 };
 
 // ============================================================================
-// ScrollArea
+// JScrollArea
 // ============================================================================
 
-class ScrollArea : public Widget {
+class JScrollArea : public JWidget {
 public:
-    ScrollArea(SceneGraph& graph, float w = 320.0f, float h = 200.0f)
-        : Widget(graph, "ScrollArea")
+    JScrollArea(JSceneGraph& graph, float w = 320.0f, float h = 200.0f)
+        : JWidget(graph, "JScrollArea")
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width  = w;
         l.boundingBox.height = h;
     }
 
-    void addChildWidget(Widget* w) {
+    void addChildWidget(JWidget* w) {
         m_children.push_back(w);
     }
 
-    const std::vector<Widget*>& children() const { return m_children; }
+    const std::vector<JWidget*>& children() const { return m_children; }
 
     void handleMouseMove(float mx, float my) override {
         if (m_draggingScroll) {
             const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
             float totalH = 12.0f;
-            for (Widget* w : m_children)
+            for (JWidget* w : m_children)
                 totalH += m_graph.getLayoutConst(w->getNodeId()).boundingBox.height + 6.0f;
             float maxScrollY = std::max(0.0f, totalH - b.height);
             float trackH = b.height - 4.0f;
@@ -2229,7 +2229,7 @@ public:
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
             m_hovered = true;
-            for (Widget* w : m_children) {
+            for (JWidget* w : m_children) {
                 if (w->isVisible()) w->handleMouseMove(mx, my);
             }
         } else {
@@ -2247,7 +2247,7 @@ public:
                 m_dragStartY = my;
                 m_dragStartScrollY = m_scrollY;
             } else {
-                for (Widget* w : m_children) {
+                for (JWidget* w : m_children) {
                     if (w->isVisible()) w->handleMousePress(mx, my);
                 }
             }
@@ -2256,7 +2256,7 @@ public:
 
     void handleMouseRelease(float mx, float my) override {
         m_draggingScroll = false;
-        for (Widget* w : m_children) {
+        for (JWidget* w : m_children) {
             if (w->isVisible()) w->handleMouseRelease(mx, my);
         }
     }
@@ -2265,7 +2265,7 @@ public:
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
             bool consumed = false;
-            for (Widget* w : m_children) {
+            for (JWidget* w : m_children) {
                 if (w->isVisible()) {
                     if (w->handleScroll(mx, my, wheel)) {
                         consumed = true;
@@ -2275,7 +2275,7 @@ public:
             if (consumed) return true;
 
             float totalH = 12.0f;
-            for (Widget* w : m_children) {
+            for (JWidget* w : m_children) {
                 totalH += m_graph.getLayoutConst(w->getNodeId()).boundingBox.height + 6.0f;
             }
             float maxScrollY = std::max(0.0f, totalH - b.height);
@@ -2286,7 +2286,7 @@ public:
         return false;
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         
         // Background
@@ -2300,7 +2300,7 @@ public:
         float innerW = b.width - 16.0f;
         float totalH = 12.0f;
 
-        for (Widget* w : m_children) {
+        for (JWidget* w : m_children) {
             auto& wl = m_graph.getLayout(w->getNodeId());
             wl.boundingBox.x = b.x + 8.0f;
             wl.boundingBox.y = curY;
@@ -2314,7 +2314,7 @@ public:
         m_scrollY = std::clamp(m_scrollY, 0.0f, maxScrollY);
 
         curY = b.y + 6.0f - m_scrollY;
-        for (Widget* w : m_children) {
+        for (JWidget* w : m_children) {
             auto& wl = m_graph.getLayout(w->getNodeId());
             wl.boundingBox.y = curY;
             curY += wl.boundingBox.height + 6.0f;
@@ -2322,7 +2322,7 @@ public:
 
         // Render with clip scissor
         buf.pushClip(b.x + 1.0f, b.y + 1.0f, b.width - 13.0f, b.height - 2.0f);
-        for (Widget* w : m_children) {
+        for (JWidget* w : m_children) {
             const auto& wb = m_graph.getLayoutConst(w->getNodeId()).boundingBox;
             if (wb.y + wb.height >= b.y && wb.y <= b.y + b.height) {
                 if (w->isVisible()) {
@@ -2355,7 +2355,7 @@ public:
         }
     }
 
-    AISemanticNode getSemanticNode() const override { return {"ScrollArea", "", "", true}; }
+    JAISemanticNode getSemanticNode() const override { return {"JScrollArea", "", "", true}; }
     bool executeSemanticAction(const std::string& a) override {
         if (a.rfind("scroll_to:", 0) == 0) {
             try {
@@ -2368,7 +2368,7 @@ public:
     }
 
 private:
-    std::vector<Widget*> m_children;
+    std::vector<JWidget*> m_children;
     float   m_scrollY{0.0f};
     bool    m_hovered{false};
     bool    m_draggingScroll{false};
@@ -2377,17 +2377,17 @@ private:
 };
 
 // ============================================================================
-// ListView
+// JListView
 // ============================================================================
 
-class ListView : public Control {
+class JListView : public JControl {
 public:
-    Core::Signal<int> onSelectionChanged;
-    Core::Signal<int> onItemActivated;
+    Core::JSignal<int> onSelectionChanged;
+    Core::JSignal<int> onItemActivated;
 
-    ListView(SceneGraph& graph, std::vector<std::string> items = {},
+    JListView(JSceneGraph& graph, std::vector<std::string> items = {},
              float w = 240.0f, float h = 200.0f)
-        : Control(graph, "ListView"), m_items(std::move(items))
+        : JControl(graph, "JListView"), m_items(std::move(items))
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
@@ -2416,7 +2416,7 @@ public:
     void handleMouseMove(float mx, float my) override {
         if (m_draggingScroll) {
             const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-            float itemH = TextHelper::hasAtlas() ? TextHelper::lineHeight() + 8.0f : 20.0f;
+            float itemH = JTextHelper::hasAtlas() ? JTextHelper::lineHeight() + 8.0f : 20.0f;
             float totalH = m_items.size() * itemH + 8.0f;
             float maxScrollY = std::max(0.0f, totalH - b.height);
             float trackH = b.height - 4.0f;
@@ -2428,7 +2428,7 @@ public:
             }
             return;
         }
-        Control::handleMouseMove(mx, my);
+        JControl::handleMouseMove(mx, my);
     }
 
     void handleMousePress(float mx, float my) override {
@@ -2442,7 +2442,7 @@ public:
                 m_dragStartY = my;
                 m_dragStartScrollY = m_scrollY;
             } else {
-                float itemH = TextHelper::hasAtlas() ? TextHelper::lineHeight() + 8.0f : 20.0f;
+                float itemH = JTextHelper::hasAtlas() ? JTextHelper::lineHeight() + 8.0f : 20.0f;
                 float relativeY = my - b.y + m_scrollY - 4.0f;
                 int clickedIndex = static_cast<int>(relativeY / itemH);
                 if (clickedIndex >= 0 && clickedIndex < (int)m_items.size()) {
@@ -2455,13 +2455,13 @@ public:
 
     void handleMouseRelease(float mx, float my) override {
         m_draggingScroll = false;
-        Control::handleMouseRelease(mx, my);
+        JControl::handleMouseRelease(mx, my);
     }
 
     bool handleScroll(float mx, float my, float wheel) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
-            float itemH = TextHelper::hasAtlas() ? TextHelper::lineHeight() + 8.0f : 20.0f;
+            float itemH = JTextHelper::hasAtlas() ? JTextHelper::lineHeight() + 8.0f : 20.0f;
             float totalH = m_items.size() * itemH + 8.0f;
             float maxScrollY = std::max(0.0f, totalH - b.height);
             m_scrollY = std::clamp(m_scrollY - wheel * 30.0f, 0.0f, maxScrollY);
@@ -2471,9 +2471,9 @@ public:
         return false;
     }
 
-    bool handleKeyEvent(const KeyEvent& ke) override {
+    bool handleKeyEvent(const JKeyEvent& ke) override {
         if (!ke.pressed || m_items.empty()) return false;
-        using K = KeyEvent::Key;
+        using K = JKeyEvent::JKey;
 
         if (ke.key == K::Down) {
             setSelectedIndex(m_selectedIndex + 1);
@@ -2492,7 +2492,7 @@ public:
         return false;
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         bool focused = isFocused();
 
@@ -2503,7 +2503,7 @@ public:
 
         if (m_items.empty()) return;
 
-        float itemH = TextHelper::hasAtlas() ? TextHelper::lineHeight() + 8.0f : 20.0f;
+        float itemH = JTextHelper::hasAtlas() ? JTextHelper::lineHeight() + 8.0f : 20.0f;
         float totalH = m_items.size() * itemH + 8.0f;
         float maxScrollY = std::max(0.0f, totalH - b.height);
         m_scrollY = std::clamp(m_scrollY, 0.0f, maxScrollY);
@@ -2523,12 +2523,12 @@ public:
                 buf.pushRectangle(b.x + 4.0f, itemY, itemW - 4.0f, itemH - 2.0f, Colors::Accent, 3.0f);
             }
 
-            if (TextHelper::hasAtlas()) {
+            if (JTextHelper::hasAtlas()) {
                 uint8_t tc[4] = {220, 220, 228, 220};
                 if (i == m_selectedIndex) {
                     tc[0] = 255; tc[1] = 255; tc[2] = 255;
                 }
-                TextHelper::pushText(buf, b.x + 8.0f, itemY + 4.0f, tr(m_items[i]), tc, itemW - 12.0f);
+                JTextHelper::pushText(buf, b.x + 8.0f, itemY + 4.0f, tr(m_items[i]), tc, itemW - 12.0f);
             } else {
                 uint8_t tc[4] = {200, 200, 210, 180};
                 if (i == m_selectedIndex) {
@@ -2561,9 +2561,9 @@ public:
         }
     }
 
-    AISemanticNode getSemanticNode() const override {
+    JAISemanticNode getSemanticNode() const override {
         std::string selectedText = (m_selectedIndex >= 0 && m_selectedIndex < (int)m_items.size()) ? m_items[m_selectedIndex] : "";
-        return {"ListView", std::to_string(m_items.size()) + " items", selectedText, true};
+        return {"JListView", std::to_string(m_items.size()) + " items", selectedText, true};
     }
 
     bool executeSemanticAction(const std::string& a) override {
@@ -2592,7 +2592,7 @@ private:
     void _ensureIndexVisible(int index) {
         if (index < 0 || index >= (int)m_items.size()) return;
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        float itemH = TextHelper::hasAtlas() ? TextHelper::lineHeight() + 8.0f : 20.0f;
+        float itemH = JTextHelper::hasAtlas() ? JTextHelper::lineHeight() + 8.0f : 20.0f;
         float itemY = index * itemH;
         if (itemY < m_scrollY) {
             m_scrollY = itemY;
@@ -2611,20 +2611,20 @@ private:
     float                    m_dragStartScrollY{0.0f};
 };
 
-struct TreeViewNode {
+struct JTreeViewNode {
     std::string label;
     bool expanded{false};
     bool selected{false};
-    std::vector<TreeViewNode> children;
+    std::vector<JTreeViewNode> children;
 };
 
-class TreeView : public Control {
+class JTreeView : public JControl {
 public:
-    Core::Signal<TreeViewNode*> onSelectionChanged;
-    Core::Signal<TreeViewNode*> onNodeActivated;
+    Core::JSignal<JTreeViewNode*> onSelectionChanged;
+    Core::JSignal<JTreeViewNode*> onNodeActivated;
 
-    TreeView(SceneGraph& graph, float w = 240.0f, float h = 300.0f)
-        : Control(graph, "TreeView"), m_root{"Root", true, false, {}}
+    JTreeView(JSceneGraph& graph, float w = 240.0f, float h = 300.0f)
+        : JControl(graph, "JTreeView"), m_root{"Root", true, false, {}}
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
@@ -2632,10 +2632,10 @@ public:
         l.minHeight = 40.0f;
     }
 
-    TreeViewNode& root() { return m_root; }
-    const TreeViewNode& root() const { return m_root; }
+    JTreeViewNode& root() { return m_root; }
+    const JTreeViewNode& root() const { return m_root; }
 
-    void setRootNode(TreeViewNode rootNode) {
+    void setRootNode(JTreeViewNode rootNode) {
         m_root = std::move(rootNode);
         m_selectedNode = nullptr;
         m_scrollY = 0.0f;
@@ -2646,17 +2646,17 @@ public:
     void setRowHeight(float h) { m_rowHeight = h; m_graph.invalidateNode(m_nodeId, DirtySelf); }
 
     float getItemHeight() const {
-        return m_rowHeight > 0.0f ? m_rowHeight : (TextHelper::hasAtlas() ? TextHelper::lineHeight() + 8.0f : 22.0f);
+        return m_rowHeight > 0.0f ? m_rowHeight : (JTextHelper::hasAtlas() ? JTextHelper::lineHeight() + 8.0f : 22.0f);
     }
 
-    struct FlatNode {
-        TreeViewNode* node;
+    struct JFlatNode {
+        JTreeViewNode* node;
         int depth;
         size_t flatIndex;
     };
 
-    std::vector<FlatNode> getFlatNodes() {
-        std::vector<FlatNode> flat;
+    std::vector<JFlatNode> getFlatNodes() {
+        std::vector<JFlatNode> flat;
         for (auto& child : m_root.children) {
             _flatten(child, 0, flat);
         }
@@ -2696,7 +2696,7 @@ public:
 
     void handleMouseRelease(float mx, float my) override {
         m_draggingScroll = false;
-        Control::handleMouseRelease(mx, my);
+        JControl::handleMouseRelease(mx, my);
     }
 
     void handleMouseMove(float mx, float my) override {
@@ -2715,7 +2715,7 @@ public:
             }
             return;
         }
-        Control::handleMouseMove(mx, my);
+        JControl::handleMouseMove(mx, my);
     }
 
     bool handleScroll(float mx, float my, float wheel) override {
@@ -2732,7 +2732,7 @@ public:
         return false;
     }
 
-    bool handleKeyEvent(const KeyEvent& ke) override {
+    bool handleKeyEvent(const JKeyEvent& ke) override {
         if (!ke.pressed) return false;
         auto flatNodes = getFlatNodes();
         if (flatNodes.empty()) return false;
@@ -2747,7 +2747,7 @@ public:
             }
         }
 
-        using K = KeyEvent::Key;
+        using K = JKeyEvent::JKey;
         if (ke.key == K::Down) {
             int nextIdx = (selIdx == -1) ? 0 : std::clamp(selIdx + 1, 0, (int)flatNodes.size() - 1);
             _selectNode(flatNodes[nextIdx].node);
@@ -2781,7 +2781,7 @@ public:
                     m_graph.invalidateNode(m_nodeId, DirtySelf);
                     return true;
                 } else {
-                    TreeViewNode* parent = _findParent(&m_root, n);
+                    JTreeViewNode* parent = _findParent(&m_root, n);
                     if (parent && parent != &m_root) {
                         _selectNode(parent);
                         for (int i = 0; i < (int)flatNodes.size(); ++i) {
@@ -2804,7 +2804,7 @@ public:
         return false;
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         bool focused = isFocused();
 
@@ -2843,7 +2843,7 @@ public:
             }
 
             float textX = b.x + indent + 16.0f;
-            float ty = itemY + (itemH - (TextHelper::hasAtlas() ? TextHelper::lineHeight() : 8.0f)) * 0.5f;
+            float ty = itemY + (itemH - (JTextHelper::hasAtlas() ? JTextHelper::lineHeight() : 8.0f)) * 0.5f;
             drawNodeText(buf, flat.node, textX, ty, b.width - indent - 30.0f);
         }
 
@@ -2860,9 +2860,9 @@ public:
         }
     }
 
-    AISemanticNode getSemanticNode() const override {
+    JAISemanticNode getSemanticNode() const override {
         std::string val = m_selectedNode ? m_selectedNode->label : "";
-        return {"TreeView", "", val, true};
+        return {"JTreeView", "", val, true};
     }
 
     bool executeSemanticAction(const std::string& a) override {
@@ -2879,15 +2879,15 @@ public:
         return false;
     }
 
-    TreeViewNode* selectedNode() const { return m_selectedNode; }
+    JTreeViewNode* selectedNode() const { return m_selectedNode; }
 
 protected:
-    virtual void drawNodeBackground(PrimitiveBuffer& buf, TreeViewNode* node, const Rect& bounds) {
+    virtual void drawNodeBackground(JPrimitiveBuffer& buf, JTreeViewNode* node, const JRect& bounds) {
         uint8_t selBg[4] = {10, 132, 255, 60};
         buf.pushRectangle(bounds.x, bounds.y, bounds.width, bounds.height, selBg, 4.0f);
     }
 
-    virtual void drawNodeChevron(PrimitiveBuffer& buf, TreeViewNode* node, float ax, float ay, float size, bool expanded) {
+    virtual void drawNodeChevron(JPrimitiveBuffer& buf, JTreeViewNode* node, float ax, float ay, float size, bool expanded) {
         uint8_t arrowColor[4] = {180, 180, 190, 220};
         if (expanded) {
             buf.pushRectangle(ax - 4.0f, ay - 2.0f, 5.0f, 2.0f, arrowColor, 1.0f);
@@ -2898,10 +2898,10 @@ protected:
         }
     }
 
-    virtual void drawNodeText(PrimitiveBuffer& buf, TreeViewNode* node, float tx, float ty, float maxW) {
-        if (TextHelper::hasAtlas()) {
+    virtual void drawNodeText(JPrimitiveBuffer& buf, JTreeViewNode* node, float tx, float ty, float maxW) {
+        if (JTextHelper::hasAtlas()) {
             uint8_t tc[4] = {210, 210, 220, 220};
-            TextHelper::pushText(buf, tx, ty, tr(node->label), tc, maxW);
+            JTextHelper::pushText(buf, tx, ty, tr(node->label), tc, maxW);
         } else {
             uint8_t tc[4] = {200, 200, 210, 180};
             buf.pushRectangle(tx, ty + 2.0f, 60.0f, 8.0f, tc, 2.0f);
@@ -2909,7 +2909,7 @@ protected:
     }
 
 private:
-    void _flatten(TreeViewNode& node, int depth, std::vector<FlatNode>& result) {
+    void _flatten(JTreeViewNode& node, int depth, std::vector<JFlatNode>& result) {
         result.push_back({&node, depth, result.size()});
         if (node.expanded) {
             for (auto& child : node.children) {
@@ -2918,7 +2918,7 @@ private:
         }
     }
 
-    void _selectNode(TreeViewNode* node) {
+    void _selectNode(JTreeViewNode* node) {
         if (m_selectedNode != node) {
             if (m_selectedNode) m_selectedNode->selected = false;
             m_selectedNode = node;
@@ -2928,7 +2928,7 @@ private:
         }
     }
 
-    TreeViewNode* _findParent(TreeViewNode* current, TreeViewNode* target) {
+    JTreeViewNode* _findParent(JTreeViewNode* current, JTreeViewNode* target) {
         for (auto& child : current->children) {
             if (&child == target) return current;
             auto* p = _findParent(&child, target);
@@ -2952,8 +2952,8 @@ private:
         }
     }
 
-    TreeViewNode  m_root;
-    TreeViewNode* m_selectedNode{nullptr};
+    JTreeViewNode  m_root;
+    JTreeViewNode* m_selectedNode{nullptr};
     float         m_scrollY{0.0f};
     float         m_rowHeight{-1.0f};
     bool          m_draggingScroll{false};
@@ -2961,13 +2961,13 @@ private:
     float         m_dragStartScrollY{0.0f};
 };
 
-class DataGrid : public Control {
+class JDataGrid : public JControl {
 public:
-    Core::Signal<int> onSelectionChanged;
-    Core::Signal<int> onRowActivated;
+    Core::JSignal<int> onSelectionChanged;
+    Core::JSignal<int> onRowActivated;
 
-    DataGrid(SceneGraph& graph, std::vector<std::string> headers = {}, float w = 400.0f, float h = 250.0f)
-        : Control(graph, "DataGrid"), m_headers(std::move(headers))
+    JDataGrid(JSceneGraph& graph, std::vector<std::string> headers = {}, float w = 400.0f, float h = 250.0f)
+        : JControl(graph, "JDataGrid"), m_headers(std::move(headers))
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = h;
@@ -3063,7 +3063,7 @@ public:
     void handleMouseRelease(float mx, float my) override {
         m_draggingVScroll = false;
         m_draggingHScroll = false;
-        Control::handleMouseRelease(mx, my);
+        JControl::handleMouseRelease(mx, my);
     }
 
     void handleMouseMove(float mx, float my) override {
@@ -3099,7 +3099,7 @@ public:
             }
             return;
         }
-        Control::handleMouseMove(mx, my);
+        JControl::handleMouseMove(mx, my);
     }
 
     bool handleScroll(float mx, float my, float wheel) override {
@@ -3117,9 +3117,9 @@ public:
         return false;
     }
 
-    bool handleKeyEvent(const KeyEvent& ke) override {
+    bool handleKeyEvent(const JKeyEvent& ke) override {
         if (!ke.pressed || m_rows.empty()) return false;
-        using K = KeyEvent::Key;
+        using K = JKeyEvent::JKey;
 
         if (ke.key == K::Down) {
             setSelectedIndex(m_selectedIndex + 1);
@@ -3152,14 +3152,14 @@ public:
         return false;
     }
 
-    bool hasVScroll(const Rect& b) const {
+    bool hasVScroll(const JRect& b) const {
         float headerH = m_headerHeight;
         float rowH = m_rowHeight;
         float totalH = m_rows.size() * rowH + headerH;
         return totalH > b.height;
     }
 
-    bool hasHScroll(const Rect& b) const {
+    bool hasHScroll(const JRect& b) const {
         float totalColW = 0.0f;
         for (int i = 0; i < (int)m_headers.size(); ++i) {
             totalColW += columnWidth(i, b.width);
@@ -3167,7 +3167,7 @@ public:
         return totalColW > b.width;
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         bool focused = isFocused();
 
@@ -3270,7 +3270,7 @@ public:
         }
     }
 
-    AISemanticNode getSemanticNode() const override {
+    JAISemanticNode getSemanticNode() const override {
         std::string val = "";
         if (m_selectedIndex >= 0 && m_selectedIndex < (int)m_rows.size()) {
             for (const auto& cell : m_rows[m_selectedIndex]) {
@@ -3278,7 +3278,7 @@ public:
                 val += cell;
             }
         }
-        return {"DataGrid", "", val, true};
+        return {"JDataGrid", "", val, true};
     }
 
     bool executeSemanticAction(const std::string& a) override {
@@ -3294,19 +3294,19 @@ public:
     }
 
 protected:
-    virtual void drawHeaderCell(PrimitiveBuffer& buf, int colIdx, const Rect& bounds, const std::string& title) {
-        if (TextHelper::hasAtlas()) {
+    virtual void drawHeaderCell(JPrimitiveBuffer& buf, int colIdx, const JRect& bounds, const std::string& title) {
+        if (JTextHelper::hasAtlas()) {
             uint8_t tc[4] = {230, 230, 240, 255};
-            float ty = bounds.y + (bounds.height - TextHelper::lineHeight()) * 0.5f;
-            TextHelper::pushText(buf, bounds.x + m_cellPadding, ty, tr(title), tc, bounds.width - m_cellPadding * 2.0f);
+            float ty = bounds.y + (bounds.height - JTextHelper::lineHeight()) * 0.5f;
+            JTextHelper::pushText(buf, bounds.x + m_cellPadding, ty, tr(title), tc, bounds.width - m_cellPadding * 2.0f);
         }
     }
 
-    virtual void drawRowCell(PrimitiveBuffer& buf, int rowIdx, int colIdx, const Rect& bounds, const std::string& val, bool selected) {
-        if (TextHelper::hasAtlas()) {
+    virtual void drawRowCell(JPrimitiveBuffer& buf, int rowIdx, int colIdx, const JRect& bounds, const std::string& val, bool selected) {
+        if (JTextHelper::hasAtlas()) {
             uint8_t tc[4] = {200, 200, 210, 220};
-            float ty = bounds.y + (bounds.height - TextHelper::lineHeight()) * 0.5f;
-            TextHelper::pushText(buf, bounds.x + m_cellPadding, ty, tr(val), tc, bounds.width - m_cellPadding * 2.0f);
+            float ty = bounds.y + (bounds.height - JTextHelper::lineHeight()) * 0.5f;
+            JTextHelper::pushText(buf, bounds.x + m_cellPadding, ty, tr(val), tc, bounds.width - m_cellPadding * 2.0f);
         }
     }
 

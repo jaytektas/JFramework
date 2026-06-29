@@ -21,15 +21,15 @@ namespace { inline constexpr auto& LogWidget = Genesis::Log::Widgets; }
 namespace Genesis {
 
 /**
- * GObject — base lifecycle and slot-tracking.
+ * JObject — base lifecycle and slot-tracking.
  */
-class GObject : public Core::SlotTracker {
+class JObject : public Core::JSlotTracker {
 public:
-    explicit GObject(std::string name = "") : m_objectName(std::move(name)) {}
-    virtual ~GObject() = default;
+    explicit JObject(std::string name = "") : m_objectName(std::move(name)) {}
+    virtual ~JObject() = default;
 
-    GObject(const GObject&) = delete;
-    GObject& operator=(const GObject&) = delete;
+    JObject(const JObject&) = delete;
+    JObject& operator=(const JObject&) = delete;
 
     const std::string& objectName() const noexcept { return m_objectName; }
 
@@ -38,13 +38,13 @@ private:
 };
 
 // ============================================================================
-// GApplication — coordinates the event loop, SceneGraph, AI Control Bus,
-//                MainThreadDispatcher drain, and full semantic publishing.
+// JGuiApplication — coordinates the event loop, JSceneGraph, AI JControl Bus,
+//                JMainThreadDispatcher drain, and full semantic publishing.
 // ============================================================================
-class GApplication : public GObject, public Core::Application {
+class JGuiApplication : public JObject, public Core::JApplication {
 public:
-    GApplication() : GObject("GApplication") {
-        assert(s_instance == nullptr && "Only one GApplication may exist.");
+    JGuiApplication() : JObject("JGuiApplication") {
+        assert(s_instance == nullptr && "Only one JGuiApplication may exist.");
         s_instance = this;
 
         // Prefer cross-process shared-memory so an external AI agent can attach.
@@ -53,7 +53,7 @@ public:
             m_aiBus.attach(&m_fallbackPool);
 
         // Wire every widget interaction onto the outbound AI signal bus.
-        AiBusHook::install([this](uint32_t nodeId, const char* sig, const char* val) {
+        JAiBusHook::install([this](uint32_t nodeId, const char* sig, const char* val) {
             m_aiBus.publishSignal(nodeId, sig, val);
         });
 
@@ -61,26 +61,26 @@ public:
         // loop drains the dispatcher and calls it, leaving onFrameUpdate for the user.
     }
 
-    ~GApplication() {
-        AiBusHook::install(nullptr);
+    ~JGuiApplication() {
+        JAiBusHook::install(nullptr);
         s_instance = nullptr;
     }
 
-    static GApplication* instance() noexcept { return s_instance; }
-    SceneGraph&    sceneGraph()  noexcept { return m_sceneGraph; }
-    AiControlBus&  aiBus()       noexcept { return m_aiBus; }
+    static JGuiApplication* instance() noexcept { return s_instance; }
+    JSceneGraph&    sceneGraph()  noexcept { return m_sceneGraph; }
+    JAiControlBus&  aiBus()       noexcept { return m_aiBus; }
 
     void publishSignal(uint32_t nodeId, const char* signal, const char* value) {
         m_aiBus.publishSignal(nodeId, signal, value);
     }
 
     // ---- Rich semantic snapshot ------------------------------------------
-    // Builds a full AiNodeDescriptor array from Widget::s_activeWidgets and
+    // Builds a full AiNodeDescriptor array from JWidget::s_activeWidgets and
     // publishes it over the AI control bus (seqlock-protected, readable from
     // any process that has mapped the shared segment).
     void publishSemanticSnapshot() {
         m_descriptors.clear();
-        for (auto* w : Widget::s_activeWidgets) {
+        for (auto* w : JWidget::s_activeWidgets) {
             if (!w) continue;
             auto node = w->getSemanticNode();
             auto bb   = w->getBoundingBox();
@@ -97,9 +97,9 @@ public:
             if (w->isEnabled())                         d.stateFlags |= AiEnabled;
             if (w->isVisible())                         d.stateFlags |= AiVisible;
             if (w->isFocused())                         d.stateFlags |= AiFocused;
-            if (w->getState() == WidgetState::Pressed)  d.stateFlags |= AiPressed;
+            if (w->getState() == JWidgetState::Pressed)  d.stateFlags |= AiPressed;
             if (node.interactable)                      d.stateFlags |= AiInteractable;
-            // Infer AiChecked from semantic value (CheckBox, ToggleButton, RadioButton)
+            // Infer AiChecked from semantic value (JCheckBox, JToggleButton, JRadioButton)
             if (node.value == "true" || node.value == "checked")
                 d.stateFlags |= AiChecked;
 
@@ -109,8 +109,8 @@ public:
 
             m_descriptors.push_back(d);
         }
-        // Also publish floating DockWidgets (live outside the SceneGraph layout tree)
-        for (auto* dock : DockWidget::s_activeDocks) {
+        // Also publish floating DockWidgets (live outside the JSceneGraph layout tree)
+        for (auto* dock : JDockWidget::s_activeDocks) {
             if (!dock) continue;
             auto node = dock->getSemanticNode();
             AiNodeDescriptor d{};
@@ -132,8 +132,8 @@ public:
                              static_cast<uint32_t>(m_descriptors.size()));
     }
 
-    int exec(std::unique_ptr<Core::PlatformWindow> nativeWindow) {
-        return run(std::move(nativeWindow));   // run() inherited from Core::Application
+    int exec(std::unique_ptr<Core::JPlatformWindow> nativeWindow) {
+        return run(std::move(nativeWindow));   // run() inherited from Core::JApplication
     }
 
 protected:
@@ -154,7 +154,7 @@ private:
         if (!m_aiBus.pollAction(targetId, action, sizeof(action), seq)) return;
 
         int result = -1;  // default: bad target
-        for (auto* w : Widget::s_activeWidgets) {
+        for (auto* w : JWidget::s_activeWidgets) {
             if (!w) continue;
             if (static_cast<uint32_t>(w->getNodeId()) == targetId) {
                 result = w->executeSemanticAction(action) ? 1 : 0;
@@ -164,38 +164,38 @@ private:
         m_aiBus.ackAction(seq, result);
     }
 
-    static GApplication* s_instance;
-    SceneGraph   m_sceneGraph;
-    AiControlBus m_aiBus;
+    static JGuiApplication* s_instance;
+    JSceneGraph   m_sceneGraph;
+    JAiControlBus m_aiBus;
     SharedBusMemory   m_fallbackPool{};
     std::vector<AiNodeDescriptor> m_descriptors;  // reused each frame to avoid alloc
 };
 
-inline GApplication* GApplication::s_instance = nullptr;
+inline JGuiApplication* JGuiApplication::s_instance = nullptr;
 
 // ============================================================================
-// GMainWindow — top-level window. One widget base only: it IS a Widget (the
-// parallel GWidget base is gone). It pulls the shared SceneGraph from the
+// JMainWindow — top-level window. One widget base only: it IS a JWidget (the
+// parallel GWidget base is gone). It pulls the shared JSceneGraph from the
 // application singleton, so a caller still just constructs it by title.
 // ============================================================================
-class GMainWindow : public Widget {
+class JMainWindow : public JWidget {
 public:
-    explicit GMainWindow(std::string title = "Genesis Window")
-        : Widget(GApplication::instance()->sceneGraph(), std::move(title))
+    explicit JMainWindow(std::string title = "Genesis JWindow")
+        : JWidget(JGuiApplication::instance()->sceneGraph(), std::move(title))
     {
-        m_graph.getLayout(m_nodeId).direction      = FlexDirection::Column;
-        m_graph.getLayout(m_nodeId).justifyContent = JustifyContent::FlexStart;
+        m_graph.getLayout(m_nodeId).direction      = JFlexDirection::Column;
+        m_graph.getLayout(m_nodeId).justifyContent = JJustifyContent::FlexStart;
     }
 
     // A window is a container; its children paint themselves.
-    void populateRenderPrimitives(PrimitiveBuffer&) override {}
+    void populateRenderPrimitives(JPrimitiveBuffer&) override {}
 
     void show() {
         qCInfo(LogWidget) << "Showing main window: " << m_debugName << std::endl;
-        Constraints constraints{800.0f, 1920.0f, 600.0f, 1080.0f};
+        JConstraints constraints{800.0f, 1920.0f, 600.0f, 1080.0f};
         m_graph.computeLayout(m_nodeId, constraints);
         // Publish initial snapshot immediately (before the first frame fires).
-        GApplication::instance()->publishSemanticSnapshot();
+        JGuiApplication::instance()->publishSemanticSnapshot();
     }
 };
 

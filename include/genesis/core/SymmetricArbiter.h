@@ -10,7 +10,7 @@ namespace Genesis {
 /**
  * @brief Identifies the origin of an input event.
  */
-enum class InputOrigin : uint8_t {
+enum class JInputOrigin : uint8_t {
     Human,
     Agent
 };
@@ -19,35 +19,35 @@ enum class InputOrigin : uint8_t {
  * @brief The Symmetric Arbiter merges Human and Agentic input streams.
  * It resolves collisions and manages independent focus for both sides.
  */
-class SymmetricArbiter {
+class JSymmetricArbiter {
 public:
-    SymmetricArbiter(Core::Application& app, AiControlBus& aiBus)
+    JSymmetricArbiter(Core::JApplication& app, JAiControlBus& aiBus)
         : m_app(app), m_aiBus(aiBus) {}
 
     /**
      * @brief Pushes a human input event into the arbiter.
      */
-    void pushHumanInput(const Core::InputEvent& event) {
+    void pushHumanInput(const Core::JInputEvent& event) {
         // High priority - bypass queues for immediate tactile response
         m_humanFocus = resolveNodeAt(event.data.mouse.x, event.data.mouse.y);
-        processEvent(event, InputOrigin::Human);
+        processEvent(event, JInputOrigin::Human);
     }
 
     /**
-     * @brief Polls the AI Control Bus and merges virtual inputs.
+     * @brief Polls the AI JControl Bus and merges virtual inputs.
      */
     void pollAgentInput() {
         AiVirtualInput aiInput;
         if (m_aiBus.pollInboundCommand(aiInput)) {
             m_agentFocus = resolveNodeAt(aiInput.targetX, aiInput.targetY);
             
-            // Map AI command to internal InputEvent
-            Core::InputEvent ie{};
-            ie.type = (aiInput.type == AiVirtualInput::CommandType::MouseClick) 
-                       ? Core::InputEvent::Type::MouseButtonDown 
-                       : Core::InputEvent::Type::KeyDown;
+            // Map AI command to internal JInputEvent
+            Core::JInputEvent ie{};
+            ie.type = (aiInput.type == AiVirtualInput::JCommandType::MouseClick) 
+                       ? Core::JInputEvent::JType::MouseButtonDown 
+                       : Core::JInputEvent::JType::KeyDown;
             
-            processEvent(ie, InputOrigin::Agent);
+            processEvent(ie, JInputOrigin::Agent);
         }
     }
 
@@ -55,7 +55,7 @@ public:
     std::optional<NodeId> getAgentFocus() const { return m_agentFocus; }
 
 private:
-    void processEvent(const Core::InputEvent& event, InputOrigin origin) {
+    void processEvent(const Core::JInputEvent& event, JInputOrigin origin) {
         // Logical Routing:
         // 1. If Origin == Human, target m_humanFocus.
         // 2. If Origin == Agent, target m_agentFocus.
@@ -63,12 +63,12 @@ private:
     }
 
     NodeId resolveNodeAt(float x, float y) {
-        // Performs hit-testing via the global SceneGraph
+        // Performs hit-testing via the global JSceneGraph
         return 0; // Placeholder
     }
 
-    Core::Application& m_app;
-    AiControlBus& m_aiBus;
+    Core::JApplication& m_app;
+    JAiControlBus& m_aiBus;
 
     std::optional<NodeId> m_humanFocus;
     std::optional<NodeId> m_agentFocus;

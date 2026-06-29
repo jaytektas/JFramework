@@ -4,13 +4,13 @@
 
 namespace Genesis {
 
-enum class PlatformWindowStyle : uint8_t { 
+enum class JPlatformWindowStyle : uint8_t { 
     Normal, 
     Borderless, 
     Popup 
 };
 
-enum class PlatformCursor : uint8_t {
+enum class JPlatformCursor : uint8_t {
     Default,
     ResizeLeftRight,
     ResizeUpDown,

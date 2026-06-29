@@ -30,7 +30,7 @@ constexpr uint32_t SharedBusVersion  = 4;          // bump on ABI change
 constexpr char     DefaultBusName[]  = "/genesis_ai_bus";
 
 /**
- * @brief Widget state exposed to the AI side as a bitmask.  Lets an agent reason
+ * @brief JWidget state exposed to the AI side as a bitmask.  Lets an agent reason
  *        about a control ("is it enabled? focused? checked?") without pixels.
  */
 enum AiStateBits : uint32_t {
@@ -54,7 +54,7 @@ struct alignas(16) AiNodeDescriptor {
     float    y{0.0f};
     float    width{0.0f};
     float    height{0.0f};
-    char     role[24]{0};   // "Button", "Slider", "CheckBox", ...
+    char     role[24]{0};   // "JButton", "JSlider", "JCheckBox", ...
     char     name[32]{0};   // label / accessible name
     char     value[24]{0};  // current value ("0.50", "checked", text, ...)
 };
@@ -63,9 +63,9 @@ struct alignas(16) AiNodeDescriptor {
  * @brief Shared Virtual Input Command Buffer (AI -> app).
  */
 struct alignas(16) AiVirtualInput {
-    enum class CommandType : uint32_t { None = 0, MouseClick = 1, TextKey = 2 };
+    enum class JCommandType : uint32_t { None = 0, MouseClick = 1, TextKey = 2 };
 
-    std::atomic<CommandType> type{CommandType::None};
+    std::atomic<JCommandType> type{JCommandType::None};
     float targetX{0.0f};
     float targetY{0.0f};
     uint32_t keyPayload{0};
@@ -126,15 +126,15 @@ inline void aiSetField(char* dst, size_t cap, std::string_view s) {
 }
 
 /**
- * @brief High-performance, lock-free AI Control Bus manager (host side).
+ * @brief High-performance, lock-free AI JControl Bus manager (host side).
  */
-class AiControlBus {
+class JAiControlBus {
 public:
-    AiControlBus() = default;
-    ~AiControlBus() { detach(); }
+    JAiControlBus() = default;
+    ~JAiControlBus() { detach(); }
 
-    AiControlBus(const AiControlBus&) = delete;
-    AiControlBus& operator=(const AiControlBus&) = delete;
+    JAiControlBus(const JAiControlBus&) = delete;
+    JAiControlBus& operator=(const JAiControlBus&) = delete;
 
     /**
      * @brief Create (and own) a named POSIX shared-memory segment for true
@@ -158,7 +158,7 @@ public:
         m_owner  = true;
         std::strncpy(m_name, name, sizeof(m_name) - 1);
         attach(p);
-        qCInfo(LogAiBus) << "AI Control Bus shared segment '" << name << "' created ("
+        qCInfo(LogAiBus) << "AI JControl Bus shared segment '" << name << "' created ("
                          << sizeof(SharedBusMemory) << " bytes)." << std::endl;
         return true;
 #else
@@ -172,7 +172,7 @@ public:
      */
     void attach(void* memorySegment) {
         if (!memorySegment) {
-            qCWarning(LogAiBus) << "Attempted to attach AI Control Bus to a null segment." << std::endl;
+            qCWarning(LogAiBus) << "Attempted to attach AI JControl Bus to a null segment." << std::endl;
             return;
         }
         m_sharedRegion = reinterpret_cast<SharedBusMemory*>(memorySegment);
@@ -185,7 +185,7 @@ public:
         m_sharedRegion->outboundSignal.targetId = 0xFFFFFFFF;
         m_sharedRegion->outboundSignal.signalName[0] = '\0';
         m_sharedRegion->outboundSignal.signalValue[0] = '\0';
-        qCInfo(LogAiBus) << "AI Control Bus attached to memory block successfully." << std::endl;
+        qCInfo(LogAiBus) << "AI JControl Bus attached to memory block successfully." << std::endl;
     }
 
     void detach() {
@@ -216,7 +216,7 @@ public:
     /**
      * @brief Geometry-only telemetry from the scene graph (legacy / minimal path).
      */
-    void updateTelemetry(const class SceneGraph& sceneGraph) {
+    void updateTelemetry(const class JSceneGraph& sceneGraph) {
         if (!m_sharedRegion) return;
         SharedBusMemory& r = *m_sharedRegion;
         size_t count = std::min(static_cast<size_t>(MaxBusNodes), sceneGraph.totalNodes());
@@ -225,7 +225,7 @@ public:
         r.nodeCount = static_cast<uint32_t>(count);
         for (uint32_t i = 0; i < r.nodeCount; ++i) {
             auto& d = r.nodes[i];
-            const auto& lo = const_cast<SceneGraph&>(sceneGraph).getLayout(i);
+            const auto& lo = const_cast<JSceneGraph&>(sceneGraph).getLayout(i);
             d = AiNodeDescriptor{};
             d.id     = i;
             d.x      = lo.boundingBox.x;
@@ -269,7 +269,7 @@ public:
         uint32_t sharedSeq = m_sharedRegion->inboundCommand.sequenceId.load(std::memory_order_acquire);
         if (sharedSeq <= m_localSequenceTracker) return false;
         if (m_sharedRegion->inboundCommand.type.load(std::memory_order_relaxed) ==
-            AiVirtualInput::CommandType::None) return false;
+            AiVirtualInput::JCommandType::None) return false;
 
         outCommand.type.store(m_sharedRegion->inboundCommand.type.load(std::memory_order_relaxed));
         outCommand.targetX    = m_sharedRegion->inboundCommand.targetX;

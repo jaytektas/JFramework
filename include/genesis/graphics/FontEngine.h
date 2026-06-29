@@ -16,7 +16,7 @@
 namespace Genesis {
 
 /** Per-glyph metrics in both pixel space and normalised atlas UV space. */
-struct GlyphInfo {
+struct JGlyphInfo {
     // Atlas UV (0..1)
     float u0, v0, u1, v1;
     // Size in pixels
@@ -27,8 +27,8 @@ struct GlyphInfo {
     float advanceX;
 };
 
-/** CPU-side result from FontEngine::buildAtlas().  Upload to GPU once. */
-struct FontAtlas {
+/** CPU-side result from JFontEngine::buildAtlas().  Upload to GPU once. */
+struct JFontAtlas {
     std::vector<uint8_t> bitmap;      // R8 grayscale, row-major
     uint32_t width  {512};
     uint32_t height {256};
@@ -36,33 +36,33 @@ struct FontAtlas {
     float    ascent{0.0f};
     float    descent{0.0f};
     float    lineHeight{0.0f};
-    std::unordered_map<uint32_t, GlyphInfo> glyphs; // codepoint → info
+    std::unordered_map<uint32_t, JGlyphInfo> glyphs; // codepoint → info
     bool valid{false};
 };
 
 /**
- * @brief FontEngine — loads a TTF, rasterises a glyph atlas via stb_truetype.
+ * @brief JFontEngine — loads a TTF, rasterises a glyph atlas via stb_truetype.
  *
  * Usage:
- *   FontEngine fe;
+ *   JFontEngine fe;
  *   fe.loadFromFile("/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf");
  *   auto atlas = fe.buildAtlas(14.0f);   // bake at 14 px
  *   // upload atlas.bitmap to GPU as R8 texture, then call measureText / layout
  */
-class FontEngine {
+class JFontEngine {
 public:
-    FontEngine()  = default;
-    ~FontEngine() = default;
+    JFontEngine()  = default;
+    ~JFontEngine() = default;
 
-    FontEngine(const FontEngine&)            = delete;
-    FontEngine& operator=(const FontEngine&) = delete;
+    JFontEngine(const JFontEngine&)            = delete;
+    JFontEngine& operator=(const JFontEngine&) = delete;
 
     // ---- Loading ----
 
     bool loadFromFile(const std::string& path) {
         std::ifstream f(path, std::ios::binary | std::ios::ate);
         if (!f.is_open()) {
-            qCWarning(Genesis::Log::Graphics) << "FontEngine: cannot open " << path << "\n";
+            qCWarning(Genesis::Log::Graphics) << "JFontEngine: cannot open " << path << "\n";
             return false;
         }
         auto sz = static_cast<size_t>(f.tellg());
@@ -72,13 +72,13 @@ public:
 
         int offset = stbtt_GetFontOffsetForIndex(m_fontData.data(), 0);
         if (!stbtt_InitFont(&m_info, m_fontData.data(), offset)) {
-            qCWarning(Genesis::Log::Graphics) << "FontEngine: stbtt_InitFont failed for " << path << "\n";
+            qCWarning(Genesis::Log::Graphics) << "JFontEngine: stbtt_InitFont failed for " << path << "\n";
             m_fontData.clear();
             return false;
         }
         m_loaded = true;
         m_path   = path;
-        qCInfo(Genesis::Log::Graphics) << "FontEngine: loaded " << path << "\n";
+        qCInfo(Genesis::Log::Graphics) << "JFontEngine: loaded " << path << "\n";
         return true;
     }
 
@@ -100,7 +100,7 @@ public:
         };
         for (const char** p = kCandidates; *p; ++p)
             if (loadFromFile(*p)) return true;
-        qCWarning(Genesis::Log::Graphics) << "FontEngine: no system font found\n";
+        qCWarning(Genesis::Log::Graphics) << "JFontEngine: no system font found\n";
         return false;
     }
 
@@ -113,8 +113,8 @@ public:
      * Rasterise all printable ASCII (32-126) + Latin-1 Supplement (160-255)
      * into a tightly-packed R8 atlas.  Call once per desired pixel size.
      */
-    FontAtlas buildAtlas(float pixelSize, uint32_t atlasW = 512, uint32_t atlasH = 256) const {
-        FontAtlas atlas;
+    JFontAtlas buildAtlas(float pixelSize, uint32_t atlasW = 512, uint32_t atlasH = 256) const {
+        JFontAtlas atlas;
         if (!m_loaded) return atlas;
 
         atlas.width     = atlasW;
@@ -142,7 +142,7 @@ public:
                     // Whitespace: no pixels, but we still need the advance width
                     int adv, lsb;
                     stbtt_GetCodepointHMetrics(&m_info, static_cast<int>(cp), &adv, &lsb);
-                    GlyphInfo gi{};
+                    JGlyphInfo gi{};
                     gi.advanceX = adv * scale;
                     atlas.glyphs[cp] = gi;
                     continue;
@@ -156,7 +156,7 @@ public:
                     std::memcpy(&atlas.bitmap[(penY + row) * atlasW + penX],
                                 bmp + row * w, static_cast<size_t>(w));
 
-                GlyphInfo gi{};
+                JGlyphInfo gi{};
                 gi.u0 = static_cast<float>(penX)   / atlasW;
                 gi.v0 = static_cast<float>(penY)   / atlasH;
                 gi.u1 = static_cast<float>(penX+w) / atlasW;
@@ -182,7 +182,7 @@ public:
         packRange(0x2018, 0x201F); // typographic quotes
 
         atlas.valid = true;
-        qCInfo(Genesis::Log::Graphics) << "FontEngine: atlas " << atlasW << "x" << atlasH
+        qCInfo(Genesis::Log::Graphics) << "JFontEngine: atlas " << atlasW << "x" << atlasH
                                         << " at " << pixelSize << "px, "
                                         << atlas.glyphs.size() << " glyphs\n";
         return atlas;
@@ -191,7 +191,7 @@ public:
     // ---- Text metrics ----
 
     /** Measure rendered pixel width of a UTF-8 string using the given atlas. */
-    float measureWidth(const std::string& text, const FontAtlas& atlas) const {
+    float measureWidth(const std::string& text, const JFontAtlas& atlas) const {
         float x = 0.0f;
         for (unsigned char c : text) {
             auto it = atlas.glyphs.find(c);

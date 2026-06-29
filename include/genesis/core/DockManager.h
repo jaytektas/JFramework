@@ -4,9 +4,9 @@
 // DockManager — the dock zone management system for Genesis.
 //
 // The dock layout is a TREE of DockNodes stored in a flat arena inside
-// DockHost.  Every node is either a SplitNode (divides space between N
+// JDockHost.  Every node is either a SplitNode (divides space between N
 // children along H or V with per-child weights) or a TabLeaf (holds 1..N
-// DockWidget pointers as a tab group).
+// JDockWidget pointers as a tab group).
 //
 // Named zones (Left/Right/Top/Bottom/Center) are just labels on top-level
 // SplitNode children — there is no special "zone" type; the tree nests
@@ -35,32 +35,32 @@ namespace Genesis {
 // Public enums / value types
 // ----------------------------------------------------------------------------
 
-enum class SplitDir : uint8_t { Horizontal, Vertical };
+enum class JSplitDir : uint8_t { Horizontal, Vertical };
 
-enum class TabBarEdge : uint8_t { Top, Bottom, Left, Right };
+enum class JTabBarEdge : uint8_t { Top, Bottom, Left, Right };
 
 // Drop placement relative to a node.
-enum class DropPos : uint8_t {
+enum class JDropPos : uint8_t {
     Center,                       // tabify with the target leaf
     Left, Right, Top, Bottom,     // split the target, new dock on that side
     SplitBefore, SplitAfter       // insert before/after in parent split
 };
 
-struct DockNodeId {
+struct JDockNodeId {
     uint32_t v{UINT32_MAX};
     bool valid() const { return v != UINT32_MAX; }
-    bool operator==(const DockNodeId& o) const { return v == o.v; }
-    bool operator!=(const DockNodeId& o) const { return v != o.v; }
+    bool operator==(const JDockNodeId& o) const { return v == o.v; }
+    bool operator!=(const JDockNodeId& o) const { return v != o.v; }
 };
-static constexpr DockNodeId InvalidDockNodeId{};
+static constexpr JDockNodeId InvalidDockNodeId{};
 
-struct DockConstraints {
+struct JDockConstraints {
     float minW{48.f}, minH{48.f};
     float maxW{1e9f}, maxH{1e9f};
     float preferredW{0.f}, preferredH{0.f};  // 0 = no preference
 };
 
-struct DockAffinityRule {
+struct JDockAffinityRule {
     std::vector<std::string> accept;  // empty = accept all tags
     std::vector<std::string> reject;  // these tags always blocked
     bool accepts(std::string_view tag) const {
@@ -72,49 +72,49 @@ struct DockAffinityRule {
 };
 
 // ----------------------------------------------------------------------------
-// DockNode — a node in the tree, stored in DockHost's flat arena.
+// JDockNode — a node in the tree, stored in JDockHost's flat arena.
 // ----------------------------------------------------------------------------
 
-struct DockNode {
-    enum class Type : uint8_t { Split, Leaf } type{Type::Split};
-    DockNodeId id;
-    DockNodeId parent;
+struct JDockNode {
+    enum class JType : uint8_t { Split, Leaf } type{JType::Split};
+    JDockNodeId id;
+    JDockNodeId parent;
 
     // Split fields (type == Split)
-    SplitDir                 splitDir{SplitDir::Horizontal};
-    std::vector<DockNodeId>  children;
+    JSplitDir                 splitDir{JSplitDir::Horizontal};
+    std::vector<JDockNodeId>  children;
     std::vector<float>       weights;   // one per child, sum == 1.0
 
     // Leaf fields (type == Leaf)
-    std::vector<DockWidget*> tabs;      // non-owning
+    std::vector<JDockWidget*> tabs;      // non-owning
     int                      activeTab{0};
-    TabBarEdge               tabBarEdge{TabBarEdge::Top};
-    DockAffinityRule         affinity;
-    DockConstraints          constraints;
+    JTabBarEdge               tabBarEdge{JTabBarEdge::Top};
+    JDockAffinityRule         affinity;
+    JDockConstraints          constraints;
     std::string              label;     // optional zone name
 
-    // Runtime — computed each frame by DockHost::computeLayout
-    Rect                     rect{};
+    // Runtime — computed each frame by JDockHost::computeLayout
+    JRect                     rect{};
 
     // Runtime drag handle rects (SplitNodes: one per gap between children)
-    std::vector<Rect>        handleRects;  // count == children.size() - 1
+    std::vector<JRect>        handleRects;  // count == children.size() - 1
 };
 
 // ============================================================================
-// DockLayoutNode — one node in a serializable snapshot of the dock tree.
+// JDockLayoutNode — one node in a serializable snapshot of the dock tree.
 // ============================================================================
 
-struct DockLayoutNode {
-    enum class Kind : uint8_t { Split, Leaf } kind{Kind::Leaf};
+struct JDockLayoutNode {
+    enum class JKind : uint8_t { Split, Leaf } kind{JKind::Leaf};
 
     // Split
-    SplitDir                    splitDir{SplitDir::Horizontal};
+    JSplitDir                    splitDir{JSplitDir::Horizontal};
     std::vector<float>          weights;
-    std::vector<DockLayoutNode> children;
+    std::vector<JDockLayoutNode> children;
 
     // Leaf
     std::string              label;
-    TabBarEdge               tabBarEdge{TabBarEdge::Top};
+    JTabBarEdge               tabBarEdge{JTabBarEdge::Top};
     int                      activeTab{0};
     std::vector<std::string> tabTitles;
 };
@@ -152,21 +152,21 @@ inline size_t unquoteStr(const char* p, size_t len, std::string& out) {
     return 0; // unterminated
 }
 
-inline const char* edgeStr(TabBarEdge e) noexcept {
+inline const char* edgeStr(JTabBarEdge e) noexcept {
     switch (e) {
-        case TabBarEdge::Top:    return "top";
-        case TabBarEdge::Bottom: return "bottom";
-        case TabBarEdge::Left:   return "left";
-        case TabBarEdge::Right:  return "right";
+        case JTabBarEdge::Top:    return "top";
+        case JTabBarEdge::Bottom: return "bottom";
+        case JTabBarEdge::Left:   return "left";
+        case JTabBarEdge::Right:  return "right";
     }
     return "top";
 }
 
-inline TabBarEdge parseEdge(const std::string& s) noexcept {
-    if (s == "bottom") return TabBarEdge::Bottom;
-    if (s == "left")   return TabBarEdge::Left;
-    if (s == "right")  return TabBarEdge::Right;
-    return TabBarEdge::Top;
+inline JTabBarEdge parseEdge(const std::string& s) noexcept {
+    if (s == "bottom") return JTabBarEdge::Bottom;
+    if (s == "left")   return JTabBarEdge::Left;
+    if (s == "right")  return JTabBarEdge::Right;
+    return JTabBarEdge::Top;
 }
 
 // 6 decimal-place float without <cstdio>.
@@ -181,10 +181,10 @@ inline std::string fmtWeight(float w) {
     return std::to_string(whole) + "." + fs;
 }
 
-inline void serializeNode(const DockLayoutNode& n, std::string& out) {
-    if (n.kind == DockLayoutNode::Kind::Split) {
+inline void serializeNode(const JDockLayoutNode& n, std::string& out) {
+    if (n.kind == JDockLayoutNode::JKind::Split) {
         out += "split ";
-        out += (n.splitDir == SplitDir::Horizontal ? 'H' : 'V');
+        out += (n.splitDir == JSplitDir::Horizontal ? 'H' : 'V');
         out += ' ';
         out += std::to_string(n.children.size());
         for (float w : n.weights) { out += ' '; out += fmtWeight(w); }
@@ -206,15 +206,15 @@ inline void serializeNode(const DockLayoutNode& n, std::string& out) {
     }
 }
 
-struct Tok {
+struct JTok {
     const char* begin{nullptr};
     size_t      len{0};
     std::string str() const { return {begin, len}; }
 };
 using Lines = std::vector<std::pair<const char*, size_t>>;
 
-inline std::vector<Tok> tokenizeLine(const char* p, size_t len) {
-    std::vector<Tok> toks;
+inline std::vector<JTok> tokenizeLine(const char* p, size_t len) {
+    std::vector<JTok> toks;
     size_t i = 0;
     while (i < len) {
         while (i < len && (p[i] == ' ' || p[i] == '\r')) ++i;
@@ -236,7 +236,7 @@ inline std::vector<Tok> tokenizeLine(const char* p, size_t len) {
     return toks;
 }
 
-inline bool parseNode(const Lines& lines, size_t& idx, DockLayoutNode& out) {
+inline bool parseNode(const Lines& lines, size_t& idx, JDockLayoutNode& out) {
     if (idx >= lines.size()) return false;
     auto toks = tokenizeLine(lines[idx].first, lines[idx].second);
     ++idx;
@@ -246,8 +246,8 @@ inline bool parseNode(const Lines& lines, size_t& idx, DockLayoutNode& out) {
 
     if (kw == "split") {
         if (toks.size() < 3) return false;
-        out.kind     = DockLayoutNode::Kind::Split;
-        out.splitDir = (toks[1].str() == "H") ? SplitDir::Horizontal : SplitDir::Vertical;
+        out.kind     = JDockLayoutNode::JKind::Split;
+        out.splitDir = (toks[1].str() == "H") ? JSplitDir::Horizontal : JSplitDir::Vertical;
         size_t n = 0;
         try { n = std::stoul(toks[2].str()); } catch (...) { return false; }
         out.weights.reserve(n);
@@ -259,13 +259,13 @@ inline bool parseNode(const Lines& lines, size_t& idx, DockLayoutNode& out) {
         }
         out.children.reserve(n);
         for (size_t i = 0; i < n; ++i) {
-            DockLayoutNode child;
+            JDockLayoutNode child;
             if (!parseNode(lines, idx, child)) return false;
             out.children.push_back(std::move(child));
         }
     } else if (kw == "leaf") {
         if (toks.size() < 5) return false;
-        out.kind = DockLayoutNode::Kind::Leaf;
+        out.kind = JDockLayoutNode::JKind::Leaf;
         unquoteStr(toks[1].begin, toks[1].len, out.label);
         out.tabBarEdge = parseEdge(toks[2].str());
         try { out.activeTab = std::stoi(toks[3].str()); } catch (...) { out.activeTab = 0; }
@@ -289,17 +289,17 @@ inline bool parseNode(const Lines& lines, size_t& idx, DockLayoutNode& out) {
 } // namespace dock_detail
 
 // ============================================================================
-// DockLayoutSnapshot — complete serializable snapshot of a DockHost tree.
+// JDockLayoutSnapshot — complete serializable snapshot of a JDockHost tree.
 //
-//   DockLayoutSnapshot snap = host.snapshot();
+//   JDockLayoutSnapshot snap = host.snapshot();
 //   std::string text = snap.toText();                  // save to file
 //
-//   auto snap2 = DockLayoutSnapshot::fromText(text);
-//   if (snap2) host.restore(*snap2, [&](std::string_view title) -> DockWidget* { ... });
+//   auto snap2 = JDockLayoutSnapshot::fromText(text);
+//   if (snap2) host.restore(*snap2, [&](std::string_view title) -> JDockWidget* { ... });
 // ============================================================================
 
-struct DockLayoutSnapshot {
-    DockLayoutNode root;
+struct JDockLayoutSnapshot {
+    JDockLayoutNode root;
 
     std::string toText() const {
         std::string out = "genesis_dock_layout 1\n";
@@ -307,7 +307,7 @@ struct DockLayoutSnapshot {
         return out;
     }
 
-    static std::optional<DockLayoutSnapshot> fromText(std::string_view text) {
+    static std::optional<JDockLayoutSnapshot> fromText(std::string_view text) {
         dock_detail::Lines lines;
         const char* p = text.data();
         size_t      n = text.size();
@@ -325,17 +325,17 @@ struct DockLayoutSnapshot {
         if (hdr != "genesis_dock_layout 1") return std::nullopt;
         ++idx;
 
-        DockLayoutSnapshot snap;
+        JDockLayoutSnapshot snap;
         if (!dock_detail::parseNode(lines, idx, snap.root)) return std::nullopt;
         return snap;
     }
 };
 
 // ----------------------------------------------------------------------------
-// DockHost — the façade owning the tree.
+// JDockHost — the façade owning the tree.
 // ----------------------------------------------------------------------------
 
-class DockHost {
+class JDockHost {
 public:
     static constexpr float TAB_BAR_SZ   = 28.0f;  // tab bar / title bar thickness
     static constexpr float HANDLE_HALF  = 3.0f;   // half the 6px split handle hit width
@@ -345,20 +345,20 @@ public:
 
     float handleHoverPad() const {
         if (m_options.handleHoverPad.has_value()) return *m_options.handleHoverPad;
-        return DockRegistry::instance().defaultOptions().handleHoverPad.value_or(4.0f);
+        return JDockRegistry::instance().defaultOptions().handleHoverPad.value_or(4.0f);
     }
     bool enforceMinSizes() const {
         if (m_options.enforceMinSizes.has_value()) return *m_options.enforceMinSizes;
-        return DockRegistry::instance().defaultOptions().enforceMinSizes.value_or(true);
+        return JDockRegistry::instance().defaultOptions().enforceMinSizes.value_or(true);
     }
     bool showResizeCursors() const {
         if (m_options.showResizeCursors.has_value()) return *m_options.showResizeCursors;
-        return DockRegistry::instance().defaultOptions().showResizeCursors.value_or(true);
+        return JDockRegistry::instance().defaultOptions().showResizeCursors.value_or(true);
     }
 
-    void setOptions(const DockOptions& options) { m_options = options; }
-    DockOptions& options() { return m_options; }
-    const DockOptions& options() const { return m_options; }
+    void setOptions(const JDockOptions& options) { m_options = options; }
+    JDockOptions& options() { return m_options; }
+    const JDockOptions& options() const { return m_options; }
 
     float minWidthNeeded() const {
         if (!enforceMinSizes()) return 48.f;
@@ -372,57 +372,57 @@ public:
         return _minHeightOfNode(rootId());
     }
 
-    enum class HoverCursor : uint8_t { Default, Horiz, Vert };
+    enum class JHoverCursor : uint8_t { Default, Horiz, Vert };
 
-    HoverCursor getHoverCursor(float mx, float my) const {
-        if (!showResizeCursors()) return HoverCursor::Default;
+    JHoverCursor getHoverCursor(float mx, float my) const {
+        if (!showResizeCursors()) return JHoverCursor::Default;
         if (m_handleDrag.active) {
-            const DockNode* sp = node(m_handleDrag.parentSplit);
+            const JDockNode* sp = node(m_handleDrag.parentSplit);
             if (sp) {
-                return (sp->splitDir == SplitDir::Horizontal) ? HoverCursor::Horiz : HoverCursor::Vert;
+                return (sp->splitDir == JSplitDir::Horizontal) ? JHoverCursor::Horiz : JHoverCursor::Vert;
             }
         }
         for (const auto& n : m_nodes) {
-            if (n.type != DockNode::Type::Split) continue;
+            if (n.type != JDockNode::JType::Split) continue;
             for (int i = 0; i < static_cast<int>(n.handleRects.size()); ++i) {
-                const Rect& h = n.handleRects[i];
+                const JRect& h = n.handleRects[i];
                 float hitPad = handleHoverPad();
-                float hx = h.x - (n.splitDir == SplitDir::Horizontal ? hitPad : 0.f);
-                float hw = h.width + (n.splitDir == SplitDir::Horizontal ? hitPad * 2.f : 0.f);
-                float hy = h.y - (n.splitDir == SplitDir::Vertical ? hitPad : 0.f);
-                float hh = h.height + (n.splitDir == SplitDir::Vertical ? hitPad * 2.f : 0.f);
+                float hx = h.x - (n.splitDir == JSplitDir::Horizontal ? hitPad : 0.f);
+                float hw = h.width + (n.splitDir == JSplitDir::Horizontal ? hitPad * 2.f : 0.f);
+                float hy = h.y - (n.splitDir == JSplitDir::Vertical ? hitPad : 0.f);
+                float hh = h.height + (n.splitDir == JSplitDir::Vertical ? hitPad * 2.f : 0.f);
                 if (mx >= hx && mx <= hx + hw &&
                     my >= hy && my <= hy + hh)
                 {
-                    return (n.splitDir == SplitDir::Horizontal) ? HoverCursor::Horiz : HoverCursor::Vert;
+                    return (n.splitDir == JSplitDir::Horizontal) ? JHoverCursor::Horiz : JHoverCursor::Vert;
                 }
             }
         }
-        return HoverCursor::Default;
+        return JHoverCursor::Default;
     }
 
     // --- Construction ---
 
-    DockHost() { _allocNode(); }  // root SplitNode(Horizontal)
+    JDockHost() { _allocNode(); }  // root SplitNode(Horizontal)
 
-    DockNodeId rootId() const { return DockNodeId{0}; }
+    JDockNodeId rootId() const { return JDockNodeId{0}; }
 
-    void setRootSplit(SplitDir dir) {
+    void setRootSplit(JSplitDir dir) {
         if (!m_nodes.empty()) m_nodes[0].splitDir = dir;
     }
 
-    DockNodeId addLeaf(DockNodeId parentId,
+    JDockNodeId addLeaf(JDockNodeId parentId,
                        std::string label = "",
                        float weight = 0.f,
-                       DockAffinityRule affinity = {},
-                       DockConstraints constraints = {})
+                       JDockAffinityRule affinity = {},
+                       JDockConstraints constraints = {})
     {
-        DockNode* parent = node(parentId);
-        if (!parent || parent->type != DockNode::Type::Split) return InvalidDockNodeId;
+        JDockNode* parent = node(parentId);
+        if (!parent || parent->type != JDockNode::JType::Split) return InvalidDockNodeId;
 
-        DockNodeId id = _allocNode();
-        DockNode& leaf = m_nodes[id.v];
-        leaf.type        = DockNode::Type::Leaf;
+        JDockNodeId id = _allocNode();
+        JDockNode& leaf = m_nodes[id.v];
+        leaf.type        = JDockNode::JType::Leaf;
         leaf.parent      = parentId;
         leaf.label       = std::move(label);
         leaf.affinity    = std::move(affinity);
@@ -436,13 +436,13 @@ public:
         return id;
     }
 
-    DockNodeId addSplit(DockNodeId parentId, SplitDir dir, float weight = 0.f) {
-        DockNode* parent = node(parentId);
-        if (!parent || parent->type != DockNode::Type::Split) return InvalidDockNodeId;
+    JDockNodeId addSplit(JDockNodeId parentId, JSplitDir dir, float weight = 0.f) {
+        JDockNode* parent = node(parentId);
+        if (!parent || parent->type != JDockNode::JType::Split) return InvalidDockNodeId;
 
-        DockNodeId id = _allocNode();
-        DockNode& sp = m_nodes[id.v];
-        sp.type     = DockNode::Type::Split;
+        JDockNodeId id = _allocNode();
+        JDockNode& sp = m_nodes[id.v];
+        sp.type     = JDockNode::JType::Split;
         sp.parent   = parentId;
         sp.splitDir = dir;
 
@@ -453,9 +453,9 @@ public:
         return id;
     }
 
-    bool insertDock(DockWidget* dock, DockNodeId leafId, int tabIdx = -1) {
-        DockNode* leaf = node(leafId);
-        if (!dock || !leaf || leaf->type != DockNode::Type::Leaf) return false;
+    bool insertDock(JDockWidget* dock, JDockNodeId leafId, int tabIdx = -1) {
+        JDockNode* leaf = node(leafId);
+        if (!dock || !leaf || leaf->type != JDockNode::JType::Leaf) return false;
         if (!leaf->affinity.accepts(dock->tag())) return false;
         if (!dock->acceptsLeafLabel(leaf->label)) return false;
         // Non-tabifiable dock must occupy a solo leaf.
@@ -471,9 +471,9 @@ public:
         return true;
     }
 
-    void removeDock(DockWidget* dock) {
+    void removeDock(JDockWidget* dock) {
         for (auto& n : m_nodes) {
-            if (n.type != DockNode::Type::Leaf) continue;
+            if (n.type != JDockNode::JType::Leaf) continue;
             auto it = std::find(n.tabs.begin(), n.tabs.end(), dock);
             if (it == n.tabs.end()) continue;
             n.tabs.erase(it);
@@ -486,19 +486,19 @@ public:
     }
 
     // Swap a tab pointer in-place — used when a dock's storage relocates
-    // (e.g. a FloatingDock's DockWidget is moved into heap-owned storage after
+    // (e.g. a FloatingDock's JDockWidget is moved into heap-owned storage after
     // a drop has already inserted the old address into the tree).
-    void retargetDock(DockWidget* oldPtr, DockWidget* newPtr) {
+    void retargetDock(JDockWidget* oldPtr, JDockWidget* newPtr) {
         for (auto& n : m_nodes) {
-            if (n.type != DockNode::Type::Leaf) continue;
+            if (n.type != JDockNode::JType::Leaf) continue;
             for (auto& t : n.tabs)
                 if (t == oldPtr) { t = newPtr; return; }
         }
     }
 
-    DockNodeId findDock(const DockWidget* dock) const {
+    JDockNodeId findDock(const JDockWidget* dock) const {
         for (auto& n : m_nodes) {
-            if (n.type != DockNode::Type::Leaf) continue;
+            if (n.type != JDockNode::JType::Leaf) continue;
             if (std::find(n.tabs.begin(), n.tabs.end(), dock) != n.tabs.end())
                 return n.id;
         }
@@ -507,7 +507,7 @@ public:
 
     // --- Layout ---
 
-    void computeLayout(Rect hostRect) {
+    void computeLayout(JRect hostRect) {
         m_hostRect = hostRect;
         if (!m_nodes.empty()) _computeNodeLayout(rootId(), hostRect);
     }
@@ -520,7 +520,7 @@ public:
     void updateDrag(float /*cursorWindowX*/, float /*cursorWindowY*/,
                     float cursorScreenX, float cursorScreenY,
                     int   hostScreenX,   int   hostScreenY,
-                    DockWidget* draggedDock)
+                    JDockWidget* draggedDock)
     {
         if (!draggedDock) {
             if (m_livePreviewEnabled && m_hasSavedState) {
@@ -561,8 +561,8 @@ public:
         // tabify (Center).  This gives large, forgiving drop zones instead of
         // requiring the dock center to land on a 32×32 indicator arrow.
         for (const auto& n : m_nodes) {
-            if (n.type != DockNode::Type::Leaf) continue;
-            const Rect& r = n.rect;
+            if (n.type != JDockNode::JType::Leaf) continue;
+            const JRect& r = n.rect;
             if (localX < r.x || localX > r.x + r.width ||
                 localY < r.y || localY > r.y + r.height) continue;
 
@@ -570,12 +570,12 @@ public:
             float ry = (r.height > 0.f) ? (localY - r.y) / r.height : 0.5f;
             constexpr float kEdge = 0.25f;
 
-            DropPos zone;
-            if      (rx < kEdge)        zone = DropPos::Left;
-            else if (rx > 1.f - kEdge)  zone = DropPos::Right;
-            else if (ry < kEdge)        zone = DropPos::Top;
-            else if (ry > 1.f - kEdge)  zone = DropPos::Bottom;
-            else                        zone = DropPos::Center;
+            JDropPos zone;
+            if      (rx < kEdge)        zone = JDropPos::Left;
+            else if (rx > 1.f - kEdge)  zone = JDropPos::Right;
+            else if (ry < kEdge)        zone = JDropPos::Top;
+            else if (ry > 1.f - kEdge)  zone = JDropPos::Bottom;
+            else                        zone = JDropPos::Center;
 
             for (auto& dt : m_dropTargets) {
                 if (dt.leaf == n.id && dt.pos == zone && dt.allowed) {
@@ -587,7 +587,7 @@ public:
             break;  // leaves don't overlap — stop after first match
         }
 
-        if (m_livePreviewEnabled && m_activeTarget && m_activeTarget->allowed && m_activeTarget->pos != DropPos::Center) {
+        if (m_livePreviewEnabled && m_activeTarget && m_activeTarget->allowed && m_activeTarget->pos != JDropPos::Center) {
             _splitLeaf(m_activeTarget->leaf, m_activeTarget->pos);
             _computeNodeLayout(rootId(), m_hostRect);
         } else {
@@ -595,17 +595,17 @@ public:
         }
     }
 
-    struct DropResult { DockNodeId targetLeaf; DropPos pos; };
+    struct JDropResult { JDockNodeId targetLeaf; JDropPos pos; };
 
-    std::optional<DropResult> tryCommitDrop() {
+    std::optional<JDropResult> tryCommitDrop() {
         if (!m_activeTarget || !m_activeTarget->allowed || !m_draggedDock) {
             _endDrag();
             return std::nullopt;
         }
 
-        DockNodeId leafId = m_activeTarget->leaf;
-        DropPos    pos    = m_activeTarget->pos;
-        DockWidget* dock  = m_draggedDock;
+        JDockNodeId leafId = m_activeTarget->leaf;
+        JDropPos    pos    = m_activeTarget->pos;
+        JDockWidget* dock  = m_draggedDock;
 
         if (m_hasSavedState) {
             m_nodes = m_savedNodes;
@@ -613,31 +613,31 @@ public:
             m_hasSavedState = false;
         }
 
-        DockNode* leaf = node(leafId);
-        if (!leaf || leaf->type != DockNode::Type::Leaf) { _endDrag(); return std::nullopt; }
+        JDockNode* leaf = node(leafId);
+        if (!leaf || leaf->type != JDockNode::JType::Leaf) { _endDrag(); return std::nullopt; }
 
-        if (pos == DropPos::Center) {
+        if (pos == JDropPos::Center) {
             insertDock(dock, leafId);
         } else {
-            DockNodeId newLeaf = _splitLeaf(leafId, pos);
+            JDockNodeId newLeaf = _splitLeaf(leafId, pos);
             if (!newLeaf.valid()) { _endDrag(); return std::nullopt; }
             insertDock(dock, newLeaf);
         }
 
         computeLayout(m_hostRect);
-        DropResult result{leafId, pos};
+        JDropResult result{leafId, pos};
         _endDrag();
         return result;
     }
 
     // --- Inline mouse routing ---
 
-    struct DockEvent {
-        DockWidget* dock{nullptr};
-        enum class Type { WantsFloat, CloseRequested } type{Type::WantsFloat};
+    struct JDockEvent {
+        JDockWidget* dock{nullptr};
+        enum class JType { WantsFloat, CloseRequested } type{JType::WantsFloat};
     };
 
-    std::optional<DockEvent> handleMouse(float mx, float my,
+    std::optional<JDockEvent> handleMouse(float mx, float my,
                                          bool pressed, bool released)
     {
         // A new press guarantees the previous button-release was delivered (X11
@@ -651,13 +651,13 @@ public:
 
         // 1. Resize handles take priority.
         if (m_handleDrag.active) {
-            DockNode* sp = node(m_handleDrag.parentSplit);
-            if (sp && sp->type == DockNode::Type::Split) {
+            JDockNode* sp = node(m_handleDrag.parentSplit);
+            if (sp && sp->type == JDockNode::JType::Split) {
                 int a = m_handleDrag.handleIdx;
                 int b = a + 1;
                 if (b < static_cast<int>(sp->weights.size())) {
-                    float cursor = (sp->splitDir == SplitDir::Horizontal) ? mx : my;
-                    float total  = (sp->splitDir == SplitDir::Horizontal)
+                    float cursor = (sp->splitDir == JSplitDir::Horizontal) ? mx : my;
+                    float total  = (sp->splitDir == JSplitDir::Horizontal)
                                        ? sp->rect.width : sp->rect.height;
                     float delta  = (total > 1.f)
                                        ? (cursor - m_handleDrag.startCursor) / total : 0.f;
@@ -671,7 +671,7 @@ public:
                         minFrac_a = 0.0f;
                         minFrac_b = 0.0f;
                     }
-                    bool horiz = (sp->splitDir == SplitDir::Horizontal);
+                    bool horiz = (sp->splitDir == JSplitDir::Horizontal);
                     float totalDim = horiz ? sp->rect.width : sp->rect.height;
                     float handleSpace = HANDLE_HALF * 2.0f;
                     float usable = std::max(0.f, totalDim - handleSpace * static_cast<float>(sp->children.size() - 1));
@@ -700,14 +700,14 @@ public:
         if (pressed) {
             // Begin a resize-handle drag if a handle was hit.
             for (auto& n : m_nodes) {
-                if (n.type != DockNode::Type::Split) continue;
+                if (n.type != JDockNode::JType::Split) continue;
                 for (int i = 0; i < static_cast<int>(n.handleRects.size()); ++i) {
-                    const Rect& h = n.handleRects[i];
+                    const JRect& h = n.handleRects[i];
                     float hitPad = handleHoverPad();
-                    float hx = h.x - (n.splitDir == SplitDir::Horizontal ? hitPad : 0.f);
-                    float hw = h.width + (n.splitDir == SplitDir::Horizontal ? hitPad * 2.f : 0.f);
-                    float hy = h.y - (n.splitDir == SplitDir::Vertical ? hitPad : 0.f);
-                    float hh = h.height + (n.splitDir == SplitDir::Vertical ? hitPad * 2.f : 0.f);
+                    float hx = h.x - (n.splitDir == JSplitDir::Horizontal ? hitPad : 0.f);
+                    float hw = h.width + (n.splitDir == JSplitDir::Horizontal ? hitPad * 2.f : 0.f);
+                    float hy = h.y - (n.splitDir == JSplitDir::Vertical ? hitPad : 0.f);
+                    float hh = h.height + (n.splitDir == JSplitDir::Vertical ? hitPad * 2.f : 0.f);
                     if (mx >= hx && mx <= hx + hw &&
                         my >= hy && my <= hy + hh)
                     {
@@ -715,7 +715,7 @@ public:
                         m_handleDrag.handleIdx   = i;
                         m_handleDrag.active      = true;
                         m_handleDrag.startCursor =
-                            (n.splitDir == SplitDir::Horizontal) ? mx : my;
+                            (n.splitDir == JSplitDir::Horizontal) ? mx : my;
                         m_handleDrag.startWeightA = n.weights[i];
                         m_handleDrag.startWeightB = n.weights[i + 1];
                         return std::nullopt;
@@ -726,18 +726,18 @@ public:
 
         // 2. Leaf chrome — close button + title-bar drag-out.
         for (auto& n : m_nodes) {
-            if (n.type != DockNode::Type::Leaf || n.tabs.empty()) continue;
+            if (n.type != JDockNode::JType::Leaf || n.tabs.empty()) continue;
 
-            Rect barRect = _tabBarRect(n);
-            DockWidget* active =
+            JRect barRect = _tabBarRect(n);
+            JDockWidget* active =
                 (n.activeTab >= 0 && n.activeTab < static_cast<int>(n.tabs.size()))
                     ? n.tabs[n.activeTab] : nullptr;
             if (!active) continue;
 
             // Close button on the active tab.
-            Rect closeR = _closeBtnRect(n);
+            JRect closeR = _closeBtnRect(n);
             if (pressed && _inRect(closeR, mx, my))
-                return DockEvent{active, DockEvent::Type::CloseRequested};
+                return JDockEvent{active, JDockEvent::JType::CloseRequested};
 
             // Title/tab bar drag → float.
             if (pressed && _inRect(barRect, mx, my) && !_inRect(closeR, mx, my)) {
@@ -753,10 +753,10 @@ public:
             float dy = my - m_titleDrag.startY;
             // A title drag past the threshold becomes a float request.
             if (std::sqrt(dx * dx + dy * dy) > 16.0f) {
-                DockWidget* d = m_titleDrag.dock;
+                JDockWidget* d = m_titleDrag.dock;
                 m_titleDrag = {};
                 if (d->isFloatable())
-                    return DockEvent{d, DockEvent::Type::WantsFloat};
+                    return JDockEvent{d, JDockEvent::JType::WantsFloat};
                 // Non-floatable: silently cancel the drag.
             }
             if (released) m_titleDrag = {};
@@ -765,8 +765,8 @@ public:
         // 3. Route tab clicks to switch the active tab.
         if (pressed) {
             for (auto& n : m_nodes) {
-                if (n.type != DockNode::Type::Leaf || n.tabs.size() < 2) continue;
-                Rect bar = _tabBarRect(n);
+                if (n.type != JDockNode::JType::Leaf || n.tabs.size() < 2) continue;
+                JRect bar = _tabBarRect(n);
                 if (!_inRect(bar, mx, my)) continue;
                 float tabW = bar.width / static_cast<float>(n.tabs.size());
                 int idx = std::clamp(static_cast<int>((mx - bar.x) / tabW),
@@ -780,21 +780,21 @@ public:
 
     // --- Rendering ---
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) const {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) const {
         if (m_nodes.empty()) return;
         _renderNode(rootId(), buf);
     }
 
-    void populateOverlay(PrimitiveBuffer& buf) const {
+    void populateOverlay(JPrimitiveBuffer& buf) const {
         for (auto& dt : m_dropTargets) _renderDropTarget(dt, buf);
 
         // Highlight an active resize handle.
         if (m_handleDrag.active) {
-            const DockNode* sp = node(m_handleDrag.parentSplit);
+            const JDockNode* sp = node(m_handleDrag.parentSplit);
             if (sp && m_handleDrag.handleIdx <
                           static_cast<int>(sp->handleRects.size()))
             {
-                const Rect& h = sp->handleRects[m_handleDrag.handleIdx];
+                const JRect& h = sp->handleRects[m_handleDrag.handleIdx];
                 buf.pushRectangle(h.x, h.y, h.width, h.height, Colors::Accent, 2.0f);
             }
         }
@@ -802,17 +802,17 @@ public:
 
     // --- Accessors ---
 
-    DockNode* node(DockNodeId id) {
+    JDockNode* node(JDockNodeId id) {
         return id.valid() && id.v < m_nodes.size() ? &m_nodes[id.v] : nullptr;
     }
-    const DockNode* node(DockNodeId id) const {
+    const JDockNode* node(JDockNodeId id) const {
         return id.valid() && id.v < m_nodes.size() ? &m_nodes[id.v] : nullptr;
     }
 
     size_t dockCount() const {
         size_t count = 0;
         for (const auto& n : m_nodes) {
-            if (n.type == DockNode::Type::Leaf) {
+            if (n.type == JDockNode::JType::Leaf) {
                 count += n.tabs.size();
             }
         }
@@ -825,7 +825,7 @@ public:
     template <class F>
     void forEachDockPanel(F&& fn) const {
         for (const auto& n : m_nodes) {
-            if (n.type != DockNode::Type::Leaf) continue;
+            if (n.type != JDockNode::JType::Leaf) continue;
             for (int i = 0; i < static_cast<int>(n.tabs.size()); ++i)
                 if (n.tabs[i]) fn(n.tabs[i], n.rect, i == n.activeTab,
                                   static_cast<int>(n.tabs.size()));
@@ -835,38 +835,38 @@ public:
     // Activate (bring to front) a docked panel by title.  Returns true if found.
     bool activatePanelByTitle(const std::string& title) {
         for (auto& n : m_nodes) {
-            if (n.type != DockNode::Type::Leaf) continue;
+            if (n.type != JDockNode::JType::Leaf) continue;
             for (int i = 0; i < static_cast<int>(n.tabs.size()); ++i)
                 if (n.tabs[i] && n.tabs[i]->title() == title) { n.activeTab = i; return true; }
         }
         return false;
     }
 
-    Rect contentArea(DockNodeId leafId) const {
-        const DockNode* leaf = node(leafId);
-        return leaf ? contentArea(leafId, leaf->activeTab) : Rect{};
+    JRect contentArea(JDockNodeId leafId) const {
+        const JDockNode* leaf = node(leafId);
+        return leaf ? contentArea(leafId, leaf->activeTab) : JRect{};
     }
 
-    Rect contentArea(DockNodeId leafId, int /*tabIdx*/) const {
-        const DockNode* leaf = node(leafId);
-        if (!leaf || leaf->type != DockNode::Type::Leaf) return Rect{};
+    JRect contentArea(JDockNodeId leafId, int /*tabIdx*/) const {
+        const JDockNode* leaf = node(leafId);
+        if (!leaf || leaf->type != JDockNode::JType::Leaf) return JRect{};
         return _leafContentRect(*leaf);
     }
 
     // --- Layout snapshot / restore ---
 
     // Capture the current tree as a serializable value.
-    DockLayoutSnapshot snapshot() const {
-        DockLayoutSnapshot snap;
+    JDockLayoutSnapshot snapshot() const {
+        JDockLayoutSnapshot snap;
         if (!m_nodes.empty()) snap.root = _snapshotNode(rootId());
         return snap;
     }
 
     // Rebuild the tree from a snapshot.
-    // `resolver(title)` must return the DockWidget* to insert, or nullptr to skip.
+    // `resolver(title)` must return the JDockWidget* to insert, or nullptr to skip.
     // The host rect is NOT re-applied — call computeLayout() after restore().
-    bool restore(const DockLayoutSnapshot& snap,
-                 const std::function<DockWidget*(std::string_view)>& resolver)
+    bool restore(const JDockLayoutSnapshot& snap,
+                 const std::function<JDockWidget*(std::string_view)>& resolver)
     {
         m_nodes.clear();
         m_nextId       = 0;
@@ -880,20 +880,20 @@ public:
         return _restoreNode(snap.root, rootId(), InvalidDockNodeId, resolver);
     }
 
-    DockNodeId splitLeaf(DockNodeId leafId, DropPos pos) { return _splitLeaf(leafId, pos); }
-    DockNodeId edgeLeaf() const { return _edgeLeaf(); }
-    Rect hostRect() const { return m_hostRect; }
+    JDockNodeId splitLeaf(JDockNodeId leafId, JDropPos pos) { return _splitLeaf(leafId, pos); }
+    JDockNodeId edgeLeaf() const { return _edgeLeaf(); }
+    JRect hostRect() const { return m_hostRect; }
 
 private:
     // ----------------------------------------------------------------------
     // Drop target state — declared before any use in member functions.
     // ----------------------------------------------------------------------
 
-    struct DropTarget {
-        DockNodeId leaf;
-        DropPos    pos;
-        Rect       indicatorRect;
-        Rect       previewRect;
+    struct JDropTarget {
+        JDockNodeId leaf;
+        JDropPos    pos;
+        JRect       indicatorRect;
+        JRect       previewRect;
         bool       highlighted{false};
         bool       allowed{false};
     };
@@ -902,21 +902,21 @@ private:
     // Arena management
     // ----------------------------------------------------------------------
 
-    float _minWidthOfNode(DockNodeId id) const {
-        const DockNode* n = node(id);
+    float _minWidthOfNode(JDockNodeId id) const {
+        const JDockNode* n = node(id);
         if (!n) return 48.f;
-        if (n->type == DockNode::Type::Leaf) {
+        if (n->type == JDockNode::JType::Leaf) {
             int tabCount = static_cast<int>(n->tabs.size());
             if (tabCount == 0) return 48.f;
             if (tabCount == 1) {
-                float lw = TextHelper::hasAtlas() ? TextHelper::measureWidth(n->tabs[0]->title()) : 50.f;
+                float lw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(n->tabs[0]->title()) : 50.f;
                 float contentMinW = n->tabs[0]->minW();
                 return std::max(lw + 50.f, contentMinW);
             }
             float maxLw = 0.f;
             float maxWidgetMinW = 0.f;
             for (int i = 0; i < tabCount; ++i) {
-                float lw = TextHelper::hasAtlas() ? TextHelper::measureWidth(n->tabs[i]->title()) : 50.f;
+                float lw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(n->tabs[i]->title()) : 50.f;
                 if (lw > maxLw) maxLw = lw;
                 if (n->tabs[i]) {
                     float w = n->tabs[i]->minW();
@@ -926,10 +926,10 @@ private:
             float tabsMinW = static_cast<float>(tabCount) * (maxLw + 16.f) + 30.f;
             return std::max(tabsMinW, maxWidgetMinW);
         }
-        bool horiz = (n->splitDir == SplitDir::Horizontal);
+        bool horiz = (n->splitDir == JSplitDir::Horizontal);
         float sum = 0.f;
         float maxVal = 0.f;
-        for (DockNodeId childId : n->children) {
+        for (JDockNodeId childId : n->children) {
             float childMin = _minWidthOfNode(childId);
             if (horiz) {
                 sum += childMin;
@@ -945,10 +945,10 @@ private:
         return maxVal;
     }
 
-    float _minHeightOfNode(DockNodeId id) const {
-        const DockNode* n = node(id);
+    float _minHeightOfNode(JDockNodeId id) const {
+        const JDockNode* n = node(id);
         if (!n) return 48.f;
-        if (n->type == DockNode::Type::Leaf) {
+        if (n->type == JDockNode::JType::Leaf) {
             int tabCount = static_cast<int>(n->tabs.size());
             float maxWidgetMinH = 40.f;
             for (int i = 0; i < tabCount; ++i) {
@@ -959,10 +959,10 @@ private:
             }
             return TAB_BAR_SZ + maxWidgetMinH;
         }
-        bool horiz = (n->splitDir == SplitDir::Horizontal);
+        bool horiz = (n->splitDir == JSplitDir::Horizontal);
         float sum = 0.f;
         float maxVal = 0.f;
-        for (DockNodeId childId : n->children) {
+        for (JDockNodeId childId : n->children) {
             float childMin = _minHeightOfNode(childId);
             if (horiz) {
                 if (childMin > maxVal) maxVal = childMin;
@@ -978,16 +978,16 @@ private:
         return maxVal;
     }
 
-    DockNodeId _allocNode() {
-        DockNodeId id{m_nextId++};
-        DockNode n;
+    JDockNodeId _allocNode() {
+        JDockNodeId id{m_nextId++};
+        JDockNode n;
         n.id = id;
         m_nodes.push_back(std::move(n));
         return id;
     }
 
-    void _rebalanceWeights(DockNodeId parentId) {
-        DockNode* p = node(parentId);
+    void _rebalanceWeights(JDockNodeId parentId) {
+        JDockNode* p = node(parentId);
         if (!p) return;
         size_t n = p->children.size();
         if (n == 0) return;
@@ -1020,12 +1020,12 @@ private:
     // Layout
     // ----------------------------------------------------------------------
 
-    void _computeNodeLayout(DockNodeId id, Rect rect) {
-        DockNode* n = node(id);
+    void _computeNodeLayout(JDockNodeId id, JRect rect) {
+        JDockNode* n = node(id);
         if (!n) return;
         n->rect = rect;
 
-        if (n->type == DockNode::Type::Leaf) {
+        if (n->type == JDockNode::JType::Leaf) {
             n->handleRects.clear();
             return;
         }
@@ -1036,7 +1036,7 @@ private:
         if (count == 0) return;
         if (n->weights.size() != count) _rebalanceWeights(id);
 
-        bool horiz = (n->splitDir == SplitDir::Horizontal);
+        bool horiz = (n->splitDir == JSplitDir::Horizontal);
         float total = horiz ? rect.width : rect.height;
 
         // Reserve space for the (count-1) handles so children never overlap them.
@@ -1044,15 +1044,15 @@ private:
         float usable = std::max(0.f, total - handleSpace * static_cast<float>(count - 1));
 
         // Snapshot weights/children: child layout may reallocate the arena.
-        std::vector<DockNodeId> children = n->children;
+        std::vector<JDockNodeId> children = n->children;
         std::vector<float>      weights  = n->weights;
-        std::vector<Rect>       handles;
+        std::vector<JRect>       handles;
         handles.reserve(count > 0 ? count - 1 : 0);
 
         float cursor = horiz ? rect.x : rect.y;
         for (size_t i = 0; i < count; ++i) {
             float seg = usable * weights[i];
-            Rect childRect;
+            JRect childRect;
             if (horiz) childRect = { cursor, rect.y, seg, rect.height };
             else       childRect = { rect.x, cursor, rect.width, seg };
             _computeNodeLayout(children[i], childRect);
@@ -1070,38 +1070,38 @@ private:
         if (n) n->handleRects = std::move(handles);
     }
 
-    Rect _tabBarRect(const DockNode& leaf) const {
-        const Rect& r = leaf.rect;
+    JRect _tabBarRect(const JDockNode& leaf) const {
+        const JRect& r = leaf.rect;
         switch (leaf.tabBarEdge) {
-            case TabBarEdge::Top:    return { r.x, r.y, r.width, TAB_BAR_SZ };
-            case TabBarEdge::Bottom: return { r.x, r.y + r.height - TAB_BAR_SZ, r.width, TAB_BAR_SZ };
-            case TabBarEdge::Left:   return { r.x, r.y, TAB_BAR_SZ, r.height };
-            case TabBarEdge::Right:  return { r.x + r.width - TAB_BAR_SZ, r.y, TAB_BAR_SZ, r.height };
+            case JTabBarEdge::Top:    return { r.x, r.y, r.width, TAB_BAR_SZ };
+            case JTabBarEdge::Bottom: return { r.x, r.y + r.height - TAB_BAR_SZ, r.width, TAB_BAR_SZ };
+            case JTabBarEdge::Left:   return { r.x, r.y, TAB_BAR_SZ, r.height };
+            case JTabBarEdge::Right:  return { r.x + r.width - TAB_BAR_SZ, r.y, TAB_BAR_SZ, r.height };
         }
         return { r.x, r.y, r.width, TAB_BAR_SZ };
     }
 
-    Rect _leafContentRect(const DockNode& leaf) const {
-        const Rect& r = leaf.rect;
+    JRect _leafContentRect(const JDockNode& leaf) const {
+        const JRect& r = leaf.rect;
         switch (leaf.tabBarEdge) {
-            case TabBarEdge::Top:    return { r.x, r.y + TAB_BAR_SZ, r.width, r.height - TAB_BAR_SZ };
-            case TabBarEdge::Bottom: return { r.x, r.y, r.width, r.height - TAB_BAR_SZ };
-            case TabBarEdge::Left:   return { r.x + TAB_BAR_SZ, r.y, r.width - TAB_BAR_SZ, r.height };
-            case TabBarEdge::Right:  return { r.x, r.y, r.width - TAB_BAR_SZ, r.height };
+            case JTabBarEdge::Top:    return { r.x, r.y + TAB_BAR_SZ, r.width, r.height - TAB_BAR_SZ };
+            case JTabBarEdge::Bottom: return { r.x, r.y, r.width, r.height - TAB_BAR_SZ };
+            case JTabBarEdge::Left:   return { r.x + TAB_BAR_SZ, r.y, r.width - TAB_BAR_SZ, r.height };
+            case JTabBarEdge::Right:  return { r.x, r.y, r.width - TAB_BAR_SZ, r.height };
         }
         return { r.x, r.y + TAB_BAR_SZ, r.width, r.height - TAB_BAR_SZ };
     }
 
     // Close button sits at the right edge of the (top) tab bar.
-    Rect _closeBtnRect(const DockNode& leaf) const {
-        Rect bar = _tabBarRect(leaf);
+    JRect _closeBtnRect(const JDockNode& leaf) const {
+        JRect bar = _tabBarRect(leaf);
         float pad = (TAB_BAR_SZ - BTN_SZ) * 0.5f;
         return { bar.x + bar.width - BTN_SZ - pad,
                  bar.y + (bar.height - BTN_SZ) * 0.5f,
                  BTN_SZ, BTN_SZ };
     }
 
-    static bool _inRect(const Rect& r, float x, float y) {
+    static bool _inRect(const JRect& r, float x, float y) {
         return x >= r.x && x <= r.x + r.width &&
                y >= r.y && y <= r.y + r.height;
     }
@@ -1110,19 +1110,19 @@ private:
     // Rendering
     // ----------------------------------------------------------------------
 
-    void _renderNode(DockNodeId id, PrimitiveBuffer& buf) const {
-        const DockNode* n = node(id);
+    void _renderNode(JDockNodeId id, JPrimitiveBuffer& buf) const {
+        const JDockNode* n = node(id);
         if (!n) return;
-        if (n->type == DockNode::Type::Leaf) {
+        if (n->type == JDockNode::JType::Leaf) {
             _renderLeaf(*n, buf);
         } else {
-            for (DockNodeId c : n->children) _renderNode(c, buf);
+            for (JDockNodeId c : n->children) _renderNode(c, buf);
             _renderSplitHandles(*n, buf);
         }
     }
 
-    void _renderLeaf(const DockNode& leaf, PrimitiveBuffer& buf) const {
-        const Rect& r = leaf.rect;
+    void _renderLeaf(const JDockNode& leaf, JPrimitiveBuffer& buf) const {
+        const JRect& r = leaf.rect;
         if (r.width < 1.f || r.height < 1.f) return;
 
         // Body background.
@@ -1130,25 +1130,25 @@ private:
         buf.pushRectangle(r.x, r.y, r.width, r.height, body, 0.0f, 1.0f, Colors::Border);
 
         // Content area (slightly darker than the body).
-        Rect content = _leafContentRect(leaf);
+        JRect content = _leafContentRect(leaf);
         uint8_t contentBg[4] = {14, 14, 16, 255};
         buf.pushRectangle(content.x, content.y, content.width, content.height, contentBg, 0.0f);
 
         // Tab / title bar.
-        Rect bar = _tabBarRect(leaf);
+        JRect bar = _tabBarRect(leaf);
         buf.pushRectangle(bar.x, bar.y, bar.width, bar.height, Colors::Surface1, 0.0f);
 
         int tabCount = static_cast<int>(leaf.tabs.size());
         if (tabCount == 0) return;
 
         if (tabCount == 1) {
-            // Single dock — render a title bar like DockWidget's.
+            // Single dock — render a title bar like JDockWidget's.
             buf.pushRectangle(bar.x + 1.f, bar.y + 1.f, bar.width - 2.f, bar.height - 2.f,
                               Colors::Surface2, 0.0f);
-            if (TextHelper::hasAtlas()) {
+            if (JTextHelper::hasAtlas()) {
                 uint8_t tc[4] = {210, 210, 220, 220};
-                float ty = bar.y + (bar.height - TextHelper::lineHeight()) * 0.5f;
-                TextHelper::pushText(buf, bar.x + 10.f, ty,
+                float ty = bar.y + (bar.height - JTextHelper::lineHeight()) * 0.5f;
+                JTextHelper::pushText(buf, bar.x + 10.f, ty,
                                      leaf.tabs[0]->title(), tc, bar.width - BTN_SZ - 24.f);
             }
         } else {
@@ -1161,22 +1161,22 @@ private:
                 if (active)
                     buf.pushRectangle(tx + 4.f, bar.y + bar.height - 3.f,
                                       tabW - 8.f, 2.5f, Colors::Accent, 1.0f);
-                if (TextHelper::hasAtlas()) {
+                if (JTextHelper::hasAtlas()) {
                     std::string label = leaf.tabs[i]->title();
-                    float lw = TextHelper::measureWidth(label);
+                    float lw = JTextHelper::measureWidth(label);
                     uint8_t lc[4] = {active ? (uint8_t)220 : (uint8_t)150,
                                      active ? (uint8_t)220 : (uint8_t)150,
                                      active ? (uint8_t)228 : (uint8_t)158,
                                      active ? (uint8_t)220 : (uint8_t)150};
-                    float ly = bar.y + (bar.height - TextHelper::lineHeight()) * 0.5f;
-                    TextHelper::pushText(buf, tx + std::max(6.f, (tabW - lw) * 0.5f), ly,
+                    float ly = bar.y + (bar.height - JTextHelper::lineHeight()) * 0.5f;
+                    JTextHelper::pushText(buf, tx + std::max(6.f, (tabW - lw) * 0.5f), ly,
                                          label, lc, tabW - 10.f);
                 }
             }
         }
 
         // Close button on the active tab / single title bar.
-        Rect closeR = _closeBtnRect(leaf);
+        JRect closeR = _closeBtnRect(leaf);
         uint8_t closeFill[4] = {60, 40, 44, 180};
         buf.pushRectangle(closeR.x, closeR.y, closeR.width, closeR.height, closeFill, 3.0f);
         uint8_t xc[4] = {235, 235, 240, 210};
@@ -1194,7 +1194,7 @@ private:
         if (tabCount == 1) {
             float pad = (TAB_BAR_SZ - BTN_SZ) * 0.5f;
             float pinX = closeR.x - BTN_SZ - pad;
-            const DockWidget* d = leaf.tabs[0];
+            const JDockWidget* d = leaf.tabs[0];
             uint8_t pinFill[4];
             if (!d->isFloatable()) {
                 pinFill[0]=180; pinFill[1]=80;  pinFill[2]=20;  pinFill[3]=220;
@@ -1209,9 +1209,9 @@ private:
         }
     }
 
-    void _renderSplitHandles(const DockNode& split, PrimitiveBuffer& buf) const {
-        bool horiz = (split.splitDir == SplitDir::Horizontal);
-        for (const Rect& h : split.handleRects) {
+    void _renderSplitHandles(const JDockNode& split, JPrimitiveBuffer& buf) const {
+        bool horiz = (split.splitDir == JSplitDir::Horizontal);
+        for (const JRect& h : split.handleRects) {
             // Subtle divider line centered in the 6px hit area.
             uint8_t line[4] = {60, 60, 64, 255};
             if (horiz) {
@@ -1224,9 +1224,9 @@ private:
         }
     }
 
-    void _renderDropTarget(const DropTarget& dt, PrimitiveBuffer& buf) const {
+    void _renderDropTarget(const JDropTarget& dt, JPrimitiveBuffer& buf) const {
         if (!dt.allowed) return;
-        const Rect& a = dt.indicatorRect;
+        const JRect& a = dt.indicatorRect;
 
         if (dt.highlighted) {
             // Semi-transparent preview of where the dock would land.
@@ -1249,8 +1249,8 @@ private:
     }
 
     // Pure-geometry chevron: short rects forming a directional arrow.
-    void _renderArrow(const DropTarget& dt, PrimitiveBuffer& buf, bool white) const {
-        const Rect& a = dt.indicatorRect;
+    void _renderArrow(const JDropTarget& dt, JPrimitiveBuffer& buf, bool white) const {
+        const JRect& a = dt.indicatorRect;
         uint8_t c[4] = { white ? (uint8_t)255 : (uint8_t)180,
                          white ? (uint8_t)255 : (uint8_t)180,
                          white ? (uint8_t)255 : (uint8_t)190,
@@ -1260,7 +1260,7 @@ private:
         float arm = a.width * 0.22f;
         float th  = 3.0f;
 
-        if (dt.pos == DropPos::Center) {
+        if (dt.pos == JDropPos::Center) {
             // A small square outline to denote "tabify here".
             uint8_t sq[4] = {c[0], c[1], c[2], c[3]};
             float s = a.width * 0.34f;
@@ -1269,24 +1269,24 @@ private:
         }
 
         switch (dt.pos) {
-            case DropPos::Left:
-            case DropPos::SplitBefore:
+            case JDropPos::Left:
+            case JDropPos::SplitBefore:
                 buf.pushRectangle(cx - arm * 0.4f, cy - arm, th, arm + th, c, 1.0f);
                 buf.pushRectangle(cx - arm * 0.4f, cy,       th, arm,      c, 1.0f);
                 buf.pushRectangle(cx - arm,        cy - th * 0.5f, arm, th, c, 1.0f);
                 break;
-            case DropPos::Right:
-            case DropPos::SplitAfter:
+            case JDropPos::Right:
+            case JDropPos::SplitAfter:
                 buf.pushRectangle(cx + arm * 0.4f - th, cy - arm, th, arm + th, c, 1.0f);
                 buf.pushRectangle(cx + arm * 0.4f - th, cy,       th, arm,      c, 1.0f);
                 buf.pushRectangle(cx,                   cy - th * 0.5f, arm, th, c, 1.0f);
                 break;
-            case DropPos::Top:
+            case JDropPos::Top:
                 buf.pushRectangle(cx - arm, cy - arm * 0.4f, arm + th, th, c, 1.0f);
                 buf.pushRectangle(cx,       cy - arm * 0.4f, arm,      th, c, 1.0f);
                 buf.pushRectangle(cx - th * 0.5f, cy - arm, th, arm, c, 1.0f);
                 break;
-            case DropPos::Bottom:
+            case JDropPos::Bottom:
                 buf.pushRectangle(cx - arm, cy + arm * 0.4f - th, arm + th, th, c, 1.0f);
                 buf.pushRectangle(cx,       cy + arm * 0.4f - th, arm,      th, c, 1.0f);
                 buf.pushRectangle(cx - th * 0.5f, cy, th, arm, c, 1.0f);
@@ -1299,7 +1299,7 @@ private:
     // Drop target generation
     // ----------------------------------------------------------------------
 
-    void _buildDropTargets(DockWidget* dock, float /*screenX*/, float /*screenY*/,
+    void _buildDropTargets(JDockWidget* dock, float /*screenX*/, float /*screenY*/,
                            int /*hostScreenX*/, int /*hostScreenY*/)
     {
         m_dropTargets.clear();
@@ -1308,8 +1308,8 @@ private:
 
         // Per-leaf cross of 5 indicators (Center + 4 sides).
         for (const auto& n : m_nodes) {
-            if (n.type != DockNode::Type::Leaf) continue;
-            const Rect& r = n.rect;
+            if (n.type != JDockNode::JType::Leaf) continue;
+            const JRect& r = n.rect;
             if (r.width < ARROW_SZ * 2.f || r.height < ARROW_SZ * 2.f) continue;
 
             // Whether any existing tab in this leaf is non-tabifiable (blocks
@@ -1323,14 +1323,14 @@ private:
             //   2. Dock affinity (dock's accept/reject list vs leaf label)
             //   3. Dock position mask (kDropLeft etc.)
             //   4. Tabify rules (Center blocked when tabify not possible)
-            auto isAllowed = [&](DropPos pos) -> bool {
+            auto isAllowed = [&](JDropPos pos) -> bool {
                 if (!n.affinity.accepts(tag)) return false;
                 if (!dock->acceptsLeafLabel(n.label)) return false;
-                if (static_cast<uint8_t>(pos) <= static_cast<uint8_t>(DropPos::Bottom)) {
+                if (static_cast<uint8_t>(pos) <= static_cast<uint8_t>(JDropPos::Bottom)) {
                     uint8_t bit = static_cast<uint8_t>(1u << static_cast<uint8_t>(pos));
                     if (!dock->allowsDrop(bit)) return false;
                 }
-                if (pos == DropPos::Center && !n.tabs.empty()) {
+                if (pos == JDropPos::Center && !n.tabs.empty()) {
                     if (!dock->isTabifiable()) return false;
                     if (leafBlocksTab)         return false;
                 }
@@ -1342,63 +1342,63 @@ private:
             float half = ARROW_SZ * 0.5f;
             float gap = ARROW_SZ + 6.f;
 
-            auto centerRect = [&](float ox, float oy) -> Rect {
+            auto centerRect = [&](float ox, float oy) -> JRect {
                 return { cx + ox - half, cy + oy - half, ARROW_SZ, ARROW_SZ };
             };
-            auto sidePreview = [&](DropPos pos) -> Rect {
+            auto sidePreview = [&](JDropPos pos) -> JRect {
                 switch (pos) {
-                    case DropPos::Left:   return { r.x, r.y, r.width * 0.5f, r.height };
-                    case DropPos::Right:  return { r.x + r.width * 0.5f, r.y, r.width * 0.5f, r.height };
-                    case DropPos::Top:    return { r.x, r.y, r.width, r.height * 0.5f };
-                    case DropPos::Bottom: return { r.x, r.y + r.height * 0.5f, r.width, r.height * 0.5f };
+                    case JDropPos::Left:   return { r.x, r.y, r.width * 0.5f, r.height };
+                    case JDropPos::Right:  return { r.x + r.width * 0.5f, r.y, r.width * 0.5f, r.height };
+                    case JDropPos::Top:    return { r.x, r.y, r.width, r.height * 0.5f };
+                    case JDropPos::Bottom: return { r.x, r.y + r.height * 0.5f, r.width, r.height * 0.5f };
                     default:              return r;
                 }
             };
 
-            m_dropTargets.push_back({ n.id, DropPos::Center, centerRect(0, 0),    r,                            false, isAllowed(DropPos::Center) });
-            m_dropTargets.push_back({ n.id, DropPos::Left,   centerRect(-gap, 0), sidePreview(DropPos::Left),   false, isAllowed(DropPos::Left)   });
-            m_dropTargets.push_back({ n.id, DropPos::Right,  centerRect(gap, 0),  sidePreview(DropPos::Right),  false, isAllowed(DropPos::Right)  });
-            m_dropTargets.push_back({ n.id, DropPos::Top,    centerRect(0, -gap), sidePreview(DropPos::Top),    false, isAllowed(DropPos::Top)    });
-            m_dropTargets.push_back({ n.id, DropPos::Bottom, centerRect(0, gap),  sidePreview(DropPos::Bottom), false, isAllowed(DropPos::Bottom) });
+            m_dropTargets.push_back({ n.id, JDropPos::Center, centerRect(0, 0),    r,                            false, isAllowed(JDropPos::Center) });
+            m_dropTargets.push_back({ n.id, JDropPos::Left,   centerRect(-gap, 0), sidePreview(JDropPos::Left),   false, isAllowed(JDropPos::Left)   });
+            m_dropTargets.push_back({ n.id, JDropPos::Right,  centerRect(gap, 0),  sidePreview(JDropPos::Right),  false, isAllowed(JDropPos::Right)  });
+            m_dropTargets.push_back({ n.id, JDropPos::Top,    centerRect(0, -gap), sidePreview(JDropPos::Top),    false, isAllowed(JDropPos::Top)    });
+            m_dropTargets.push_back({ n.id, JDropPos::Bottom, centerRect(0, gap),  sidePreview(JDropPos::Bottom), false, isAllowed(JDropPos::Bottom) });
         }
 
-        // Window-border edge strips: drop onto the largest leaf along that edge.
-        const Rect& host = m_hostRect;
-        DockNodeId edgeLeaf = _edgeLeaf();
+        // JWindow-border edge strips: drop onto the largest leaf along that edge.
+        const JRect& host = m_hostRect;
+        JDockNodeId edgeLeaf = _edgeLeaf();
         if (edgeLeaf.valid()) {
-            const DockNode* el = node(edgeLeaf);
-            auto edgeAllowed = [&](DropPos pos) -> bool {
+            const JDockNode* el = node(edgeLeaf);
+            auto edgeAllowed = [&](JDropPos pos) -> bool {
                 if (!el) return false;
                 if (!el->affinity.accepts(tag)) return false;
                 if (!dock->acceptsLeafLabel(el->label)) return false;
-                if (static_cast<uint8_t>(pos) <= static_cast<uint8_t>(DropPos::Bottom)) {
+                if (static_cast<uint8_t>(pos) <= static_cast<uint8_t>(JDropPos::Bottom)) {
                     uint8_t bit = static_cast<uint8_t>(1u << static_cast<uint8_t>(pos));
                     if (!dock->allowsDrop(bit)) return false;
                 }
                 return true;
             };
             float m = 8.f;
-            m_dropTargets.push_back({ edgeLeaf, DropPos::Left,
+            m_dropTargets.push_back({ edgeLeaf, JDropPos::Left,
                 { host.x + m, host.y + host.height * 0.5f - ARROW_SZ * 0.5f, ARROW_SZ, ARROW_SZ },
-                { host.x, host.y, host.width * 0.33f, host.height }, false, edgeAllowed(DropPos::Left) });
-            m_dropTargets.push_back({ edgeLeaf, DropPos::Right,
+                { host.x, host.y, host.width * 0.33f, host.height }, false, edgeAllowed(JDropPos::Left) });
+            m_dropTargets.push_back({ edgeLeaf, JDropPos::Right,
                 { host.x + host.width - m - ARROW_SZ, host.y + host.height * 0.5f - ARROW_SZ * 0.5f, ARROW_SZ, ARROW_SZ },
-                { host.x + host.width * 0.67f, host.y, host.width * 0.33f, host.height }, false, edgeAllowed(DropPos::Right) });
-            m_dropTargets.push_back({ edgeLeaf, DropPos::Top,
+                { host.x + host.width * 0.67f, host.y, host.width * 0.33f, host.height }, false, edgeAllowed(JDropPos::Right) });
+            m_dropTargets.push_back({ edgeLeaf, JDropPos::Top,
                 { host.x + host.width * 0.5f - ARROW_SZ * 0.5f, host.y + m, ARROW_SZ, ARROW_SZ },
-                { host.x, host.y, host.width, host.height * 0.33f }, false, edgeAllowed(DropPos::Top) });
-            m_dropTargets.push_back({ edgeLeaf, DropPos::Bottom,
+                { host.x, host.y, host.width, host.height * 0.33f }, false, edgeAllowed(JDropPos::Top) });
+            m_dropTargets.push_back({ edgeLeaf, JDropPos::Bottom,
                 { host.x + host.width * 0.5f - ARROW_SZ * 0.5f, host.y + host.height - m - ARROW_SZ, ARROW_SZ, ARROW_SZ },
-                { host.x, host.y + host.height * 0.67f, host.width, host.height * 0.33f }, false, edgeAllowed(DropPos::Bottom) });
+                { host.x, host.y + host.height * 0.67f, host.width, host.height * 0.33f }, false, edgeAllowed(JDropPos::Bottom) });
         }
     }
 
     // The leaf with the largest area — used as the target for window-edge drops.
-    DockNodeId _edgeLeaf() const {
-        DockNodeId best = InvalidDockNodeId;
+    JDockNodeId _edgeLeaf() const {
+        JDockNodeId best = InvalidDockNodeId;
         float bestArea = -1.f;
         for (const auto& n : m_nodes) {
-            if (n.type != DockNode::Type::Leaf) continue;
+            if (n.type != JDockNode::JType::Leaf) continue;
             float a = n.rect.width * n.rect.height;
             if (a > bestArea) { bestArea = a; best = n.id; }
         }
@@ -1410,15 +1410,15 @@ private:
     // it ends up with only one child.
     // ----------------------------------------------------------------------
 
-    void _pruneLeaf(DockNodeId leafId) {
-        DockNode* leaf = node(leafId);
-        if (!leaf || leaf->type != DockNode::Type::Leaf) return;
+    void _pruneLeaf(JDockNodeId leafId) {
+        JDockNode* leaf = node(leafId);
+        if (!leaf || leaf->type != JDockNode::JType::Leaf) return;
 
-        DockNodeId parentId = leaf->parent;
+        JDockNodeId parentId = leaf->parent;
         if (!parentId.valid()) return;
 
-        DockNode* parent = node(parentId);
-        if (!parent || parent->type != DockNode::Type::Split) return;
+        JDockNode* parent = node(parentId);
+        if (!parent || parent->type != JDockNode::JType::Split) return;
 
         // Remove the empty leaf from its parent.
         auto cit = std::find(parent->children.begin(), parent->children.end(), leafId);
@@ -1431,7 +1431,7 @@ private:
 
         // Tombstone the leaf: make it an orphaned empty split so it is skipped
         // by all leaf-scanning loops without needing a separate dead flag.
-        leaf->type     = DockNode::Type::Split;
+        leaf->type     = JDockNode::JType::Split;
         leaf->parent   = InvalidDockNodeId;
         leaf->tabs.clear();
 
@@ -1441,17 +1441,17 @@ private:
             _collapseSingleChildSplit(parentId);
 
         // If the host is now completely empty (root has no children), plant a
-        // placeholder Leaf so the DockHost remains a valid drop target even
+        // placeholder Leaf so the JDockHost remains a valid drop target even
         // with zero docks.  The placeholder renders as a plain dark background
         // and _renderLeaf already exits early when tabs is empty.
-        DockNode* root = node(rootId());
+        JDockNode* root = node(rootId());
         if (root && root->children.empty()) {
-            DockNodeId ph = _allocNode();
+            JDockNodeId ph = _allocNode();
             // _allocNode may reallocate m_nodes — refetch root.
             root = node(rootId());
-            DockNode* phNode = node(ph);
+            JDockNode* phNode = node(ph);
             if (phNode) {
-                phNode->type   = DockNode::Type::Leaf;
+                phNode->type   = JDockNode::JType::Leaf;
                 phNode->parent = rootId();
             }
             if (root) {
@@ -1467,23 +1467,23 @@ private:
     }
 
     // Replace a single-child split with its sole child in the grandparent.
-    void _collapseSingleChildSplit(DockNodeId splitId) {
-        DockNode* split = node(splitId);
-        if (!split || split->type != DockNode::Type::Split || split->children.size() != 1) return;
+    void _collapseSingleChildSplit(JDockNodeId splitId) {
+        JDockNode* split = node(splitId);
+        if (!split || split->type != JDockNode::JType::Split || split->children.size() != 1) return;
 
-        DockNodeId survivorId = split->children[0];
-        DockNodeId grandpaId  = split->parent;
+        JDockNodeId survivorId = split->children[0];
+        JDockNodeId grandpaId  = split->parent;
 
         if (!grandpaId.valid()) return;  // split is root — can't lift further
 
-        DockNode* granpa = node(grandpaId);
+        JDockNode* granpa = node(grandpaId);
         if (!granpa) return;
 
         // Swap the split out of the grandparent and put the survivor in its slot.
         for (auto& c : granpa->children)
             if (c == splitId) { c = survivorId; break; }
 
-        DockNode* survivor = node(survivorId);
+        JDockNode* survivor = node(survivorId);
         if (survivor) survivor->parent = grandpaId;
 
         // Tombstone the old split (orphaned empty split, never reached from root).
@@ -1497,17 +1497,17 @@ private:
     // Returns the id of the new empty leaf (caller inserts the dock into it).
     // ----------------------------------------------------------------------
 
-    DockNodeId _splitLeaf(DockNodeId leafId, DropPos pos) {
-        DockNode* leaf = node(leafId);
-        if (!leaf || leaf->type != DockNode::Type::Leaf) return InvalidDockNodeId;
-        DockNodeId parentId = leaf->parent;
+    JDockNodeId _splitLeaf(JDockNodeId leafId, JDropPos pos) {
+        JDockNode* leaf = node(leafId);
+        if (!leaf || leaf->type != JDockNode::JType::Leaf) return InvalidDockNodeId;
+        JDockNodeId parentId = leaf->parent;
         if (!parentId.valid()) return InvalidDockNodeId;
 
-        bool wantVertical = (pos == DropPos::Top || pos == DropPos::Bottom);
-        SplitDir desired = wantVertical ? SplitDir::Vertical : SplitDir::Horizontal;
-        bool before = (pos == DropPos::Left || pos == DropPos::Top || pos == DropPos::SplitBefore);
+        bool wantVertical = (pos == JDropPos::Top || pos == JDropPos::Bottom);
+        JSplitDir desired = wantVertical ? JSplitDir::Vertical : JSplitDir::Horizontal;
+        bool before = (pos == JDropPos::Left || pos == JDropPos::Top || pos == JDropPos::SplitBefore);
 
-        DockNode* parent = node(parentId);
+        JDockNode* parent = node(parentId);
         if (!parent) return InvalidDockNodeId;
 
         int idx = -1;
@@ -1518,8 +1518,8 @@ private:
         // Case A: parent already splits along the desired direction — just
         // insert the new leaf as a sibling next to the target.
         if (parent->splitDir == desired) {
-            DockNodeId newLeaf = _allocNode();
-            { DockNode& nl = m_nodes[newLeaf.v]; nl.type = DockNode::Type::Leaf; nl.parent = parentId; }
+            JDockNodeId newLeaf = _allocNode();
+            { JDockNode& nl = m_nodes[newLeaf.v]; nl.type = JDockNode::JType::Leaf; nl.parent = parentId; }
             parent = node(parentId);
             float w = parent->weights[idx];
             float half = w * 0.5f;
@@ -1533,16 +1533,16 @@ private:
 
         // Case B: introduce a new SplitNode in the target's slot, holding the
         // original leaf and the new leaf as 50/50 children.
-        DockNodeId splitId = _allocNode();
-        { DockNode& sp = m_nodes[splitId.v]; sp.type = DockNode::Type::Split; sp.parent = parentId; sp.splitDir = desired; }
-        DockNodeId newLeaf = _allocNode();
-        { DockNode& nl = m_nodes[newLeaf.v]; nl.type = DockNode::Type::Leaf; nl.parent = splitId; }
+        JDockNodeId splitId = _allocNode();
+        { JDockNode& sp = m_nodes[splitId.v]; sp.type = JDockNode::JType::Split; sp.parent = parentId; sp.splitDir = desired; }
+        JDockNodeId newLeaf = _allocNode();
+        { JDockNode& nl = m_nodes[newLeaf.v]; nl.type = JDockNode::JType::Leaf; nl.parent = splitId; }
 
         // Reparent the original leaf under the new split.
         leaf = node(leafId);
         leaf->parent = splitId;
 
-        DockNode& sp = m_nodes[splitId.v];
+        JDockNode& sp = m_nodes[splitId.v];
         if (before) sp.children = { newLeaf, leafId };
         else        sp.children = { leafId, newLeaf };
         sp.weights = { 0.5f, 0.5f };
@@ -1569,41 +1569,41 @@ private:
     // Snapshot / restore helpers
     // ----------------------------------------------------------------------
 
-    DockLayoutNode _snapshotNode(DockNodeId id) const {
-        DockLayoutNode out;
-        const DockNode* n = node(id);
+    JDockLayoutNode _snapshotNode(JDockNodeId id) const {
+        JDockLayoutNode out;
+        const JDockNode* n = node(id);
         if (!n) return out;
-        if (n->type == DockNode::Type::Split) {
-            out.kind     = DockLayoutNode::Kind::Split;
+        if (n->type == JDockNode::JType::Split) {
+            out.kind     = JDockLayoutNode::JKind::Split;
             out.splitDir = n->splitDir;
             out.weights  = n->weights;
-            for (DockNodeId c : n->children)
+            for (JDockNodeId c : n->children)
                 out.children.push_back(_snapshotNode(c));
         } else {
-            out.kind       = DockLayoutNode::Kind::Leaf;
+            out.kind       = JDockLayoutNode::JKind::Leaf;
             out.label      = n->label;
             out.tabBarEdge = n->tabBarEdge;
             out.activeTab  = n->activeTab;
-            for (const DockWidget* w : n->tabs)
+            for (const JDockWidget* w : n->tabs)
                 out.tabTitles.push_back(w ? w->title() : "");
         }
         return out;
     }
 
-    bool _restoreNode(const DockLayoutNode& src, DockNodeId id, DockNodeId parentId,
-                      const std::function<DockWidget*(std::string_view)>& resolver)
+    bool _restoreNode(const JDockLayoutNode& src, JDockNodeId id, JDockNodeId parentId,
+                      const std::function<JDockWidget*(std::string_view)>& resolver)
     {
-        DockNode* n = node(id);
+        JDockNode* n = node(id);
         if (!n) return false;
         n->parent = parentId;
 
-        if (src.kind == DockLayoutNode::Kind::Split) {
-            n->type     = DockNode::Type::Split;
+        if (src.kind == JDockLayoutNode::JKind::Split) {
+            n->type     = JDockNode::JType::Split;
             n->splitDir = src.splitDir;
             n->weights  = src.weights;
 
             for (size_t i = 0; i < src.children.size(); ++i) {
-                DockNodeId childId = _allocNode();
+                JDockNodeId childId = _allocNode();
                 n = node(id);            // refetch: _allocNode may reallocate m_nodes
                 if (!n) return false;
                 n->children.push_back(childId);
@@ -1613,11 +1613,11 @@ private:
             }
             _rebalanceWeights(id);  // uses node(id) internally, always safe
         } else {
-            n->type       = DockNode::Type::Leaf;
+            n->type       = JDockNode::JType::Leaf;
             n->label      = src.label;
             n->tabBarEdge = src.tabBarEdge;
             for (const auto& title : src.tabTitles) {
-                if (DockWidget* w = resolver ? resolver(title) : nullptr)
+                if (JDockWidget* w = resolver ? resolver(title) : nullptr)
                     n->tabs.push_back(w);
             }
             int tabCount = static_cast<int>(n->tabs.size());
@@ -1632,34 +1632,34 @@ private:
     // Members
     // ----------------------------------------------------------------------
 
-    std::vector<DockNode> m_nodes;
+    std::vector<JDockNode> m_nodes;
     uint32_t              m_nextId{0};
-    Rect                  m_hostRect{};
+    JRect                  m_hostRect{};
 
-    std::vector<DropTarget> m_dropTargets;
-    DropTarget*             m_activeTarget{nullptr};
-    DockWidget*             m_draggedDock{nullptr};
+    std::vector<JDropTarget> m_dropTargets;
+    JDropTarget*             m_activeTarget{nullptr};
+    JDockWidget*             m_draggedDock{nullptr};
 
-    std::vector<DockNode>   m_savedNodes;
+    std::vector<JDockNode>   m_savedNodes;
     uint32_t                m_savedNextId{0};
     bool                    m_hasSavedState{false};
     bool                    m_livePreviewEnabled{true};
 
-    struct HandleDrag {
-        DockNodeId parentSplit;
+    struct JHandleDrag {
+        JDockNodeId parentSplit;
         int        handleIdx{0};
         float      startCursor{0.f};
         float      startWeightA{0.f}, startWeightB{0.f};
         bool       active{false};
     } m_handleDrag{};
 
-    struct TitleDrag {
-        DockWidget* dock{nullptr};
+    struct JTitleDrag {
+        JDockWidget* dock{nullptr};
         float       startX{0.f}, startY{0.f};
         bool        active{false};
     } m_titleDrag{};
 
-    DockOptions m_options;
+    JDockOptions m_options;
 };
 
 } // namespace Genesis

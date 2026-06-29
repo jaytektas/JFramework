@@ -5,7 +5,7 @@
 using namespace Genesis;
 
 void test_invalidation_skipping() {
-    SceneGraph graph;
+    JSceneGraph graph;
     
     NodeId root = graph.createNode("Root");
     NodeId child1 = graph.createNode("Child1");
@@ -20,7 +20,7 @@ void test_invalidation_skipping() {
     graph.getLayout(child2).boundingBox.height = 50;
     
     // Initial layout (everything is dirty)
-    Constraints constraints{0, 800, 0, 600};
+    JConstraints constraints{0, 800, 0, 600};
     graph.computeLayout(root, constraints);
     
     // Everything should be clean now

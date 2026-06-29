@@ -12,21 +12,21 @@
 namespace Genesis {
 
 // ============================================================================
-// WorkerThread — persistent background thread with a serialised task queue.
+// JWorkerThread — persistent background thread with a serialised task queue.
 //
-// Fills the gap left by MainThreadDispatcher (background→main only).
-// WorkerThread gives you the main→background direction: enqueue lambdas that
+// Fills the gap left by JMainThreadDispatcher (background→main only).
+// JWorkerThread gives you the main→background direction: enqueue lambdas that
 // run on a dedicated worker thread, with optional result callbacks that are
-// automatically delivered back to the main thread via MainThreadDispatcher.
+// automatically delivered back to the main thread via JMainThreadDispatcher.
 //
-// Unlike the detach() pattern used in Database/Settings async methods,
-// WorkerThread reuses one thread across many operations, giving you:
+// Unlike the detach() pattern used in JDatabase/JSettings async methods,
+// JWorkerThread reuses one thread across many operations, giving you:
 //   - Lower overhead (no thread-spawn cost per task)
 //   - Natural FIFO ordering (tasks run in the order posted)
 //   - Bounded concurrency (one background thread, not N)
 //
 // Quick reference:
-//   WorkerThread worker;
+//   JWorkerThread worker;
 //
 //   // Fire and forget
 //   worker.post([]{ expensiveIO(); });
@@ -47,16 +47,16 @@ namespace Genesis {
 //   // Destructor calls stop() — drains remaining tasks before joining.
 //   // Call stopNow() to discard pending work and exit immediately.
 // ============================================================================
-class WorkerThread {
+class JWorkerThread {
 public:
-    WorkerThread() {
+    JWorkerThread() {
         m_thread = std::thread([this]{ _loop(); });
     }
 
-    ~WorkerThread() { stop(); }
+    ~JWorkerThread() { stop(); }
 
-    WorkerThread(const WorkerThread&)            = delete;
-    WorkerThread& operator=(const WorkerThread&) = delete;
+    JWorkerThread(const JWorkerThread&)            = delete;
+    JWorkerThread& operator=(const JWorkerThread&) = delete;
 
     // ---- Posting tasks -----------------------------------------------------
 
@@ -74,7 +74,7 @@ public:
     void postWithResult(std::function<T()> task, std::function<void(T)> cb) {
         post([task = std::move(task), cb = std::move(cb)]() mutable {
             T result = task();
-            MainThreadDispatcher::instance().post(
+            JMainThreadDispatcher::instance().post(
                 [cb = std::move(cb), r = std::move(result)]() mutable {
                     cb(std::move(r));
                 });
@@ -85,11 +85,11 @@ public:
     void postWithCompletion(std::function<void()> task, std::function<void()> cb = nullptr) {
         post([task = std::move(task), cb = std::move(cb)]() mutable {
             task();
-            if (cb) MainThreadDispatcher::instance().post(std::move(cb));
+            if (cb) JMainThreadDispatcher::instance().post(std::move(cb));
         });
     }
 
-    // ---- Control -----------------------------------------------------------
+    // ---- JControl -----------------------------------------------------------
 
     // Block until all currently queued tasks complete.
     // WARNING: do not call from the main render thread; use postWithCompletion instead.

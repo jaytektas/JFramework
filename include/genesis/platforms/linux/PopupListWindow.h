@@ -16,29 +16,29 @@
 
 namespace Genesis {
 
-class PopupListWindow {
+class JPopupListWindow {
 public:
-    struct PollResult {
-        enum class Type { None, Selected, Dismissed } type{Type::None};
+    struct JPollResult {
+        enum class JType { None, Selected, Dismissed } type{JType::None};
         int selectedIndex{-1};
     };
 
 #if defined(_WIN32)
-    using PlatformWinType = WindowsPlatformWindow;
+    using PlatformWinType = JWindowsPlatformWindow;
     using NativeWinHandleType = HWND;
 #else
-    using PlatformWinType = LinuxPlatformWindow;
+    using PlatformWinType = JLinuxPlatformWindow;
     using NativeWinHandleType = xcb_window_t;
 #endif
 
-    PopupListWindow(std::vector<std::string> items,
+    JPopupListWindow(std::vector<std::string> items,
                     int screenX, int screenY,
                     uint32_t width, uint32_t height,
-                    GpuHal& hal,
+                    JGpuHal& hal,
                     NativeWinHandleType parentWindow = {})
         : m_window(std::make_unique<PlatformWinType>(
               "PopupList", width, height, screenX, screenY,
-              PlatformWindowStyle::Popup, parentWindow))
+              JPlatformWindowStyle::Popup, parentWindow))
         , m_surface(hal.createSurface(m_window->nativeHandle(), width, height))
         , m_winW(width), m_winH(height)
         , m_items(std::move(items))
@@ -60,7 +60,7 @@ public:
 #endif
     }
 
-    ~PopupListWindow() {
+    ~JPopupListWindow() {
 #if defined(_WIN32)
         ReleaseCapture();
 #else
@@ -70,12 +70,12 @@ public:
 #endif
     }
 
-    PollResult pollEvents(GpuHal&) {
+    JPollResult pollEvents(JGpuHal&) {
         m_window->pollNativeEvents();
-        PollResult out{};
+        JPollResult out{};
 
         if (m_window->shouldClose() || m_window->consumeFocusLost()) {
-            out.type = PollResult::Type::Dismissed;
+            out.type = JPollResult::JType::Dismissed;
             return out;
         }
 
@@ -95,7 +95,7 @@ public:
             if (idx >= 0 && idx < static_cast<int>(m_items.size())) {
                 m_hoveredIndex = idx;
                 if (pressed) {
-                    out.type          = PollResult::Type::Selected;
+                    out.type          = JPollResult::JType::Selected;
                     out.selectedIndex = idx;
                 }
             } else {
@@ -104,14 +104,14 @@ public:
         } else {
             m_hoveredIndex = -1;
             if (pressed) {
-                out.type = PollResult::Type::Dismissed;
+                out.type = JPollResult::JType::Dismissed;
             }
         }
 
         return out;
     }
 
-    void render(GpuHal& hal, PrimitiveBuffer& buf) {
+    void render(JGpuHal& hal, JPrimitiveBuffer& buf) {
         uint8_t bg[4] = {22, 22, 26, 255};
         buf.pushRectangle(0.f, 0.f,
                           static_cast<float>(m_winW), static_cast<float>(m_winH),
@@ -129,10 +129,10 @@ public:
                                   Colors::Surface3, 4.0f);
             }
 
-            if (TextHelper::hasAtlas()) {
+            if (JTextHelper::hasAtlas()) {
                 uint8_t tc[4] = {220, 220, 228, 255};
-                float ty = iy + (itemH - TextHelper::lineHeight()) * 0.5f;
-                TextHelper::pushText(buf, padding + 8.0f, ty, m_items[i], tc,
+                float ty = iy + (itemH - JTextHelper::lineHeight()) * 0.5f;
+                JTextHelper::pushText(buf, padding + 8.0f, ty, m_items[i], tc,
                                      static_cast<float>(m_winW) - padding * 2.f - 16.f);
             }
         }
@@ -142,7 +142,7 @@ public:
         hal.submitAndPresentFrame(frame);
     }
 
-    void destroySurface(GpuHal& hal) {
+    void destroySurface(JGpuHal& hal) {
         if (m_surface != kPrimarySurface) {
             hal.destroySurface(m_surface);
             m_surface = kPrimarySurface;

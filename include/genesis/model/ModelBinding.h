@@ -3,21 +3,21 @@
 // ============================================================================
 // ModelBinding — free functions to bind Genesis models to widgets.
 //
-// Include this header when you want to connect a TableModel/TreeModel to a
-// DataGrid or TreeView. The binding stays live until the returned SlotTracker
+// Include this header when you want to connect a JTableModel/JTreeModel to a
+// JDataGrid or JTreeView. The binding stays live until the returned JSlotTracker
 // is destroyed (or its disconnectAll() is called).
 //
 // Usage:
-//   TableModel model;
-//   DataGrid   grid(graph, {"Name","Value"});
+//   JTableModel model;
+//   JDataGrid   grid(graph, {"Name","Value"});
 //   auto conn = bindDataGrid(grid, model);  // grid stays in sync with model
 //
-//   SortFilterModel proxy(model);
+//   JSortFilterModel proxy(model);
 //   proxy.sort(0);
 //   auto conn2 = bindDataGrid(grid, proxy);
 //
-//   TreeModel treeModel;
-//   TreeView  tree(graph);
+//   JTreeModel treeModel;
+//   JTreeView  tree(graph);
 //   auto conn3 = bindTreeView(tree, treeModel);
 //
 // Lifetime: conn, conn2, conn3 must outlive grid/tree or be explicitly
@@ -35,8 +35,8 @@ namespace Genesis {
 
 namespace detail {
 
-inline TreeViewNode treeItemToNode(const TreeItem& item) {
-    TreeViewNode node;
+inline JTreeViewNode treeItemToNode(const JTreeItem& item) {
+    JTreeViewNode node;
     node.label    = item.label;
     node.expanded = item.expanded;
     node.selected = false;
@@ -47,12 +47,12 @@ inline TreeViewNode treeItemToNode(const TreeItem& item) {
 
 } // namespace detail
 
-// ---- DataGrid ↔ TableModel --------------------------------------------------
+// ---- JDataGrid ↔ JTableModel --------------------------------------------------
 
-inline Core::SlotTracker bindDataGrid(DataGrid& grid, TableModel& model) {
+inline Core::JSlotTracker bindDataGrid(JDataGrid& grid, JTableModel& model) {
     grid.setHeaders(model.headers());
     grid.setRows(model.rows());
-    Core::SlotTracker tracker;
+    Core::JSlotTracker tracker;
     tracker.addConnection(model.onChanged.connect([&grid, &model]{
         grid.setHeaders(model.headers());
         grid.setRows(model.rows());
@@ -60,12 +60,12 @@ inline Core::SlotTracker bindDataGrid(DataGrid& grid, TableModel& model) {
     return tracker;
 }
 
-// ---- DataGrid ↔ SortFilterModel ---------------------------------------------
+// ---- JDataGrid ↔ JSortFilterModel ---------------------------------------------
 
-inline Core::SlotTracker bindDataGrid(DataGrid& grid, SortFilterModel& proxy) {
+inline Core::JSlotTracker bindDataGrid(JDataGrid& grid, JSortFilterModel& proxy) {
     grid.setHeaders(proxy.headers());
     grid.setRows(proxy.rows());
-    Core::SlotTracker tracker;
+    Core::JSlotTracker tracker;
     tracker.addConnection(proxy.onChanged.connect([&grid, &proxy]{
         grid.setHeaders(proxy.headers());
         grid.setRows(proxy.rows());
@@ -73,16 +73,16 @@ inline Core::SlotTracker bindDataGrid(DataGrid& grid, SortFilterModel& proxy) {
     return tracker;
 }
 
-// ---- TreeView ↔ TreeModel ---------------------------------------------------
+// ---- JTreeView ↔ JTreeModel ---------------------------------------------------
 
-inline Core::SlotTracker bindTreeView(TreeView& tree, TreeModel& model) {
-    // Build root node from TreeModel root's children (TreeView shows children of root).
+inline Core::JSlotTracker bindTreeView(JTreeView& tree, JTreeModel& model) {
+    // Build root node from JTreeModel root's children (JTreeView shows children of root).
     auto sync = [&tree, &model]{
-        TreeViewNode root = detail::treeItemToNode(model.root());
+        JTreeViewNode root = detail::treeItemToNode(model.root());
         tree.setRootNode(std::move(root));
     };
     sync();
-    Core::SlotTracker tracker;
+    Core::JSlotTracker tracker;
     tracker.addConnection(model.onChanged.connect([sync]{ sync(); }));
     return tracker;
 }

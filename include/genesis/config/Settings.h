@@ -17,44 +17,44 @@
 namespace Genesis {
 
 // ============================================================================
-// Settings — thread-safe persistent key-value store of Variant values.
+// JSettings — thread-safe persistent key-value store of JVariant values.
 //
 // Keys use dot notation: "serial.port", "ui.theme", "window.width".
-// Values are stored as Variant, so types survive in memory and (with the JSON
+// Values are stored as JVariant, so types survive in memory and (with the JSON
 // backend) on disk. The legacy INI backend flattens to strings on save and
 // reloads as strings; typed getters coerce on read, so it stays compatible.
 //
 //   1. Global singleton:
-//        Settings::instance().setPath("~/.config/app.json").loadJson();
-//        Settings::instance().set("serial.port", "/dev/ttyUSB0");
-//        Settings::instance().set("serial.baud", 115200);
-//        auto port = Settings::instance().get<std::string>("serial.port");
-//        Variant raw = Settings::instance().value("serial.baud");  // typed
+//        JSettings::instance().setPath("~/.config/app.json").loadJson();
+//        JSettings::instance().set("serial.port", "/dev/ttyUSB0");
+//        JSettings::instance().set("serial.baud", 115200);
+//        auto port = JSettings::instance().get<std::string>("serial.port");
+//        JVariant raw = JSettings::instance().value("serial.baud");  // typed
 //
 //   2. Scoped instance:
-//        Settings ws;
+//        JSettings ws;
 //        ws.setPath(workspaceDir / "workspace.json").loadJson();
 // ============================================================================
-class Settings {
+class JSettings {
 public:
-    // Fires on the main thread whenever a value is set, with the new Variant.
-    Core::Signal<std::string, Variant> onChange;
+    // Fires on the main thread whenever a value is set, with the new JVariant.
+    Core::JSignal<std::string, JVariant> onChange;
 
-    Settings() = default;
+    JSettings() = default;
 
-    Settings(const Settings&)            = delete;
-    Settings& operator=(const Settings&) = delete;
-    Settings(Settings&&)                 = default;
-    Settings& operator=(Settings&&)      = default;
+    JSettings(const JSettings&)            = delete;
+    JSettings& operator=(const JSettings&) = delete;
+    JSettings(JSettings&&)                 = default;
+    JSettings& operator=(JSettings&&)      = default;
 
-    static Settings& instance() {
-        static Settings inst;
+    static JSettings& instance() {
+        static JSettings inst;
         return inst;
     }
 
     // ---- Path ---------------------------------------------------------------
 
-    Settings& setPath(const std::filesystem::path& path) {
+    JSettings& setPath(const std::filesystem::path& path) {
         std::lock_guard<std::mutex> lk(m_mutex);
         m_path = path;
         return *this;
@@ -63,22 +63,22 @@ public:
     const std::filesystem::path& path() const { return m_path; }
 
     // ---- Setters ------------------------------------------------------------
-    // One typed setter: any int/double/bool/string/const char* (and Variant
-    // itself) implicitly constructs a Variant.
+    // One typed setter: any int/double/bool/string/const char* (and JVariant
+    // itself) implicitly constructs a JVariant.
 
-    void set(const std::string& key, Variant value) {
+    void set(const std::string& key, JVariant value) {
         {
             std::lock_guard<std::mutex> lk(m_mutex);
             m_data[key] = value;
         }
-        if (AiBusHook::emit) AiBusHook::emit(0, ("settings:" + key).c_str(), value.toString().c_str());
-        MainThreadDispatcher::instance().post([this, key, value]() mutable {
+        if (JAiBusHook::emit) JAiBusHook::emit(0, ("settings:" + key).c_str(), value.toString().c_str());
+        JMainThreadDispatcher::instance().post([this, key, value]() mutable {
             onChange.emit(key, value);
         });
     }
 
     // Set without firing onChange — use for bulk load/restore operations.
-    void setQuiet(const std::string& key, Variant value) {
+    void setQuiet(const std::string& key, JVariant value) {
         std::lock_guard<std::mutex> lk(m_mutex);
         m_data[key] = std::move(value);
     }
@@ -94,8 +94,8 @@ public:
         return it->second.template value<T>(def);
     }
 
-    // Raw Variant accessor (Null when absent unless a default is supplied).
-    Variant value(const std::string& key, Variant def = {}) const {
+    // Raw JVariant accessor (Null when absent unless a default is supplied).
+    JVariant value(const std::string& key, JVariant def = {}) const {
         std::lock_guard<std::mutex> lk(m_mutex);
         auto it = m_data.find(key);
         return it != m_data.end() ? it->second : def;
@@ -127,7 +127,7 @@ public:
 
     // ---- Persistence: INI (string-flattened, legacy/compatible) -------------
 
-    Settings& load() {
+    JSettings& load() {
         std::lock_guard<std::mutex> lk(m_mutex);
         if (m_path.empty() || !std::filesystem::exists(m_path)) return *this;
         std::ifstream f(m_path);
@@ -136,7 +136,7 @@ public:
             if (line.empty() || line[0] == '#') continue;
             auto eq = line.find('=');
             if (eq != std::string::npos)
-                m_data[line.substr(0, eq)] = Variant(line.substr(eq + 1));
+                m_data[line.substr(0, eq)] = JVariant(line.substr(eq + 1));
         }
         return *this;
     }
@@ -158,7 +158,7 @@ public:
         }
         std::thread([snapshot = std::move(snapshot), path = std::move(path), cb]() {
             bool ok = _writeFlat(path, snapshot);
-            if (cb) MainThreadDispatcher::instance().post([cb, ok]{ cb(ok); });
+            if (cb) JMainThreadDispatcher::instance().post([cb, ok]{ cb(ok); });
         }).detach();
     }
 
@@ -169,7 +169,7 @@ public:
         VariantMap m;
         m.reserve(m_data.size());
         for (const auto& [k, v] : m_data) m.emplace_back(k, v);
-        Json j = toJson(Variant(std::move(m)));
+        JJson j = toJson(JVariant(std::move(m)));
         if (m_path.empty()) return false;
         std::error_code ec;
         std::filesystem::create_directories(m_path.parent_path(), ec);
@@ -180,19 +180,19 @@ public:
         return f.good();
     }
 
-    Settings& loadJson() {
+    JSettings& loadJson() {
         std::lock_guard<std::mutex> lk(m_mutex);
         if (m_path.empty() || !std::filesystem::exists(m_path)) return *this;
-        auto opt = Json::tryParseFile(m_path.string());
+        auto opt = JJson::tryParseFile(m_path.string());
         if (!opt || !opt->isObject()) return *this;
-        Variant root = fromJson(*opt);
+        JVariant root = fromJson(*opt);
         for (const auto& [k, v] : root.toMap()) m_data[k] = v;
         return *this;
     }
 
 private:
     mutable std::mutex                        m_mutex;
-    std::unordered_map<std::string, Variant>  m_data;
+    std::unordered_map<std::string, JVariant>  m_data;
     std::filesystem::path                     m_path;
 
     static bool _writeFlat(const std::filesystem::path& path,

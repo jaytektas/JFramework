@@ -11,7 +11,7 @@
 namespace { inline constexpr auto& LogA11y = Genesis::Log::AI; }
 
 static constexpr const char* ATSPI_IFACE_ACCESSIBLE  = "org.a11y.atspi.Accessible";
-static constexpr const char* ATSPI_IFACE_APPLICATION  = "org.a11y.atspi.Application";
+static constexpr const char* ATSPI_IFACE_APPLICATION  = "org.a11y.atspi.JApplication";
 static constexpr const char* ATSPI_BUS_REGISTRY       = "org.a11y.atspi.Registry";
 static constexpr const char* ATSPI_PATH_REGISTRY      = "/org/a11y/atspi/registry";
 static constexpr const char* ATSPI_PATH_ROOT          = "/org/a11y/atspi/accessible/root";
@@ -31,7 +31,7 @@ static const char* INTROSPECT_XML = R"xml(
     <method name="GetParent"><arg direction="out" type="(so)"/></method>
     <method name="GetAttributes"><arg direction="out" type="a{ss}"/></method>
   </interface>
-  <interface name="org.a11y.atspi.Application">
+  <interface name="org.a11y.atspi.JApplication">
     <method name="GetToolkitName"><arg direction="out" type="s"/></method>
     <method name="GetVersion"><arg direction="out" type="s"/></method>
     <method name="GetLocale"><arg direction="in" type="u"/><arg direction="out" type="s"/></method>
@@ -83,9 +83,9 @@ static void sendInt32Reply(DBusConnection* conn, DBusMessage* msg, int32_t v) {
     dbus_message_unref(r);
 }
 
-// ---- AccessibilityBridge ----------------------------------------------------
+// ---- JAccessibilityBridge ----------------------------------------------------
 
-bool AccessibilityBridge::start(const std::string& appName) {
+bool JAccessibilityBridge::start(const std::string& appName) {
     // Enable libdbus's internal per-connection mutex so _handleMessages()
     // and _sendEvent() can call dbus functions on the same connection concurrently.
     dbus_threads_init_default();
@@ -101,7 +101,7 @@ bool AccessibilityBridge::start(const std::string& appName) {
     return true;
 }
 
-void AccessibilityBridge::stop() {
+void JAccessibilityBridge::stop() {
     m_running = false;
     if (m_thread.joinable()) m_thread.join();
     if (m_a11yBus) {
@@ -115,21 +115,21 @@ void AccessibilityBridge::stop() {
     }
 }
 
-void AccessibilityBridge::update(const std::vector<AiNodeDescriptor>& nodes) {
+void JAccessibilityBridge::update(const std::vector<AiNodeDescriptor>& nodes) {
     std::lock_guard<std::mutex> lk(m_nodesMutex);
     m_nodes = nodes;
     m_dirty = true;
 }
 
-void AccessibilityBridge::notifyFocus(uint32_t idx) {
+void JAccessibilityBridge::notifyFocus(uint32_t idx) {
     _sendEvent("object:state-changed:focused", idx, 1, 0);
 }
 
-void AccessibilityBridge::notifyChecked(uint32_t idx, bool checked) {
+void JAccessibilityBridge::notifyChecked(uint32_t idx, bool checked) {
     _sendEvent("object:state-changed:checked", idx, checked ? 1 : 0, 0);
 }
 
-bool AccessibilityBridge::_connectToA11yBus() {
+bool JAccessibilityBridge::_connectToA11yBus() {
     DBusError err; dbus_error_init(&err);
 
     m_sessionBus = dbus_bus_get(DBUS_BUS_SESSION, &err);
@@ -164,7 +164,7 @@ bool AccessibilityBridge::_connectToA11yBus() {
     return true;
 }
 
-void AccessibilityBridge::_registerApplication(const std::string& appName) {
+void JAccessibilityBridge::_registerApplication(const std::string& appName) {
     if (!m_a11yBus) return;
     DBusError err; dbus_error_init(&err);
 
@@ -185,7 +185,7 @@ void AccessibilityBridge::_registerApplication(const std::string& appName) {
     dbus_connection_flush(m_a11yBus);
 }
 
-void AccessibilityBridge::_handleMessages() {
+void JAccessibilityBridge::_handleMessages() {
     while (m_running) {
         if (!m_a11yBus) break;
 
@@ -220,18 +220,18 @@ void AccessibilityBridge::_handleMessages() {
             } else if (sIface == ATSPI_IFACE_ACCESSIBLE) {
                 // Snapshot under lock to avoid data race with update()
                 std::string name;
-                uint32_t role   = static_cast<uint32_t>(AtSpiRole::Application);
-                uint32_t state0 = static_cast<uint32_t>(AtSpiState::Enabled)
-                                | static_cast<uint32_t>(AtSpiState::Visible)
-                                | static_cast<uint32_t>(AtSpiState::Showing)
-                                | static_cast<uint32_t>(AtSpiState::Sensitive);
+                uint32_t role   = static_cast<uint32_t>(JAtSpiRole::JApplication);
+                uint32_t state0 = static_cast<uint32_t>(JAtSpiState::Enabled)
+                                | static_cast<uint32_t>(JAtSpiState::Visible)
+                                | static_cast<uint32_t>(JAtSpiState::Showing)
+                                | static_cast<uint32_t>(JAtSpiState::Sensitive);
                 int32_t childCount = 0;
 
                 {
                     std::lock_guard<std::mutex> lk(m_nodesMutex);
                     if (nodeIdx >= 0 && nodeIdx < static_cast<int32_t>(m_nodes.size())) {
                         name       = m_nodes[nodeIdx].name;
-                        role       = static_cast<uint32_t>(AtSpiRole::Panel);
+                        role       = static_cast<uint32_t>(JAtSpiRole::Panel);
                         childCount = 0;
                     } else {
                         // Root application object
@@ -277,19 +277,19 @@ void AccessibilityBridge::_handleMessages() {
     }
 }
 
-bool AccessibilityBridge::_replyGetName(DBusMessage* msg, const std::string& name) {
+bool JAccessibilityBridge::_replyGetName(DBusMessage* msg, const std::string& name) {
     sendStringReply(m_a11yBus, msg, name.c_str());
     return true;
 }
-bool AccessibilityBridge::_replyGetRole(DBusMessage* msg, uint32_t role) {
+bool JAccessibilityBridge::_replyGetRole(DBusMessage* msg, uint32_t role) {
     sendUint32Reply(m_a11yBus, msg, role);
     return true;
 }
-bool AccessibilityBridge::_replyGetState(DBusMessage* msg, uint32_t w0, uint32_t w1) {
+bool JAccessibilityBridge::_replyGetState(DBusMessage* msg, uint32_t w0, uint32_t w1) {
     sendStateReply(m_a11yBus, msg, w0, w1);
     return true;
 }
-bool AccessibilityBridge::_replyGetChildren(DBusMessage* msg, const std::vector<uint32_t>&) {
+bool JAccessibilityBridge::_replyGetChildren(DBusMessage* msg, const std::vector<uint32_t>&) {
     DBusMessage* r = dbus_message_new_method_return(msg);
     if (!r) return false;
     // Return empty array for now — children via GetChildCount is sufficient for Orca
@@ -301,12 +301,12 @@ bool AccessibilityBridge::_replyGetChildren(DBusMessage* msg, const std::vector<
     dbus_message_unref(r);
     return true;
 }
-bool AccessibilityBridge::_replyIntrospect(DBusMessage* msg) {
+bool JAccessibilityBridge::_replyIntrospect(DBusMessage* msg) {
     sendStringReply(m_a11yBus, msg, INTROSPECT_XML);
     return true;
 }
 
-void AccessibilityBridge::_sendEvent(const std::string& eventType,
+void JAccessibilityBridge::_sendEvent(const std::string& eventType,
                                      uint32_t nodeIndex,
                                      uint32_t detail1, uint32_t detail2) {
     if (!m_a11yBus || !m_running) return;

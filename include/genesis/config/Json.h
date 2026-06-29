@@ -1,21 +1,21 @@
 #pragma once
 
 // ============================================================================
-// Genesis::Json — lightweight read/write JSON
+// Genesis::JJson — lightweight read/write JSON
 //
 // std::variant-based node tree. No external dependencies.
 //
 // Parse:
-//   auto root = Json::parse(R"({"port":"/dev/ttyUSB0","baud":115200})");
-//   auto root = Json::parseFile("config.json");          // throws on error
-//   auto opt  = Json::tryParse(src);                     // returns nullopt on error
+//   auto root = JJson::parse(R"({"port":"/dev/ttyUSB0","baud":115200})");
+//   auto root = JJson::parseFile("config.json");          // throws on error
+//   auto opt  = JJson::tryParse(src);                     // returns nullopt on error
 //   std::string port = root["port"].str();
 //   int baud = root["baud"].number<int>();
 //
 // Build + serialise:
-//   Json obj = Json::object();
-//   obj["port"] = Json("/dev/ttyUSB0");
-//   obj["baud"] = Json(115200);
+//   JJson obj = JJson::object();
+//   obj["port"] = JJson("/dev/ttyUSB0");
+//   obj["baud"] = JJson(115200);
 //   obj.dumpToFile("config.json");
 //   std::string s = obj.dump(2);    // pretty-print with 2-space indent
 // ============================================================================
@@ -35,27 +35,27 @@
 
 namespace Genesis {
 
-class Json {
+class JJson {
 public:
     using Null   = std::monostate;
-    using Array  = std::vector<Json>;
-    using Object = std::vector<std::pair<std::string, Json>>;  // insertion-ordered
+    using Array  = std::vector<JJson>;
+    using Object = std::vector<std::pair<std::string, JJson>>;  // insertion-ordered
 
-    Json()               : m_val(Null{})           {}
-    Json(std::nullptr_t) : m_val(Null{})           {}
-    Json(bool v)         : m_val(v)                {}
-    Json(double v)       : m_val(v)                {}
-    Json(int v)          : m_val(static_cast<double>(v)) {}
-    Json(int64_t v)      : m_val(static_cast<double>(v)) {}
-    Json(const char* v)  : m_val(std::string(v))   {}
-    Json(std::string v)  : m_val(std::move(v))     {}
-    Json(Array v)        : m_val(std::move(v))     {}
-    Json(Object v)       : m_val(std::move(v))     {}
+    JJson()               : m_val(Null{})           {}
+    JJson(std::nullptr_t) : m_val(Null{})           {}
+    JJson(bool v)         : m_val(v)                {}
+    JJson(double v)       : m_val(v)                {}
+    JJson(int v)          : m_val(static_cast<double>(v)) {}
+    JJson(int64_t v)      : m_val(static_cast<double>(v)) {}
+    JJson(const char* v)  : m_val(std::string(v))   {}
+    JJson(std::string v)  : m_val(std::move(v))     {}
+    JJson(Array v)        : m_val(std::move(v))     {}
+    JJson(Object v)       : m_val(std::move(v))     {}
 
-    static Json object() { return Json(Object{}); }
-    static Json array()  { return Json(Array{}); }
+    static JJson object() { return JJson(Object{}); }
+    static JJson array()  { return JJson(Array{}); }
 
-    // ---- Type checks --------------------------------------------------------
+    // ---- JType checks --------------------------------------------------------
     bool isNull()   const { return std::holds_alternative<Null>(m_val);        }
     bool isBool()   const { return std::holds_alternative<bool>(m_val);        }
     bool isNumber() const { return std::holds_alternative<double>(m_val);      }
@@ -95,18 +95,18 @@ public:
     Object& obj() { return std::get<Object>(m_val); }
 
     // ---- Object access ------------------------------------------------------
-    const Json& operator[](const std::string& key) const {
-        static const Json null_val;
+    const JJson& operator[](const std::string& key) const {
+        static const JJson null_val;
         if (!isObject()) return null_val;
         for (const auto& [k, v] : obj()) if (k == key) return v;
         return null_val;
     }
 
-    Json& operator[](const std::string& key) {
+    JJson& operator[](const std::string& key) {
         if (!isObject()) m_val = Object{};
         auto& o = obj();
         for (auto& [k, v] : o) if (k == key) return v;
-        o.emplace_back(key, Json{});
+        o.emplace_back(key, JJson{});
         return o.back().second;
     }
 
@@ -125,13 +125,13 @@ public:
     }
 
     // ---- Array access -------------------------------------------------------
-    const Json& operator[](size_t i) const {
-        static const Json null_val;
+    const JJson& operator[](size_t i) const {
+        static const JJson null_val;
         return isArray() && i < arr().size() ? arr()[i] : null_val;
     }
-    Json& operator[](size_t i) { return arr()[i]; }
+    JJson& operator[](size_t i) { return arr()[i]; }
 
-    void push(Json v) {
+    void push(JJson v) {
         if (!isArray()) m_val = Array{};
         arr().push_back(std::move(v));
     }
@@ -161,29 +161,29 @@ public:
     // ---- Parse --------------------------------------------------------------
 
     // Throws std::runtime_error on malformed input.
-    static Json parse(const std::string& src) {
+    static JJson parse(const std::string& src) {
         size_t pos = 0;
         _skip(src, pos);
-        Json val = _parse(src, pos);
+        JJson val = _parse(src, pos);
         return val;
     }
 
     // Returns nullopt on any parse error — no exception.
-    static std::optional<Json> tryParse(const std::string& src) {
+    static std::optional<JJson> tryParse(const std::string& src) {
         try { return parse(src); } catch (...) { return std::nullopt; }
     }
 
     // Reads entire file then parses. Throws on I/O or parse error.
-    static Json parseFile(const std::string& path) {
+    static JJson parseFile(const std::string& path) {
         std::ifstream f(path);
-        if (!f) throw std::runtime_error("Json::parseFile: cannot open '" + path + "'");
+        if (!f) throw std::runtime_error("JJson::parseFile: cannot open '" + path + "'");
         std::string src((std::istreambuf_iterator<char>(f)),
                          std::istreambuf_iterator<char>());
         return parse(src);
     }
 
     // Returns nullopt on any error.
-    static std::optional<Json> tryParseFile(const std::string& path) {
+    static std::optional<JJson> tryParseFile(const std::string& path) {
         try { return parseFile(path); } catch (...) { return std::nullopt; }
     }
 
@@ -256,22 +256,22 @@ private:
         while (p < s.size() && (s[p]==' '||s[p]=='\t'||s[p]=='\n'||s[p]=='\r')) ++p;
     }
 
-    static Json _parse(const std::string& s, size_t& p) {
+    static JJson _parse(const std::string& s, size_t& p) {
         _skip(s, p);
         if (p >= s.size()) throw std::runtime_error("JSON: unexpected end of input");
         char c = s[p];
         if (c == '"') return _parseString(s, p);
         if (c == '{') return _parseObject(s, p);
         if (c == '[') return _parseArray(s, p);
-        if (c == 't') return _parseLiteral(s, p, "true",  Json(true));
-        if (c == 'f') return _parseLiteral(s, p, "false", Json(false));
-        if (c == 'n') return _parseLiteral(s, p, "null",  Json(nullptr));
+        if (c == 't') return _parseLiteral(s, p, "true",  JJson(true));
+        if (c == 'f') return _parseLiteral(s, p, "false", JJson(false));
+        if (c == 'n') return _parseLiteral(s, p, "null",  JJson(nullptr));
         if (c == '-' || (c >= '0' && c <= '9')) return _parseNumber(s, p);
         throw std::runtime_error(std::string("JSON: unexpected char '") + c + "'");
     }
 
-    static Json _parseLiteral(const std::string& s, size_t& p,
-                               const char* expected, Json result) {
+    static JJson _parseLiteral(const std::string& s, size_t& p,
+                               const char* expected, JJson result) {
         size_t len = std::strlen(expected);
         if (s.size() - p < len || s.compare(p, len, expected) != 0)
             throw std::runtime_error(std::string("JSON: expected '") + expected + "'");
@@ -353,11 +353,11 @@ private:
         return out;
     }
 
-    static Json _parseString(const std::string& s, size_t& p) {
-        return Json(_parseRawString(s, p));
+    static JJson _parseString(const std::string& s, size_t& p) {
+        return JJson(_parseRawString(s, p));
     }
 
-    static Json _parseNumber(const std::string& s, size_t& p) {
+    static JJson _parseNumber(const std::string& s, size_t& p) {
         size_t start = p;
         if (s[p] == '-') ++p;
         while (p < s.size() && s[p] >= '0' && s[p] <= '9') ++p;
@@ -370,14 +370,14 @@ private:
             if (p < s.size() && (s[p] == '+' || s[p] == '-')) ++p;
             while (p < s.size() && s[p] >= '0' && s[p] <= '9') ++p;
         }
-        return Json(std::stod(s.substr(start, p - start)));
+        return JJson(std::stod(s.substr(start, p - start)));
     }
 
-    static Json _parseObject(const std::string& s, size_t& p) {
+    static JJson _parseObject(const std::string& s, size_t& p) {
         ++p; // skip {
         Object obj;
         _skip(s, p);
-        if (p < s.size() && s[p] == '}') { ++p; return Json(std::move(obj)); }
+        if (p < s.size() && s[p] == '}') { ++p; return JJson(std::move(obj)); }
         while (p < s.size()) {
             _skip(s, p);
             if (p >= s.size() || s[p] != '"')
@@ -388,7 +388,7 @@ private:
                 throw std::runtime_error("JSON: expected ':' after object key");
             ++p;
             _skip(s, p);
-            Json val = _parse(s, p);
+            JJson val = _parse(s, p);
             obj.emplace_back(std::move(key), std::move(val));
             _skip(s, p);
             if (p >= s.size()) throw std::runtime_error("JSON: unterminated object");
@@ -396,14 +396,14 @@ private:
             if (s[p] != ',') throw std::runtime_error("JSON: expected ',' or '}' in object");
             ++p;
         }
-        return Json(std::move(obj));
+        return JJson(std::move(obj));
     }
 
-    static Json _parseArray(const std::string& s, size_t& p) {
+    static JJson _parseArray(const std::string& s, size_t& p) {
         ++p; // skip [
         Array arr;
         _skip(s, p);
-        if (p < s.size() && s[p] == ']') { ++p; return Json(std::move(arr)); }
+        if (p < s.size() && s[p] == ']') { ++p; return JJson(std::move(arr)); }
         while (p < s.size()) {
             _skip(s, p);
             arr.push_back(_parse(s, p));
@@ -413,7 +413,7 @@ private:
             if (s[p] != ',') throw std::runtime_error("JSON: expected ',' or ']' in array");
             ++p;
         }
-        return Json(std::move(arr));
+        return JJson(std::move(arr));
     }
 };
 

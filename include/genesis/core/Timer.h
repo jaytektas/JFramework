@@ -12,24 +12,24 @@
 namespace Genesis {
 
 // Repeating or single-shot timer backed by a private thread.
-// onTick fires on the main thread via MainThreadDispatcher — safe for widget updates.
+// onTick fires on the main thread via JMainThreadDispatcher — safe for widget updates.
 //
 // Usage:
-//   Timer t(std::chrono::milliseconds(100));          // repeating
+//   JTimer t(std::chrono::milliseconds(100));          // repeating
 //   t.onTick.connect([](){ updateDisplay(); });
 //
-//   Timer::singleShot(std::chrono::seconds(2), [](){ showToast(); });
-class Timer {
+//   JTimer::singleShot(std::chrono::seconds(2), [](){ showToast(); });
+class JTimer {
 public:
-    enum class Mode { SingleShot, Repeating };
+    enum class JMode { SingleShot, Repeating };
 
-    Timer() = default;
+    JTimer() = default;
 
-    explicit Timer(std::chrono::milliseconds interval, Mode mode = Mode::Repeating) {
+    explicit JTimer(std::chrono::milliseconds interval, JMode mode = JMode::Repeating) {
         start(interval, mode);
     }
 
-    ~Timer() {
+    ~JTimer() {
         // Invalidate queued-but-not-drained lambdas before destruction so they
         // don't touch onTick after this object is gone.
         if (m_alive) m_alive->store(false, std::memory_order_release);
@@ -38,12 +38,12 @@ public:
         if (m_thread.joinable()) m_thread.join();
     }
 
-    Timer(const Timer&)            = delete;
-    Timer& operator=(const Timer&) = delete;
+    JTimer(const JTimer&)            = delete;
+    JTimer& operator=(const JTimer&) = delete;
 
-    Core::Signal<> onTick;
+    Core::JSignal<> onTick;
 
-    void start(std::chrono::milliseconds interval, Mode mode = Mode::Repeating) {
+    void start(std::chrono::milliseconds interval, JMode mode = JMode::Repeating) {
         // Clear sentinel before stopping — the old thread must not fire after restart.
         if (m_alive) m_alive->store(false, std::memory_order_release);
         stop();
@@ -61,22 +61,22 @@ public:
                 }
                 if (!m_running.load(std::memory_order_relaxed)) break;
 
-                // Capture sentinel by value — if the Timer is destroyed before
+                // Capture sentinel by value — if the JTimer is destroyed before
                 // this lambda runs on the main thread, the check prevents
                 // touching the dead onTick.
-                MainThreadDispatcher::instance().post([this, alive]{
+                JMainThreadDispatcher::instance().post([this, alive]{
                     if (alive->load(std::memory_order_relaxed))
                         onTick.emit();
                 });
 
-                if (mode == Mode::SingleShot) break;
+                if (mode == JMode::SingleShot) break;
             }
             m_running = false;
         });
     }
 
     // Stops the timer — no new ticks will be queued, but lambdas already posted
-    // to MainThreadDispatcher are still valid to fire (this object is still alive).
+    // to JMainThreadDispatcher are still valid to fire (this object is still alive).
     void stop() {
         if (!m_running.exchange(false)) return;
         // Do NOT clear m_alive here — queued lambdas can safely call onTick.emit().
@@ -86,11 +86,11 @@ public:
 
     bool isRunning() const { return m_running.load(std::memory_order_relaxed); }
 
-    // Fire cb once on the main thread after delay, no Timer object needed.
+    // Fire cb once on the main thread after delay, no JTimer object needed.
     static void singleShot(std::chrono::milliseconds delay, std::function<void()> cb) {
         std::thread([delay, cb = std::move(cb)]() {
             std::this_thread::sleep_for(delay);
-            MainThreadDispatcher::instance().post(std::move(cb));
+            JMainThreadDispatcher::instance().post(std::move(cb));
         }).detach();
     }
 

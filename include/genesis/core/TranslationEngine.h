@@ -21,10 +21,10 @@ namespace Genesis {
  * Thread-safety: setLocale / loadCatalog must be called before any render
  * threads start; tr() is read-only and safe to call from any thread.
  */
-class TranslationEngine {
+class JTranslationEngine {
 public:
-    static TranslationEngine& instance() {
-        static TranslationEngine s;
+    static JTranslationEngine& instance() {
+        static JTranslationEngine s;
         return s;
     }
 
@@ -77,7 +77,7 @@ public:
     }
 
 private:
-    TranslationEngine() {
+    JTranslationEngine() {
         // Auto-detect from environment
         const char* lang = std::getenv("LANG");
         if (lang) {
@@ -143,10 +143,10 @@ private:
 
 // ---- Free function — matches Qt's tr() ergonomics ----
 inline std::string tr(const std::string& key) {
-    return TranslationEngine::instance().tr(key);
+    return JTranslationEngine::instance().tr(key);
 }
 inline std::string tr(const std::string& key, int n) {
-    return TranslationEngine::instance().tr(key, n);
+    return JTranslationEngine::instance().tr(key, n);
 }
 
 } // namespace Genesis

@@ -9,24 +9,24 @@
 namespace Genesis {
 
 // ============================================================================
-// Splitter — resizable split-pane container
+// JSplitter — resizable split-pane container
 //
 // Children are separated by draggable dividers.  Call layout() each frame
 // before rendering to update child bounding boxes.
 //
 // Usage:
-//   Splitter split(graph, Splitter::Orientation::Horizontal, 600, 400);
-//   Splitter vSplit(graph, Splitter::Orientation::Vertical, 400, 300);
+//   JSplitter split(graph, JSplitter::JOrientation::Horizontal, 600, 400);
+//   JSplitter vSplit(graph, JSplitter::JOrientation::Vertical, 400, 300);
 // ============================================================================
 
-class Splitter : public Widget {
+class JSplitter : public JWidget {
 public:
-    enum class Orientation { Horizontal, Vertical };
+    enum class JOrientation { Horizontal, Vertical };
 
     static constexpr float kDividerWidth = 5.0f;
 
-    struct Pane {
-        Widget* widget;
+    struct JPane {
+        JWidget* widget;
         float   fraction;
     };
 
@@ -34,11 +34,11 @@ public:
     // Construction
     // -------------------------------------------------------------------------
 
-    Splitter(SceneGraph& graph,
-             Orientation orient = Orientation::Horizontal,
+    JSplitter(JSceneGraph& graph,
+             JOrientation orient = JOrientation::Horizontal,
              float w = 600.0f,
              float h = 400.0f)
-        : Widget(graph, "Splitter")
+        : JWidget(graph, "JSplitter")
         , m_orient(orient)
     {
         auto& bb = m_graph.getLayout(m_nodeId).boundingBox;
@@ -47,10 +47,10 @@ public:
     }
 
     // -------------------------------------------------------------------------
-    // Pane management
+    // JPane management
     // -------------------------------------------------------------------------
 
-    void addPane(Widget* widget, float fraction = -1.0f)
+    void addPane(JWidget* widget, float fraction = -1.0f)
     {
         if (!widget) return;
 
@@ -67,8 +67,8 @@ public:
         }
     }
 
-    const std::vector<Pane>& panes() const { return m_panes; }
-    Orientation orientation()        const { return m_orient; }
+    const std::vector<JPane>& panes() const { return m_panes; }
+    JOrientation orientation()        const { return m_orient; }
 
     // -------------------------------------------------------------------------
     // Layout — call once per frame before rendering
@@ -87,20 +87,20 @@ public:
 
         const int   n         = static_cast<int>(m_panes.size());
         const float divTotal  = kDividerWidth * static_cast<float>(std::max(0, n - 1));
-        const float available = (m_orient == Orientation::Horizontal)
+        const float available = (m_orient == JOrientation::Horizontal)
                                     ? selfW - divTotal
                                     : selfH - divTotal;
 
         float cursor = 0.0f;
 
         for (int i = 0; i < n; ++i) {
-            Widget* child  = m_panes[i].widget;
+            JWidget* child  = m_panes[i].widget;
             float   frac   = m_panes[i].fraction;
             float   paneSize = available * frac;
 
             auto& bb = m_graph.getLayout(child->getNodeId()).boundingBox;
 
-            if (m_orient == Orientation::Horizontal) {
+            if (m_orient == JOrientation::Horizontal) {
                 bb.x      = selfX + cursor;
                 bb.y      = selfY;
                 bb.width  = paneSize;
@@ -131,11 +131,11 @@ public:
             const auto& selfBB = m_graph.getLayoutConst(m_nodeId).boundingBox;
             const int   n         = static_cast<int>(m_panes.size());
             const float divTotal  = kDividerWidth * static_cast<float>(std::max(0, n - 1));
-            const float available = (m_orient == Orientation::Horizontal)
+            const float available = (m_orient == JOrientation::Horizontal)
                                         ? selfBB.width  - divTotal
                                         : selfBB.height - divTotal;
 
-            const float pos   = (m_orient == Orientation::Horizontal) ? mx : my;
+            const float pos   = (m_orient == JOrientation::Horizontal) ? mx : my;
             const float delta = pos - m_dragStart;
             const float df    = (available > 0.0f) ? delta / available : 0.0f;
 
@@ -160,7 +160,7 @@ public:
         int hit = hitTestDivider(mx, my);
         if (hit >= 0) {
             m_draggingDivider = hit;
-            m_dragStart       = (m_orient == Orientation::Horizontal) ? mx : my;
+            m_dragStart       = (m_orient == JOrientation::Horizontal) ? mx : my;
             m_dragFractionA   = m_panes[hit].fraction;
             m_dragFractionB   = m_panes[hit + 1].fraction;
         }
@@ -175,7 +175,7 @@ public:
     // Rendering
     // -------------------------------------------------------------------------
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override
     {
         if (m_panes.size() < 2) return;
 
@@ -187,7 +187,7 @@ public:
 
         const int   n         = static_cast<int>(m_panes.size());
         const float divTotal  = kDividerWidth * static_cast<float>(std::max(0, n - 1));
-        const float available = (m_orient == Orientation::Horizontal)
+        const float available = (m_orient == JOrientation::Horizontal)
                                     ? selfW - divTotal
                                     : selfH - divTotal;
 
@@ -199,7 +199,7 @@ public:
             const bool active = (i == m_draggingDivider || i == m_hoveredDivider);
             const uint8_t* color = active ? Colors::Accent : Colors::Surface3;
 
-            if (m_orient == Orientation::Horizontal) {
+            if (m_orient == JOrientation::Horizontal) {
                 buf.pushRectangle(selfX + cursor, selfY,
                                   kDividerWidth, selfH,
                                   color);
@@ -217,8 +217,8 @@ public:
     // AI interface
     // -------------------------------------------------------------------------
 
-    AISemanticNode getSemanticNode() const override {
-        return {"Splitter", m_debugName, "", false};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JSplitter", m_debugName, "", false};
     }
 
 private:
@@ -238,11 +238,11 @@ private:
 
         const int   n         = static_cast<int>(m_panes.size());
         const float divTotal  = kDividerWidth * static_cast<float>(std::max(0, n - 1));
-        const float available = (m_orient == Orientation::Horizontal)
+        const float available = (m_orient == JOrientation::Horizontal)
                                     ? selfW - divTotal
                                     : selfH - divTotal;
 
-        // Hit zone expands 4px on each side beyond kDividerWidth for easier grabbing
+        // JHit zone expands 4px on each side beyond kDividerWidth for easier grabbing
         const float hitPad = 4.0f;
 
         float cursor = 0.0f;
@@ -250,7 +250,7 @@ private:
         for (int i = 0; i < n - 1; ++i) {
             cursor += available * m_panes[i].fraction;
 
-            if (m_orient == Orientation::Horizontal) {
+            if (m_orient == JOrientation::Horizontal) {
                 float divX = selfX + cursor;
                 if (mx >= divX - hitPad && mx <= divX + kDividerWidth + hitPad &&
                     my >= selfY          && my <= selfY + selfH)
@@ -289,11 +289,11 @@ private:
     }
 
     // -------------------------------------------------------------------------
-    // State
+    // JState
     // -------------------------------------------------------------------------
 
-    Orientation      m_orient;
-    std::vector<Pane> m_panes;
+    JOrientation      m_orient;
+    std::vector<JPane> m_panes;
     int              m_draggingDivider{-1};
     int              m_hoveredDivider{-1};
     float            m_dragStart{0.0f};

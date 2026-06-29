@@ -3,7 +3,7 @@
 #include <thread>
 #include <vector>
 
-class MockWindow : public Core::PlatformWindow {
+class MockWindow : public Core::JPlatformWindow {
 public:
     int framesProcessed = 0;
     int maxFrames = 10;
@@ -27,7 +27,7 @@ public:
 };
 
 void test_application_loop() {
-    Core::Application app;
+    Core::JApplication app;
     auto window = std::make_unique<MockWindow>();
     auto* windowPtr = window.get();
     
@@ -41,7 +41,7 @@ void test_application_loop() {
 }
 
 void test_task_dispatching() {
-    Core::Application app;
+    Core::JApplication app;
     auto window = std::make_unique<MockWindow>();
     window->maxFrames = 5;
     

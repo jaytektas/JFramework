@@ -22,15 +22,15 @@ using namespace Genesis;
 #if defined(__linux__)
 namespace Genesis {
     // Forward declaration or local re-definition if needed for the host
-    class LinuxPlatformWindow;
+    class JLinuxPlatformWindow;
 }
 #endif
 
 int main() {
     std::cout << "[GENESIS] Bootstrapping Native Genesis Host...\n";
 
-    Genesis::GApplication app;
-    Genesis::GMainWindow mainWindow("Genesis Host");
+    Genesis::JGuiApplication app;
+    Genesis::JMainWindow mainWindow("Genesis Host");
     mainWindow.show();
 
     std::cout << "[GENESIS] Host initialized successfully. Platform-agnostic core is ready.\n";

@@ -8,8 +8,8 @@
 using namespace Genesis;
 
 void test_button_interaction() {
-    SceneGraph graph;
-    Button btn(graph, "Click Me");
+    JSceneGraph graph;
+    JButton btn(graph, "Click Me");
     
     // Mock layout
     auto& layout = graph.getLayout(btn.getNodeId());
@@ -23,32 +23,32 @@ void test_button_interaction() {
     // Press inside
     btn.handleMousePress(50, 30);
     assert(clicked == true);
-    assert(btn.getState() == WidgetState::Pressed);
+    assert(btn.getState() == JWidgetState::Pressed);
     
     std::cout << "test_button_interaction passed" << std::endl;
 }
 
 void test_widget_rendering() {
-    SceneGraph graph;
-    Button btn(graph, "Render");
+    JSceneGraph graph;
+    JButton btn(graph, "Render");
     auto& layout = graph.getLayout(btn.getNodeId());
     layout.boundingBox = {0, 0, 100, 100};
     
-    PrimitiveBuffer buffer;
+    JPrimitiveBuffer buffer;
     btn.populateRenderPrimitives(buffer);
 
     const auto& cmds = buffer.getCommands();
-    // Button renders at least a body rect
+    // JButton renders at least a body rect
     assert(!cmds.empty());
-    assert(cmds[0].kind == PrimitiveBuffer::DrawCommand::Kind::Rect);
+    assert(cmds[0].kind == JPrimitiveBuffer::JDrawCommand::JKind::JRect);
     assert(cmds[0].rect.rectBounds[2] == 100);
     
     std::cout << "test_widget_rendering passed" << std::endl;
 }
 
 void test_slider_logic() {
-    SceneGraph graph;
-    Slider slider(graph);
+    JSceneGraph graph;
+    JSlider slider(graph);
     
     float lastVal = 0.0f;
     slider.onValueChanged.connect([&lastVal](float v) {
@@ -62,10 +62,10 @@ void test_slider_logic() {
 }
 
 void test_combobox_logic() {
-    SceneGraph graph;
-    ComboBox cb(graph, {"OptA", "OptB", "OptC"});
+    JSceneGraph graph;
+    JComboBox cb(graph, {"OptA", "OptB", "OptC"});
     
-    assert(cb.mode() == ComboBoxMode::Cycling);
+    assert(cb.mode() == JComboBoxMode::Cycling);
     cb.setCurrentIndex(0);
     assert(cb.currentText() == "OptA");
     
@@ -79,11 +79,11 @@ void test_combobox_logic() {
     assert(cb.currentText() == "OptB");
     
     // Popup mode test
-    cb.setMode(ComboBoxMode::Popup);
-    assert(cb.mode() == ComboBoxMode::Popup);
+    cb.setMode(JComboBoxMode::Popup);
+    assert(cb.mode() == JComboBoxMode::Popup);
     
     bool popupRequested = false;
-    cb.onPopupRequested.connect([&popupRequested, &cb](ComboBox* source) {
+    cb.onPopupRequested.connect([&popupRequested, &cb](JComboBox* source) {
         popupRequested = (source == &cb);
     });
     
@@ -96,8 +96,8 @@ void test_combobox_logic() {
 }
 
 void test_textarea_logic() {
-    SceneGraph graph;
-    TextArea ta(graph, "Placeholder");
+    JSceneGraph graph;
+    JTextArea ta(graph, "Placeholder");
     
     std::string textOut = "";
     ta.onTextChanged.connect([&textOut](const std::string& s) {
@@ -116,7 +116,7 @@ void test_textarea_logic() {
     assert(lines[0] == "Line 1");
     assert(lines[1] == "Line 2");
 
-    KeyEvent ke;
+    JKeyEvent ke;
     ke.pressed = true;
     ke.utf8[0] = '!';
     ke.utf8[1] = '\0';
@@ -124,14 +124,14 @@ void test_textarea_logic() {
     assert(handled == true);
     assert(ta.text() == "Line 1\nLine 2!");
 
-    ke.key = KeyEvent::Key::Backspace;
+    ke.key = JKeyEvent::JKey::Backspace;
     ke.utf8[0] = '\0';
     handled = ta.handleKeyEvent(ke);
     assert(handled == true);
     assert(ta.text() == "Line 1\nLine 2");
 
     // Test Space key entry
-    ke.key = KeyEvent::Key::Space;
+    ke.key = JKeyEvent::JKey::Space;
     ke.utf8[0] = ' ';
     ke.utf8[1] = '\0';
     handled = ta.handleKeyEvent(ke);
@@ -139,7 +139,7 @@ void test_textarea_logic() {
     assert(ta.text() == "Line 1\nLine 2 ");
 
     // Test Question mark Shift key resolution
-    ke.key = KeyEvent::Key::Unknown;
+    ke.key = JKeyEvent::JKey::Unknown;
     ke.utf8[0] = '?';
     ke.utf8[1] = '\0';
     handled = ta.handleKeyEvent(ke);
@@ -158,11 +158,11 @@ void test_textarea_logic() {
 }
 
 void test_scrollarea_logic() {
-    SceneGraph graph;
-    ScrollArea sa(graph, 200.0f, 100.0f);
+    JSceneGraph graph;
+    JScrollArea sa(graph, 200.0f, 100.0f);
     
-    Button* b1 = new Button(graph, "Child Button 1", 180.0f, 40.0f);
-    Button* b2 = new Button(graph, "Child Button 2", 180.0f, 80.0f);
+    JButton* b1 = new JButton(graph, "Child JButton 1", 180.0f, 40.0f);
+    JButton* b2 = new JButton(graph, "Child JButton 2", 180.0f, 80.0f);
     sa.addChildWidget(b1);
     sa.addChildWidget(b2);
 
@@ -170,7 +170,7 @@ void test_scrollarea_logic() {
     assert(sa.children()[0] == b1);
     assert(sa.children()[1] == b2);
 
-    PrimitiveBuffer buf;
+    JPrimitiveBuffer buf;
     sa.populateRenderPrimitives(buf);
 
     auto l1 = graph.getLayoutConst(b1->getNodeId()).boundingBox;
@@ -191,8 +191,8 @@ void test_scrollarea_logic() {
 }
 
 void test_listview_logic() {
-    SceneGraph graph;
-    ListView lv(graph, {"Item 1", "Item 2", "Item 3"});
+    JSceneGraph graph;
+    JListView lv(graph, {"Item 1", "Item 2", "Item 3"});
 
     int lastSelection = -1;
     lv.onSelectionChanged.connect([&lastSelection](int idx) {
@@ -206,15 +206,15 @@ void test_listview_logic() {
     assert(lv.selectedIndex() == 1);
     assert(lastSelection == 1);
 
-    KeyEvent ke;
+    JKeyEvent ke;
     ke.pressed = true;
-    ke.key = KeyEvent::Key::Down;
+    ke.key = JKeyEvent::JKey::Down;
     bool handled = lv.handleKeyEvent(ke);
     assert(handled == true);
     assert(lv.selectedIndex() == 2);
     assert(lastSelection == 2);
 
-    ke.key = KeyEvent::Key::Up;
+    ke.key = JKeyEvent::JKey::Up;
     handled = lv.handleKeyEvent(ke);
     assert(handled == true);
     assert(lv.selectedIndex() == 1);
@@ -236,10 +236,10 @@ void test_listview_logic() {
 }
 
 void test_treeview_logic() {
-    SceneGraph graph;
-    TreeView tv(graph);
+    JSceneGraph graph;
+    JTreeView tv(graph);
 
-    TreeViewNode rootNode = {
+    JTreeViewNode rootNode = {
         "Root", true, false, {
             {"Child 1", false, false, {}},
             {"Child 2", true, false, {
@@ -255,9 +255,9 @@ void test_treeview_logic() {
     assert(flatNodes[1].node->label == "Child 2");
     assert(flatNodes[2].node->label == "Grandchild 2.1");
 
-    KeyEvent ke;
+    JKeyEvent ke;
     ke.pressed = true;
-    ke.key = KeyEvent::Key::Down;
+    ke.key = JKeyEvent::JKey::Down;
     
     bool handled = tv.handleKeyEvent(ke);
     assert(handled == true);
@@ -268,7 +268,7 @@ void test_treeview_logic() {
     assert(handled == true);
     assert(tv.selectedNode()->label == "Child 2");
 
-    ke.key = KeyEvent::Key::Left;
+    ke.key = JKeyEvent::JKey::Left;
     handled = tv.handleKeyEvent(ke);
     assert(handled == true);
     assert(flatNodes[1].node->expanded == false);
@@ -280,8 +280,8 @@ void test_treeview_logic() {
 }
 
 void test_datagrid_logic() {
-    SceneGraph graph;
-    DataGrid dg(graph, {"ID", "Name", "Role"});
+    JSceneGraph graph;
+    JDataGrid dg(graph, {"ID", "Name", "Role"});
     
     std::vector<std::vector<std::string>> rows = {
         {"1", "Alice", "Admin"},
@@ -303,15 +303,15 @@ void test_datagrid_logic() {
     assert(dg.selectedIndex() == 1);
     assert(lastSelected == 1);
 
-    KeyEvent ke;
+    JKeyEvent ke;
     ke.pressed = true;
-    ke.key = KeyEvent::Key::Down;
+    ke.key = JKeyEvent::JKey::Down;
     bool handled = dg.handleKeyEvent(ke);
     assert(handled == true);
     assert(dg.selectedIndex() == 2);
     assert(lastSelected == 2);
 
-    ke.key = KeyEvent::Key::Up;
+    ke.key = JKeyEvent::JKey::Up;
     handled = dg.handleKeyEvent(ke);
     assert(handled == true);
     assert(dg.selectedIndex() == 1);
@@ -322,7 +322,7 @@ void test_datagrid_logic() {
         activatedRow = r;
     });
 
-    ke.key = KeyEvent::Key::Return;
+    ke.key = JKeyEvent::JKey::Return;
     handled = dg.handleKeyEvent(ke);
     assert(handled == true);
     assert(activatedRow == 1);
@@ -331,33 +331,33 @@ void test_datagrid_logic() {
 }
 
 void test_menu_and_shortcuts() {
-    SceneGraph graph;
-    Menu menu("File");
+    JSceneGraph graph;
+    JMenu menu("File");
     
-    auto* item1 = menu.add(graph, "New", {KeyEvent::Key::N, true});
-    auto* item2 = menu.add(graph, "Open", {KeyEvent::Key::O, true});
+    auto* item1 = menu.add(graph, "New", {JKeyEvent::JKey::N, true});
+    auto* item2 = menu.add(graph, "Open", {JKeyEvent::JKey::O, true});
     item2->setCheckable(true);
     item2->setChecked(true);
 
     assert(item1->label() == "New");
-    assert(item1->shortcut().key == KeyEvent::Key::N);
+    assert(item1->shortcut().key == JKeyEvent::JKey::N);
     assert(item1->shortcut().ctrl == true);
 
     assert(item2->isCheckable() == true);
     assert(item2->isChecked() == true);
 
     bool triggered = false;
-    MenuManager::instance().clearShortcuts();
-    MenuManager::instance().registerShortcut(item1->shortcut(), [&triggered]() {
+    JMenuManager::instance().clearShortcuts();
+    JMenuManager::instance().registerShortcut(item1->shortcut(), [&triggered]() {
         triggered = true;
     });
 
-    KeyEvent ke;
+    JKeyEvent ke;
     ke.pressed = true;
-    ke.key = KeyEvent::Key::N;
+    ke.key = JKeyEvent::JKey::N;
     ke.ctrl = true;
     
-    bool handled = MenuManager::instance().processAccelerator(ke);
+    bool handled = JMenuManager::instance().processAccelerator(ke);
     assert(handled == true);
     assert(triggered == true);
 
@@ -365,8 +365,8 @@ void test_menu_and_shortcuts() {
 }
 
 void test_tooltips() {
-    SceneGraph graph;
-    Button btn(graph, "TooltipButton");
+    JSceneGraph graph;
+    JButton btn(graph, "TooltipButton");
     btn.setTooltip("Click this button");
     
     auto& layout = graph.getLayout(btn.getNodeId());
@@ -377,7 +377,7 @@ void test_tooltips() {
     assert(btn.hitTest(200, 30) == false);
 
     bool found = false;
-    for (Widget* w : Widget::s_activeWidgets) {
+    for (JWidget* w : JWidget::s_activeWidgets) {
         if (w == &btn) {
             found = true;
             break;

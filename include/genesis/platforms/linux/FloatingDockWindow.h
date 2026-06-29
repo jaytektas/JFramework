@@ -21,21 +21,21 @@
 namespace Genesis {
 
 // ============================================================================
-// FloatingDragBehavior — defines the drag behavior of the floating host window:
+// JFloatingDragBehavior — defines the drag behavior of the floating host window:
 //
 //   Legacy                    — Tab/title drag tears out dock (no global bar).
 //                               Drag window via keyboard Alt + Drag.
 //   AlwaysGlobalTitleBar      — Always show a global window title bar at the top.
 //   ConditionalGlobalTitleBar — Show global window title bar only when nested (docks > 1).
 // ============================================================================
-enum class FloatingDragBehavior : uint8_t {
+enum class JFloatingDragBehavior : uint8_t {
     Legacy,
     AlwaysGlobalTitleBar,
     ConditionalGlobalTitleBar
 };
 
-struct FloatingDockOptions {
-    FloatingDragBehavior dragBehavior{FloatingDragBehavior::ConditionalGlobalTitleBar};
+struct JFloatingDockOptions {
+    JFloatingDragBehavior dragBehavior{JFloatingDragBehavior::ConditionalGlobalTitleBar};
     bool singleDockDragMovesWindow{true};
     bool tabDragTearsOut{true};
     bool splitDragTearsOut{true};
@@ -43,68 +43,68 @@ struct FloatingDockOptions {
 };
 
 // ============================================================================
-// FloatingDockWindow — a DockWidget container that lives in its own OS-level Popup
+// JFloatingDockWindow — a JDockWidget container that lives in its own OS-level Popup
 // window and can be dragged anywhere on the desktop, including over and into
-// any DockHost registered with DockRegistry.
+// any JDockHost registered with JDockRegistry.
 // ============================================================================
 
-class FloatingDockWindow {
+class JFloatingDockWindow {
 public:
     static constexpr uint32_t kDefaultW = 340;
     static constexpr uint32_t kDefaultH = 260;
     static constexpr float    kGlobalTitleH = 26.0f;
 
-    struct PollResult {
-        enum class Type {
+    struct JPollResult {
+        enum class JType {
             None,
             CommitDrop,     // drag ended, commit drop to dropHost
             WantsFloat,     // dock wants to float
-        } type{Type::None};
+        } type{JType::None};
 
-        DockHost*   dropHost{nullptr};
-        DockWidget* wantsFloatDock{nullptr};
-        Rect        wantsFloatRect{};
+        JDockHost*   dropHost{nullptr};
+        JDockWidget* wantsFloatDock{nullptr};
+        JRect        wantsFloatRect{};
     };
 
 #if defined(_WIN32)
-    using PlatformWinType = WindowsPlatformWindow;
+    using PlatformWinType = JWindowsPlatformWindow;
     using NativeWinHandleType = HWND;
 #else
-    using PlatformWinType = LinuxPlatformWindow;
+    using PlatformWinType = JLinuxPlatformWindow;
     using NativeWinHandleType = xcb_window_t;
 #endif
 
-    // Construct from a DockWidget extracted from a DockHost (WantsFloat path).
-    FloatingDockWindow(DockWidget dock,
+    // Construct from a JDockWidget extracted from a JDockHost (WantsFloat path).
+    JFloatingDockWindow(JDockWidget dock,
                        int screenX, int screenY,
                        uint32_t winW, uint32_t winH,
                        int dragOffX, int dragOffY,
-                       GpuHal& hal,
+                       JGpuHal& hal,
                        bool initialDrag = false,
-                       FloatingDockOptions options = {},
+                       JFloatingDockOptions options = {},
                        NativeWinHandleType parentWindow = {})
         : m_window(std::make_unique<PlatformWinType>(
               dock.title().c_str(), winW, winH, screenX, screenY,
 #if defined(_WIN32)
-              (parentWindow != nullptr) ? PlatformWindowStyle::Borderless : PlatformWindowStyle::Popup,
+              (parentWindow != nullptr) ? JPlatformWindowStyle::Borderless : JPlatformWindowStyle::Popup,
 #else
-              (parentWindow != 0) ? PlatformWindowStyle::Borderless : PlatformWindowStyle::Popup,
+              (parentWindow != 0) ? JPlatformWindowStyle::Borderless : JPlatformWindowStyle::Popup,
 #endif
               parentWindow))
         , m_surface(hal.createSurface(m_window->nativeHandle(), winW, winH))
         , m_winW(winW), m_winH(winH)
-        , m_state(initialDrag ? State::InitialDrag : State::Idle)
+        , m_state(initialDrag ? JState::InitialDrag : JState::Idle)
         , m_dragOffX(dragOffX)
         , m_dragOffY(dragOffY)
         , m_options(options)
     {
 
-        m_dockHost = std::make_unique<DockHost>();
+        m_dockHost = std::make_unique<JDockHost>();
         m_dockHost->setLivePreviewEnabled(m_options.livePreviewEnabled);
-        m_dockHost->setRootSplit(SplitDir::Horizontal);
-        DockNodeId leaf = m_dockHost->addLeaf(m_dockHost->rootId(), "floating-leaf", 1.0f);
+        m_dockHost->setRootSplit(JSplitDir::Horizontal);
+        JDockNodeId leaf = m_dockHost->addLeaf(m_dockHost->rootId(), "floating-leaf", 1.0f);
 
-        auto d = std::make_unique<DockWidget>(std::move(dock));
+        auto d = std::make_unique<JDockWidget>(std::move(dock));
         d->setPosition(0.f, 0.f);
         d->setSize(static_cast<float>(winW), static_cast<float>(winH));
 
@@ -124,27 +124,27 @@ public:
             m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(m_winW), static_cast<float>(m_winH) - topOffset});
         }
 
-        DockRegistry::instance().registerHost(*m_dockHost, screenX, screenY, m_winW, m_winH);
+        JDockRegistry::instance().registerHost(*m_dockHost, screenX, screenY, m_winW, m_winH);
     }
 
-    // Construct from a TornTabState (TabBar tear-off path).
-    FloatingDockWindow(TornTabState state,
+    // Construct from a JTornTabState (JTabBar tear-off path).
+    JFloatingDockWindow(JTornTabState state,
                        int screenX, int screenY,
                        int dragOffX, int dragOffY,
-                       GpuHal& hal,
-                       FloatingDockOptions options = {},
+                       JGpuHal& hal,
+                       JFloatingDockOptions options = {},
                        NativeWinHandleType parentWindow = {})
-        : FloatingDockWindow(
-              DockWidget(std::move(state), 0.f, 0.f,
+        : JFloatingDockWindow(
+              JDockWidget(std::move(state), 0.f, 0.f,
                          static_cast<float>(kDefaultW), static_cast<float>(kDefaultH)),
               screenX, screenY, kDefaultW, kDefaultH,
               dragOffX, dragOffY, hal, /*initialDrag=*/true, options, parentWindow)
     {}
 
-    FloatingDockWindow(const FloatingDockWindow&)            = delete;
-    FloatingDockWindow& operator=(const FloatingDockWindow&) = delete;
+    JFloatingDockWindow(const JFloatingDockWindow&)            = delete;
+    JFloatingDockWindow& operator=(const JFloatingDockWindow&) = delete;
 
-    FloatingDockWindow(FloatingDockWindow&& other) noexcept
+    JFloatingDockWindow(JFloatingDockWindow&& other) noexcept
         : m_window(std::move(other.m_window))
         , m_surface(other.m_surface)
         , m_dockHost(std::move(other.m_dockHost))
@@ -163,7 +163,7 @@ public:
         other.m_surface = GpuSurfaceId{kPrimarySurface};
     }
 
-    FloatingDockWindow& operator=(FloatingDockWindow&& other) noexcept {
+    JFloatingDockWindow& operator=(JFloatingDockWindow&& other) noexcept {
         if (this != &other) {
             m_window = std::move(other.m_window);
             m_surface = other.m_surface;
@@ -184,19 +184,19 @@ public:
         return *this;
     }
 
-    ~FloatingDockWindow() {
+    ~JFloatingDockWindow() {
         if (m_dockHost) {
-            DockRegistry::instance().unregisterHost(*m_dockHost);
+            JDockRegistry::instance().unregisterHost(*m_dockHost);
         }
     }
 
     bool isGlobalTitleBarVisible() const {
-        if (m_options.dragBehavior == FloatingDragBehavior::AlwaysGlobalTitleBar) return true;
-        if (m_options.dragBehavior == FloatingDragBehavior::ConditionalGlobalTitleBar && m_docks.size() > 1) return true;
+        if (m_options.dragBehavior == JFloatingDragBehavior::AlwaysGlobalTitleBar) return true;
+        if (m_options.dragBehavior == JFloatingDragBehavior::ConditionalGlobalTitleBar && m_docks.size() > 1) return true;
         return false;
     }
 
-    void setOptions(const FloatingDockOptions& options) {
+    void setOptions(const JFloatingDockOptions& options) {
         m_options = options;
         if (m_dockHost) {
             m_dockHost->setLivePreviewEnabled(m_options.livePreviewEnabled);
@@ -205,20 +205,20 @@ public:
         m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(m_winW), static_cast<float>(m_winH) - topOffset});
     }
 
-    const FloatingDockOptions& options() const { return m_options; }
+    const JFloatingDockOptions& options() const { return m_options; }
 
-    void setDragBehavior(FloatingDragBehavior behavior) {
+    void setDragBehavior(JFloatingDragBehavior behavior) {
         m_options.dragBehavior = behavior;
         float topOffset = isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f;
         m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(m_winW), static_cast<float>(m_winH) - topOffset});
     }
 
-    FloatingDragBehavior dragBehavior() const { return m_options.dragBehavior; }
+    JFloatingDragBehavior dragBehavior() const { return m_options.dragBehavior; }
 
     // -------------------------------------------------------------------------
     // Per-frame update.
     // -------------------------------------------------------------------------
-    PollResult pollAndMove() {
+    JPollResult pollAndMove() {
         m_window->pollNativeEvents();
         m_lastWheel = m_window->consumeWheel();
 
@@ -228,12 +228,12 @@ public:
         (void)release;
 
         // Keep bounds current if WM moved or resized the window, or if we are actively resizing
-        if (m_state == State::Idle || m_state == State::Resizing) {
+        if (m_state == JState::Idle || m_state == JState::Resizing) {
             float topOffset = isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f;
             int kMinWidth = static_cast<int>(std::ceil(m_dockHost->minWidthNeeded()));
             int kMinHeight = static_cast<int>(std::ceil(m_dockHost->minHeightNeeded() + topOffset));
 
-            if (m_state == State::Idle) {
+            if (m_state == JState::Idle) {
                 uint32_t targetW = m_window->width();
                 uint32_t targetH = m_window->height();
                 if (static_cast<int>(targetW) < kMinWidth || static_cast<int>(targetH) < kMinHeight) {
@@ -248,20 +248,20 @@ public:
                 }
             }
             m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(m_winW), static_cast<float>(m_winH) - topOffset});
-            DockRegistry::instance().updateBounds(*m_dockHost, m_window->screenX(), m_window->screenY(), m_winW, m_winH);
+            JDockRegistry::instance().updateBounds(*m_dockHost, m_window->screenX(), m_window->screenY(), m_winW, m_winH);
         }
 
         switch (m_state) {
-        case State::InitialDrag: {
+        case JState::InitialDrag: {
             auto [gx, gy] = m_window->globalCursorPos();
             m_window->setPosition(gx - m_dragOffX, gy - m_dragOffY);
-            DockRegistry::instance().updateBounds(*m_dockHost, gx - m_dragOffX, gy - m_dragOffY, m_winW, m_winH);
+            JDockRegistry::instance().updateBounds(*m_dockHost, gx - m_dragOffX, gy - m_dragOffY, m_winW, m_winH);
 
-            DockHost* hoveredHost = nullptr;
-            if (auto hit = DockRegistry::instance().hitTest(gx, gy)) {
+            JDockHost* hoveredHost = nullptr;
+            if (auto hit = JDockRegistry::instance().hitTest(gx, gy)) {
                 if (hit->host != m_dockHost.get()) {
                     hoveredHost = hit->host;
-                    DockWidget* draggedDock = m_docks.empty() ? nullptr : m_docks[0].get();
+                    JDockWidget* draggedDock = m_docks.empty() ? nullptr : m_docks[0].get();
                     hoveredHost->updateDrag(
                         hit->localX, hit->localY,
                         static_cast<float>(gx), static_cast<float>(gy),
@@ -274,26 +274,26 @@ public:
             }
 
             if (!btnDown) {
-                m_state = State::Idle;
+                m_state = JState::Idle;
                 if (hoveredHost) {
                     _clearHostDragsExcept(hoveredHost);
-                    return PollResult{PollResult::Type::CommitDrop, hoveredHost, nullptr, {}};
+                    return JPollResult{JPollResult::JType::CommitDrop, hoveredHost, nullptr, {}};
                 }
                 _clearAllHostDrags();
             }
-            return PollResult{};
+            return JPollResult{};
         }
 
-        case State::HeaderDrag: {
+        case JState::HeaderDrag: {
             auto [gx, gy] = m_window->globalCursorPos();
             m_window->setPosition(gx - m_dragOffX, gy - m_dragOffY);
-            DockRegistry::instance().updateBounds(*m_dockHost, gx - m_dragOffX, gy - m_dragOffY, m_winW, m_winH);
+            JDockRegistry::instance().updateBounds(*m_dockHost, gx - m_dragOffX, gy - m_dragOffY, m_winW, m_winH);
 
-            DockHost* hoveredHost = nullptr;
-            if (auto hit = DockRegistry::instance().hitTest(gx, gy)) {
+            JDockHost* hoveredHost = nullptr;
+            if (auto hit = JDockRegistry::instance().hitTest(gx, gy)) {
                 if (hit->host != m_dockHost.get()) {
                     hoveredHost = hit->host;
-                    DockWidget* draggedDock = m_docks.empty() ? nullptr : m_docks[0].get();
+                    JDockWidget* draggedDock = m_docks.empty() ? nullptr : m_docks[0].get();
                     hoveredHost->updateDrag(
                         hit->localX, hit->localY,
                         static_cast<float>(gx), static_cast<float>(gy),
@@ -306,17 +306,17 @@ public:
             }
 
             if (!btnDown) {
-                m_state = State::Idle;
+                m_state = JState::Idle;
                 if (hoveredHost) {
                     _clearHostDragsExcept(hoveredHost);
-                    return PollResult{PollResult::Type::CommitDrop, hoveredHost, nullptr, {}};
+                    return JPollResult{JPollResult::JType::CommitDrop, hoveredHost, nullptr, {}};
                 }
                 _clearAllHostDrags();
             }
-            return PollResult{};
+            return JPollResult{};
         }
 
-        case State::Resizing: {
+        case JState::Resizing: {
             auto [gx, gy] = m_window->globalCursorPos();
             int dx = gx - m_startMouseX;
             int dy = gy - m_startMouseY;
@@ -330,13 +330,13 @@ public:
             int kMinHeight = static_cast<int>(std::ceil(m_dockHost->minHeightNeeded() + (isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f)));
 
             switch (m_resizeDir) {
-                case ResizeDir::Right:
+                case JResizeDir::Right:
                     newW = std::max(kMinWidth, static_cast<int>(m_startWinW) + dx);
                     break;
-                case ResizeDir::Bottom:
+                case JResizeDir::Bottom:
                     newH = std::max(kMinHeight, static_cast<int>(m_startWinH) + dy);
                     break;
-                case ResizeDir::Left: {
+                case JResizeDir::Left: {
                     int potentialW = static_cast<int>(m_startWinW) - dx;
                     if (potentialW >= kMinWidth) {
                         newW = potentialW;
@@ -347,7 +347,7 @@ public:
                     }
                     break;
                 }
-                case ResizeDir::Top: {
+                case JResizeDir::Top: {
                     int potentialH = static_cast<int>(m_startWinH) - dy;
                     if (potentialH >= kMinHeight) {
                         newH = potentialH;
@@ -358,7 +358,7 @@ public:
                     }
                     break;
                 }
-                case ResizeDir::TopLeft: {
+                case JResizeDir::TopLeft: {
                     int potentialW = static_cast<int>(m_startWinW) - dx;
                     if (potentialW >= kMinWidth) {
                         newW = potentialW;
@@ -377,7 +377,7 @@ public:
                     }
                     break;
                 }
-                case ResizeDir::TopRight: {
+                case JResizeDir::TopRight: {
                     newW = std::max(kMinWidth, static_cast<int>(m_startWinW) + dx);
                     int potentialH = static_cast<int>(m_startWinH) - dy;
                     if (potentialH >= kMinHeight) {
@@ -389,7 +389,7 @@ public:
                     }
                     break;
                 }
-                case ResizeDir::BottomLeft: {
+                case JResizeDir::BottomLeft: {
                     int potentialW = static_cast<int>(m_startWinW) - dx;
                     if (potentialW >= kMinWidth) {
                         newW = potentialW;
@@ -401,7 +401,7 @@ public:
                     newH = std::max(kMinHeight, static_cast<int>(m_startWinH) + dy);
                     break;
                 }
-                case ResizeDir::BottomRight:
+                case JResizeDir::BottomRight:
                     newW = std::max(kMinWidth, static_cast<int>(m_startWinW) + dx);
                     newH = std::max(kMinHeight, static_cast<int>(m_startWinH) + dy);
                     break;
@@ -419,16 +419,16 @@ public:
                 m_window->setPosition(newX, newY);
             }
 
-            DockRegistry::instance().updateBounds(*m_dockHost, m_window->screenX(), m_window->screenY(), m_winW, m_winH);
+            JDockRegistry::instance().updateBounds(*m_dockHost, m_window->screenX(), m_window->screenY(), m_winW, m_winH);
 
             if (!btnDown) {
-                m_state = State::Idle;
-                m_window->setCursor(PlatformCursor::Default);
+                m_state = JState::Idle;
+                m_window->setCursor(JPlatformCursor::Default);
             }
-            return PollResult{};
+            return JPollResult{};
         }
 
-        case State::Idle: {
+        case JState::Idle: {
             float mx = m_window->mouseX();
             float my = m_window->mouseY();
 
@@ -439,38 +439,38 @@ public:
             bool top    = my < kResizeBorder;
             bool bottom = my > static_cast<float>(m_winH) - kResizeBorder;
 
-            ResizeDir hoverDir = ResizeDir::None;
-            if (left && top)          hoverDir = ResizeDir::TopLeft;
-            else if (right && top)    hoverDir = ResizeDir::TopRight;
-            else if (left && bottom)  hoverDir = ResizeDir::BottomLeft;
-            else if (right && bottom) hoverDir = ResizeDir::BottomRight;
-            else if (left)            hoverDir = ResizeDir::Left;
-            else if (right)           hoverDir = ResizeDir::Right;
-            else if (top)             hoverDir = ResizeDir::Top;
-            else if (bottom)          hoverDir = ResizeDir::Bottom;
+            JResizeDir hoverDir = JResizeDir::None;
+            if (left && top)          hoverDir = JResizeDir::TopLeft;
+            else if (right && top)    hoverDir = JResizeDir::TopRight;
+            else if (left && bottom)  hoverDir = JResizeDir::BottomLeft;
+            else if (right && bottom) hoverDir = JResizeDir::BottomRight;
+            else if (left)            hoverDir = JResizeDir::Left;
+            else if (right)           hoverDir = JResizeDir::Right;
+            else if (top)             hoverDir = JResizeDir::Top;
+            else if (bottom)          hoverDir = JResizeDir::Bottom;
 
             // Set corresponding cursor
-            PlatformCursor pc = PlatformCursor::Default;
+            JPlatformCursor pc = JPlatformCursor::Default;
             switch (hoverDir) {
-                case ResizeDir::Left:
-                case ResizeDir::Right:       pc = PlatformCursor::ResizeLeftRight; break;
-                case ResizeDir::Top:
-                case ResizeDir::Bottom:      pc = PlatformCursor::ResizeUpDown;    break;
-                case ResizeDir::TopLeft:     pc = PlatformCursor::ResizeTopLeft;    break;
-                case ResizeDir::TopRight:    pc = PlatformCursor::ResizeTopRight;   break;
-                case ResizeDir::BottomLeft:  pc = PlatformCursor::ResizeBottomLeft; break;
-                case ResizeDir::BottomRight: pc = PlatformCursor::ResizeBottomRight;break;
-                default:                     pc = PlatformCursor::Default;          break;
+                case JResizeDir::Left:
+                case JResizeDir::Right:       pc = JPlatformCursor::ResizeLeftRight; break;
+                case JResizeDir::Top:
+                case JResizeDir::Bottom:      pc = JPlatformCursor::ResizeUpDown;    break;
+                case JResizeDir::TopLeft:     pc = JPlatformCursor::ResizeTopLeft;    break;
+                case JResizeDir::TopRight:    pc = JPlatformCursor::ResizeTopRight;   break;
+                case JResizeDir::BottomLeft:  pc = JPlatformCursor::ResizeBottomLeft; break;
+                case JResizeDir::BottomRight: pc = JPlatformCursor::ResizeBottomRight;break;
+                default:                     pc = JPlatformCursor::Default;          break;
             }
-            if (pc == PlatformCursor::Default) {
+            if (pc == JPlatformCursor::Default) {
                 auto hc = m_dockHost->getHoverCursor(mx, my);
-                if (hc == DockHost::HoverCursor::Horiz)      pc = PlatformCursor::ResizeLeftRight;
-                else if (hc == DockHost::HoverCursor::Vert)  pc = PlatformCursor::ResizeUpDown;
+                if (hc == JDockHost::JHoverCursor::Horiz)      pc = JPlatformCursor::ResizeLeftRight;
+                else if (hc == JDockHost::JHoverCursor::Vert)  pc = JPlatformCursor::ResizeUpDown;
             }
             m_window->setCursor(pc);
 
-            if (hoverDir != ResizeDir::None && press) {
-                m_state = State::Resizing;
+            if (hoverDir != JResizeDir::None && press) {
+                m_state = JState::Resizing;
                 m_resizeDir = hoverDir;
                 m_startWinW = m_winW;
                 m_startWinH = m_winH;
@@ -479,27 +479,27 @@ public:
                 auto [gx, gy] = m_window->globalCursorPos();
                 m_startMouseX = gx;
                 m_startMouseY = gy;
-                return PollResult{};
+                return JPollResult{};
             }
 
             bool altDrag = m_window->isAltDown() && press;
             bool titleBarDrag = isGlobalTitleBarVisible() && press && my < kGlobalTitleH;
 
             if (altDrag || titleBarDrag) {
-                m_state    = State::HeaderDrag;
+                m_state    = JState::HeaderDrag;
                 m_dragOffX = static_cast<int>(mx);
                 m_dragOffY = static_cast<int>(my);
-                return PollResult{};
+                return JPollResult{};
             }
 
             auto ev = m_dockHost->handleMouse(mx, my, press, !btnDown && m_wasDown);
 
             if (ev) {
-                if (ev->type == DockHost::DockEvent::Type::WantsFloat) {
+                if (ev->type == JDockHost::JDockEvent::JType::WantsFloat) {
                     bool allowTear = true;
                     if (m_docks.size() == 1) {
                         if (m_options.singleDockDragMovesWindow) {
-                            m_state    = State::HeaderDrag;
+                            m_state    = JState::HeaderDrag;
                             m_dragOffX = static_cast<int>(mx);
                             m_dragOffY = static_cast<int>(my);
                             allowTear  = false;
@@ -507,8 +507,8 @@ public:
                             allowTear  = true;
                         }
                     } else {
-                        DockNodeId loc = m_dockHost->findDock(ev->dock);
-                        const DockNode* leaf = m_dockHost->node(loc);
+                        JDockNodeId loc = m_dockHost->findDock(ev->dock);
+                        const JDockNode* leaf = m_dockHost->node(loc);
                         bool isTabGroup = (leaf && leaf->tabs.size() > 1);
                         if (isTabGroup) {
                             allowTear = m_options.tabDragTearsOut;
@@ -518,14 +518,14 @@ public:
                     }
 
                     if (allowTear) {
-                        DockNodeId loc = m_dockHost->findDock(ev->dock);
-                        Rect r = m_dockHost->node(loc)->rect;
+                        JDockNodeId loc = m_dockHost->findDock(ev->dock);
+                        JRect r = m_dockHost->node(loc)->rect;
                         m_dockHost->removeDock(ev->dock);
                         m_wasDown = btnDown;
-                        return PollResult{PollResult::Type::WantsFloat, nullptr, ev->dock, r};
+                        return JPollResult{JPollResult::JType::WantsFloat, nullptr, ev->dock, r};
                     }
                 }
-                if (ev->type == DockHost::DockEvent::Type::CloseRequested) {
+                if (ev->type == JDockHost::JDockEvent::JType::CloseRequested) {
                     m_dockHost->removeDock(ev->dock);
                     m_docks.erase(
                         std::remove_if(m_docks.begin(), m_docks.end(),
@@ -541,16 +541,16 @@ public:
 
             m_shouldClose = m_shouldClose || m_window->shouldClose();
             m_wasDown     = btnDown;
-            return PollResult{};
+            return JPollResult{};
         }
         }
-        return PollResult{};
+        return JPollResult{};
     }
 
     // -------------------------------------------------------------------------
     // Render the dock into this window's private GPU surface.
     // -------------------------------------------------------------------------
-    void render(GpuHal& hal, PrimitiveBuffer& buf) {
+    void render(JGpuHal& hal, JPrimitiveBuffer& buf) {
         if (m_needsSurfaceResize) {
             hal.resizeSurface(m_surface, m_winW, m_winH);
             m_needsSurfaceResize = false;
@@ -565,14 +565,14 @@ public:
             uint8_t sepColor[4] = {50, 50, 55, 255};
             buf.pushRectangle(0.f, kGlobalTitleH - 1.f, static_cast<float>(m_winW), 1.f, sepColor, 0.f);
 
-            if (TextHelper::hasAtlas()) {
+            if (JTextHelper::hasAtlas()) {
                 uint8_t tc[4] = {180, 180, 190, 255};
-                float ty = (kGlobalTitleH - TextHelper::lineHeight()) * 0.5f;
-                std::string title = m_docks.empty() ? "Genesis Window" : m_docks[0]->title();
+                float ty = (kGlobalTitleH - JTextHelper::lineHeight()) * 0.5f;
+                std::string title = m_docks.empty() ? "Genesis JWindow" : m_docks[0]->title();
                 if (m_docks.size() > 1) {
                     title += " (+" + std::to_string(m_docks.size() - 1) + " panels)";
                 }
-                TextHelper::pushText(buf, 10.f, ty, title, tc, static_cast<float>(m_winW) - 30.f);
+                JTextHelper::pushText(buf, 10.f, ty, title, tc, static_cast<float>(m_winW) - 30.f);
             }
         }
 
@@ -586,13 +586,13 @@ public:
         hal.submitAndPresentFrame(frame);
     }
 
-    void setContentRenderHost(std::function<void(PrimitiveBuffer&)> fn) { m_contentRenderHost = std::move(fn); }
+    void setContentRenderHost(std::function<void(JPrimitiveBuffer&)> fn) { m_contentRenderHost = std::move(fn); }
     void setContentInputHost(std::function<void(float, float, bool, bool, float)> fn) { m_contentInputHost = std::move(fn); }
 
     // -------------------------------------------------------------------------
     // Destroy the Vulkan surface.  Call before erasing this object.
     // -------------------------------------------------------------------------
-    void destroySurface(GpuHal& hal) {
+    void destroySurface(JGpuHal& hal) {
         if (m_surface != kPrimarySurface) {
             hal.destroySurface(m_surface);
             m_surface = kPrimarySurface;
@@ -601,28 +601,28 @@ public:
 
     // ---- Accessors ----------------------------------------------------------
 
-    bool isInInitialDrag() const { return m_state == State::InitialDrag; }
-    bool isDragging()      const { return m_state != State::Idle; }
+    bool isInInitialDrag() const { return m_state == JState::InitialDrag; }
+    bool isDragging()      const { return m_state != JState::Idle; }
     bool shouldClose()     const { return m_shouldClose; }
     float lastWheel()      const { return m_lastWheel; }
 
     PlatformWinType& window() { return *m_window; }
     const PlatformWinType& window() const { return *m_window; }
 
-    DockHost& dockHost() { return *m_dockHost; }
-    const DockHost& dockHost() const { return *m_dockHost; }
+    JDockHost& dockHost() { return *m_dockHost; }
+    const JDockHost& dockHost() const { return *m_dockHost; }
 
-    DockWidget& dock() {
+    JDockWidget& dock() {
         return *m_docks.at(0);
     }
 
-    DockWidget takeDock() {
+    JDockWidget takeDock() {
         auto d = std::move(m_docks.at(0));
         m_docks.clear();
         return std::move(*d);
     }
 
-    std::unique_ptr<DockWidget> releaseDock(DockWidget* ptr) {
+    std::unique_ptr<JDockWidget> releaseDock(JDockWidget* ptr) {
         for (auto it = m_docks.begin(); it != m_docks.end(); ++it) {
             if (it->get() == ptr) {
                 auto d = std::move(*it);
@@ -633,8 +633,8 @@ public:
         return nullptr;
     }
 
-    void adoptDock(std::unique_ptr<DockWidget> d, DockWidget* oldPtr) {
-        DockWidget* raw = d.get();
+    void adoptDock(std::unique_ptr<JDockWidget> d, JDockWidget* oldPtr) {
+        JDockWidget* raw = d.get();
         m_docks.push_back(std::move(d));
         if (m_dockHost) {
             m_dockHost->retargetDock(oldPtr, raw);
@@ -642,8 +642,8 @@ public:
     }
 
 private:
-    enum class State { InitialDrag, Idle, HeaderDrag, Resizing };
-    enum class ResizeDir : uint8_t {
+    enum class JState { InitialDrag, Idle, HeaderDrag, Resizing };
+    enum class JResizeDir : uint8_t {
         None,
         Left,
         Right,
@@ -656,33 +656,33 @@ private:
     };
 
     void _clearAllHostDrags() {
-        for (const auto& e : DockRegistry::instance().entries())
+        for (const auto& e : JDockRegistry::instance().entries())
             e.host->updateDrag(0.f, 0.f, 0.f, 0.f, 0, 0, nullptr);
     }
 
-    void _clearHostDragsExcept(DockHost* keep) {
-        for (const auto& e : DockRegistry::instance().entries())
+    void _clearHostDragsExcept(JDockHost* keep) {
+        for (const auto& e : JDockRegistry::instance().entries())
             if (e.host != keep)
                 e.host->updateDrag(0.f, 0.f, 0.f, 0.f, 0, 0, nullptr);
     }
 
     std::unique_ptr<PlatformWinType> m_window;
     GpuSurfaceId m_surface{kPrimarySurface};
-    std::unique_ptr<DockHost>            m_dockHost;
-    std::vector<std::unique_ptr<DockWidget>> m_docks;
+    std::unique_ptr<JDockHost>            m_dockHost;
+    std::vector<std::unique_ptr<JDockWidget>> m_docks;
     uint32_t     m_winW{kDefaultW}, m_winH{kDefaultH};
 
-    std::function<void(PrimitiveBuffer&)> m_contentRenderHost;
+    std::function<void(JPrimitiveBuffer&)> m_contentRenderHost;
     std::function<void(float, float, bool, bool, float)> m_contentInputHost;
 
-    State m_state{State::Idle};
+    JState m_state{JState::Idle};
     bool  m_shouldClose{false};
     bool  m_wasDown{false};
     int   m_dragOffX{0}, m_dragOffY{0};
-    FloatingDockOptions m_options;
+    JFloatingDockOptions m_options;
     float               m_lastWheel{0.0f};
 
-    ResizeDir m_resizeDir{ResizeDir::None};
+    JResizeDir m_resizeDir{JResizeDir::None};
     bool      m_needsSurfaceResize{false};
     uint32_t  m_startWinW{0}, m_startWinH{0};
     int       m_startWinX{0}, m_startWinY{0};

@@ -18,9 +18,9 @@ namespace Genesis {
 /**
  * @brief Opaque container for raw, cache-aligned asset data staged in background.
  */
-struct StagedAsset {
-    enum class Type { Raw, Font, Texture };
-    Type type;
+struct JStagedAsset {
+    enum class JType { Raw, Font, Texture };
+    JType type;
     std::vector<uint8_t> data;
     std::string identifier;
 };
@@ -30,22 +30,22 @@ struct StagedAsset {
  * Offloads heavy I/O and processing to worker threads, injecting results
  * into the main loop via the task queue without frame stalling.
  */
-class AssetManager {
+class JAssetManager {
 public:
-    AssetManager(Core::Application& app) : m_appContext(app), m_activeLoads(0) {}
-    ~AssetManager() {
+    JAssetManager(Core::JApplication& app) : m_appContext(app), m_activeLoads(0) {}
+    ~JAssetManager() {
         // Ensure all background workers are joined or detached safely
     }
 
     // Disable unsafe resource duplication
-    AssetManager(const AssetManager&) = delete;
-    AssetManager& operator=(const AssetManager&) = delete;
+    JAssetManager(const JAssetManager&) = delete;
+    JAssetManager& operator=(const JAssetManager&) = delete;
 
     /**
      * @brief Initiates a non-blocking load of a resource.
      * @tparam T Callback type for handling the loaded asset on the main thread.
      */
-    void requestAsset(const std::string& path, StagedAsset::Type type, std::function<void(std::shared_ptr<StagedAsset>)> onLoaded) {
+    void requestAsset(const std::string& path, JStagedAsset::JType type, std::function<void(std::shared_ptr<JStagedAsset>)> onLoaded) {
         m_activeLoads.fetch_add(1, std::memory_order_relaxed);
 
         // Spawn a background worker (or pull from a thread pool in a full implementation)
@@ -55,7 +55,7 @@ public:
                 
                 // 1. Heavy I/O Operation (Simulated here)
                 // In production: std::ifstream or native OS file descriptors
-                auto staged = std::make_shared<StagedAsset>();
+                auto staged = std::make_shared<JStagedAsset>();
                 staged->identifier = path;
                 staged->type = type;
                 
@@ -84,7 +84,7 @@ public:
     }
 
 private:
-    Core::Application& m_appContext;
+    Core::JApplication& m_appContext;
     std::atomic<uint32_t> m_activeLoads;
 };
 

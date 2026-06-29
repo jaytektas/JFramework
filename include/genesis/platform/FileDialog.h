@@ -21,9 +21,9 @@ namespace Genesis {
  * Linux backend:  zenity (must be installed).
  * Win32 backend:  OPENFILENAMEA / SHBrowseForFolderA.
  */
-class FileDialog {
+class JFileDialog {
 public:
-    FileDialog() = delete;
+    JFileDialog() = delete;
 
     // --------------------------------------------------------------- openFile
 

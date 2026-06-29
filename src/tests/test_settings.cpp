@@ -11,7 +11,7 @@ static std::filesystem::path tmpFile() {
 }
 
 void test_set_get() {
-    auto& s = Settings::instance();
+    auto& s = JSettings::instance();
     s.clear();
     s.set("name",    std::string("Genesis"));
     s.set("count",   42);
@@ -28,7 +28,7 @@ void test_set_get() {
 }
 
 void test_has_remove() {
-    auto& s = Settings::instance();
+    auto& s = JSettings::instance();
     s.clear();
     s.set("x", 1);
     assert(s.has("x"));
@@ -42,7 +42,7 @@ void test_persist_round_trip() {
     std::filesystem::remove(path);
 
     {
-        auto& s = Settings::instance();
+        auto& s = JSettings::instance();
         s.clear();
         s.setPath(path);
         s.set("serial.port", std::string("/dev/ttyUSB0"));
@@ -55,7 +55,7 @@ void test_persist_round_trip() {
     assert(std::filesystem::exists(path));
 
     {
-        auto& s = Settings::instance();
+        auto& s = JSettings::instance();
         s.clear();
         s.setPath(path);
         s.load();
@@ -70,7 +70,7 @@ void test_persist_round_trip() {
 }
 
 void test_bool_variants() {
-    auto& s = Settings::instance();
+    auto& s = JSettings::instance();
     s.clear();
     s.set("a", true);
     s.set("b", false);
@@ -90,6 +90,6 @@ int main() {
     test_has_remove();
     test_persist_round_trip();
     test_bool_variants();
-    std::cout << "All Settings tests passed!\n";
+    std::cout << "All JSettings tests passed!\n";
     return 0;
 }

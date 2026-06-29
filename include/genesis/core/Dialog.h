@@ -1,13 +1,13 @@
 #pragma once
 
 // ============================================================================
-// Dialog — non-blocking modal dialog system (Step 2)
+// JDialog — non-blocking modal dialog system (Step 2)
 //
 // Superior to Qt: no exec() spin-loop, no QDialog subclass required.
 // All methods return immediately; results arrive via lambda callback.
 //
 // Genesis-native dialogs (message, confirm, input):
-//   - Rendered as PopupWindow overlays inside the Genesis compositor
+//   - Rendered as JPopupWindow overlays inside the Genesis compositor
 //   - Zero OS dependencies, consistent look across platforms
 //
 // File/folder/color pickers use OS-native dialogs via a background thread
@@ -15,7 +15,7 @@
 //   - Windows: GetOpenFileNameA / GetSaveFileNameA (commdlg.h)
 //   - macOS: NSOpenPanel / NSSavePanel via AppleScript (no Obj-C required)
 //
-// All callbacks are posted back to the main thread via MainThreadDispatcher.
+// All callbacks are posted back to the main thread via JMainThreadDispatcher.
 // ============================================================================
 
 #include "Signal.h"
@@ -39,23 +39,23 @@
 
 namespace Genesis {
 
-// ---- DialogKeyBindings -----------------------------------------------------
+// ---- JDialogKeyBindings -----------------------------------------------------
 // Configurable key bindings for dialog button navigation.
 // Defaults follow standard platform conventions (Enter=OK, Escape=Cancel).
-struct DialogKeyBindings {
-    KeyEvent::Key accept  = KeyEvent::Key::Return;
-    KeyEvent::Key cancel  = KeyEvent::Key::Escape;
-    KeyEvent::Key nextBtn = KeyEvent::Key::Tab;
-    KeyEvent::Key prevBtn = KeyEvent::Key::BackTab;
+struct JDialogKeyBindings {
+    JKeyEvent::JKey accept  = JKeyEvent::JKey::Return;
+    JKeyEvent::JKey cancel  = JKeyEvent::JKey::Escape;
+    JKeyEvent::JKey nextBtn = JKeyEvent::JKey::Tab;
+    JKeyEvent::JKey prevBtn = JKeyEvent::JKey::BackTab;
 };
 
-// ---- DialogOptions ---------------------------------------------------------
-// Per-dialog options — passed to Dialog::message/confirm/input.
-// Follows the FloatingDockOptions pattern: named fields with safe defaults.
-struct DialogOptions {
+// ---- JDialogOptions ---------------------------------------------------------
+// Per-dialog options — passed to JDialog::message/confirm/input.
+// Follows the JFloatingDockOptions pattern: named fields with safe defaults.
+struct JDialogOptions {
 
-    // --- Position -----------------------------------------------------------
-    enum class Position : uint8_t {
+    // --- JPosition -----------------------------------------------------------
+    enum class JPosition : uint8_t {
         CenterOnParent,   // centred over the spawning window (default)
         CenterOnScreen,   // centred on the primary monitor
         AtCursor,         // top-left at the current cursor position
@@ -67,7 +67,7 @@ struct DialogOptions {
         BottomRight,
         BottomCenter,
     };
-    Position position = Position::CenterOnParent;
+    JPosition position = JPosition::CenterOnParent;
     int x = 0, y = 0;          // used when position == Fixed
 
     // --- Modality -----------------------------------------------------------
@@ -86,44 +86,44 @@ struct DialogOptions {
     bool  closeOnEscape     = true;   // Escape key fires cancel/dismiss
     int   autoDismissMs     = 0;      // >0: auto-dismiss after N milliseconds (message only)
 
-    // --- Button layout ------------------------------------------------------
+    // --- JButton layout ------------------------------------------------------
     bool  okOnRight         = true;   // false = OK left, Cancel right (legacy/Linux convention)
     std::string okLabel     = "OK";
     std::string cancelLabel = "Cancel";
 };
 
-// ---- DialogRequest ---------------------------------------------------------
+// ---- JDialogRequest ---------------------------------------------------------
 // Describes a pending genesis-native overlay dialog.
-// DialogManager services one at a time; queue subsequent requests.
-struct DialogRequest {
-    enum class Kind { Message, Confirm, Input };
-    Kind          kind{Kind::Message};
+// JDialogManager services one at a time; queue subsequent requests.
+struct JDialogRequest {
+    enum class JKind { Message, Confirm, Input };
+    JKind          kind{JKind::Message};
     std::string   title;
     std::string   body;
     std::string   placeholder;
-    DialogOptions options;
+    JDialogOptions options;
     std::function<void()>               onOk;
     std::function<void()>               onCancel;
     std::function<void(std::string)>    onInput;
 };
 
-// ---- DialogManager ---------------------------------------------------------
-// Populated by Dialog::* static methods; drained by the platform window each frame.
-class DialogManager {
+// ---- JDialogManager ---------------------------------------------------------
+// Populated by JDialog::* static methods; drained by the platform window each frame.
+class JDialogManager {
 public:
-    static DialogManager& instance() {
-        static DialogManager dm;
+    static JDialogManager& instance() {
+        static JDialogManager dm;
         return dm;
     }
 
-    void push(DialogRequest req) {
+    void push(JDialogRequest req) {
         m_queue.push_back(std::move(req));
     }
 
     bool hasPending() const { return !m_queue.empty(); }
 
     // Returns the next request, or nullptr if the queue is empty.
-    const DialogRequest* front() const {
+    const JDialogRequest* front() const {
         return m_queue.empty() ? nullptr : &m_queue.front();
     }
 
@@ -132,28 +132,28 @@ public:
     // hal.drawPrimitives(). Pass the already-consumed `pressed` from the main
     // event loop — do NOT call consumePress() again here.
     // Returns true if a dialog is active (all input consumed).
-    static bool renderAndHandle(PrimitiveBuffer& buf,
+    static bool renderAndHandle(JPrimitiveBuffer& buf,
                                 float screenW, float screenH,
                                 float mx, float my,
                                 bool mousePressed,   // one-shot press event — for button clicks
                                 bool mouseHeld,      // continuous held state — for drag
-                                const std::vector<KeyEvent>& keys = {})
+                                const std::vector<JKeyEvent>& keys = {})
     {
         auto& dm  = instance();
-        const DialogRequest* req = dm.front();
+        const JDialogRequest* req = dm.front();
         if (!req) return false;
 
         static constexpr float kTitleH = 32.f;
         static constexpr float kCloseW = 28.f;
         static constexpr float kRadius = 8.f;
-        const bool hasCancel = (req->kind != DialogRequest::Kind::Message);
-        const bool needsInput = (req->kind == DialogRequest::Kind::Input);
-        const DialogKeyBindings& kb = dm.m_keyBindings;
+        const bool hasCancel = (req->kind != JDialogRequest::JKind::Message);
+        const bool needsInput = (req->kind == JDialogRequest::JKind::Input);
+        const JDialogKeyBindings& kb = dm.m_keyBindings;
 
-        // --- Key input (processed before drawing so state is current this frame) ---
+        // --- JKey input (processed before drawing so state is current this frame) ---
         for (const auto& ke : keys) {
             if (!ke.pressed) continue;
-            using K = KeyEvent::Key;
+            using K = JKeyEvent::JKey;
 
             if (needsInput) {
                 // Text field gets printable keys; Enter/Escape are accept/cancel
@@ -162,11 +162,11 @@ public:
                 } else if (ke.key == kb.accept) {
                     std::string txt = dm.m_inputText;
                     if (req->onInput) req->onInput(txt);
-                    if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "input.accepted");
+                    if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "input.accepted");
                     dm.pop(); return true;
                 } else if (ke.key == kb.cancel) {
                     if (req->onCancel) req->onCancel();
-                    if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "cancelled");
+                    if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "cancelled");
                     dm.pop(); return true;
                 } else if (ke.utf8[0] >= 0x20) {
                     dm.m_inputText += ke.utf8;
@@ -181,15 +181,15 @@ public:
                 } else if (ke.key == kb.accept || ke.key == K::Space) {
                     if (dm.m_focusedBtn == 0) {
                         if (req->onOk) req->onOk();
-                        if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "ok");
+                        if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "ok");
                     } else {
                         if (req->onCancel) req->onCancel();
-                        if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "cancel");
+                        if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "cancel");
                     }
                     dm.pop(); return true;
                 } else if (ke.key == kb.cancel) {
                     if (req->onCancel) req->onCancel();
-                    if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "cancel");
+                    if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "cancel");
                     dm.pop(); return true;
                 }
             }
@@ -252,9 +252,9 @@ public:
         // Cover bottom corners of title so it blends into body
         buf.pushRectangle(boxX, boxY + kRadius, boxW, kTitleH - kRadius, titleBg, 0.f);
 
-        float lh = TextHelper::lineHeight();
+        float lh = JTextHelper::lineHeight();
         uint8_t tc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, tc);
-        TextHelper::pushText(buf, boxX + 14.f, boxY + (kTitleH - lh) * 0.5f, req->title, tc,
+        JTextHelper::pushText(buf, boxX + 14.f, boxY + (kTitleH - lh) * 0.5f, req->title, tc,
                              boxW - kCloseW - 20.f);
 
         // --- Close (×) button ---
@@ -273,7 +273,7 @@ public:
         buf.pushRectangle(cx + 3.5f, cy - 3.5f, 2.f, 9.f, xc, 1.f); // |
         if (mousePressed && hovClose) {
             if (req->onCancel) req->onCancel();
-            if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "close");
+            if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "close");
             dm.pop();
             return true;
         }
@@ -281,7 +281,7 @@ public:
         // --- Body / prompt ---
         float ty = boxY + kTitleH + 16.f;
         uint8_t sc[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, sc);
-        TextHelper::pushText(buf, boxX + 16.f, ty, req->body, sc, boxW - 32.f);
+        JTextHelper::pushText(buf, boxX + 16.f, ty, req->body, sc, boxW - 32.f);
         ty += lh + 10.f;
 
         // --- Input field (always active — dialog owns keyboard) ---
@@ -297,12 +297,12 @@ public:
             float textY = ty + (fieldH - lh) * 0.5f;
             if (dm.m_inputText.empty()) {
                 uint8_t ph[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, ph);
-                TextHelper::pushText(buf, fieldX + 8.f, textY, req->placeholder, ph, fieldW - 24.f);
+                JTextHelper::pushText(buf, fieldX + 8.f, textY, req->placeholder, ph, fieldW - 24.f);
             } else {
                 uint8_t ftc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, ftc);
-                TextHelper::pushText(buf, fieldX + 8.f, textY, dm.m_inputText, ftc, fieldW - 24.f);
+                JTextHelper::pushText(buf, fieldX + 8.f, textY, dm.m_inputText, ftc, fieldW - 24.f);
             }
-            float cursorX = fieldX + 8.f + TextHelper::measureWidth(dm.m_inputText) + 1.f;
+            float cursorX = fieldX + 8.f + JTextHelper::measureWidth(dm.m_inputText) + 1.f;
             uint8_t cursorCol[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 220};
             buf.pushRectangle(cursorX, textY + 1.f, 2.f, lh - 2.f, cursorCol, 0.f);
 
@@ -333,13 +333,13 @@ public:
             uint8_t ringCol[4] = {255, 255, 255, 200};
             buf.pushRectangle(okX - 2.f, btnY - 2.f, btnW + 4.f, btnH + 4.f, noFill, 5.f, 2.f, ringCol);
         }
-        TextHelper::pushText(buf, okX + (btnW - TextHelper::measureWidth("OK")) * 0.5f,
+        JTextHelper::pushText(buf, okX + (btnW - JTextHelper::measureWidth("OK")) * 0.5f,
                              btnY + (btnH - lh) * 0.5f, "OK", btnTc);
 
         if (mousePressed && hovOk) {
             if (needsInput) { if (req->onInput) req->onInput(dm.m_inputText); }
             else             { if (req->onOk)   req->onOk(); }
-            if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "ok");
+            if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "ok");
             dm.pop(); return true;
         }
 
@@ -356,12 +356,12 @@ public:
                 uint8_t ringCol[4] = {255, 255, 255, 200};
                 buf.pushRectangle(cancelX - 2.f, btnY - 2.f, btnW + 4.f, btnH + 4.f, noFill, 5.f, 2.f, ringCol);
             }
-            TextHelper::pushText(buf, cancelX + (btnW - TextHelper::measureWidth("Cancel")) * 0.5f,
+            JTextHelper::pushText(buf, cancelX + (btnW - JTextHelper::measureWidth("Cancel")) * 0.5f,
                                  btnY + (btnH - lh) * 0.5f, "Cancel", btnTc);
 
             if (mousePressed && hovCancel) {
                 if (req->onCancel) req->onCancel();
-                if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", "cancel");
+                if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "cancel");
                 dm.pop(); return true;
             }
         }
@@ -394,20 +394,20 @@ public:
     }
 
     // Configurable key bindings (set before showing dialogs)
-    static DialogKeyBindings& keyBindings() { return instance().m_keyBindings; }
+    static JDialogKeyBindings& keyBindings() { return instance().m_keyBindings; }
 
     // True if the front dialog is modal (should block underlying input).
     static bool isModal() {
-        const DialogRequest* r = instance().front();
+        const JDialogRequest* r = instance().front();
         return r && r->options.modal;
     }
 
 private:
-    DialogManager() = default;
-    std::vector<DialogRequest> m_queue;
+    JDialogManager() = default;
+    std::vector<JDialogRequest> m_queue;
     std::string        m_inputText;
     int                m_focusedBtn = 0;
-    DialogKeyBindings  m_keyBindings;
+    JDialogKeyBindings  m_keyBindings;
 
     // Drag state for the title-bar drag gesture
     bool  m_dragInit    = false;
@@ -419,34 +419,34 @@ private:
 };
 
 // ---- Public API ------------------------------------------------------------
-class Dialog {
+class JDialog {
 public:
     // ---- Message box (single OK button) ------------------------------------
     static void message(const std::string& title, const std::string& body,
                         std::function<void()> onDismiss = {},
-                        DialogOptions opts = {}) {
-        if (AiBusHook::emit) AiBusHook::emit(0, "dialog.message", title.c_str());
-        DialogRequest req;
-        req.kind = DialogRequest::Kind::Message;
+                        JDialogOptions opts = {}) {
+        if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.message", title.c_str());
+        JDialogRequest req;
+        req.kind = JDialogRequest::JKind::Message;
         req.title = title; req.body = body;
         req.options = opts;
         req.onOk = std::move(onDismiss);
-        DialogManager::instance().push(std::move(req));
+        JDialogManager::instance().push(std::move(req));
     }
 
     // ---- Confirm (OK / Cancel) ---------------------------------------------
     static void confirm(const std::string& title, const std::string& body,
                         std::function<void()> onConfirm,
                         std::function<void()> onCancel = {},
-                        DialogOptions opts = {}) {
-        if (AiBusHook::emit) AiBusHook::emit(0, "dialog.confirm", title.c_str());
-        DialogRequest req;
-        req.kind = DialogRequest::Kind::Confirm;
+                        JDialogOptions opts = {}) {
+        if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.confirm", title.c_str());
+        JDialogRequest req;
+        req.kind = JDialogRequest::JKind::Confirm;
         req.title = title; req.body = body;
         req.options = opts;
         req.onOk = std::move(onConfirm);
         req.onCancel = std::move(onCancel);
-        DialogManager::instance().push(std::move(req));
+        JDialogManager::instance().push(std::move(req));
     }
 
     // ---- Text input --------------------------------------------------------
@@ -454,15 +454,15 @@ public:
                       std::function<void(std::string)> onAccept,
                       std::function<void()>            onCancel    = {},
                       const std::string&               placeholder = "",
-                      DialogOptions                    opts        = {}) {
-        if (AiBusHook::emit) AiBusHook::emit(0, "dialog.input", title.c_str());
-        DialogRequest req;
-        req.kind = DialogRequest::Kind::Input;
+                      JDialogOptions                    opts        = {}) {
+        if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.input", title.c_str());
+        JDialogRequest req;
+        req.kind = JDialogRequest::JKind::Input;
         req.title = title; req.body = prompt; req.placeholder = placeholder;
         req.options = opts;
         req.onCancel = std::move(onCancel);
         req.onInput  = std::move(onAccept);
-        DialogManager::instance().push(std::move(req));
+        JDialogManager::instance().push(std::move(req));
     }
 
     // ---- Open file ---------------------------------------------------------
@@ -474,7 +474,7 @@ public:
         auto cn = std::make_shared<std::function<void()>>(std::move(onCancel));
         std::thread([title, exts=std::move(extensions), ac, cn]() mutable {
             std::string result = _nativeOpenFile(title, exts);
-            MainThreadDispatcher::instance().post([result, ac, cn]{
+            JMainThreadDispatcher::instance().post([result, ac, cn]{
                 if (!result.empty() && *ac) (*ac)(result);
                 else if (result.empty() && *cn) (*cn)();
             });
@@ -490,7 +490,7 @@ public:
         auto cn = std::make_shared<std::function<void()>>(std::move(onCancel));
         std::thread([title, exts=std::move(extensions), ac, cn]() mutable {
             std::string result = _nativeSaveFile(title, exts);
-            MainThreadDispatcher::instance().post([result, ac, cn]{
+            JMainThreadDispatcher::instance().post([result, ac, cn]{
                 if (!result.empty() && *ac) (*ac)(result);
                 else if (result.empty() && *cn) (*cn)();
             });
@@ -505,7 +505,7 @@ public:
         auto cn = std::make_shared<std::function<void()>>(std::move(onCancel));
         std::thread([title, ac, cn]() mutable {
             std::string result = _nativeOpenFolder(title);
-            MainThreadDispatcher::instance().post([result, ac, cn]{
+            JMainThreadDispatcher::instance().post([result, ac, cn]{
                 if (!result.empty() && *ac) (*ac)(result);
                 else if (result.empty() && *cn) (*cn)();
             });

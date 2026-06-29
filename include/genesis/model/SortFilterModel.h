@@ -10,7 +10,7 @@
 namespace Genesis {
 
 // ============================================================================
-// SortFilterModel — sort and filter proxy over a TableModel.
+// JSortFilterModel — sort and filter proxy over a JTableModel.
 //
 // Lives on the main thread. Subscribes to source.onChanged, rebuilds the
 // index mapping on every change, and emits its own onChanged.
@@ -19,18 +19,18 @@ namespace Genesis {
 // cheap and lock-free after the rebuild.
 //
 // Usage:
-//   SortFilterModel proxy(model);
+//   JSortFilterModel proxy(model);
 //   proxy.setFilter([](const auto& row){ return row[1] != "0"; });
 //   proxy.sort(0);  // sort by column 0 ascending
 //
-//   // Bind to a DataGrid:
+//   // JBind to a JDataGrid:
 //   auto conn = bindDataGrid(grid, proxy);
 // ============================================================================
-class SortFilterModel {
+class JSortFilterModel {
 public:
-    Core::Signal<> onChanged;
+    Core::JSignal<> onChanged;
 
-    explicit SortFilterModel(TableModel& source) : m_source(&source) {
+    explicit JSortFilterModel(JTableModel& source) : m_source(&source) {
         m_conn.addConnection(source.onChanged.connect([this]{
             _rebuild();
             onChanged.emit();
@@ -38,10 +38,10 @@ public:
         _rebuild();
     }
 
-    ~SortFilterModel() = default;
+    ~JSortFilterModel() = default;
 
-    SortFilterModel(const SortFilterModel&) = delete;
-    SortFilterModel& operator=(const SortFilterModel&) = delete;
+    JSortFilterModel(const JSortFilterModel&) = delete;
+    JSortFilterModel& operator=(const JSortFilterModel&) = delete;
 
     // ---- Filter -------------------------------------------------------------
 
@@ -81,7 +81,7 @@ public:
         return _toStr(m_snapshot[m_indices[idx]]);
     }
 
-    std::vector<Variant> rowVar(int idx) const {
+    std::vector<JVariant> rowVar(int idx) const {
         if (idx < 0 || idx >= (int)m_indices.size()) return {};
         return m_snapshot[m_indices[idx]];
     }
@@ -95,7 +95,7 @@ public:
     // Headers are delegated to source.
     std::vector<std::string> headers() const { return m_source->headers(); }
 
-    // Full snapshot of filtered+sorted rows (for DataGrid.setRows()).
+    // Full snapshot of filtered+sorted rows (for JDataGrid.setRows()).
     std::vector<std::vector<std::string>> rows() const {
         std::vector<std::vector<std::string>> result;
         result.reserve(m_indices.size());
@@ -104,15 +104,15 @@ public:
     }
 
 private:
-    TableModel*                                       m_source{nullptr};
-    Core::SlotTracker                                 m_conn;
-    std::vector<std::vector<Variant>>                 m_snapshot;
+    JTableModel*                                       m_source{nullptr};
+    Core::JSlotTracker                                 m_conn;
+    std::vector<std::vector<JVariant>>                 m_snapshot;
     std::vector<int>                                  m_indices;
     std::function<bool(const std::vector<std::string>&)> m_filter;
     int                                               m_sortCol{-1};
     bool                                              m_sortAsc{true};
 
-    static std::vector<std::string> _toStr(const std::vector<Variant>& r) {
+    static std::vector<std::string> _toStr(const std::vector<JVariant>& r) {
         std::vector<std::string> out;
         out.reserve(r.size());
         for (const auto& c : r) out.push_back(c.toString());
@@ -130,10 +130,10 @@ private:
         if (m_sortCol >= 0) {
             std::stable_sort(m_indices.begin(), m_indices.end(),
                 [this](int a, int b) {
-                    Variant va = m_sortCol < (int)m_snapshot[a].size()
-                                 ? m_snapshot[a][m_sortCol] : Variant{};
-                    Variant vb = m_sortCol < (int)m_snapshot[b].size()
-                                 ? m_snapshot[b][m_sortCol] : Variant{};
+                    JVariant va = m_sortCol < (int)m_snapshot[a].size()
+                                 ? m_snapshot[a][m_sortCol] : JVariant{};
+                    JVariant vb = m_sortCol < (int)m_snapshot[b].size()
+                                 ? m_snapshot[b][m_sortCol] : JVariant{};
                     return m_sortAsc ? detail::cellLess(va, vb)
                                      : detail::cellLess(vb, va);
                 });

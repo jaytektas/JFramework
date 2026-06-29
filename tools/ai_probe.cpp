@@ -57,7 +57,7 @@ int main(int argc, char** argv) {
     int printed = 0;
     for (int iter = 0; iter < 600 && printed < frames; ++iter) {
         uint64_t frame = 0;
-        if (AiControlBus::snapshot(bus, nodes, &frame) && frame != lastFrame) {
+        if (JAiControlBus::snapshot(bus, nodes, &frame) && frame != lastFrame) {
             lastFrame = frame;
             ++printed;
             std::printf("\n=== AI view  (publish #%llu, %zu controls) ===\n",

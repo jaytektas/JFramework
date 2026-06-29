@@ -8,7 +8,7 @@
 //     genesis_ai_agent [shm] --role R --find L --do ACTION
 //
 //   Inject a new widget at runtime (system target 0xFFFFFFFF):
-//     genesis_ai_agent --inject button:Console:"My Button"
+//     genesis_ai_agent --inject button:Console:"My JButton"
 //     genesis_ai_agent --inject checkbox:Properties:"Enable thing"
 //     genesis_ai_agent --inject lineedit:Console:"Search..."
 //     genesis_ai_agent --inject label:Inspector:"Status: OK"
@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
     // Helper: dump the full semantic tree
     auto dumpSnapshot = [&]() {
         std::vector<AiNodeDescriptor> snap;
-        AiControlBus::snapshot(bus, snap);
+        JAiControlBus::snapshot(bus, snap);
         std::printf("  Semantic tree (%zu nodes):\n", snap.size());
         for (const auto& d : snap) {
             std::printf("    #%-4u  %-14s  %-28s  val='%s'  flags=%02x\n",
@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
     // Helper: find -> act -> verify (addressed by identity, never pixels)
     auto step = [&](const char* r, const char* l, const char* act) {
         std::vector<AiNodeDescriptor> snap;
-        AiControlBus::snapshot(bus, snap);
+        JAiControlBus::snapshot(bus, snap);
         const AiNodeDescriptor* t = findNode(snap, r, l);
         if (!t) {
             std::printf("  [skip]  no %s matching '%s'\n", r ? r : "*", l ? l : "*");
@@ -123,11 +123,11 @@ int main(int argc, char** argv) {
         char rolebuf[24]; std::strncpy(rolebuf,  t->role,  23); rolebuf[23]= '\0';
         char namebuf[32]; std::strncpy(namebuf,  t->name,  31); namebuf[31]= '\0';
 
-        int res = AiControlBus::submitActionBlocking(bus, id, act);
+        int res = JAiControlBus::submitActionBlocking(bus, id, act);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(60));
         std::vector<AiNodeDescriptor> snap2;
-        AiControlBus::snapshot(bus, snap2);
+        JAiControlBus::snapshot(bus, snap2);
         const AiNodeDescriptor* t2 = findNode(snap2, r, l);
         const char* okstr = res == 1 ? "OK"
                           : res == 0 ? "not-understood"
@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
 
     // Helper: system-level broadcast action (targetId == 0xFFFFFFFF)
     auto broadcast = [&](const char* act) {
-        int res = AiControlBus::submitActionBlocking(bus, 0xFFFFFFFFu, act);
+        int res = JAiControlBus::submitActionBlocking(bus, 0xFFFFFFFFu, act);
         const char* okstr = res == 1 ? "OK"
                           : res == 0 ? "not-understood"
                           : res == -1? "no-target" : "timeout/err";
@@ -204,16 +204,16 @@ int main(int argc, char** argv) {
 
     // ---- Scripted demonstration ----
     std::printf("Driving the GUI by meaning (find -> act -> verify), no pixels:\n");
-    step("CheckBox",     "Show tooltips",  "check");
-    step("ToggleButton", "Dark Mode",      "toggle");
-    step("RadioButton",  "Metal backend",  "select");
-    step("Slider",       "",               "set_value:0.90");
-    step("SpinBox",      "",               "increment");
-    step("Button",       "Primary Action", "click");
+    step("JCheckBox",     "Show tooltips",  "check");
+    step("JToggleButton", "Dark JMode",      "toggle");
+    step("JRadioButton",  "Metal backend",  "select");
+    step("JSlider",       "",               "set_value:0.90");
+    step("JSpinBox",      "",               "increment");
+    step("JButton",       "Primary JAction", "click");
 
     // Demo inject: add a button to the Console panel live
     std::printf("\nDynamic injection demo:\n");
-    broadcast("inject:button:Console:AI-Injected Button");
+    broadcast("inject:button:Console:AI-Injected JButton");
     std::this_thread::sleep_for(std::chrono::milliseconds(80));
     broadcast("inject:label:Inspector:Live AI status: OK");
 

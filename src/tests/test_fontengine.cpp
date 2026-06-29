@@ -5,7 +5,7 @@
 using namespace Genesis;
 
 void test_font_load_system() {
-    FontEngine engine;
+    JFontEngine engine;
     bool ok = engine.loadSystemFont();
     // System fonts should be available in CI; warn but don't assert if missing
     if (!ok) {
@@ -18,7 +18,7 @@ void test_font_load_system() {
 }
 
 void test_atlas_build() {
-    FontEngine engine;
+    JFontEngine engine;
     if (!engine.loadSystemFont()) {
         std::cout << "test_atlas_build: skipped (no system font)\n";
         return;
@@ -35,7 +35,7 @@ void test_atlas_build() {
 }
 
 void test_text_measure() {
-    FontEngine engine;
+    JFontEngine engine;
     if (!engine.loadSystemFont()) {
         std::cout << "test_text_measure: skipped\n";
         return;
@@ -54,6 +54,6 @@ int main() {
     test_font_load_system();
     test_atlas_build();
     test_text_measure();
-    std::cout << "All FontEngine tests passed!\n";
+    std::cout << "All JFontEngine tests passed!\n";
     return 0;
 }

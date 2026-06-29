@@ -7,10 +7,10 @@ using namespace Genesis;
 
 void test_telemetry_sync() {
     SharedBusMemory sharedMem;
-    AiControlBus bus;
+    JAiControlBus bus;
     bus.attach(&sharedMem);
     
-    SceneGraph graph;
+    JSceneGraph graph;
     NodeId root = graph.createNode("Root");
     graph.getLayout(root).boundingBox = {0, 0, 800, 600};
     
@@ -32,7 +32,7 @@ void test_telemetry_sync() {
 
 void test_inbound_commands() {
     SharedBusMemory sharedMem;
-    AiControlBus bus;
+    JAiControlBus bus;
     bus.attach(&sharedMem);
     
     AiVirtualInput cmd;
@@ -41,13 +41,13 @@ void test_inbound_commands() {
     assert(bus.pollInboundCommand(cmd) == false);
     
     // AI injects a command
-    sharedMem.inboundCommand.type.store(AiVirtualInput::CommandType::MouseClick);
+    sharedMem.inboundCommand.type.store(AiVirtualInput::JCommandType::MouseClick);
     sharedMem.inboundCommand.targetX = 150.0f;
     sharedMem.inboundCommand.targetY = 200.0f;
     sharedMem.inboundCommand.sequenceId.store(1, std::memory_order_release);
     
     assert(bus.pollInboundCommand(cmd) == true);
-    assert(cmd.type.load() == AiVirtualInput::CommandType::MouseClick);
+    assert(cmd.type.load() == AiVirtualInput::JCommandType::MouseClick);
     assert(cmd.targetX == 150.0f);
     
     // Command already processed
@@ -62,7 +62,7 @@ void test_inbound_commands() {
 
 void test_publish_signal() {
     SharedBusMemory sharedMem;
-    AiControlBus bus;
+    JAiControlBus bus;
     bus.attach(&sharedMem);
 
     // Initially: seq must be 0 after attach
@@ -70,11 +70,11 @@ void test_publish_signal() {
     assert(sharedMem.outboundSignal.targetId == 0xFFFFFFFFu);
 
     // Publish a click signal
-    bus.publishSignal(42, "click", "Primary Action");
+    bus.publishSignal(42, "click", "Primary JAction");
     assert(sharedMem.outboundSignal.signalSeq.load() == 1);
     assert(sharedMem.outboundSignal.targetId == 42);
     assert(std::string(sharedMem.outboundSignal.signalName)  == "click");
-    assert(std::string(sharedMem.outboundSignal.signalValue) == "Primary Action");
+    assert(std::string(sharedMem.outboundSignal.signalValue) == "Primary JAction");
 
     // Publish another — sequence must increment
     bus.publishSignal(7, "checked", "true");
@@ -94,7 +94,7 @@ void test_publish_signal() {
 
 void test_outbound_initial_state() {
     SharedBusMemory sharedMem{};
-    AiControlBus bus;
+    JAiControlBus bus;
     bus.attach(&sharedMem);
 
     // After attach the outbound channel must be zeroed

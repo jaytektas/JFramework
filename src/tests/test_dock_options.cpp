@@ -7,13 +7,13 @@ using namespace Genesis;
 
 void test_default_options() {
     // 1. Registry defaults
-    auto& reg = DockRegistry::instance();
+    auto& reg = JDockRegistry::instance();
     assert(reg.defaultOptions().handleHoverPad.value_or(0.f) == 4.0f);
     assert(reg.defaultOptions().enforceMinSizes.value_or(false) == true);
     assert(reg.defaultOptions().showResizeCursors.value_or(false) == true);
 
     // 2. Host inheritance
-    DockHost host;
+    JDockHost host;
     assert(host.handleHoverPad() == 4.0f);
     assert(host.enforceMinSizes() == true);
     assert(host.showResizeCursors() == true);
@@ -22,13 +22,13 @@ void test_default_options() {
 }
 
 void test_local_overrides() {
-    DockHost host;
+    JDockHost host;
 
     // Override handleHoverPad
     host.options().handleHoverPad = 8.0f;
     assert(host.handleHoverPad() == 8.0f);
     // Registry should still be 4.0f
-    assert(DockRegistry::instance().defaultOptions().handleHoverPad.value_or(0.f) == 4.0f);
+    assert(JDockRegistry::instance().defaultOptions().handleHoverPad.value_or(0.f) == 4.0f);
 
     // Override enforceMinSizes
     host.options().enforceMinSizes = false;
@@ -42,29 +42,29 @@ void test_local_overrides() {
 }
 
 void test_dynamic_registry_updates() {
-    DockHost host;
+    JDockHost host;
 
     // Verify initial inheritance
     assert(host.showResizeCursors() == true);
 
     // Change registry option
-    DockRegistry::instance().defaultOptions().showResizeCursors = false;
+    JDockRegistry::instance().defaultOptions().showResizeCursors = false;
     assert(host.showResizeCursors() == false);
 
     // Reset registry option for other tests
-    DockRegistry::instance().defaultOptions().showResizeCursors = true;
+    JDockRegistry::instance().defaultOptions().showResizeCursors = true;
     assert(host.showResizeCursors() == true);
 
     std::cout << "test_dynamic_registry_updates passed\n";
 }
 
 void test_behavioral_options() {
-    DockHost host;
+    JDockHost host;
     
     // Add two leaf nodes under root split
-    host.setRootSplit(SplitDir::Horizontal);
-    DockNodeId leafA = host.addLeaf(host.rootId(), "A", 0.5f);
-    DockNodeId leafB = host.addLeaf(host.rootId(), "B", 0.5f);
+    host.setRootSplit(JSplitDir::Horizontal);
+    JDockNodeId leafA = host.addLeaf(host.rootId(), "A", 0.5f);
+    JDockNodeId leafB = host.addLeaf(host.rootId(), "B", 0.5f);
     
     host.computeLayout({0.f, 0.f, 200.f, 200.f});
 
@@ -84,15 +84,15 @@ void test_behavioral_options() {
     std::cout << "getHoverCursor(122.f, 100.f): " << (int)host.getHoverCursor(122.f, 100.f) << std::endl;
     // Check hover cursor at x=122 (within 10.f hover pad, but outside default 4.f hover pad)
     host.options().showResizeCursors = true;
-    assert(host.getHoverCursor(122.f, 100.f) == DockHost::HoverCursor::Horiz);
+    assert(host.getHoverCursor(122.f, 100.f) == JDockHost::JHoverCursor::Horiz);
     
     host.options().handleHoverPad = 2.0f; // hit width: 3.f + 2.f = 5.f on each side, x in [127.333..137.333]
-    assert(host.getHoverCursor(122.f, 100.f) == DockHost::HoverCursor::Default);
+    assert(host.getHoverCursor(122.f, 100.f) == JDockHost::JHoverCursor::Default);
 
     // 2. Show/hide cursors
     host.options().showResizeCursors = false;
     host.options().handleHoverPad = 10.0f;
-    assert(host.getHoverCursor(122.f, 100.f) == DockHost::HoverCursor::Default);
+    assert(host.getHoverCursor(122.f, 100.f) == JDockHost::JHoverCursor::Default);
 
     // 3. Minimum size enforcement
     host.options().enforceMinSizes = true;
@@ -106,26 +106,26 @@ void test_behavioral_options() {
 }
 
 void test_layout_mutations() {
-    DockHost host;
+    JDockHost host;
     
     // Add two leaf nodes under root split
-    host.setRootSplit(SplitDir::Horizontal);
-    DockNodeId leafA = host.addLeaf(host.rootId(), "A", 0.5f);
-    DockNodeId leafB = host.addLeaf(host.rootId(), "B", 0.5f);
+    host.setRootSplit(JSplitDir::Horizontal);
+    JDockNodeId leafA = host.addLeaf(host.rootId(), "A", 0.5f);
+    JDockNodeId leafB = host.addLeaf(host.rootId(), "B", 0.5f);
     
     host.computeLayout({0.f, 0.f, 206.f, 200.f}); // total horizontal split width including 6px handle: 206
     
     // Split leafA vertically to verify splitLeaf
-    DockNodeId leafA_split = host.splitLeaf(leafA, DropPos::Bottom);
+    JDockNodeId leafA_split = host.splitLeaf(leafA, JDropPos::Bottom);
     assert(leafA_split.valid());
 
     // Verify edgeLeaf
-    DockNodeId edge = host.edgeLeaf();
+    JDockNodeId edge = host.edgeLeaf();
     assert(edge.valid());
 
     // Verify dynamic weight modification sizing math
-    DockNode* parent = host.node(host.rootId());
-    assert(parent->splitDir == SplitDir::Horizontal);
+    JDockNode* parent = host.node(host.rootId());
+    assert(parent->splitDir == JSplitDir::Horizontal);
     parent->weights[0] = 0.8f;
     parent->weights[1] = 0.2f;
     host.computeLayout({0.f, 0.f, 206.f, 200.f});

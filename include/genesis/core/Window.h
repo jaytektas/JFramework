@@ -11,43 +11,43 @@ namespace Genesis {
  * @brief Opaque identifiers for window styling properties.
  */
 namespace WindowStyle {
-    constexpr StyleKey<Color> TitleBarColor{ 0x20 };
-    constexpr StyleKey<Color> BorderColor{ 0x21 };
-    constexpr StyleKey<float> TitleBarHeight{ 0x22 };
+    constexpr JStyleKey<JColor> TitleBarColor{ 0x20 };
+    constexpr JStyleKey<JColor> BorderColor{ 0x21 };
+    constexpr JStyleKey<float> TitleBarHeight{ 0x22 };
 }
 
 /**
- * @brief Base Window Skin interface.
+ * @brief Base JWindow Skin interface.
  * Allows for completely bespoke visual representations of a window frame.
  */
-class WindowSkin {
+class JWindowSkin {
 public:
-    virtual ~WindowSkin() = default;
-    virtual void drawFrame(PrimitiveBuffer& buffer, const Rect& bounds, const StyleEngine& styles, NodeId nodeId) = 0;
+    virtual ~JWindowSkin() = default;
+    virtual void drawFrame(JPrimitiveBuffer& buffer, const JRect& bounds, const JStyleEngine& styles, NodeId nodeId) = 0;
 };
 
 /**
  * @brief Default 'Fallback' Skin.
  * Provides a clean, dark-themed industrial look for initial bootstrapping.
  */
-class FallbackWindowSkin : public WindowSkin {
+class JFallbackWindowSkin : public JWindowSkin {
 public:
-    void drawFrame(PrimitiveBuffer& buffer, const Rect& bounds, const StyleEngine& styles, NodeId nodeId) override {
-        Color defaultTitleColor = { 30, 30, 32, 255 };
-        Color defaultBorderColor = { 60, 60, 65, 255 };
+    void drawFrame(JPrimitiveBuffer& buffer, const JRect& bounds, const JStyleEngine& styles, NodeId nodeId) override {
+        JColor defaultTitleColor = { 30, 30, 32, 255 };
+        JColor defaultBorderColor = { 60, 60, 65, 255 };
         float titleHeight = styles.lookup(nodeId, WindowStyle::TitleBarHeight, 32.0f);
         
-        // 1. Draw Main Window Body
+        // 1. Draw Main JWindow Body
         uint8_t bgColor[4] = { 18, 18, 20, 255 };
         buffer.pushRectangle(bounds.x, bounds.y, bounds.width, bounds.height, bgColor, 8.0f);
 
         // 2. Draw Title Bar Area
-        Color tColor = styles.lookup(nodeId, WindowStyle::TitleBarColor, defaultTitleColor);
+        JColor tColor = styles.lookup(nodeId, WindowStyle::TitleBarColor, defaultTitleColor);
         uint8_t titleFill[4] = { tColor.r, tColor.g, tColor.b, tColor.a };
         buffer.pushRectangle(bounds.x, bounds.y, bounds.width, titleHeight, titleFill, 8.0f);
         
         // 3. Draw Accent Border
-        Color bColor = styles.lookup(nodeId, WindowStyle::BorderColor, defaultBorderColor);
+        JColor bColor = styles.lookup(nodeId, WindowStyle::BorderColor, defaultBorderColor);
         uint8_t borderFill[4] = { bColor.r, bColor.g, bColor.b, bColor.a };
         // We use the primitive buffer's border width feature for the quad
         buffer.pushRectangle(bounds.x, bounds.y, bounds.width, bounds.height, bgColor, 8.0f, 1.5f, borderFill);
@@ -55,36 +55,36 @@ public:
 };
 
 /**
- * @brief The Top-Level Window Component.
+ * @brief The Top-Level JWindow Component.
  * Orchestrates the relationship between logical content nodes and visual skinning.
  */
-class Window : public Widget {
+class JWindow : public JWidget {
 public:
-    Window(SceneGraph& graph, const std::string& title)
-        : Widget(graph, "Window: " + title), m_title(title) 
+    JWindow(JSceneGraph& graph, const std::string& title)
+        : JWidget(graph, "JWindow: " + title), m_title(title) 
     {
-        m_skin = std::make_unique<FallbackWindowSkin>();
+        m_skin = std::make_unique<JFallbackWindowSkin>();
         
         auto& layout = m_graph.getLayout(m_nodeId);
-        layout.direction = FlexDirection::Column;
+        layout.direction = JFlexDirection::Column;
         layout.padding = 4.0f;
     }
 
-    void setSkin(std::unique_ptr<WindowSkin> newSkin) {
+    void setSkin(std::unique_ptr<JWindowSkin> newSkin) {
         m_skin = std::move(newSkin);
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer&) override {}
+    void populateRenderPrimitives(JPrimitiveBuffer&) override {}
 
-    void renderWithStyles(PrimitiveBuffer& buffer, const StyleEngine& styles) {
+    void renderWithStyles(JPrimitiveBuffer& buffer, const JStyleEngine& styles) {
         const auto& layout = m_graph.getLayoutConst(m_nodeId);
         m_skin->drawFrame(buffer, layout.boundingBox, styles, m_nodeId);
     }
 
 private:
     std::string m_title;
-    std::unique_ptr<WindowSkin> m_skin;
+    std::unique_ptr<JWindowSkin> m_skin;
 };
 
 } // namespace Genesis

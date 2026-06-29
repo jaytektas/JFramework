@@ -1,5 +1,5 @@
-// test_aipanel.cpp — AIPanel widget unit tests
-// Tests semantic node, logAction API, and that AIPanel is a proper Widget.
+// test_aipanel.cpp — JAIPanel widget unit tests
+// Tests semantic node, logAction API, and that JAIPanel is a proper JWidget.
 
 #include <genesis/core/AIPanel.h>
 #include <genesis/core/SceneGraph.h>
@@ -11,26 +11,26 @@
 using namespace Genesis;
 
 static void test_aipanel_is_widget() {
-    SceneGraph g;
-    AIPanel panel(g);
-    // Verify it's a Widget (compile-time check + getNodeId accessible)
+    JSceneGraph g;
+    JAIPanel panel(g);
+    // Verify it's a JWidget (compile-time check + getNodeId accessible)
     NodeId id = panel.getNodeId();
     assert(id != InvalidNodeId);
-    std::cout << "  [OK] AIPanel is a Widget subclass with valid node id\n";
+    std::cout << "  [OK] JAIPanel is a JWidget subclass with valid node id\n";
 }
 
 static void test_semantic_node() {
-    SceneGraph g;
-    AIPanel panel(g);
+    JSceneGraph g;
+    JAIPanel panel(g);
     auto node = panel.getSemanticNode();
-    assert(std::string(node.role) == "AIPanel");
+    assert(std::string(node.role) == "JAIPanel");
     assert(!node.interactable || node.interactable); // just verify it's accessible
-    std::cout << "  [OK] getSemanticNode() returns role=AIPanel\n";
+    std::cout << "  [OK] getSemanticNode() returns role=JAIPanel\n";
 }
 
 static void test_log_action() {
-    SceneGraph g;
-    AIPanel panel(g);
+    JSceneGraph g;
+    JAIPanel panel(g);
     // logAction should not crash; log is internal
     panel.logAction("test action 1");
     panel.logAction("test action 2");
@@ -39,41 +39,41 @@ static void test_log_action() {
 }
 
 static void test_execute_action_not_interactable() {
-    SceneGraph g;
-    AIPanel panel(g);
-    // AIPanel's executeSemanticAction — check it doesn't crash
+    JSceneGraph g;
+    JAIPanel panel(g);
+    // JAIPanel's executeSemanticAction — check it doesn't crash
     bool result = panel.executeSemanticAction("click");
     (void)result;
     std::cout << "  [OK] executeSemanticAction() is callable\n";
 }
 
 static void test_aipanel_in_active_widgets() {
-    SceneGraph g;
-    auto* panelPtr = new AIPanel(g);
+    JSceneGraph g;
+    auto* panelPtr = new JAIPanel(g);
     bool found = false;
-    for (auto* w : Widget::s_activeWidgets) {
+    for (auto* w : JWidget::s_activeWidgets) {
         if (w == panelPtr) { found = true; break; }
     }
     assert(found);
     delete panelPtr;
-    std::cout << "  [OK] AIPanel appears in Widget::s_activeWidgets\n";
+    std::cout << "  [OK] JAIPanel appears in JWidget::s_activeWidgets\n";
 }
 
 static void test_aipanel_visible_by_default() {
-    SceneGraph g;
-    AIPanel panel(g);
+    JSceneGraph g;
+    JAIPanel panel(g);
     assert(panel.isVisible());
-    std::cout << "  [OK] AIPanel is visible by default\n";
+    std::cout << "  [OK] JAIPanel is visible by default\n";
 }
 
 int main() {
-    std::cout << "AIPanel tests:\n";
+    std::cout << "JAIPanel tests:\n";
     test_aipanel_is_widget();
     test_semantic_node();
     test_log_action();
     test_execute_action_not_interactable();
     test_aipanel_in_active_widgets();
     test_aipanel_visible_by_default();
-    std::cout << "All AIPanel tests passed.\n";
+    std::cout << "All JAIPanel tests passed.\n";
     return 0;
 }

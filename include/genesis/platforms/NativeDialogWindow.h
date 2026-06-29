@@ -1,9 +1,9 @@
 #pragma once
 
 // ============================================================================
-// NativeDialogWindow — dialog as its own OS-level Popup window.
+// JNativeDialogWindow — dialog as its own OS-level Popup window.
 //
-// Every behavior is driven by DialogOptions on the request:
+// Every behavior is driven by JDialogOptions on the request:
 //   position        — CenterOnParent/CenterOnScreen/AtCursor/Fixed/corners
 //   modal           — blocks parent-window input when true
 //   draggable       — title-bar drag moves the OS window
@@ -34,40 +34,40 @@
 
 namespace Genesis {
 
-class NativeDialogWindow {
+class JNativeDialogWindow {
 public:
     static constexpr uint32_t kW      = 440;
     static constexpr float    kTitleH = 32.f;
     static constexpr float    kCloseW = 28.f;
 
 #if defined(_WIN32)
-    using PlatformWinType     = WindowsPlatformWindow;
+    using PlatformWinType     = JWindowsPlatformWindow;
     using NativeWinHandleType = HWND;
 #else
-    using PlatformWinType     = LinuxPlatformWindow;
+    using PlatformWinType     = JLinuxPlatformWindow;
     using NativeWinHandleType = xcb_window_t;
 #endif
 
-    NativeDialogWindow(DialogRequest req, GpuHal& hal,
+    JNativeDialogWindow(JDialogRequest req, JGpuHal& hal,
                        int screenX, int screenY,
                        NativeWinHandleType parentWindow = {})
         : m_req(std::move(req))
         , m_winH(_calcHeight(m_req.kind, m_req.options))
         , m_window(std::make_unique<PlatformWinType>(
               m_req.title.c_str(), kW, m_winH, screenX, screenY,
-              PlatformWindowStyle::Borderless,  // WM-managed: gets proper keyboard focus
+              JPlatformWindowStyle::Borderless,  // WM-managed: gets proper keyboard focus
               parentWindow))
         , m_surface(hal.createSurface(m_window->nativeHandle(), kW, m_winH))
         , m_createdAt(std::chrono::steady_clock::now())
     {}
 
-    NativeDialogWindow(const NativeDialogWindow&)            = delete;
-    NativeDialogWindow& operator=(const NativeDialogWindow&) = delete;
-    NativeDialogWindow(NativeDialogWindow&&)                 = default;
-    NativeDialogWindow& operator=(NativeDialogWindow&&)      = default;
+    JNativeDialogWindow(const JNativeDialogWindow&)            = delete;
+    JNativeDialogWindow& operator=(const JNativeDialogWindow&) = delete;
+    JNativeDialogWindow(JNativeDialogWindow&&)                 = default;
+    JNativeDialogWindow& operator=(JNativeDialogWindow&&)      = default;
 
     // Returns false when dismissed — caller should destroySurface() then erase.
-    bool pollAndRender(GpuHal& hal, PrimitiveBuffer& buf) {
+    bool pollAndRender(JGpuHal& hal, JPrimitiveBuffer& buf) {
         if (m_done) return false;
 
         const auto& opts = m_req.options;
@@ -112,36 +112,36 @@ public:
         return true;
     }
 
-    void destroySurface(GpuHal& hal) { hal.destroySurface(m_surface); }
+    void destroySurface(JGpuHal& hal) { hal.destroySurface(m_surface); }
 
     bool isDone()  const { return m_done; }
     bool isModal() const { return m_req.options.modal; }
 
     // Height calculation is public so main.cpp can compute the initial Y position.
-    static uint32_t calcHeight(DialogRequest::Kind k, const DialogOptions& opts) {
+    static uint32_t calcHeight(JDialogRequest::JKind k, const JDialogOptions& opts) {
         return _calcHeight(k, opts);
     }
 
 private:
-    static uint32_t _calcHeight(DialogRequest::Kind k, const DialogOptions& opts) {
-        float contentH = (k == DialogRequest::Kind::Input) ? 210.f : 155.f;
+    static uint32_t _calcHeight(JDialogRequest::JKind k, const JDialogOptions& opts) {
+        float contentH = (k == JDialogRequest::JKind::Input) ? 210.f : 155.f;
         return static_cast<uint32_t>((opts.showTitleBar ? kTitleH : 0.f) + contentH);
     }
 
     void _dismiss(const char* sig) {
-        if (AiBusHook::emit) AiBusHook::emit(0, "dialog.dismissed", sig);
+        if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", sig);
         m_done = true;
     }
 
     void _handleKeys() {
         const auto& opts      = m_req.options;
-        const bool needsInput = (m_req.kind == DialogRequest::Kind::Input);
-        const bool hasCancel  = (m_req.kind != DialogRequest::Kind::Message);
-        const DialogKeyBindings& kb = DialogManager::keyBindings();
+        const bool needsInput = (m_req.kind == JDialogRequest::JKind::Input);
+        const bool hasCancel  = (m_req.kind != JDialogRequest::JKind::Message);
+        const JDialogKeyBindings& kb = JDialogManager::keyBindings();
 
         for (const auto& ke : m_keys) {
             if (!ke.pressed) continue;
-            using K = KeyEvent::Key;
+            using K = JKeyEvent::JKey;
 
             if (needsInput) {
                 if      (ke.key == K::Backspace)  { if (!m_inputText.empty()) m_inputText.pop_back(); }
@@ -192,15 +192,15 @@ private:
         if (!m_held) m_dragging = false;
     }
 
-    void _render(PrimitiveBuffer& buf) {
+    void _render(JPrimitiveBuffer& buf) {
         const auto& opts = m_req.options;
         const float W = static_cast<float>(kW);
         const float H = static_cast<float>(m_winH);
-        const bool  needsInput = (m_req.kind == DialogRequest::Kind::Input);
-        const bool  hasCancel  = (m_req.kind != DialogRequest::Kind::Message);
-        const float lh = TextHelper::lineHeight();
+        const bool  needsInput = (m_req.kind == JDialogRequest::JKind::Input);
+        const bool  hasCancel  = (m_req.kind != JDialogRequest::JKind::Message);
+        const float lh = JTextHelper::lineHeight();
 
-        // Window background
+        // JWindow background
         uint8_t bg[4] = {26, 26, 32, 255};
         buf.pushRectangle(0.f, 0.f, W, H, bg, 8.f, 1.f, Colors::Border);
 
@@ -214,7 +214,7 @@ private:
 
             float titleMaxW = opts.showCloseButton ? W - kCloseW - 20.f : W - 20.f;
             uint8_t tc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, tc);
-            TextHelper::pushText(buf, 14.f, (kTitleH - lh) * 0.5f, m_req.title, tc, titleMaxW);
+            JTextHelper::pushText(buf, 14.f, (kTitleH - lh) * 0.5f, m_req.title, tc, titleMaxW);
 
             // Close × button
             if (opts.showCloseButton) {
@@ -233,7 +233,7 @@ private:
         // Body text
         float ty = contentY + 16.f;
         uint8_t sc[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, sc);
-        TextHelper::pushText(buf, 16.f, ty, m_req.body, sc, W - 32.f);
+        JTextHelper::pushText(buf, 16.f, ty, m_req.body, sc, W - 32.f);
         ty += lh + 10.f;
 
         // Input field
@@ -245,12 +245,12 @@ private:
             float textY = ty + (fH - lh) * 0.5f;
             if (m_inputText.empty()) {
                 uint8_t ph[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, ph);
-                TextHelper::pushText(buf, 24.f, textY, m_req.placeholder, ph, fW - 16.f);
+                JTextHelper::pushText(buf, 24.f, textY, m_req.placeholder, ph, fW - 16.f);
             } else {
                 uint8_t ftc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, ftc);
-                TextHelper::pushText(buf, 24.f, textY, m_inputText, ftc, fW - 16.f);
+                JTextHelper::pushText(buf, 24.f, textY, m_inputText, ftc, fW - 16.f);
             }
-            float cursorX = 24.f + TextHelper::measureWidth(m_inputText) + 1.f;
+            float cursorX = 24.f + JTextHelper::measureWidth(m_inputText) + 1.f;
             uint8_t cc[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 220};
             buf.pushRectangle(cursorX, textY + 1.f, 2.f, lh - 2.f, cc, 0.f);
         }
@@ -279,7 +279,7 @@ private:
             uint8_t nf[4]={0,0,0,0}, rg[4]={255,255,255,200};
             buf.pushRectangle(okX-2.f, btnY-2.f, btnW+4.f, btnH+4.f, nf, 5.f, 2.f, rg);
         }
-        TextHelper::pushText(buf, okX + (btnW - TextHelper::measureWidth(okLbl.c_str())) * 0.5f,
+        JTextHelper::pushText(buf, okX + (btnW - JTextHelper::measureWidth(okLbl.c_str())) * 0.5f,
                              btnY + (btnH - lh) * 0.5f, okLbl, btnTc);
         if (m_pressed && hovOk) {
             if (needsInput) { if (m_req.onInput) m_req.onInput(m_inputText); }
@@ -297,7 +297,7 @@ private:
                 uint8_t nf[4]={0,0,0,0}, rg[4]={255,255,255,200};
                 buf.pushRectangle(cancelX-2.f, btnY-2.f, btnW+4.f, btnH+4.f, nf, 5.f, 2.f, rg);
             }
-            TextHelper::pushText(buf, cancelX + (btnW - TextHelper::measureWidth(cancelLbl.c_str())) * 0.5f,
+            JTextHelper::pushText(buf, cancelX + (btnW - JTextHelper::measureWidth(cancelLbl.c_str())) * 0.5f,
                                  btnY + (btnH - lh) * 0.5f, cancelLbl, btnTc);
             if (m_pressed && hovCancel) {
                 if (m_req.onCancel) m_req.onCancel();
@@ -306,7 +306,7 @@ private:
         }
     }
 
-    DialogRequest                    m_req;
+    JDialogRequest                    m_req;
     uint32_t                         m_winH;
     std::unique_ptr<PlatformWinType> m_window;
     GpuSurfaceId                     m_surface{0};
@@ -318,7 +318,7 @@ private:
     int                              m_focusedBtn{0};
     float                            m_mx{0}, m_my{0};
     bool                             m_pressed{false}, m_held{false};
-    std::vector<KeyEvent>            m_keys;
+    std::vector<JKeyEvent>            m_keys;
 };
 
 } // namespace Genesis

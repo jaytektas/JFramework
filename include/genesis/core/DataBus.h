@@ -15,7 +15,7 @@
 namespace Genesis {
 
 // ============================================================================
-// DataBus — thread-safe reactive publish/subscribe data bus.
+// JDataBus — thread-safe reactive publish/subscribe data bus.
 //
 // Publishers push named channel values; subscribers receive them immediately.
 // publish() is safe to call from any thread (e.g. serial worker, timer thread).
@@ -24,15 +24,15 @@ namespace Genesis {
 // Callbacks are fired WITHOUT the internal mutex held, so subscribers can safely
 // call subscribe()/unsubscribe() from within a callback.
 //
-// Bind a live hardware signal to a widget member in one call:
+// JBind a live hardware signal to a widget member in one call:
 //   dataBus.bind("motor.rpm", &dial->value, dial);
 // ============================================================================
-class DataBus {
+class JDataBus {
 public:
     using SubId = uint32_t;
 
-    static DataBus& instance() {
-        static DataBus inst;
+    static JDataBus& instance() {
+        static JDataBus inst;
         return inst;
     }
 
@@ -47,9 +47,9 @@ public:
             if (it != m_doubleSubs.end()) subs = it->second;
         }
         for (auto& [id, cb] : subs) cb(value);
-        if (AiBusHook::emit) {
+        if (JAiBusHook::emit) {
             std::string v = std::to_string(value);
-            AiBusHook::emit(0, ("databus:" + channel).c_str(), v.c_str());
+            JAiBusHook::emit(0, ("databus:" + channel).c_str(), v.c_str());
         }
     }
 
@@ -62,8 +62,8 @@ public:
             if (it != m_stringSubs.end()) subs = it->second;
         }
         for (auto& [id, cb] : subs) cb(value);
-        if (AiBusHook::emit)
-            AiBusHook::emit(0, ("databus:" + channel).c_str(), value.c_str());
+        if (JAiBusHook::emit)
+            JAiBusHook::emit(0, ("databus:" + channel).c_str(), value.c_str());
     }
 
     // ---- Subscribe ---------------------------------------------------------
@@ -82,30 +82,30 @@ public:
         return id;
     }
 
-    // ---- Bind — write member + invalidate widget automatically -------------
+    // ---- JBind — write member + invalidate widget automatically -------------
 
-    SubId bind(const std::string& channel, double* member, Widget* widget) {
+    SubId bind(const std::string& channel, double* member, JWidget* widget) {
         return subscribe(channel, [member, widget](double v) {
             *member = v;
             widget->invalidate();
         });
     }
 
-    SubId bind(const std::string& channel, float* member, Widget* widget) {
+    SubId bind(const std::string& channel, float* member, JWidget* widget) {
         return subscribe(channel, [member, widget](double v) {
             *member = static_cast<float>(v);
             widget->invalidate();
         });
     }
 
-    SubId bind(const std::string& channel, int* member, Widget* widget) {
+    SubId bind(const std::string& channel, int* member, JWidget* widget) {
         return subscribe(channel, [member, widget](double v) {
             *member = static_cast<int>(v);
             widget->invalidate();
         });
     }
 
-    SubId bind(const std::string& channel, std::string* member, Widget* widget) {
+    SubId bind(const std::string& channel, std::string* member, JWidget* widget) {
         return subscribe(channel, [member, widget](const std::string& v) {
             *member = v;
             widget->invalidate();
@@ -148,11 +148,11 @@ public:
     }
 
     // ---- Typed publish signals (for cross-component wiring) ----------------
-    Core::Signal<std::string, double>      onDoublePublished;
-    Core::Signal<std::string, std::string> onStringPublished;
+    Core::JSignal<std::string, double>      onDoublePublished;
+    Core::JSignal<std::string, std::string> onStringPublished;
 
 private:
-    DataBus() = default;
+    JDataBus() = default;
 
     template<typename T>
     using SubList = std::vector<std::pair<SubId, std::function<void(T)>>>;

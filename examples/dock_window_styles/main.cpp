@@ -32,9 +32,9 @@ static void sleepMs(int ms) {
 }
 
 #if defined(_WIN32)
-using PlatformWindowImpl = WindowsPlatformWindow;
+using PlatformWindowImpl = JWindowsPlatformWindow;
 #else
-using PlatformWindowImpl = LinuxPlatformWindow;
+using PlatformWindowImpl = JLinuxPlatformWindow;
 #endif
 
 struct TestWindow {
@@ -45,7 +45,7 @@ struct TestWindow {
 
 static TestWindow makeWindow(const std::string& title,
                              int x, int y, uint32_t w, uint32_t h,
-                             PlatformWindowStyle style, GpuHal& hal)
+                             JPlatformWindowStyle style, JGpuHal& hal)
 {
     TestWindow tw;
     tw.label = title;
@@ -55,7 +55,7 @@ static TestWindow makeWindow(const std::string& title,
 }
 
 // Render a solid-color frame and return.
-static void renderSolid(TestWindow& tw, GpuHal& hal, PrimitiveBuffer& buf,
+static void renderSolid(TestWindow& tw, JGpuHal& hal, JPrimitiveBuffer& buf,
                         uint8_t r, uint8_t g, uint8_t b)
 {
     uint8_t col[4] = {r, g, b, 255};
@@ -68,7 +68,7 @@ static void renderSolid(TestWindow& tw, GpuHal& hal, PrimitiveBuffer& buf,
 
 // Poll events and render N frames.  If capturePath given, captures on the
 // second-to-last frame so the following frame's beginFrame flushes the write.
-static void runFrames(TestWindow& tw, GpuHal& hal, PrimitiveBuffer& buf,
+static void runFrames(TestWindow& tw, JGpuHal& hal, JPrimitiveBuffer& buf,
                       uint8_t r, uint8_t g, uint8_t b, int frames,
                       const char* capturePath = nullptr)
 {
@@ -90,15 +90,15 @@ int main()
 
     // Use lavapipe for headless-capable Vulkan.
     auto primaryWin = std::make_unique<PlatformWindowImpl>(
-        "primary", 1, 1, -1000, -1000, PlatformWindowStyle::Popup);
+        "primary", 1, 1, -1000, -1000, JPlatformWindowStyle::Popup);
 
-    NativeWindowHandle handle = primaryWin->nativeHandle();
+    JNativeWindowHandle handle = primaryWin->nativeHandle();
 
-    auto hal = GpuHal::create(GpuApiType::Vulkan, handle);
+    auto hal = JGpuHal::create(JGpuApiType::Vulkan, handle);
     if (!hal) { std::cerr << "Failed to create Vulkan HAL\n"; return 1; }
     hal->resizeSwapchain(1, 1);
 
-    PrimitiveBuffer buf;
+    JPrimitiveBuffer buf;
 
     // ---- Query virtual desktop ----
     auto [deskW, deskH] = primaryWin->virtualDesktopSize();
@@ -114,8 +114,8 @@ int main()
     // ---- TEST 1: Normal decorated window (blue) ----
     std::cout << "\n[TEST 1] Normal decorated window...\n";
     {
-        auto tw = makeWindow("Normal Window", 50, 50, 400, 300,
-                             PlatformWindowStyle::Normal, *hal);
+        auto tw = makeWindow("Normal JWindow", 50, 50, 400, 300,
+                             JPlatformWindowStyle::Normal, *hal);
         runFrames(tw, *hal, buf, 30, 80, 200, 35, "/tmp/genesis_normal.ppm");
         hal->destroySurface(tw.surface);
         std::cout << "[TEST 1] Screenshot: /tmp/genesis_normal.ppm\n";
@@ -126,7 +126,7 @@ int main()
     std::cout << "\n[TEST 2] Borderless (_MOTIF_WM_HINTS)...\n";
     {
         auto tw = makeWindow("Borderless (MOTIF)", 100, 100, 400, 300,
-                             PlatformWindowStyle::Borderless, *hal);
+                             JPlatformWindowStyle::Borderless, *hal);
         runFrames(tw, *hal, buf, 40, 180, 80, 35, "/tmp/genesis_borderless.ppm");
         hal->destroySurface(tw.surface);
         std::cout << "[TEST 2] Screenshot: /tmp/genesis_borderless.ppm\n";
@@ -137,7 +137,7 @@ int main()
     std::cout << "\n[TEST 3] Popup (override_redirect)...\n";
     {
         auto tw = makeWindow("Popup", 150, 150, 400, 300,
-                             PlatformWindowStyle::Popup, *hal);
+                             JPlatformWindowStyle::Popup, *hal);
         runFrames(tw, *hal, buf, 200, 50, 50, 35, "/tmp/genesis_popup.ppm");
         hal->destroySurface(tw.surface);
         std::cout << "[TEST 3] Screenshot: /tmp/genesis_popup.ppm\n";
@@ -148,7 +148,7 @@ int main()
     std::cout << "\n[TEST 4] setPosition (Popup → secondary monitor coords)...\n";
     {
         auto tw = makeWindow("Popup on Second Monitor", 200, 200, 600, 400,
-                             PlatformWindowStyle::Popup, *hal);
+                             JPlatformWindowStyle::Popup, *hal);
         runFrames(tw, *hal, buf, 180, 100, 220, 15);
 
         int secondX = 1920 + 200;  // beyond typical 1080p primary
@@ -156,7 +156,7 @@ int main()
         std::cout << "[TEST 4] Moving window to (" << secondX << ", " << secondY << ")...\n";
         tw.win->setPosition(secondX, secondY);
         runFrames(tw, *hal, buf, 180, 100, 220, 25, "/tmp/genesis_moved.ppm");
-        std::cout << "[TEST 4] Window reported screenX after move: "
+        std::cout << "[TEST 4] JWindow reported screenX after move: "
                   << tw.win->screenX() << "\n";
         hal->destroySurface(tw.surface);
         std::cout << "[TEST 4] Screenshot: /tmp/genesis_moved.ppm\n";
@@ -167,7 +167,7 @@ int main()
     std::cout << "\n[TEST 5] setFullscreen on Borderless window...\n";
     {
         auto tw = makeWindow("Fullscreen Borderless", 300, 200, 800, 600,
-                             PlatformWindowStyle::Borderless, *hal);
+                             JPlatformWindowStyle::Borderless, *hal);
         runFrames(tw, *hal, buf, 220, 200, 30, 20);
         std::cout << "[TEST 5] Requesting fullscreen...\n";
         tw.win->setFullscreen(true);
@@ -182,7 +182,7 @@ int main()
     if (hasSecondMonitor) {
         std::cout << "\n[TEST 6] Borderless → move to monitor 2 → fullscreen...\n";
         auto tw = makeWindow("Dock on Monitor 2", 100, 100, 600, 400,
-                             PlatformWindowStyle::Borderless, *hal);
+                             JPlatformWindowStyle::Borderless, *hal);
         runFrames(tw, *hal, buf, 30, 200, 180, 20);
         tw.win->setPosition(1920 + 100, 100);
         runFrames(tw, *hal, buf, 30, 200, 180, 30);

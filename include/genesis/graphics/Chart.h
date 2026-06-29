@@ -1,7 +1,7 @@
 #pragma once
 
 // ============================================================================
-// Genesis::Chart — line/area/bar/scatter chart built on VectorCanvas.
+// Genesis::JChart — line/area/bar/scatter chart built on JVectorCanvas.
 //
 // Anti-aliased GPU vector rendering with: nice-number axis ticks, optional log
 // scales, a second (right) Y-axis, axis titles, a legend, multiple series of
@@ -10,7 +10,7 @@
 // static XY plots (power/torque sweeps) and live strip charts (telemetry) via
 // addPoint()/setXWindow().
 //
-//   Chart c;
+//   JChart c;
 //   c.setRect(20, 40, 600, 300);
 //   int s = c.addSeries("RPM", rgb(80,200,255), 2.0f, /*area=*/true);
 //   c.series(s).markers = true;                  // dots on the line
@@ -32,28 +32,28 @@
 
 namespace Genesis {
 
-enum class SeriesType : uint8_t { Line, Bar, Scatter };
+enum class JSeriesType : uint8_t { Line, Bar, Scatter };
 
-struct ChartSeries {
+struct JChartSeries {
     std::string            label;
-    Color                  color{rgb(80, 200, 255)};
+    JColor                  color{rgb(80, 200, 255)};
     float                  width{2.0f};
     bool                   area{false};       // Line: fill under the curve
-    SeriesType             type{SeriesType::Line};
+    JSeriesType             type{JSeriesType::Line};
     bool                   markers{false};    // Line: draw a dot at each point
     float                  markerSize{3.0f};
     bool                   secondary{false};  // plot against the right Y-axis
-    std::vector<VectorCanvas::Vec2> pts;       // data points (x,y in data space)
+    std::vector<JVectorCanvas::JVec2> pts;       // data points (x,y in data space)
 };
 
-class Chart {
+class JChart {
 public:
-    using Vec2 = VectorCanvas::Vec2;
+    using JVec2 = JVectorCanvas::JVec2;
 
     // ---- Configuration ----
     void setRect(float x, float y, float w, float h) { m_x = x; m_y = y; m_w = w; m_h = h; }
     void setTitle(std::string t) { m_title = std::move(t); }
-    void setBackground(Color c) { m_bg = c; m_hasBg = true; }
+    void setBackground(JColor c) { m_bg = c; m_hasBg = true; }
     void setShowGrid(bool v)   { m_grid = v; }
     void setShowLegend(bool v) { m_legend = v; }
     void setShowAxes(bool v)   { m_axes = v; }
@@ -73,12 +73,12 @@ public:
     void setXWindow(double span) { m_xWindow = span; }
 
     // ---- Series ----
-    int addSeries(std::string label, Color color, float width = 2.0f, bool area = false) {
-        ChartSeries s; s.label = std::move(label); s.color = color; s.width = width; s.area = area;
+    int addSeries(std::string label, JColor color, float width = 2.0f, bool area = false) {
+        JChartSeries s; s.label = std::move(label); s.color = color; s.width = width; s.area = area;
         m_series.push_back(std::move(s));
         return static_cast<int>(m_series.size()) - 1;
     }
-    ChartSeries& series(int i) { return m_series[i]; }
+    JChartSeries& series(int i) { return m_series[i]; }
     int seriesCount() const { return static_cast<int>(m_series.size()); }
     void clearSeries() { m_series.clear(); }
     void clearData() { for (auto& s : m_series) s.pts.clear(); }
@@ -118,8 +118,8 @@ public:
         return m_curXLo + t * (m_curXHi - m_curXLo);
     }
 
-    // ---- Render everything into a PrimitiveBuffer ----
-    void render(PrimitiveBuffer& buf) {
+    // ---- Render everything into a JPrimitiveBuffer ----
+    void render(JPrimitiveBuffer& buf) {
         bool hasSecondary = false;
         for (auto& s : m_series) if (s.secondary) hasSecondary = true;
 
@@ -149,67 +149,67 @@ public:
         auto mapY  = [&](double v) { return static_cast<float>(py + ph - _t(v, yLo, yHi, m_yLog) * ph); };
         auto mapY2 = [&](double v) { return static_cast<float>(py + ph - _t(v, y2Lo, y2Hi, false) * ph); };
 
-        VectorCanvas vg;
+        JVectorCanvas vg;
         if (m_hasBg) {
-            vg.fillRoundedRect(m_x, m_y, m_w, m_h, 8.f, Paint::solid(m_bg));
-            vg.strokeRoundedRect(m_x, m_y, m_w, m_h, 8.f, 1.f, Paint::solid(_shade(m_bg, 1.5f)));
+            vg.fillRoundedRect(m_x, m_y, m_w, m_h, 8.f, JPaint::solid(m_bg));
+            vg.strokeRoundedRect(m_x, m_y, m_w, m_h, 8.f, 1.f, JPaint::solid(_shade(m_bg, 1.5f)));
         }
         if (m_grid) {
-            Color gl = m_hasBg ? _shade(m_bg, 1.7f) : rgb(45, 48, 58);
-            for (double tv : xticks) { float gx = mapX(tv); vg.drawLine(gx, py, gx, py + ph, 1.f, Paint::solid(gl)); }
-            for (double tv : yticks) { float gy = mapY(tv); vg.drawLine(px, gy, px + pw, gy, 1.f, Paint::solid(gl)); }
+            JColor gl = m_hasBg ? _shade(m_bg, 1.7f) : rgb(45, 48, 58);
+            for (double tv : xticks) { float gx = mapX(tv); vg.drawLine(gx, py, gx, py + ph, 1.f, JPaint::solid(gl)); }
+            for (double tv : yticks) { float gy = mapY(tv); vg.drawLine(px, gy, px + pw, gy, 1.f, JPaint::solid(gl)); }
         }
         vg.flush(buf);
 
         // ---- Series (clipped to plot) ----
         buf.pushClip(px, py, pw, ph);
-        VectorCanvas sg;
-        int barSeries = 0; for (auto& s : m_series) if (s.type == SeriesType::Bar) ++barSeries;
+        JVectorCanvas sg;
+        int barSeries = 0; for (auto& s : m_series) if (s.type == JSeriesType::Bar) ++barSeries;
         int barIdx = 0;
         for (auto& s : m_series) {
-            auto MY = [&](double v) { return s.secondary ? mapY2(v) : mapY(v); };
+            auto JMY = [&](double v) { return s.secondary ? mapY2(v) : mapY(v); };
             if (s.pts.empty()) continue;
 
-            if (s.type == SeriesType::Bar) {
+            if (s.type == JSeriesType::Bar) {
                 double baseV = s.secondary ? std::max(0.0, y2Lo) : std::max(0.0, yLo);
-                float baseY = MY(baseV);
+                float baseY = JMY(baseV);
                 float slot = (s.pts.size() > 1)
                     ? (mapX(s.pts[1].x) - mapX(s.pts[0].x)) : (pw / 8.f);
                 float bw = std::max(2.f, slot * 0.8f / std::max(1, barSeries));
                 float off = (barSeries > 1) ? (barIdx - (barSeries - 1) * 0.5f) * bw : 0.f;
                 for (auto& p : s.pts) {
-                    float cx = mapX(p.x) + off, vy = MY(p.y);
+                    float cx = mapX(p.x) + off, vy = JMY(p.y);
                     float top = std::min(vy, baseY), hgt = std::fabs(vy - baseY);
-                    sg.fillRect(cx - bw * 0.5f, top, bw, hgt, Paint::solid(withAlpha(s.color, 210)));
+                    sg.fillRect(cx - bw * 0.5f, top, bw, hgt, JPaint::solid(withAlpha(s.color, 210)));
                 }
                 ++barIdx;
                 continue;
             }
 
-            if (s.type == SeriesType::Scatter || s.markers) {
+            if (s.type == JSeriesType::Scatter || s.markers) {
                 for (auto& p : s.pts)
-                    sg.fillCircle(mapX(p.x), MY(p.y), s.markerSize, Paint::solid(s.color));
-                if (s.type == SeriesType::Scatter) continue;
+                    sg.fillCircle(mapX(p.x), JMY(p.y), s.markerSize, JPaint::solid(s.color));
+                if (s.type == JSeriesType::Scatter) continue;
             }
             if (s.pts.size() < 2) continue;
 
             if (s.area) {
                 double baseV = s.secondary ? std::max(0.0, y2Lo) : std::max(0.0, yLo);
-                float baseY = MY(baseV);
-                Color top = withAlpha(s.color, 90), bot = withAlpha(s.color, 12);
+                float baseY = JMY(baseV);
+                JColor top = withAlpha(s.color, 90), bot = withAlpha(s.color, 12);
                 for (size_t i = 0; i + 1 < s.pts.size(); ++i) {
-                    Vec2 a{mapX(s.pts[i].x),   MY(s.pts[i].y)};
-                    Vec2 b{mapX(s.pts[i+1].x), MY(s.pts[i+1].y)};
+                    JVec2 a{mapX(s.pts[i].x),   JMY(s.pts[i].y)};
+                    JVec2 b{mapX(s.pts[i+1].x), JMY(s.pts[i+1].y)};
                     sg.fillConvex({{a.x, baseY}, a, b, {b.x, baseY}},
-                                  Paint::linear(a.x, py, top, a.x, baseY, bot));
+                                  JPaint::linear(a.x, py, top, a.x, baseY, bot));
                 }
             }
             sg.beginPath();
             for (size_t i = 0; i < s.pts.size(); ++i) {
-                float vx = mapX(s.pts[i].x), vy = MY(s.pts[i].y);
+                float vx = mapX(s.pts[i].x), vy = JMY(s.pts[i].y);
                 if (i == 0) sg.moveTo(vx, vy); else sg.lineTo(vx, vy);
             }
-            sg.stroke(s.width, Paint::solid(s.color), LineCap::Round, LineJoin::Round);
+            sg.stroke(s.width, JPaint::solid(s.color), JLineCap::Round, JLineJoin::Round);
         }
         sg.flush(buf);
         buf.popClip();
@@ -221,46 +221,46 @@ public:
         }
 
         // ---- Text labels ----
-        if (!TextHelper::hasAtlas()) return;
-        float lh = TextHelper::lineHeight();
+        if (!JTextHelper::hasAtlas()) return;
+        float lh = JTextHelper::lineHeight();
         if (!m_title.empty()) {
             uint8_t tc[4]{220, 222, 230, 235};
-            TextHelper::pushText(buf, m_x + 10.f, m_y + (mt - lh) * 0.5f, m_title, tc, m_w - 20.f);
+            JTextHelper::pushText(buf, m_x + 10.f, m_y + (mt - lh) * 0.5f, m_title, tc, m_w - 20.f);
         }
         if (m_axes) {
             uint8_t ac[4]{150, 154, 165, 220};
             for (double tv : yticks) {
-                std::string l = _fmt(tv); float tw = TextHelper::measureWidth(l);
-                TextHelper::pushText(buf, px - 6.f - tw, mapY(tv) - lh * 0.5f, l, ac);
+                std::string l = _fmt(tv); float tw = JTextHelper::measureWidth(l);
+                JTextHelper::pushText(buf, px - 6.f - tw, mapY(tv) - lh * 0.5f, l, ac);
             }
             for (double tv : xticks) {
-                std::string l = _fmt(tv); float tw = TextHelper::measureWidth(l);
-                TextHelper::pushText(buf, mapX(tv) - tw * 0.5f, py + ph + 4.f, l, ac);
+                std::string l = _fmt(tv); float tw = JTextHelper::measureWidth(l);
+                JTextHelper::pushText(buf, mapX(tv) - tw * 0.5f, py + ph + 4.f, l, ac);
             }
             if (hasSecondary) {
                 uint8_t a2[4]{160, 150, 140, 220};
                 for (double tv : y2ticks)
-                    TextHelper::pushText(buf, px + pw + 6.f, mapY2(tv) - lh * 0.5f, _fmt(tv), a2);
+                    JTextHelper::pushText(buf, px + pw + 6.f, mapY2(tv) - lh * 0.5f, _fmt(tv), a2);
             }
             // Axis titles.
             if (!m_xLabel.empty()) {
-                float tw = TextHelper::measureWidth(m_xLabel);
-                TextHelper::pushText(buf, px + pw * 0.5f - tw * 0.5f, m_y + m_h - lh - 2.f, m_xLabel, ac);
+                float tw = JTextHelper::measureWidth(m_xLabel);
+                JTextHelper::pushText(buf, px + pw * 0.5f - tw * 0.5f, m_y + m_h - lh - 2.f, m_xLabel, ac);
             }
             if (!m_yLabel.empty())
-                TextHelper::pushText(buf, m_x + 6.f, py - lh - 2.f, m_yLabel, ac);
+                JTextHelper::pushText(buf, m_x + 6.f, py - lh - 2.f, m_yLabel, ac);
             if (hasSecondary && !m_y2Label.empty()) {
-                float tw = TextHelper::measureWidth(m_y2Label);
-                TextHelper::pushText(buf, px + pw - tw, py - lh - 2.f, m_y2Label, ac);
+                float tw = JTextHelper::measureWidth(m_y2Label);
+                JTextHelper::pushText(buf, px + pw - tw, py - lh - 2.f, m_y2Label, ac);
             }
         }
         if (m_legend) {
             float lx = px + 8.f, ly = py + 6.f;
-            VectorCanvas lg;
+            JVectorCanvas lg;
             for (auto& s : m_series) {
-                lg.fillRect(lx, ly + lh * 0.5f - 2.f, 14.f, 4.f, Paint::solid(s.color));
+                lg.fillRect(lx, ly + lh * 0.5f - 2.f, 14.f, 4.f, JPaint::solid(s.color));
                 uint8_t lc[4]{200, 204, 214, 230};
-                TextHelper::pushText(buf, lx + 20.f, ly, s.label, lc);
+                JTextHelper::pushText(buf, lx + 20.f, ly, s.label, lc);
                 ly += lh + 4.f;
             }
             lg.flush(buf);
@@ -270,14 +270,14 @@ public:
 private:
     float m_x{0}, m_y{0}, m_w{200}, m_h{120};
     std::string m_title, m_xLabel, m_yLabel, m_y2Label;
-    Color m_bg{rgb(22, 24, 31)};
+    JColor m_bg{rgb(22, 24, 31)};
     bool  m_hasBg{true}, m_grid{true}, m_legend{true}, m_axes{true};
     bool  m_autoX{true}, m_autoY{true}, m_autoY2{true};
     bool  m_xLog{false}, m_yLog{false};
     int   m_xTickN{6}, m_yTickN{5};
     double m_xLo{0}, m_xHi{1}, m_yLo{0}, m_yHi{1}, m_y2Lo{0}, m_y2Hi{1};
     double m_xWindow{0};
-    std::vector<ChartSeries> m_series;
+    std::vector<JChartSeries> m_series;
 
     // Interaction / cached layout.
     bool  m_hasHover{false};
@@ -293,7 +293,7 @@ private:
         }
         return (hi > lo) ? (v - lo) / (hi - lo) : 0.0;
     }
-    static Color _shade(Color c, float f) {
+    static JColor _shade(JColor c, float f) {
         auto S = [&](uint8_t v) { int r = (int)(v * f); return (uint8_t)(r > 255 ? 255 : r); };
         return {S(c.r), S(c.g), S(c.b), c.a};
     }
@@ -356,15 +356,15 @@ private:
         return ticks;
     }
 
-    template<class MX, class MY, class MY2>
-    void _renderHover(PrimitiveBuffer& buf, float px, float py, float pw, float ph,
-                      double xLo, double xHi, MX mapX, MY mapY, MY2 mapY2) {
+    template<class JMX, class JMY, class JMY2>
+    void _renderHover(JPrimitiveBuffer& buf, float px, float py, float pw, float ph,
+                      double xLo, double xHi, JMX mapX, JMY mapY, JMY2 mapY2) {
         double hx = pixelToDataX(m_hoverPx);
-        VectorCanvas hv;
+        JVectorCanvas hv;
         // vertical crosshair
-        hv.drawLine(m_hoverPx, py, m_hoverPx, py + ph, 1.f, Paint::solid(rgba(255, 255, 255, 70)));
-        struct Hit { Color c; std::string label; double y; float sx, sy; };
-        std::vector<Hit> hits;
+        hv.drawLine(m_hoverPx, py, m_hoverPx, py + ph, 1.f, JPaint::solid(rgba(255, 255, 255, 70)));
+        struct JHit { JColor c; std::string label; double y; float sx, sy; };
+        std::vector<JHit> hits;
         for (auto& s : m_series) {
             if (s.pts.empty()) continue;
             // nearest point by x
@@ -375,32 +375,32 @@ private:
             }
             float sx = mapX(s.pts[best].x);
             float sy = s.secondary ? mapY2(s.pts[best].y) : mapY(s.pts[best].y);
-            hv.fillCircle(sx, sy, 4.f, Paint::solid(s.color));
+            hv.fillCircle(sx, sy, 4.f, JPaint::solid(s.color));
             hits.push_back({s.color, s.label, s.pts[best].y, sx, sy});
         }
         // tooltip box
-        if (!hits.empty() && TextHelper::hasAtlas()) {
-            float lh = TextHelper::lineHeight();
+        if (!hits.empty() && JTextHelper::hasAtlas()) {
+            float lh = JTextHelper::lineHeight();
             float boxW = 0;
             std::vector<std::string> lines;
             lines.push_back("x = " + _fmt(hx));
             for (auto& h : hits) lines.push_back(h.label + ": " + _fmt(h.y));
-            for (auto& l : lines) boxW = std::max(boxW, TextHelper::measureWidth(l));
+            for (auto& l : lines) boxW = std::max(boxW, JTextHelper::measureWidth(l));
             boxW += 28.f;
             float boxH = lines.size() * (lh + 2.f) + 8.f;
             float bx = m_hoverPx + 12.f, by = py + 8.f;
             if (bx + boxW > px + pw) bx = m_hoverPx - boxW - 12.f;
-            hv.fillRoundedRect(bx, by, boxW, boxH, 5.f, Paint::solid(rgba(20, 22, 30, 235)));
-            hv.strokeRoundedRect(bx, by, boxW, boxH, 5.f, 1.f, Paint::solid(rgba(90, 96, 110, 255)));
+            hv.fillRoundedRect(bx, by, boxW, boxH, 5.f, JPaint::solid(rgba(20, 22, 30, 235)));
+            hv.strokeRoundedRect(bx, by, boxW, boxH, 5.f, 1.f, JPaint::solid(rgba(90, 96, 110, 255)));
             hv.flush(buf);
             float ty = by + 5.f;
             uint8_t hc[4]{210, 214, 224, 235};
-            TextHelper::pushText(buf, bx + 8.f, ty, lines[0], hc);
+            JTextHelper::pushText(buf, bx + 8.f, ty, lines[0], hc);
             ty += lh + 2.f;
-            VectorCanvas sw;
+            JVectorCanvas sw;
             for (size_t i = 1; i < lines.size(); ++i) {
-                sw.fillRect(bx + 8.f, ty + lh * 0.5f - 2.f, 10.f, 4.f, Paint::solid(hits[i - 1].c));
-                TextHelper::pushText(buf, bx + 22.f, ty, lines[i], hc);
+                sw.fillRect(bx + 8.f, ty + lh * 0.5f - 2.f, 10.f, 4.f, JPaint::solid(hits[i - 1].c));
+                JTextHelper::pushText(buf, bx + 22.f, ty, lines[i], hc);
                 ty += lh + 2.f;
             }
             sw.flush(buf);

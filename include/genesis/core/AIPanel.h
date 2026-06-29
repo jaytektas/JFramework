@@ -9,21 +9,21 @@
 namespace Genesis {
 
 // ============================================================================
-// AIPanel — AI companion side panel.
+// JAIPanel — AI companion side panel.
 //
 // Shows the live semantic widget tree (what the AI sees), a scrollable action
 // log of recent AI operations, and a text input for issuing AI commands.
 //
-// Typical usage — add as a DockWidget content or as a side child of the root:
+// Typical usage — add as a JDockWidget content or as a side child of the root:
 //
-//   auto* ai = graph.add<AIPanel>();
+//   auto* ai = graph.add<JAIPanel>();
 //   ai->onCommand.connect([](const std::string& cmd) {
 //       myAiDispatch(cmd);
 //   });
 //
 // Call ai->logAction("did X") from your AI bus callback to append to the log.
 // ============================================================================
-class AIPanel : public Widget {
+class JAIPanel : public JWidget {
 public:
     static constexpr float HEADER_H  = 28.f;
     static constexpr float SECTION_H = 18.f;
@@ -32,8 +32,8 @@ public:
     static constexpr float INPUT_H   = 32.f;
     static constexpr float SEND_W    = 32.f;
 
-    AIPanel(SceneGraph& graph)
-        : Widget(graph, "AIPanel")
+    JAIPanel(JSceneGraph& graph)
+        : JWidget(graph, "JAIPanel")
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.minWidth  = 220.f;
@@ -49,17 +49,17 @@ public:
     }
 
     // Fires when the user submits a command via the input field or Enter key.
-    Core::Signal<std::string> onCommand;
+    Core::JSignal<std::string> onCommand;
 
-    AISemanticNode getSemanticNode() const override {
-        return {"AIPanel", "AI Panel", "", false};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JAIPanel", "AI Panel", "", false};
     }
     bool executeSemanticAction(const std::string&) override { return false; }
     bool isFocusable() const override { return true; }
 
     // ── Rendering ────────────────────────────────────────────────────────────
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         if (!m_visible) return;
         const auto& bb = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float x = bb.x, y = bb.y, w = bb.width, h = bb.height;
@@ -69,10 +69,10 @@ public:
 
         // ── Header ──────────────────────────────────────────────────────────
         buf.pushRectangle(x, y, w, HEADER_H, Colors::Surface2, 0.f);
-        if (TextHelper::hasAtlas()) {
+        if (JTextHelper::hasAtlas()) {
             uint8_t tc[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 255};
-            TextHelper::pushText(buf,
-                x + 10.f, y + (HEADER_H - TextHelper::lineHeight()) * 0.5f,
+            JTextHelper::pushText(buf,
+                x + 10.f, y + (HEADER_H - JTextHelper::lineHeight()) * 0.5f,
                 "AI  \xe2\x80\xa2  Genesis", tc);
             // Status dot
             uint8_t dot[4] = {Colors::Success[0], Colors::Success[1], Colors::Success[2], 200};
@@ -81,7 +81,7 @@ public:
 
         float cy = y + HEADER_H + 4.f;
 
-        // ── Widget tree ──────────────────────────────────────────────────────
+        // ── JWidget tree ──────────────────────────────────────────────────────
         _sectionLabel(buf, x, cy, w, "WIDGET TREE");
         cy += SECTION_H;
 
@@ -89,11 +89,11 @@ public:
         int   maxItems  = std::max(0, static_cast<int>((logTop - cy) / ITEM_H));
         int   shown     = 0;
 
-        for (auto* widget : Widget::s_activeWidgets) {
+        for (auto* widget : JWidget::s_activeWidgets) {
             if (shown >= maxItems) break;
             if (!widget->isVisible()) continue;
             auto node = widget->getSemanticNode();
-            if (node.role == "AIPanel" || node.role == "Separator") continue;
+            if (node.role == "JAIPanel" || node.role == "JSeparator") continue;
 
             bool hov = (shown == m_hoveredTreeIdx);
             if (hov) {
@@ -101,17 +101,17 @@ public:
                                   Colors::Surface2, 3.f);
             }
 
-            if (TextHelper::hasAtlas()) {
+            if (JTextHelper::hasAtlas()) {
                 uint8_t roleC[4] = {Colors::Accent[0], Colors::Accent[1],
                                     Colors::Accent[2], 170};
                 uint8_t lblC[4]  = {Colors::TextPrimary[0], Colors::TextPrimary[1],
                                     Colors::TextPrimary[2], 200};
-                float ty = cy + (ITEM_H - TextHelper::lineHeight()) * 0.5f;
+                float ty = cy + (ITEM_H - JTextHelper::lineHeight()) * 0.5f;
                 float roleW = w * 0.38f;
-                TextHelper::pushText(buf, x + 10.f, ty, node.role, roleC, roleW);
+                JTextHelper::pushText(buf, x + 10.f, ty, node.role, roleC, roleW);
                 std::string lbl = node.label;
                 if (!node.value.empty()) lbl += " = " + node.value;
-                TextHelper::pushText(buf, x + 10.f + roleW + 4.f, ty, lbl, lblC,
+                JTextHelper::pushText(buf, x + 10.f + roleW + 4.f, ty, lbl, lblC,
                                      w - roleW - 22.f);
             }
             cy += ITEM_H;
@@ -123,16 +123,16 @@ public:
         buf.pushRectangle(x + 8.f, cy, w - 16.f, 1.f, Colors::Border, 0.f);
         cy += 5.f;
 
-        // ── Action log ───────────────────────────────────────────────────────
+        // ── JAction log ───────────────────────────────────────────────────────
         _sectionLabel(buf, x, cy, w, "ACTION LOG");
         cy += SECTION_H;
 
         for (size_t i = 0; i < m_log.size() && i < static_cast<size_t>(LOG_ROWS); ++i) {
-            if (TextHelper::hasAtlas()) {
+            if (JTextHelper::hasAtlas()) {
                 uint8_t lc[4] = {Colors::TextSecondary[0], Colors::TextSecondary[1],
                                   Colors::TextSecondary[2], 190};
-                TextHelper::pushText(buf, x + 10.f,
-                    cy + (ITEM_H - TextHelper::lineHeight()) * 0.5f,
+                JTextHelper::pushText(buf, x + 10.f,
+                    cy + (ITEM_H - JTextHelper::lineHeight()) * 0.5f,
                     "> " + m_log[i], lc, w - 18.f);
             }
             cy += ITEM_H;
@@ -147,15 +147,15 @@ public:
         float by = iy + 4.f;
         const uint8_t* btnFill = m_sendHovered ? Colors::AccentHover : Colors::Accent;
         buf.pushRectangle(bx, by, SEND_W, INPUT_H - 8.f, btnFill, 4.f);
-        if (TextHelper::hasAtlas()) {
+        if (JTextHelper::hasAtlas()) {
             uint8_t wc[4] = {255, 255, 255, 230};
-            float arrowW = TextHelper::measureWidth(">");
-            TextHelper::pushText(buf, bx + (SEND_W - arrowW) * 0.5f,
-                iy + (INPUT_H - TextHelper::lineHeight()) * 0.5f, ">", wc);
+            float arrowW = JTextHelper::measureWidth(">");
+            JTextHelper::pushText(buf, bx + (SEND_W - arrowW) * 0.5f,
+                iy + (INPUT_H - JTextHelper::lineHeight()) * 0.5f, ">", wc);
         }
 
         // Input text or placeholder
-        if (TextHelper::hasAtlas()) {
+        if (JTextHelper::hasAtlas()) {
             bool placeholder = m_input.empty();
             uint8_t tc[4] = {
                 placeholder ? Colors::TextSecondary[0] : Colors::TextPrimary[0],
@@ -163,14 +163,14 @@ public:
                 placeholder ? Colors::TextSecondary[2] : Colors::TextPrimary[2],
                 placeholder ? (uint8_t)110 : (uint8_t)230
             };
-            TextHelper::pushText(buf, x + 8.f,
-                iy + (INPUT_H - TextHelper::lineHeight()) * 0.5f,
+            JTextHelper::pushText(buf, x + 8.f,
+                iy + (INPUT_H - JTextHelper::lineHeight()) * 0.5f,
                 placeholder ? "Enter AI command..." : m_input,
                 tc, w - SEND_W - 20.f);
 
             // Cursor blink when focused
             if (m_focused && !placeholder) {
-                float curX = x + 8.f + TextHelper::measureWidth(m_input);
+                float curX = x + 8.f + JTextHelper::measureWidth(m_input);
                 uint8_t cur[4] = {Colors::Accent[0], Colors::Accent[1],
                                    Colors::Accent[2], 220};
                 buf.pushRectangle(curX, iy + 8.f, 1.5f, INPUT_H - 16.f, cur, 0.f);
@@ -209,9 +209,9 @@ public:
         if (inSend) _submit();
     }
 
-    bool handleKeyEvent(const KeyEvent& ke) override {
+    bool handleKeyEvent(const JKeyEvent& ke) override {
         if (!ke.pressed || !m_focused) return false;
-        using K = KeyEvent::Key;
+        using K = JKeyEvent::JKey;
         if (ke.key == K::Return)    { _submit(); return true; }
         if (ke.key == K::Backspace) {
             if (!m_input.empty()) {
@@ -237,11 +237,11 @@ private:
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
-    void _sectionLabel(PrimitiveBuffer& buf, float x, float y, float /*w*/, const char* label) {
-        if (!TextHelper::hasAtlas()) return;
+    void _sectionLabel(JPrimitiveBuffer& buf, float x, float y, float /*w*/, const char* label) {
+        if (!JTextHelper::hasAtlas()) return;
         uint8_t c[4] = {Colors::TextSecondary[0], Colors::TextSecondary[1],
                         Colors::TextSecondary[2], 130};
-        TextHelper::pushText(buf, x + 8.f, y + 2.f, label, c);
+        JTextHelper::pushText(buf, x + 8.f, y + 2.f, label, c);
     }
 
     std::string          m_input;

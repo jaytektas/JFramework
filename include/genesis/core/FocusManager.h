@@ -14,7 +14,7 @@ namespace Genesis {
 #include "KeyEvent.h"
 
 /**
- * @brief FocusManager — tracks which widget has keyboard focus and handles
+ * @brief JFocusManager — tracks which widget has keyboard focus and handles
  * Tab/Shift-Tab cycling.
  *
  * The app registers every focusable widget (Controls) at construction time.
@@ -24,42 +24,42 @@ namespace Genesis {
  * Accessibility note: every focus change emits onFocusChanged which the
  * AT-SPI bridge listens to for object:state-changed:focused signals.
  */
-class FocusManager {
+class JFocusManager {
 public:
-    FocusManager() = default;
+    JFocusManager() = default;
 
-    Core::Signal<Widget*> onFocusChanged; // nullptr = focus cleared
+    Core::JSignal<JWidget*> onFocusChanged; // nullptr = focus cleared
 
-    void registerWidget(Widget* w) {
+    void registerWidget(JWidget* w) {
         if (w && std::find(m_order.begin(), m_order.end(), w) == m_order.end())
             m_order.push_back(w);
     }
 
-    void unregisterWidget(Widget* w) {
+    void unregisterWidget(JWidget* w) {
         m_order.erase(std::remove(m_order.begin(), m_order.end(), w), m_order.end());
         if (m_focused == w) setFocus(nullptr);
     }
 
-    void setFocus(Widget* w) {
+    void setFocus(JWidget* w) {
         if (m_focused == w) return;
-        Widget* old = m_focused;
+        JWidget* old = m_focused;
         m_focused = w;
         if (old) {
             old->setFocused(false);
-            if (old->getState() == WidgetState::Focused) {
-                old->setState(WidgetState::Normal);
+            if (old->getState() == JWidgetState::Focused) {
+                old->setState(JWidgetState::Normal);
             }
         }
         if (m_focused) {
             m_focused->setFocused(true);
-            m_focused->setState(WidgetState::Focused);
+            m_focused->setState(JWidgetState::Focused);
         }
         onFocusChanged.emit(w);
     }
 
-    Widget* focused() const { return m_focused; }
+    JWidget* focused() const { return m_focused; }
 
-    bool isFocused(const Widget* w) const { return m_focused == w; }
+    bool isFocused(const JWidget* w) const { return m_focused == w; }
 
     void nextFocus() { _shift(+1); }
     void prevFocus() { _shift(-1); }
@@ -79,8 +79,8 @@ private:
         setFocus(m_order[next]);
     }
 
-    std::vector<Widget*> m_order;
-    Widget*              m_focused{nullptr};
+    std::vector<JWidget*> m_order;
+    JWidget*              m_focused{nullptr};
 };
 
 } // namespace Genesis

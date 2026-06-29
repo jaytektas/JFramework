@@ -12,13 +12,13 @@
 namespace Genesis {
 
 // ============================================================================
-// Canvas — immediate-mode drawing API passed to CanvasWidget::draw().
+// JCanvas — immediate-mode drawing API passed to JCanvasWidget::draw().
 // All coordinates are in the widget's local space (0,0 = top-left of widget).
-// Internally maps to PrimitiveBuffer calls with the widget's screen offset.
+// Internally maps to JPrimitiveBuffer calls with the widget's screen offset.
 // ============================================================================
-class Canvas {
+class JCanvas {
 public:
-    Canvas(PrimitiveBuffer& buf, float offsetX, float offsetY)
+    JCanvas(JPrimitiveBuffer& buf, float offsetX, float offsetY)
         : m_buf(buf), m_ox(offsetX), m_oy(offsetY) {}
 
     // --- Rectangles ---
@@ -102,13 +102,13 @@ public:
 
     void text(float x, float y, const std::string& str,
               const uint8_t color[4], float maxWidth = 0.f) {
-        TextHelper::pushText(m_buf, m_ox + x, m_oy + y, str, color, maxWidth);
+        JTextHelper::pushText(m_buf, m_ox + x, m_oy + y, str, color, maxWidth);
     }
 
     void textCentered(float cx, float cy, const std::string& str, const uint8_t color[4]) {
-        float tw = TextHelper::measureWidth(str);
-        float th = TextHelper::lineHeight();
-        TextHelper::pushText(m_buf, m_ox + cx - tw * 0.5f, m_oy + cy - th * 0.5f, str, color);
+        float tw = JTextHelper::measureWidth(str);
+        float th = JTextHelper::lineHeight();
+        JTextHelper::pushText(m_buf, m_ox + cx - tw * 0.5f, m_oy + cy - th * 0.5f, str, color);
     }
 
     // --- Convenience color constructors ---
@@ -121,41 +121,41 @@ public:
     float offsetY() const { return m_oy; }
 
 private:
-    PrimitiveBuffer& m_buf;
+    JPrimitiveBuffer& m_buf;
     float m_ox, m_oy;
 };
 
 // ============================================================================
-// CanvasWidget — base class for custom-painted widgets.
+// JCanvasWidget — base class for custom-painted widgets.
 //
 // Subclass and override draw(). Properties are plain C++ members — no macros,
 // no getters/setters required. Call invalidate() after changing a property to
 // schedule a repaint.
 //
 // Example:
-//   class DialWidget : public CanvasWidget {
+//   class JDialWidget : public JCanvasWidget {
 //   public:
 //       double value{0}, minValue{0}, maxValue{100};
 //
-//       void draw(Canvas& c, float w, float h) override {
+//       void draw(JCanvas& c, float w, float h) override {
 //           float r   = std::min(w, h) * 0.4f;
 //           float pct = (value - minValue) / (maxValue - minValue);
 //           c.arc(w/2, h/2, r, -220.f, -220.f + pct*260.f, Colors::Accent, 6.f);
 //       }
 //   };
 // ============================================================================
-class CanvasWidget : public Widget {
+class JCanvasWidget : public JWidget {
 public:
-    CanvasWidget(SceneGraph& graph, const std::string& debugName = "CanvasWidget")
-        : Widget(graph, debugName) {}
+    JCanvasWidget(JSceneGraph& graph, const std::string& debugName = "JCanvasWidget")
+        : JWidget(graph, debugName) {}
 
     // Override this in your subclass.
     // w, h = current widget size in pixels (same as boundingBox.width/height).
-    virtual void draw(Canvas& canvas, float w, float h) = 0;
+    virtual void draw(JCanvas& canvas, float w, float h) = 0;
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) final {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) final {
         const auto& bb = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        Canvas c(buf, bb.x, bb.y);
+        JCanvas c(buf, bb.x, bb.y);
         draw(c, bb.width, bb.height);
         drawFocusRing(buf);
     }
@@ -165,8 +165,8 @@ public:
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
-    AISemanticNode getSemanticNode() const override {
-        return {"CanvasWidget", m_debugName, "", false};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JCanvasWidget", m_debugName, "", false};
     }
     bool executeSemanticAction(const std::string&) override { return false; }
 };

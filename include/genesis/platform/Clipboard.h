@@ -16,9 +16,9 @@ namespace Genesis {
  * All methods are static; no instances are created.
  * Returns empty string on any failure — never throws.
  */
-class Clipboard {
+class JClipboard {
 public:
-    Clipboard() = delete;
+    JClipboard() = delete;
 
     // ------------------------------------------------------------------ set --
 

@@ -21,25 +21,25 @@
 namespace Genesis {
 
 // ============================================================================
-// MenuShortcut — keyboard shortcut representation and matching
+// JMenuShortcut — keyboard shortcut representation and matching
 // ============================================================================
-struct MenuShortcut {
-    KeyEvent::Key key{KeyEvent::Key::Unknown};
+struct JMenuShortcut {
+    JKeyEvent::JKey key{JKeyEvent::JKey::Unknown};
     bool ctrl{false};
     bool alt{false};
     bool shift{false};
 
-    bool matches(const KeyEvent& ke) const {
+    bool matches(const JKeyEvent& ke) const {
         return ke.key == key && ke.ctrl == ctrl && ke.alt == alt && ke.shift == shift;
     }
 
     std::string toString() const {
-        if (key == KeyEvent::Key::Unknown) return "";
+        if (key == JKeyEvent::JKey::Unknown) return "";
         std::string s;
         if (ctrl) s += "Ctrl+";
         if (alt) s += "Alt+";
         if (shift) s += "Shift+";
-        using K = KeyEvent::Key;
+        using K = JKeyEvent::JKey;
         switch (key) {
             case K::Tab: s += "Tab"; break;
             case K::Return: s += "Enter"; break;
@@ -57,7 +57,7 @@ struct MenuShortcut {
                 } else if (key >= K::_0 && key <= K::_9) {
                     s += static_cast<char>('0' + (static_cast<uint32_t>(key) - static_cast<uint32_t>(K::_0)));
                 } else {
-                    s += "Key";
+                    s += "JKey";
                 }
                 break;
         }
@@ -65,25 +65,25 @@ struct MenuShortcut {
     }
 };
 
-class Menu; // Forward decl
+class JMenu; // Forward decl
 
 // ============================================================================
-// MenuItem — interactive menu entry with label, shortcut, icon or custom widget
+// JMenuItem — interactive menu entry with label, shortcut, icon or custom widget
 // ============================================================================
-class MenuItem : public Control {
+class JMenuItem : public JControl {
 public:
-    Core::Signal<> onTriggered;
+    Core::JSignal<> onTriggered;
 
-    MenuItem(SceneGraph& graph, const std::string& label, MenuShortcut shortcut = {}, Menu* submenu = nullptr)
-        : Control(graph, "MenuItem"), m_label(label), m_shortcut(shortcut), m_submenu(submenu)
+    JMenuItem(JSceneGraph& graph, const std::string& label, JMenuShortcut shortcut = {}, JMenu* submenu = nullptr)
+        : JControl(graph, "JMenuItem"), m_label(label), m_shortcut(shortcut), m_submenu(submenu)
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.minHeight = 28.f;
         l.minWidth = 160.f;
     }
 
-    AISemanticNode getSemanticNode() const override {
-        return {"MenuItem", m_label, m_checkable ? (m_checked ? "checked" : "unchecked") : "", true};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JMenuItem", m_label, m_checkable ? (m_checked ? "checked" : "unchecked") : "", true};
     }
 
     bool executeSemanticAction(const std::string& action) override {
@@ -95,19 +95,19 @@ public:
             onClicked.emit();
             return true;
         }
-        return Control::executeSemanticAction(action);
+        return JControl::executeSemanticAction(action);
     }
 
     const std::string& label() const noexcept { return m_label; }
-    const MenuShortcut& shortcut() const noexcept { return m_shortcut; }
-    Menu* submenu() const noexcept { return m_submenu; }
+    const JMenuShortcut& shortcut() const noexcept { return m_shortcut; }
+    JMenu* submenu() const noexcept { return m_submenu; }
 
     void setCheckable(bool c) noexcept { m_checkable = c; }
     bool isCheckable() const noexcept { return m_checkable; }
     void setChecked(bool c) noexcept { m_checked = c; }
     bool isChecked() const noexcept { return m_checked; }
 
-    void setEmbeddedWidgetFactory(std::function<std::unique_ptr<Widget>(SceneGraph&)> factory) {
+    void setEmbeddedWidgetFactory(std::function<std::unique_ptr<JWidget>(JSceneGraph&)> factory) {
         m_embeddedFactory = std::move(factory);
         if (m_embeddedFactory) {
             m_embeddedOwned = m_embeddedFactory(m_graph);
@@ -115,17 +115,17 @@ public:
             m_graph.addChild(m_nodeId, m_embedded->getNodeId());
         }
     }
-    const std::function<std::unique_ptr<Widget>(SceneGraph&)>& embeddedWidgetFactory() const noexcept {
+    const std::function<std::unique_ptr<JWidget>(JSceneGraph&)>& embeddedWidgetFactory() const noexcept {
         return m_embeddedFactory;
     }
-    Widget* embeddedWidget() const noexcept { return m_embedded; }
+    JWidget* embeddedWidget() const noexcept { return m_embedded; }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         if (!m_visible) return;
         const auto& bb = m_graph.getLayoutConst(m_nodeId).boundingBox;
 
         // Draw hover backdrop
-        if (m_state == WidgetState::Hovered) {
+        if (m_state == JWidgetState::Hovered) {
             uint8_t hoverBg[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 50};
             buf.pushRectangle(bb.x, bb.y, bb.width, bb.height, hoverBg, 4.0f);
         }
@@ -142,7 +142,7 @@ public:
         }
 
         if (m_embedded) {
-            // Reposition embedded widget layout bounding box to fit inside MenuItem
+            // Reposition embedded widget layout bounding box to fit inside JMenuItem
             auto& el = m_graph.getLayout(m_embedded->getNodeId());
             el.boundingBox.x = textX;
             el.boundingBox.y = bb.y + (bb.height - el.boundingBox.height) * 0.5f;
@@ -150,44 +150,44 @@ public:
             m_embedded->populateRenderPrimitives(buf);
         } else {
             uint8_t textColor[4];
-            if (m_state == WidgetState::Disabled) {
+            if (m_state == JWidgetState::Disabled) {
                 std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, textColor);
             } else {
                 std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, textColor);
             }
-            float labelY = bb.y + (bb.height - TextHelper::lineHeight()) * 0.5f;
-            TextHelper::pushText(buf, textX, labelY, m_label, textColor);
+            float labelY = bb.y + (bb.height - JTextHelper::lineHeight()) * 0.5f;
+            JTextHelper::pushText(buf, textX, labelY, m_label, textColor);
 
-            if (m_shortcut.key != KeyEvent::Key::Unknown) {
+            if (m_shortcut.key != JKeyEvent::JKey::Unknown) {
                 std::string scStr = m_shortcut.toString();
-                float scW = TextHelper::measureWidth(scStr);
+                float scW = JTextHelper::measureWidth(scStr);
                 float scX = bb.x + bb.width - scW - 12.0f;
                 uint8_t scColor[4] = {Colors::TextSecondary[0], Colors::TextSecondary[1], Colors::TextSecondary[2], 180};
-                TextHelper::pushText(buf, scX, labelY, scStr, scColor);
+                JTextHelper::pushText(buf, scX, labelY, scStr, scColor);
             }
 
             if (m_submenu) {
                 uint8_t arrowColor[4] = {Colors::TextSecondary[0], Colors::TextSecondary[1], Colors::TextSecondary[2], 255};
                 float arrowX = bb.x + bb.width - 16.0f;
-                TextHelper::pushText(buf, arrowX, labelY, ">", arrowColor);
+                JTextHelper::pushText(buf, arrowX, labelY, ">", arrowColor);
             }
         }
     }
 
     void handleMouseMove(float mx, float my) override {
-        Control::handleMouseMove(mx, my);
+        JControl::handleMouseMove(mx, my);
         if (m_embedded) {
             m_embedded->handleMouseMove(mx, my);
         }
     }
 
     void handleMousePress(float mx, float my) override {
-        if (m_state == WidgetState::Disabled) return;
+        if (m_state == JWidgetState::Disabled) return;
         if (isPointInside(mx, my)) {
             if (m_embedded) {
                 m_embedded->handleMousePress(mx, my);
             } else {
-                setState(WidgetState::Pressed);
+                setState(JWidgetState::Pressed);
                 if (m_checkable) {
                     m_checked = !m_checked;
                 }
@@ -198,7 +198,7 @@ public:
     }
 
     void handleMouseRelease(float mx, float my) override {
-        Control::handleMouseRelease(mx, my);
+        JControl::handleMouseRelease(mx, my);
         if (m_embedded) {
             m_embedded->handleMouseRelease(mx, my);
         }
@@ -206,50 +206,50 @@ public:
 
 private:
     std::string m_label;
-    MenuShortcut m_shortcut;
-    Menu* m_submenu{nullptr};
+    JMenuShortcut m_shortcut;
+    JMenu* m_submenu{nullptr};
     bool m_checkable{false};
     bool m_checked{false};
-    std::function<std::unique_ptr<Widget>(SceneGraph&)> m_embeddedFactory;
-    std::unique_ptr<Widget> m_embeddedOwned;
-    Widget* m_embedded{nullptr};
+    std::function<std::unique_ptr<JWidget>(JSceneGraph&)> m_embeddedFactory;
+    std::unique_ptr<JWidget> m_embeddedOwned;
+    JWidget* m_embedded{nullptr};
 };
 
 // ============================================================================
-// MenuSeparator — thin divider widget
+// JMenuSeparator — thin divider widget
 // ============================================================================
-class MenuSeparator : public Widget {
+class JMenuSeparator : public JWidget {
 public:
-    MenuSeparator(SceneGraph& graph) : Widget(graph, "MenuSeparator") {
+    JMenuSeparator(JSceneGraph& graph) : JWidget(graph, "JMenuSeparator") {
         auto& l = m_graph.getLayout(m_nodeId);
         l.minHeight = 6.0f;
         l.minWidth = 150.0f;
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& bb = m_graph.getLayoutConst(m_nodeId).boundingBox;
         uint8_t lineC[4] = {Colors::Border[0], Colors::Border[1], Colors::Border[2], 120};
         buf.pushRectangle(bb.x + 6.0f, bb.y + 2.0f, bb.width - 12.0f, 1.0f, lineC);
     }
 
-    AISemanticNode getSemanticNode() const override { return {"MenuSeparator", "", "", false}; }
+    JAISemanticNode getSemanticNode() const override { return {"JMenuSeparator", "", "", false}; }
     bool executeSemanticAction(const std::string&) override { return false; }
 };
 
 // ============================================================================
-// TearOffHandle — handles drag/click events to detatch menu into free window
+// JTearOffHandle — handles drag/click events to detatch menu into free window
 // ============================================================================
-class TearOffHandle : public Control {
+class JTearOffHandle : public JControl {
 public:
-    Core::Signal<> onTornOff;
+    Core::JSignal<> onTornOff;
 
-    TearOffHandle(SceneGraph& graph) : Control(graph, "TearOffHandle") {
+    JTearOffHandle(JSceneGraph& graph) : JControl(graph, "JTearOffHandle") {
         auto& l = m_graph.getLayout(m_nodeId);
         l.minHeight = 12.f;
         l.minWidth = 150.f;
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& bb = m_graph.getLayoutConst(m_nodeId).boundingBox;
         uint8_t lineC[4] = {Colors::Border[0], Colors::Border[1], Colors::Border[2], 180};
         buf.pushRectangle(bb.x + 15.f, bb.y + 4.f, bb.width - 30.f, 1.f, lineC);
@@ -258,12 +258,12 @@ public:
 
     void handleMousePress(float mx, float my) override {
         if (isPointInside(mx, my)) {
-            if (AiBusHook::emit) AiBusHook::emit(m_nodeId, "tearoff", "");
+            if (JAiBusHook::emit) JAiBusHook::emit(m_nodeId, "tearoff", "");
             onTornOff.emit();
         }
     }
 
-    AISemanticNode getSemanticNode() const override { return {"TearOffHandle", "Tear Off", "", true}; }
+    JAISemanticNode getSemanticNode() const override { return {"JTearOffHandle", "Tear Off", "", true}; }
     bool executeSemanticAction(const std::string& a) override {
         if (a == "tearoff" || a == "click") { onTornOff.emit(); return true; }
         return false;
@@ -271,65 +271,65 @@ public:
 };
 
 // ============================================================================
-// Menu — structural model containing items & submenus
+// JMenu — structural model containing items & submenus
 // ============================================================================
-class Menu {
+class JMenu {
 public:
-    Menu(const std::string& title) : m_title(title) {}
+    JMenu(const std::string& title) : m_title(title) {}
 
     const std::string& title() const noexcept { return m_title; }
 
-    void add(std::unique_ptr<MenuItem> item) {
+    void add(std::unique_ptr<JMenuItem> item) {
         m_items.push_back(std::move(item));
     }
 
-    MenuItem* add(SceneGraph& graph, const std::string& label, MenuShortcut shortcut = {}, Menu* submenu = nullptr) {
-        auto item = std::make_unique<MenuItem>(graph, label, shortcut, submenu);
-        MenuItem* ptr = item.get();
+    JMenuItem* add(JSceneGraph& graph, const std::string& label, JMenuShortcut shortcut = {}, JMenu* submenu = nullptr) {
+        auto item = std::make_unique<JMenuItem>(graph, label, shortcut, submenu);
+        JMenuItem* ptr = item.get();
         m_items.push_back(std::move(item));
         return ptr;
     }
 
-    void addSeparator(SceneGraph& graph) {
-        m_items.push_back(std::make_unique<MenuSeparator>(graph));
+    void addSeparator(JSceneGraph& graph) {
+        m_items.push_back(std::make_unique<JMenuSeparator>(graph));
     }
 
-    const std::vector<std::unique_ptr<Widget>>& items() const noexcept { return m_items; }
+    const std::vector<std::unique_ptr<JWidget>>& items() const noexcept { return m_items; }
 
     void setTearOffEnabled(bool enable) noexcept { m_tearOffEnabled = enable; }
     bool isTearOffEnabled() const noexcept { return m_tearOffEnabled; }
 
 private:
     std::string m_title;
-    std::vector<std::unique_ptr<Widget>> m_items;
+    std::vector<std::unique_ptr<JWidget>> m_items;
     bool m_tearOffEnabled{true};
 };
 
 // ============================================================================
-// MenuManager — tracks registered shortcuts, context actions & tear-off windows
+// JMenuManager — tracks registered shortcuts, context actions & tear-off windows
 // ============================================================================
-class MenuManager {
+class JMenuManager {
 public:
-    static MenuManager& instance() {
-        static MenuManager inst;
+    static JMenuManager& instance() {
+        static JMenuManager inst;
         return inst;
     }
 
-    std::function<void(Menu* menu, int sx, int sy, bool parentTorn)> onOpenMenu;
-    std::function<void(Menu* menu, int sx, int sy)> onTearOffMenu;
+    std::function<void(JMenu* menu, int sx, int sy, bool parentTorn)> onOpenMenu;
+    std::function<void(JMenu* menu, int sx, int sy)> onTearOffMenu;
 
-    struct ShortcutReg {
-        MenuShortcut shortcut;
+    struct JShortcutReg {
+        JMenuShortcut shortcut;
         std::function<void()> callback;
     };
 
-    void registerShortcut(const MenuShortcut& sc, std::function<void()> callback) {
-        if (sc.key != KeyEvent::Key::Unknown) {
+    void registerShortcut(const JMenuShortcut& sc, std::function<void()> callback) {
+        if (sc.key != JKeyEvent::JKey::Unknown) {
             m_shortcuts.push_back({sc, std::move(callback)});
         }
     }
 
-    bool processAccelerator(const KeyEvent& ke) {
+    bool processAccelerator(const JKeyEvent& ke) {
         for (const auto& reg : m_shortcuts) {
             if (reg.shortcut.matches(ke)) {
                 reg.callback();
@@ -347,35 +347,35 @@ public:
 
     // Fired when a widget requests its context menu (local widget coords).
     // The receiver (main loop) should offset by window screen position.
-    std::function<void(Menu*, float localX, float localY)> onContextMenuRequested;
+    std::function<void(JMenu*, float localX, float localY)> onContextMenuRequested;
 
 private:
-    MenuManager() = default;
-    std::vector<ShortcutReg> m_shortcuts;
+    JMenuManager() = default;
+    std::vector<JShortcutReg> m_shortcuts;
     bool m_globalTearOff{true};
 };
 
 // ============================================================================
-// MenuBar — top level horizontal strip widget
+// JMenuBar — top level horizontal strip widget
 // ============================================================================
-class MenuBar : public Control {
+class JMenuBar : public JControl {
 public:
     std::function<std::pair<int, int>(float, float)> onQueryScreenPos;
 
-    MenuBar(SceneGraph& graph) : Control(graph, "MenuBar") {
+    JMenuBar(JSceneGraph& graph) : JControl(graph, "JMenuBar") {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.direction = FlexDirection::Row;
+        l.direction = JFlexDirection::JRow;
         l.minHeight = 32.f;
         l.flexGrow = 0.0f;
     }
 
-    AISemanticNode getSemanticNode() const override {
+    JAISemanticNode getSemanticNode() const override {
         std::string titles;
         for (size_t i = 0; i < m_entries.size(); ++i) {
             if (i) titles += '|';
             titles += m_entries[i].title;
         }
-        return {"MenuBar", m_debugName, titles, true};
+        return {"JMenuBar", m_debugName, titles, true};
     }
 
     bool executeSemanticAction(const std::string& a) override {
@@ -394,22 +394,22 @@ public:
         return false;
     }
 
-    struct MenuEntry {
+    struct JMenuEntry {
         std::string title;
-        Menu* menu;
+        JMenu* menu;
         NodeId btnId;
     };
 
-    void addMenu(Menu* menu) {
+    void addMenu(JMenu* menu) {
         NodeId btnId = m_graph.createNode("MenuBarBtn");
         auto& l = m_graph.getLayout(btnId);
-        l.minWidth = TextHelper::hasAtlas() ? TextHelper::measureWidth(menu->title()) + 20.f : 70.f;
+        l.minWidth = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(menu->title()) + 20.f : 70.f;
         l.minHeight = 32.f;
         m_graph.addChild(m_nodeId, btnId);
         m_entries.push_back({menu->title(), menu, btnId});
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& bb = m_graph.getLayoutConst(m_nodeId).boundingBox;
         uint8_t barBg[4] = {Colors::Surface1[0], Colors::Surface1[1], Colors::Surface1[2], 255};
         buf.pushRectangle(bb.x, bb.y, bb.width, bb.height, barBg, 0.0f);
@@ -425,13 +425,13 @@ public:
             }
 
             uint8_t tc[4] = {Colors::TextPrimary[0], Colors::TextPrimary[1], Colors::TextPrimary[2], 255};
-            float ty = btnBB.y + (btnBB.height - TextHelper::lineHeight()) * 0.5f;
-            TextHelper::pushText(buf, btnBB.x + 10.f, ty, entry.title, tc);
+            float ty = btnBB.y + (btnBB.height - JTextHelper::lineHeight()) * 0.5f;
+            JTextHelper::pushText(buf, btnBB.x + 10.f, ty, entry.title, tc);
         }
     }
 
     void handleMouseMove(float mx, float my) override {
-        Control::handleMouseMove(mx, my);
+        JControl::handleMouseMove(mx, my);
         m_hoveredIdx = -1;
         for (size_t i = 0; i < m_entries.size(); ++i) {
             const auto& btnBB = m_graph.getLayoutConst(m_entries[i].btnId).boundingBox;
@@ -453,8 +453,8 @@ public:
                 if (mx >= btnBB.x && mx <= btnBB.x + btnBB.width && my >= btnBB.y && my <= btnBB.y + btnBB.height) {
                     if (m_activeIdx == static_cast<int>(i)) {
                         m_activeIdx = -1;
-                        if (MenuManager::instance().onOpenMenu) {
-                            MenuManager::instance().onOpenMenu(nullptr, 0, 0, false);
+                        if (JMenuManager::instance().onOpenMenu) {
+                            JMenuManager::instance().onOpenMenu(nullptr, 0, 0, false);
                         }
                     } else {
                         openMenu(static_cast<int>(i));
@@ -472,22 +472,22 @@ public:
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
-    const std::vector<MenuEntry>& entries() const noexcept { return m_entries; }
+    const std::vector<JMenuEntry>& entries() const noexcept { return m_entries; }
     int activeIndex() const noexcept { return m_activeIdx; }
 
 private:
     void openMenu(int index) {
         m_activeIdx = index;
-        if (MenuManager::instance().onOpenMenu && onQueryScreenPos) {
+        if (JMenuManager::instance().onOpenMenu && onQueryScreenPos) {
             const auto& entry = m_entries[index];
             const auto& btnBB = m_graph.getLayoutConst(entry.btnId).boundingBox;
             auto [sx, sy] = onQueryScreenPos(btnBB.x, btnBB.y + btnBB.height);
-            MenuManager::instance().onOpenMenu(entry.menu, sx, sy, false);
+            JMenuManager::instance().onOpenMenu(entry.menu, sx, sy, false);
         }
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
-    std::vector<MenuEntry> m_entries;
+    std::vector<JMenuEntry> m_entries;
     int m_activeIdx{-1};
     int m_hoveredIdx{-1};
 };

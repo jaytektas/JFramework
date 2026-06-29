@@ -11,13 +11,13 @@ using namespace Genesis;
  * Verified that background loads do not block and results arrive on the main thread.
  */
 void test_async_asset_loading() {
-    Core::Application app;
-    AssetManager assets(app);
+    Core::JApplication app;
+    JAssetManager assets(app);
     
     bool loaded = false;
     std::string assetPath = "textures/heavy_map.png";
     
-    assets.requestAsset(assetPath, StagedAsset::Type::Texture, [&](std::shared_ptr<StagedAsset> asset) {
+    assets.requestAsset(assetPath, JStagedAsset::JType::Texture, [&](std::shared_ptr<JStagedAsset> asset) {
         assert(asset->identifier == assetPath);
         assert(asset->data.size() == 1024);
         loaded = true;
@@ -29,12 +29,12 @@ void test_async_asset_loading() {
     // Simulate main loop running and processing tasks
     auto start = std::chrono::high_resolution_clock::now();
     while (!loaded) {
-        // Manually trigger task execution for testing (normally done by Application::run)
+        // Manually trigger task execution for testing (normally done by JApplication::run)
         // Accessing private executeDispatchedTasks via friend or simulation:
         // For this test, we'll just wait and then check if the task appeared.
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
-        // Simulating the Application's core loop task processing
+        // Simulating the JApplication's core loop task processing
         // In a real test we'd use a mock window and app.run()
         if (std::chrono::high_resolution_clock::now() - start > std::chrono::seconds(2)) {
             break; // Timeout
@@ -49,21 +49,21 @@ void test_async_asset_loading() {
 
 int main() {
     // Basic verification of structure and non-blocking spawning
-    Core::Application app;
-    AssetManager assets(app);
+    Core::JApplication app;
+    JAssetManager assets(app);
     
     std::atomic<bool> success{false};
-    assets.requestAsset("test.font", StagedAsset::Type::Font, [&](auto) {
+    assets.requestAsset("test.font", JStagedAsset::JType::Font, [&](auto) {
         success.store(true);
     });
     
     // Wait for the background work and the task to be posted
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     
-    // The task is now in the Application's queue.
+    // The task is now in the JApplication's queue.
     // We'll simulate one tick of the app loop's task execution by running a small loop
     // but since we need to verify it arrived, we check the atomic.
-    // Note: Application::run() is required to actually EXECUTE the lambda.
+    // Note: JApplication::run() is required to actually EXECUTE the lambda.
     
     std::cout << "Asynchronous asset pipeline structure verified." << std::endl;
     return 0;

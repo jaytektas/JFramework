@@ -10,11 +10,11 @@
 using namespace Genesis;
 
 // ---------------------------------------------------------------------------
-// TableModel
+// JTableModel
 // ---------------------------------------------------------------------------
 
 void test_table_basic() {
-    TableModel m;
+    JTableModel m;
     m.setHeaders({"Name", "Value"});
     assert(m.columnCount() == 2);
     assert(m.rowCount() == 0);
@@ -45,8 +45,8 @@ void test_table_basic() {
 }
 
 void test_table_sort() {
-    TableModel m;
-    m.setHeaders({"Key"});
+    JTableModel m;
+    m.setHeaders({"JKey"});
     m.append({"banana"});
     m.append({"apple"});
     m.append({"cherry"});
@@ -63,7 +63,7 @@ void test_table_sort() {
 }
 
 void test_table_batch() {
-    TableModel m;
+    JTableModel m;
     int changeCount = 0;
     m.onChanged.connect([&]{ ++changeCount; });
 
@@ -73,14 +73,14 @@ void test_table_batch() {
     m.endBatch();
 
     // Drain the single posted notification.
-    MainThreadDispatcher::instance().drain();
+    JMainThreadDispatcher::instance().drain();
     assert(changeCount == 1);
     assert(m.rowCount() == 5);
     std::cout << "test_table_batch passed\n";
 }
 
 void test_table_onchanged_fires_on_main_thread() {
-    TableModel m;
+    JTableModel m;
     bool fired = false;
     m.onChanged.connect([&]{ fired = true; });
 
@@ -89,24 +89,24 @@ void test_table_onchanged_fires_on_main_thread() {
 
     // Not fired yet — posted to main thread dispatcher.
     assert(!fired);
-    MainThreadDispatcher::instance().drain();
+    JMainThreadDispatcher::instance().drain();
     assert(fired);
     std::cout << "test_table_onchanged_fires_on_main_thread passed\n";
 }
 
 // ---------------------------------------------------------------------------
-// SortFilterModel
+// JSortFilterModel
 // ---------------------------------------------------------------------------
 
 void test_sortfilter_filter() {
-    TableModel m;
+    JTableModel m;
     m.setHeaders({"Value"});
     m.append({"10"});
     m.append({"5"});
     m.append({"20"});
     m.append({"1"});
 
-    SortFilterModel proxy(m);
+    JSortFilterModel proxy(m);
     proxy.setFilter([](const auto& row){ return row[0] >= "10"; }); // lexicographic ≥ "10"
     // "10", "20" pass; "5", "1" don't pass lexicographically... actually "5" > "10"
     // Let's use a length filter instead
@@ -122,13 +122,13 @@ void test_sortfilter_filter() {
 }
 
 void test_sortfilter_sort() {
-    TableModel m;
+    JTableModel m;
     m.setHeaders({"Name"});
     m.append({"Charlie"});
     m.append({"Alice"});
     m.append({"Bob"});
 
-    SortFilterModel proxy(m);
+    JSortFilterModel proxy(m);
     proxy.sort(0);
     assert(proxy.row(0)[0] == "Alice");
     assert(proxy.row(1)[0] == "Bob");
@@ -143,12 +143,12 @@ void test_sortfilter_sort() {
 }
 
 void test_sortfilter_live_update() {
-    TableModel m;
+    JTableModel m;
     m.setHeaders({"X"});
     m.append({"a"});
     m.append({"b"});
 
-    SortFilterModel proxy(m);
+    JSortFilterModel proxy(m);
     assert(proxy.rowCount() == 2);
 
     // Add a row to source — proxy should update on next drain.
@@ -156,20 +156,20 @@ void test_sortfilter_live_update() {
     proxy.onChanged.connect([&]{ ++proxyChanged; });
 
     m.append({"c"});
-    MainThreadDispatcher::instance().drain();
+    JMainThreadDispatcher::instance().drain();
     assert(proxy.rowCount() == 3);
     assert(proxyChanged >= 1);
     std::cout << "test_sortfilter_live_update passed\n";
 }
 
 void test_sortfilter_source_row_mapping() {
-    TableModel m;
+    JTableModel m;
     m.setHeaders({"V"});
     m.append({"b"});
     m.append({"a"});
     m.append({"c"});
 
-    SortFilterModel proxy(m);
+    JSortFilterModel proxy(m);
     proxy.sort(0);  // sorted: a(1), b(0), c(2)
 
     assert(proxy.sourceRow(0) == 1); // "a" is source row 1
@@ -179,11 +179,11 @@ void test_sortfilter_source_row_mapping() {
 }
 
 // ---------------------------------------------------------------------------
-// TreeModel
+// JTreeModel
 // ---------------------------------------------------------------------------
 
 void test_tree_insert_find_remove() {
-    TreeModel m;
+    JTreeModel m;
     m.insert("", {"lib0", "Library A"});
     m.insert("", {"lib1", "Library B"});
     m.insert("lib0", {"run0", "Run 1"});
@@ -208,7 +208,7 @@ void test_tree_insert_find_remove() {
 }
 
 void test_tree_set_label_expanded() {
-    TreeModel m;
+    JTreeModel m;
     m.insert("", {"n0", "Original"});
     m.setLabel("n0", "Renamed");
     assert(m.find("n0")->label == "Renamed");
@@ -220,7 +220,7 @@ void test_tree_set_label_expanded() {
 }
 
 void test_tree_tag() {
-    TreeModel m;
+    JTreeModel m;
     m.insert("", {"n0", "Node", "payload:42"});
     assert(m.find("n0")->tag == "payload:42");
     m.setTag("n0", "payload:99");
@@ -229,22 +229,22 @@ void test_tree_tag() {
 }
 
 void test_tree_onchanged() {
-    TreeModel m;
+    JTreeModel m;
     int changed = 0;
     m.onChanged.connect([&]{ ++changed; });
 
     m.insert("", {"n0", "Node"});
-    MainThreadDispatcher::instance().drain();
+    JMainThreadDispatcher::instance().drain();
     assert(changed >= 1);
     std::cout << "test_tree_onchanged passed\n";
 }
 
 // ---------------------------------------------------------------------------
-// SlotTracker disconnect (Signal.h regression)
+// JSlotTracker disconnect (JSignal.h regression)
 // ---------------------------------------------------------------------------
 
 void test_signal_connect_returns_disconnect() {
-    Core::Signal<int> sig;
+    Core::JSignal<int> sig;
     int count = 0;
     auto disc = sig.connect([&](int){ ++count; });
 
@@ -258,10 +258,10 @@ void test_signal_connect_returns_disconnect() {
 }
 
 void test_slot_tracker_disconnect() {
-    Core::Signal<> sig;
+    Core::JSignal<> sig;
     int count = 0;
     {
-        Core::SlotTracker tracker;
+        Core::JSlotTracker tracker;
         tracker.addConnection(sig.connect([&]{ ++count; }));
         sig.emit();
         assert(count == 1);

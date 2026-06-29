@@ -7,7 +7,7 @@
 
 namespace Genesis::Core {
 
-enum class Easing {
+enum class JEasing {
     Linear,
     EaseIn,
     EaseOut,
@@ -20,46 +20,46 @@ enum class Easing {
     EaseOutBounce
 };
 
-inline float applyEasing(float t, Easing e) {
+inline float applyEasing(float t, JEasing e) {
     t = std::clamp(t, 0.0f, 1.0f);
 
     switch (e) {
-        case Easing::Linear:
+        case JEasing::Linear:
             return t;
 
-        case Easing::EaseIn:
+        case JEasing::EaseIn:
             return t * t;
 
-        case Easing::EaseOut:
+        case JEasing::EaseOut:
             return t * (2.0f - t);
 
-        case Easing::EaseInOut:
+        case JEasing::EaseInOut:
             return t < 0.5f ? 2.0f * t * t : -1.0f + (4.0f - 2.0f * t) * t;
 
-        case Easing::EaseInCubic:
+        case JEasing::EaseInCubic:
             return t * t * t;
 
-        case Easing::EaseOutCubic: {
+        case JEasing::EaseOutCubic: {
             float s = 1.0f - t;
             return 1.0f - s * s * s;
         }
 
-        case Easing::EaseInOutCubic:
+        case JEasing::EaseInOutCubic:
             return t < 0.5f
                 ? 4.0f * t * t * t
                 : 1.0f - std::pow(-2.0f * t + 2.0f, 3.0f) / 2.0f;
 
-        case Easing::EaseOutElastic: {
+        case JEasing::EaseOutElastic: {
             if (t == 0.0f) return 0.0f;
             if (t == 1.0f) return 1.0f;
             constexpr float pi = 3.14159265358979323846f;
             return std::pow(2.0f, -10.0f * t) * std::sin((t * 10.0f - 0.75f) * (2.0f * pi / 3.0f)) + 1.0f;
         }
 
-        case Easing::EaseInBounce:
-            return 1.0f - applyEasing(1.0f - t, Easing::EaseOutBounce);
+        case JEasing::EaseInBounce:
+            return 1.0f - applyEasing(1.0f - t, JEasing::EaseOutBounce);
 
-        case Easing::EaseOutBounce: {
+        case JEasing::EaseOutBounce: {
             constexpr float n1 = 7.5625f;
             constexpr float d1 = 2.75f;
             if (t < 1.0f / d1) {
@@ -81,14 +81,14 @@ inline float applyEasing(float t, Easing e) {
     }
 }
 
-class AnimatedFloat {
+class JAnimatedFloat {
 public:
-    AnimatedFloat() = default;
+    JAnimatedFloat() = default;
 
-    AnimatedFloat(float initial)
+    JAnimatedFloat(float initial)
         : m_current(initial), m_from(initial), m_to(initial) {}
 
-    void animateTo(float target, float durationMs, Easing e = Easing::EaseOut) {
+    void animateTo(float target, float durationMs, JEasing e = JEasing::EaseOut) {
         if (durationMs <= 0.0f) {
             m_current = target;
             m_from    = target;
@@ -141,18 +141,18 @@ private:
     float  m_elapsed{0.0f};
     float  m_duration{0.0f};
     bool   m_done{true};
-    Easing m_easing{Easing::EaseOut};
+    JEasing m_easing{JEasing::EaseOut};
 };
 
-struct AnimatedColor {
-    AnimatedFloat r, g, b, a;
+struct JAnimatedColor {
+    JAnimatedFloat r, g, b, a;
 
-    AnimatedColor() = default;
+    JAnimatedColor() = default;
 
-    AnimatedColor(uint8_t R, uint8_t G, uint8_t B, uint8_t A)
+    JAnimatedColor(uint8_t R, uint8_t G, uint8_t B, uint8_t A)
         : r(R / 255.0f), g(G / 255.0f), b(B / 255.0f), a(A / 255.0f) {}
 
-    void animateTo(const uint8_t col[4], float durationMs, Easing e = Easing::EaseOut) {
+    void animateTo(const uint8_t col[4], float durationMs, JEasing e = JEasing::EaseOut) {
         r.animateTo(col[0] / 255.0f, durationMs, e);
         g.animateTo(col[1] / 255.0f, durationMs, e);
         b.animateTo(col[2] / 255.0f, durationMs, e);
@@ -183,14 +183,14 @@ struct AnimatedColor {
     }
 };
 
-class Animator {
+class JAnimator {
 public:
     size_t add(float initial = 0.0f) {
         m_values.emplace_back(initial);
         return m_values.size() - 1;
     }
 
-    void animateTo(size_t idx, float target, float durationMs, Easing e = Easing::EaseOut) {
+    void animateTo(size_t idx, float target, float durationMs, JEasing e = JEasing::EaseOut) {
         if (idx < m_values.size()) {
             m_values[idx].animateTo(target, durationMs, e);
         }
@@ -224,7 +224,7 @@ public:
     }
 
 private:
-    std::vector<AnimatedFloat> m_values;
+    std::vector<JAnimatedFloat> m_values;
 };
 
 } // namespace Genesis::Core

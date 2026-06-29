@@ -144,9 +144,9 @@ struct VulkanSurface {
 // VulkanGpuHal
 // ============================================================================
 
-class VulkanGpuHal : public GpuHal {
+class VulkanGpuHal : public JGpuHal {
 public:
-    VulkanGpuHal(const NativeWindowHandle& h) : m_handle(h) {}
+    VulkanGpuHal(const JNativeWindowHandle& h) : m_handle(h) {}
 
     ~VulkanGpuHal() override {
         if (!m_device) return;
@@ -241,7 +241,7 @@ public:
         m_surfaces[sid].needsRebuild = true;
     }
 
-    GpuSurfaceId createSurface(const NativeWindowHandle& handle, uint32_t w, uint32_t h) override {
+    GpuSurfaceId createSurface(const JNativeWindowHandle& handle, uint32_t w, uint32_t h) override {
         GpuSurfaceId sid = _allocSurfaceSlot();
         VulkanSurface& s = m_surfaces[sid];
         s.vkSurface = _createVkSurface(handle);
@@ -368,7 +368,7 @@ public:
         return true;
     }
 
-    GpuFrameContext beginFrame(GpuSurfaceId sid = kPrimarySurface) override {
+    JGpuFrameContext beginFrame(GpuSurfaceId sid = kPrimarySurface) override {
         VulkanSurface& s = m_surfaces[sid];
         m_act = &s;
         m_activeSurfaceId = sid;
@@ -415,7 +415,7 @@ public:
         rpi.clearValueCount   = 1; rpi.pClearValues = &cv;
         vkCmdBeginRenderPass(s.cmdBuf, &rpi, VK_SUBPASS_CONTENTS_INLINE);
 
-        GpuFrameContext ctx{};
+        JGpuFrameContext ctx{};
         ctx.frameIndex          = m_frameCounter++;
         ctx.surfaceId           = sid;
         ctx.commandQueueHandle  = m_graphicsQueue;
@@ -423,38 +423,38 @@ public:
         return ctx;
     }
 
-    void drawPrimitives(const PrimitiveBuffer& buf) override {
+    void drawPrimitives(const JPrimitiveBuffer& buf) override {
         const auto& cmds = buf.getCommands();
         if (cmds.empty()) return;
 
         uint32_t textCursor = 0;
         uint32_t geomCursor = 0;
 
-        using Kind = PrimitiveBuffer::DrawCommand::Kind;
-        using Clip = PrimitiveBuffer::ClipRect;
+        using JKind = JPrimitiveBuffer::JDrawCommand::JKind;
+        using Clip = JPrimitiveBuffer::JClipRect;
         auto sameClip = [](const Clip& a, const Clip& b) {
             return a.enabled == b.enabled && a.x == b.x && a.y == b.y && a.w == b.w && a.h == b.h;
         };
 
         size_t i = 0;
         while (i < cmds.size()) {
-            const Kind k    = cmds[i].kind;
+            const JKind k    = cmds[i].kind;
             const Clip clip = cmds[i].clip;
             // Batch consecutive commands that share both pipeline kind AND clip rect.
             size_t j = i;
             while (j < cmds.size() && cmds[j].kind == k && sameClip(cmds[j].clip, clip)) ++j;
 
             _applyScissor(clip);
-            if      (k == Kind::Rect)            _drawSdfBatch(cmds, i, j);
-            else if (k == Kind::Image)           textCursor = _drawImageBatch(cmds, i, j, textCursor);
-            else if (k == Kind::Geometry)        geomCursor = _drawGeometryBatch(cmds, i, j, geomCursor);
+            if      (k == JKind::JRect)            _drawSdfBatch(cmds, i, j);
+            else if (k == JKind::Image)           textCursor = _drawImageBatch(cmds, i, j, textCursor);
+            else if (k == JKind::Geometry)        geomCursor = _drawGeometryBatch(cmds, i, j, geomCursor);
             else if (m_atlasUploaded)            textCursor = _drawTextBatch(cmds, i, j, textCursor);
             i = j;
         }
     }
 
     // Set the dynamic scissor from a clip rect (clamped to the surface), or full window.
-    void _applyScissor(const PrimitiveBuffer::ClipRect& clip) {
+    void _applyScissor(const JPrimitiveBuffer::JClipRect& clip) {
         VkRect2D sc;
         if (clip.enabled) {
             float x  = std::max(0.0f, clip.x);
@@ -476,7 +476,7 @@ public:
             m_surfaces[sid].screenshotPath = path;
     }
 
-    void submitAndPresentFrame(const GpuFrameContext& ctx) override {
+    void submitAndPresentFrame(const JGpuFrameContext& ctx) override {
         VulkanSurface& s = m_surfaces[ctx.surfaceId];
         vkCmdEndRenderPass(s.cmdBuf);
 
@@ -525,11 +525,11 @@ public:
     }
 
     void waitIdle() override { if (m_device) vkDeviceWaitIdle(m_device); }
-    GpuApiType getBackendType() const noexcept override { return GpuApiType::Vulkan; }
+    JGpuApiType getBackendType() const noexcept override { return JGpuApiType::Vulkan; }
 
 private:
     // ------------------------------------------------------------------ SDF
-    using CmdVec = std::vector<PrimitiveBuffer::DrawCommand>;
+    using CmdVec = std::vector<JPrimitiveBuffer::JDrawCommand>;
 
     void _drawSdfBatch(const CmdVec& cmds, size_t from, size_t to) {
         vkCmdBindPipeline(m_act->cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_sdfPipeline);
@@ -801,18 +801,18 @@ private:
     uint32_t _drawGeometryBatch(const CmdVec& cmds, size_t from, size_t to, uint32_t vertexCursor) {
         if (!m_vectorPipeline) return vertexCursor;
 
-        std::vector<RenderVertex> verts;
+        std::vector<JRenderVertex> verts;
         for (size_t k = from; k < to; ++k) {
             const auto& g = cmds[k].geom.verts;
             verts.insert(verts.end(), g.begin(), g.end());
         }
         if (verts.empty()) return vertexCursor;
 
-        VkDeviceSize surfaceOffset = (VkDeviceSize)m_activeSurfaceId * MAX_GEOM_VERTS * sizeof(RenderVertex);
-        VkDeviceSize sliceBytes    = verts.size() * sizeof(RenderVertex);
-        VkDeviceSize bufferOffset  = surfaceOffset + (VkDeviceSize)vertexCursor * sizeof(RenderVertex);
-        VkDeviceSize capacity      = (VkDeviceSize)MAX_GEOM_VERTS * sizeof(RenderVertex);
-        if ((VkDeviceSize)vertexCursor * sizeof(RenderVertex) + sliceBytes > capacity) return vertexCursor;
+        VkDeviceSize surfaceOffset = (VkDeviceSize)m_activeSurfaceId * MAX_GEOM_VERTS * sizeof(JRenderVertex);
+        VkDeviceSize sliceBytes    = verts.size() * sizeof(JRenderVertex);
+        VkDeviceSize bufferOffset  = surfaceOffset + (VkDeviceSize)vertexCursor * sizeof(JRenderVertex);
+        VkDeviceSize capacity      = (VkDeviceSize)MAX_GEOM_VERTS * sizeof(JRenderVertex);
+        if ((VkDeviceSize)vertexCursor * sizeof(JRenderVertex) + sliceBytes > capacity) return vertexCursor;
 
         std::memcpy(static_cast<char*>(m_geomVertMapped) + bufferOffset, verts.data(), sliceBytes);
 
@@ -839,7 +839,7 @@ private:
         return static_cast<GpuSurfaceId>(m_surfaces.size() - 1);
     }
 
-    VkSurfaceKHR _createVkSurface(const NativeWindowHandle& h) {
+    VkSurfaceKHR _createVkSurface(const JNativeWindowHandle& h) {
         VkSurfaceKHR surf{};
 #if defined(__linux__)
         VkXcbSurfaceCreateInfoKHR ci{VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR};
@@ -1251,8 +1251,8 @@ private:
         lci.pushConstantRangeCount = 1; lci.pPushConstantRanges = &pcr;
         vkCreatePipelineLayout(m_device, &lci, nullptr, &m_vectorPipeLayout);
 
-        // RenderVertex: float position[2] @0, float texCoord[2] @8, uint8 color[4] @16, stride 20.
-        VkVertexInputBindingDescription binding{0, sizeof(RenderVertex), VK_VERTEX_INPUT_RATE_VERTEX};
+        // JRenderVertex: float position[2] @0, float texCoord[2] @8, uint8 color[4] @16, stride 20.
+        VkVertexInputBindingDescription binding{0, sizeof(JRenderVertex), VK_VERTEX_INPUT_RATE_VERTEX};
         VkVertexInputAttributeDescription attrs[3] = {
             {0, 0, VK_FORMAT_R32G32_SFLOAT,  0},
             {1, 0, VK_FORMAT_R32G32_SFLOAT,  8},
@@ -1267,7 +1267,7 @@ private:
     }
 
     void createGeomVertexBuffer() {
-        VkDeviceSize sz = (VkDeviceSize)16 * MAX_GEOM_VERTS * sizeof(RenderVertex);
+        VkDeviceSize sz = (VkDeviceSize)16 * MAX_GEOM_VERTS * sizeof(JRenderVertex);
         createBuffer(m_device, m_physicalDevice, sz,
                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -1276,7 +1276,7 @@ private:
     }
 
     // ---------------------------------------------------------------- Members
-    NativeWindowHandle m_handle;
+    JNativeWindowHandle m_handle;
     VkInstance         m_instance{VK_NULL_HANDLE};
     VkPhysicalDevice   m_physicalDevice{VK_NULL_HANDLE};
     VkDevice           m_device{VK_NULL_HANDLE};
@@ -1329,8 +1329,8 @@ private:
 };
 
 
-std::unique_ptr<GpuHal> GpuHal::create(GpuApiType api, const NativeWindowHandle& h) {
-    if (api == GpuApiType::Vulkan) {
+std::unique_ptr<JGpuHal> JGpuHal::create(JGpuApiType api, const JNativeWindowHandle& h) {
+    if (api == JGpuApiType::Vulkan) {
         try {
             auto hal = std::make_unique<VulkanGpuHal>(h);
             if (hal->initialize()) {

@@ -33,17 +33,17 @@ namespace Genesis {
  * Exposes native handles for Vulkan surface creation and polls mouse state
  * via consume* methods so the render loop stays free of raw event queues.
  */
-class LinuxPlatformWindow : public Core::PlatformWindow {
+class JLinuxPlatformWindow : public Core::JPlatformWindow {
 public:
-    LinuxPlatformWindow(const std::string& title, uint32_t width, uint32_t height,
+    JLinuxPlatformWindow(const std::string& title, uint32_t width, uint32_t height,
                         int screenX = 100, int screenY = 100,
-                        Genesis::PlatformWindowStyle style = Genesis::PlatformWindowStyle::Normal,
+                        Genesis::JPlatformWindowStyle style = Genesis::JPlatformWindowStyle::Normal,
                         xcb_window_t parentWindow = 0,
                         xcb_connection_t* sharedConnection = nullptr)
         : m_screenX(screenX), m_screenY(screenY)
         , m_width(width), m_height(height)
         , m_style(style) {
-        std::cout << "[INFO][Platform] LinuxPlatformWindow created: " << title
+        std::cout << "[INFO][Platform] JLinuxPlatformWindow created: " << title
                   << ", parentWindow: " << parentWindow << ", style: " << (int)style << std::endl;
         if (sharedConnection) {
             m_connection = sharedConnection;
@@ -78,7 +78,7 @@ public:
             XCB_EVENT_MASK_FOCUS_CHANGE    | XCB_EVENT_MASK_LEAVE_WINDOW   |
             XCB_EVENT_MASK_PROPERTY_CHANGE;
 
-        if (style == PlatformWindowStyle::Popup) {
+        if (style == JPlatformWindowStyle::Popup) {
             // override_redirect: bypass WM entirely.  Values must be ordered by
             // mask bit position: BACK_PIXEL(1) < OVERRIDE_REDIRECT(9) < EVENT_MASK(11).
             uint32_t mask   = XCB_CW_BACK_PIXEL | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK;
@@ -137,7 +137,7 @@ public:
             }
         }
 
-        if (style == PlatformWindowStyle::Borderless) {
+        if (style == JPlatformWindowStyle::Borderless) {
             // Remove WM decorations while staying WM-managed (draggable, fullscreen-capable).
             _applyMotifBorderless();
             // Keep NORMAL window type so the WM still handles _NET_WM_MOVERESIZE,
@@ -189,7 +189,7 @@ public:
                                        << ", DPI scale " << m_dpiScale << ")\n";
     }
 
-    ~LinuxPlatformWindow() override {
+    ~JLinuxPlatformWindow() override {
         if (m_syms) { xcb_key_symbols_free(m_syms); m_syms = nullptr; }
         if (m_connection) {
             xcb_free_cursor(m_connection, m_cursorDefault);
@@ -207,7 +207,7 @@ public:
         }
     }
 
-    // ---- PlatformWindow interface ----
+    // ---- JPlatformWindow interface ----
     void pollNativeEvents() override {
         xcb_generic_event_t* ev;
         while ((ev = xcb_poll_for_event(m_connection))) {
@@ -233,7 +233,7 @@ public:
                         m_mouseY = static_cast<float>(b->event_y);
                         m_pendingPress = true;
                         m_altDown = (b->state & XCB_MOD_MASK_1) != 0;
-                        if (m_style != PlatformWindowStyle::Popup) {
+                        if (m_style != JPlatformWindowStyle::Popup) {
                             // Grab pointer so we keep receiving MotionNotify and
                             // ButtonRelease even when the cursor leaves the window.
                             // Required for drag-outside-window on X11 and XWayland.
@@ -258,7 +258,7 @@ public:
                         m_mouseX = static_cast<float>(b->event_x);
                         m_mouseY = static_cast<float>(b->event_y);
                         m_pendingRelease = true;
-                        if (m_style != PlatformWindowStyle::Popup) {
+                        if (m_style != JPlatformWindowStyle::Popup) {
                             xcb_ungrab_pointer(m_connection, XCB_CURRENT_TIME);
                             xcb_flush(m_connection);
                         }
@@ -402,13 +402,13 @@ public:
 
     // ---- Keyboard events (consume-once queue) ----
     bool hasKeyEvents() const override { return !m_keyQueue.empty(); }
-    Genesis::KeyEvent consumeKey() override {
+    Genesis::JKeyEvent consumeKey() override {
         auto e = m_keyQueue.front();
         m_keyQueue.pop_front();
         return e;
     }
-    std::vector<Genesis::KeyEvent> consumeAllKeys() override {
-        std::vector<Genesis::KeyEvent> out(m_keyQueue.begin(), m_keyQueue.end());
+    std::vector<Genesis::JKeyEvent> consumeAllKeys() override {
+        std::vector<Genesis::JKeyEvent> out(m_keyQueue.begin(), m_keyQueue.end());
         m_keyQueue.clear();
         return out;
     }
@@ -419,7 +419,7 @@ public:
     uint32_t width()   const override { return m_width;   }
     uint32_t height()  const override { return m_height;  }
 
-    Genesis::PlatformWindowStyle windowStyle() const override { return m_style; }
+    Genesis::JPlatformWindowStyle windowStyle() const override { return m_style; }
     bool        isAltDown()   const override { return m_altDown; }
     float       dpiScale()    const override { return m_dpiScale; }
 
@@ -438,18 +438,18 @@ public:
         }
     }
 
-    void setCursor(Genesis::PlatformCursor shape) override {
+    void setCursor(Genesis::JPlatformCursor shape) override {
         if (m_currentCursor == shape) return;
         m_currentCursor = shape;
         xcb_cursor_t cursorId = 0;
         switch (shape) {
-            case Genesis::PlatformCursor::Default:           cursorId = m_cursorDefault; break;
-            case Genesis::PlatformCursor::ResizeLeftRight:   cursorId = m_cursorHoriz;   break;
-            case Genesis::PlatformCursor::ResizeUpDown:      cursorId = m_cursorVert;    break;
-            case Genesis::PlatformCursor::ResizeTopLeft:     cursorId = m_cursorTopLeft; break;
-            case Genesis::PlatformCursor::ResizeTopRight:    cursorId = m_cursorTopRight;break;
-            case Genesis::PlatformCursor::ResizeBottomLeft:  cursorId = m_cursorBotLeft; break;
-            case Genesis::PlatformCursor::ResizeBottomRight: cursorId = m_cursorBotRight;break;
+            case Genesis::JPlatformCursor::Default:           cursorId = m_cursorDefault; break;
+            case Genesis::JPlatformCursor::ResizeLeftRight:   cursorId = m_cursorHoriz;   break;
+            case Genesis::JPlatformCursor::ResizeUpDown:      cursorId = m_cursorVert;    break;
+            case Genesis::JPlatformCursor::ResizeTopLeft:     cursorId = m_cursorTopLeft; break;
+            case Genesis::JPlatformCursor::ResizeTopRight:    cursorId = m_cursorTopRight;break;
+            case Genesis::JPlatformCursor::ResizeBottomLeft:  cursorId = m_cursorBotLeft; break;
+            case Genesis::JPlatformCursor::ResizeBottomRight: cursorId = m_cursorBotRight;break;
         }
         if (cursorId != 0) {
             uint32_t values[] = { cursorId };
@@ -493,7 +493,7 @@ public:
     void setMinSize(uint32_t minW, uint32_t minH) override {
         minH += _frameTop();
 
-        struct XSizeHints {
+        struct JXSizeHints {
             uint32_t flags{0};
             int32_t  x{0}, y{0}, width{0}, height{0};
             int32_t  min_width{0}, min_height{0};
@@ -505,7 +505,7 @@ public:
             uint32_t win_gravity{0};
         };
         static constexpr uint32_t PMinSize = 1u << 4;
-        XSizeHints hints{};
+        JXSizeHints hints{};
         hints.flags      = PMinSize;
         hints.min_width  = static_cast<int32_t>(minW);
         hints.min_height = static_cast<int32_t>(minH);
@@ -519,7 +519,7 @@ public:
     // The window fullscreens on whichever monitor it currently occupies — to
     // fullscreen on a secondary monitor, call setPosition() first to move it there.
     void setFullscreen(bool on) override {
-        if (m_style == Genesis::PlatformWindowStyle::Popup) return;  // WM not involved
+        if (m_style == Genesis::JPlatformWindowStyle::Popup) return;  // WM not involved
         xcb_atom_t stateAtom = _internAtom("_NET_WM_STATE");
         xcb_atom_t fullAtom  = _internAtom("_NET_WM_STATE_FULLSCREEN");
         if (stateAtom == XCB_ATOM_NONE || fullAtom == XCB_ATOM_NONE) return;
@@ -543,7 +543,7 @@ public:
 
     // Iconify (minimise) the window via WM_CHANGE_STATE (works on WM-managed windows).
     void minimize() override {
-        if (m_style == Genesis::PlatformWindowStyle::Popup) return;
+        if (m_style == Genesis::JPlatformWindowStyle::Popup) return;
         xcb_atom_t changeState = _internAtom("WM_CHANGE_STATE");
         if (changeState == XCB_ATOM_NONE) return;
         xcb_client_message_event_t ev{};
@@ -567,7 +567,7 @@ public:
     // PropertyNotify path remains for WM-INITIATED snaps (drag-to-edge), which
     // see no transition here because we set m_isMaximized synchronously.
     void setMaximized(bool on) override {
-        if (m_style == Genesis::PlatformWindowStyle::Popup) return;
+        if (m_style == Genesis::JPlatformWindowStyle::Popup) return;
         if (on == m_isMaximized) return;  // no-op (also tames repeated button fires)
         xcb_atom_t stateAtom = _internAtom("_NET_WM_STATE");
         xcb_atom_t maxVAtom  = _internAtom("_NET_WM_STATE_MAXIMIZED_VERT");
@@ -629,7 +629,7 @@ public:
     }
 
     void startWindowMove() override {
-        if (m_style == Genesis::PlatformWindowStyle::Popup) return;
+        if (m_style == Genesis::JPlatformWindowStyle::Popup) return;
         xcb_atom_t atom = _internAtom("_NET_WM_MOVERESIZE");
         if (atom == XCB_ATOM_NONE) return;
         // Start each drag with a clean unsnap flag; only an un-maximize that
@@ -655,7 +655,7 @@ public:
     }
 
     void startWindowResize(uint32_t direction) override {
-        if (m_style == Genesis::PlatformWindowStyle::Popup) return;
+        if (m_style == Genesis::JPlatformWindowStyle::Popup) return;
         xcb_atom_t atom = _internAtom("_NET_WM_MOVERESIZE");
         if (atom == XCB_ATOM_NONE) return;
         xcb_ungrab_pointer(m_connection, XCB_CURRENT_TIME);
@@ -781,9 +781,9 @@ public:
     xcb_connection_t* nativeConnection() const { return m_connection; }
     xcb_window_t      nativeWindow()     const { return m_windowId; }
 
-    Genesis::NativeWindowHandle nativeHandle() const override {
-        Genesis::NativeWindowHandle h{};
-        h.apiTarget         = Genesis::GpuApiType::Vulkan;
+    Genesis::JNativeWindowHandle nativeHandle() const override {
+        Genesis::JNativeWindowHandle h{};
+        h.apiTarget         = Genesis::JGpuApiType::Vulkan;
         h.connectionPointer = m_connection;
         h.windowPointer     = reinterpret_cast<void*>(static_cast<uintptr_t>(m_windowId));
         return h;
@@ -806,7 +806,7 @@ private:
     void _applyMotifBorderless() {
         xcb_atom_t atom = _internAtom("_MOTIF_WM_HINTS");
         if (atom == XCB_ATOM_NONE) return;
-        struct MwmHints {
+        struct JMwmHints {
             uint32_t flags{2};        // MWM_HINTS_DECORATIONS
             uint32_t functions{0};
             uint32_t decorations{0};  // 0 = no decorations at all
@@ -831,14 +831,14 @@ private:
         bool shift = (k->state & XCB_MOD_MASK_SHIFT) != 0;
         xcb_keysym_t ks = xcb_key_symbols_get_keysym(m_syms, k->detail, shift ? 1 : 0);
 
-        KeyEvent ev;
+        JKeyEvent ev;
         ev.pressed = pressed;
         ev.shift   = shift;
         ev.ctrl    = (k->state & XCB_MOD_MASK_CONTROL) != 0;
         ev.alt     = (k->state & XCB_MOD_MASK_1)       != 0;
         ev.keysym  = static_cast<uint32_t>(ks);
 
-        using K = KeyEvent::Key;
+        using K = JKeyEvent::JKey;
         switch (ks) {
             case 0xFF09: ev.key = ev.shift ? K::BackTab : K::Tab; break;
             case 0xFF0D:                         // XK_Return (main Enter)
@@ -900,7 +900,7 @@ private:
     xcb_atom_t          m_deleteWindowAtom{0};
     xcb_key_symbols_t*  m_syms{nullptr};
 
-    PlatformWindowStyle m_style{PlatformWindowStyle::Normal};
+    JPlatformWindowStyle m_style{JPlatformWindowStyle::Normal};
     bool m_isMaximized{false};
     bool m_wasUnsnapped{false};
     bool m_selfMaximized{false};
@@ -932,7 +932,7 @@ private:
     xcb_cursor_t m_cursorTopRight{0};
     xcb_cursor_t m_cursorBotLeft{0};
     xcb_cursor_t m_cursorBotRight{0};
-    PlatformCursor m_currentCursor{PlatformCursor::Default};
+    JPlatformCursor m_currentCursor{JPlatformCursor::Default};
 
     // Return the height of the WM title bar decoration above our client window.
     //
@@ -972,7 +972,7 @@ private:
         return cid;
     }
 
-    std::deque<KeyEvent> m_keyQueue;
+    std::deque<JKeyEvent> m_keyQueue;
 };
 
 } // namespace Genesis

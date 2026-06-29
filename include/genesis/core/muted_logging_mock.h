@@ -11,22 +11,22 @@
 
 namespace Genesis::Log {
 
-struct Category { const char* name; };
+struct JCategory { const char* name; };
 
-inline constexpr Category Core     {"Core"};
-inline constexpr Category Layout   {"Layout"};
-inline constexpr Category Graphics {"Graphics"};
-inline constexpr Category Vulkan   {"Vulkan"};
-inline constexpr Category Widgets  {"Widgets"};
-inline constexpr Category Platform {"Platform"};
-inline constexpr Category Assets   {"Assets"};
-inline constexpr Category AI       {"AI"};
-inline constexpr Category Signal   {"Signal"};
+inline constexpr JCategory Core     {"Core"};
+inline constexpr JCategory Layout   {"Layout"};
+inline constexpr JCategory Graphics {"Graphics"};
+inline constexpr JCategory Vulkan   {"Vulkan"};
+inline constexpr JCategory Widgets  {"Widgets"};
+inline constexpr JCategory Platform {"Platform"};
+inline constexpr JCategory Assets   {"Assets"};
+inline constexpr JCategory AI       {"AI"};
+inline constexpr JCategory JSignal   {"JSignal"};
 
-class FileLogger {
+class JFileLogger {
 public:
-    static FileLogger& instance() {
-        static FileLogger inst;
+    static JFileLogger& instance() {
+        static JFileLogger inst;
         return inst;
     }
 
@@ -52,10 +52,10 @@ public:
     }
 
 private:
-    FileLogger() {
+    JFileLogger() {
         m_file.open("genesis.log", std::ios::out | std::ios::app);
     }
-    ~FileLogger() {
+    ~JFileLogger() {
         if (m_file.is_open()) {
             m_file.close();
         }
@@ -65,26 +65,26 @@ private:
     std::mutex m_mutex;
 };
 
-class LogStream {
+class JLogStream {
 public:
-    LogStream(const std::string& level, const std::string& category)
+    JLogStream(const std::string& level, const std::string& category)
         : m_level(level), m_category(category) {}
         
-    ~LogStream() {
+    ~JLogStream() {
         std::string s = m_stream.str();
         if (s.empty() || s.back() != '\n') {
             s += "\n";
         }
-        FileLogger::instance().log(m_level, m_category, s);
+        JFileLogger::instance().log(m_level, m_category, s);
     }
 
     template<typename T>
-    LogStream& operator<<(const T& val) {
+    JLogStream& operator<<(const T& val) {
         m_stream << val;
         return *this;
     }
     
-    LogStream& operator<<(std::ostream& (*manip)(std::ostream&)) {
+    JLogStream& operator<<(std::ostream& (*manip)(std::ostream&)) {
         m_stream << manip;
         return *this;
     }
@@ -97,9 +97,9 @@ private:
 
 } // namespace Genesis::Log
 
-#define qCInfo(cat)     (Genesis::Log::LogStream("INFO",     (cat).name))
-#define qCWarning(cat)  (Genesis::Log::LogStream("WARNING",  (cat).name))
-#define qCCritical(cat) (Genesis::Log::LogStream("CRITICAL", (cat).name))
-#define qCDebug(cat)    (Genesis::Log::LogStream("DEBUG",    (cat).name))
+#define qCInfo(cat)     (Genesis::Log::JLogStream("INFO",     (cat).name))
+#define qCWarning(cat)  (Genesis::Log::JLogStream("WARNING",  (cat).name))
+#define qCCritical(cat) (Genesis::Log::JLogStream("CRITICAL", (cat).name))
+#define qCDebug(cat)    (Genesis::Log::JLogStream("DEBUG",    (cat).name))
 
 #endif // GENESIS_LOGGING_MOCK_DEFINED

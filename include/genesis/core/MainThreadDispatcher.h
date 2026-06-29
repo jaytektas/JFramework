@@ -7,22 +7,22 @@
 namespace Genesis {
 
 // ============================================================================
-// MainThreadDispatcher — thread-safe callback queue (Step 4: thread-safe signals)
+// JMainThreadDispatcher — thread-safe callback queue (Step 4: thread-safe signals)
 //
 // Worker threads post callbacks here; the main loop drains them each frame.
-// This makes Timer::onTick, SerialPort::onData, and Database async queries safe
+// This makes JTimer::onTick, JSerialPort::onData, and JDatabase async queries safe
 // to emit from any thread without races on the widget tree.
 //
 // Main loop integration (call once per frame, before rendering):
-//   MainThreadDispatcher::instance().drain();
+//   JMainThreadDispatcher::instance().drain();
 //
 // Usage from any thread:
-//   MainThreadDispatcher::instance().post([this]{ myWidget->setValue(x); });
+//   JMainThreadDispatcher::instance().post([this]{ myWidget->setValue(x); });
 // ============================================================================
-class MainThreadDispatcher {
+class JMainThreadDispatcher {
 public:
-    static MainThreadDispatcher& instance() {
-        static MainThreadDispatcher inst;
+    static JMainThreadDispatcher& instance() {
+        static JMainThreadDispatcher inst;
         return inst;
     }
 
@@ -49,7 +49,7 @@ public:
     }
 
 private:
-    MainThreadDispatcher() = default;
+    JMainThreadDispatcher() = default;
     mutable std::mutex               m_mutex;
     std::vector<std::function<void()>> m_pending;
 };

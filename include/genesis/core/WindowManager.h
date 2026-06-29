@@ -1,7 +1,7 @@
 #pragma once
 
 // Thread-safety: MAIN THREAD ONLY.
-// Window registration and surface management happen on the render/main thread.
+// JWindow registration and surface management happen on the render/main thread.
 
 #include <vector>
 #include <memory>
@@ -14,20 +14,20 @@ namespace Genesis {
 /**
  * @brief Represents a managed application surface within Genesis Prime.
  */
-struct AppSurface {
+struct JAppSurface {
     uint32_t surfaceId;
-    NodeId layoutNode;      // Corresponding node in the WM's global SceneGraph
+    NodeId layoutNode;      // Corresponding node in the WM's global JSceneGraph
     bool isAgenticFocused;  // Whether the AI ALE is currently optimizing this app
-    float taskRelevance;    // Scalar (0.0 - 1.0) determined by AiControlBus
+    float taskRelevance;    // Scalar (0.0 - 1.0) determined by JAiControlBus
 };
 
 /**
- * @brief Superior Window Manager Core.
+ * @brief Superior JWindow Manager Core.
  * Orchestrates spatial layouts and AI-driven focus across all Genesis apps.
  */
-class WindowManager {
+class JWindowManager {
 public:
-    WindowManager(SceneGraph& globalGraph, AiControlBus& aiBus) 
+    JWindowManager(JSceneGraph& globalGraph, JAiControlBus& aiBus) 
         : m_globalGraph(globalGraph), m_aiBus(aiBus), m_rootWorkspace(0) 
     {
         m_rootWorkspace = m_globalGraph.createNode("Genesis_Prime_Root");
@@ -40,7 +40,7 @@ public:
         NodeId appNode = m_globalGraph.createNode(appName);
         m_globalGraph.addChild(m_rootWorkspace, appNode);
         
-        AppSurface surface{
+        JAppSurface surface{
             static_cast<uint32_t>(m_surfaces.size()),
             appNode,
             false,
@@ -54,9 +54,9 @@ public:
      * Uses ALE logic to rearrange windows based on task relevance.
      */
     void performAgenticLayout() {
-        // 1. Read task context from AiControlBus
+        // 1. Read task context from JAiControlBus
         // 2. Adjust m_globalGraph.getLayout() parameters for each surface
-        // 3. Trigger SceneGraph invalidation vector
+        // 3. Trigger JSceneGraph invalidation vector
     }
 
     /**
@@ -68,10 +68,10 @@ public:
     }
 
 private:
-    SceneGraph& m_globalGraph;
-    AiControlBus& m_aiBus;
+    JSceneGraph& m_globalGraph;
+    JAiControlBus& m_aiBus;
     NodeId m_rootWorkspace;
-    std::unordered_map<uint32_t, AppSurface> m_surfaces;
+    std::unordered_map<uint32_t, JAppSurface> m_surfaces;
 };
 
 } // namespace Genesis

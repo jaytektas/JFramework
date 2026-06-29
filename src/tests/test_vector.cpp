@@ -5,13 +5,13 @@
 #include <cmath>
 
 using namespace Genesis;
-using Vec2 = VectorCanvas::Vec2;
+using JVec2 = JVectorCanvas::JVec2;
 
-static bool allTriangles(const VectorCanvas& vg) { return vg.geometry().size() % 3 == 0; }
+static bool allTriangles(const JVectorCanvas& vg) { return vg.geometry().size() % 3 == 0; }
 
-struct BBox { float x0, y0, x1, y1; };
-static BBox bounds(const VectorCanvas& vg) {
-    BBox b{1e9f, 1e9f, -1e9f, -1e9f};
+struct JBBox { float x0, y0, x1, y1; };
+static JBBox bounds(const JVectorCanvas& vg) {
+    JBBox b{1e9f, 1e9f, -1e9f, -1e9f};
     for (auto& v : vg.geometry()) {
         b.x0 = std::min(b.x0, v.position[0]); b.y0 = std::min(b.y0, v.position[1]);
         b.x1 = std::max(b.x1, v.position[0]); b.y1 = std::max(b.y1, v.position[1]);
@@ -20,11 +20,11 @@ static BBox bounds(const VectorCanvas& vg) {
 }
 
 void test_fill_rect_geometry() {
-    VectorCanvas vg(1.0f);
+    JVectorCanvas vg(1.0f);
     vg.fillRect(10, 20, 100, 50, rgb(200, 100, 50));
     assert(!vg.empty());
     assert(allTriangles(vg));
-    BBox b = bounds(vg);
+    JBBox b = bounds(vg);
     // Within the rect plus the 1px AA fringe.
     assert(b.x0 >= 10 - 2 && b.y0 >= 20 - 2);
     assert(b.x1 <= 110 + 2 && b.y1 <= 70 + 2);
@@ -32,10 +32,10 @@ void test_fill_rect_geometry() {
 }
 
 void test_circle_bounds() {
-    VectorCanvas vg(1.0f);
+    JVectorCanvas vg(1.0f);
     vg.fillCircle(200, 200, 80, rgb(0, 180, 120));
     assert(allTriangles(vg) && !vg.empty());
-    BBox b = bounds(vg);
+    JBBox b = bounds(vg);
     assert(b.x0 >= 120 - 2 && b.x1 <= 280 + 2);
     assert(b.y0 >= 120 - 2 && b.y1 <= 280 + 2);
     // Should be a fair number of triangles for a smooth circle.
@@ -44,10 +44,10 @@ void test_circle_bounds() {
 }
 
 void test_stroke_line() {
-    VectorCanvas vg(1.0f);
+    JVectorCanvas vg(1.0f);
     vg.drawLine(0, 0, 100, 0, 4.0f, rgb(255, 255, 0));
     assert(allTriangles(vg) && !vg.empty());
-    BBox b = bounds(vg);
+    JBBox b = bounds(vg);
     // 4px wide line on y=0 → spans roughly y in [-2-aa, 2+aa].
     assert(b.y0 >= -4 && b.y1 <= 4);
     assert(b.x1 >= 99);
@@ -55,21 +55,21 @@ void test_stroke_line() {
 }
 
 void test_polyline_path() {
-    VectorCanvas vg(1.0f);
+    JVectorCanvas vg(1.0f);
     vg.beginPath();
     vg.moveTo(0, 100);
     vg.lineTo(50, 40);
     vg.lineTo(100, 80);
     vg.lineTo(150, 20);
-    vg.stroke(3.0f, rgb(220, 220, 40), LineCap::Round);
+    vg.stroke(3.0f, rgb(220, 220, 40), JLineCap::Round);
     assert(allTriangles(vg) && !vg.empty());
     std::cout << "test_polyline_path passed\n";
 }
 
 void test_linear_gradient_endpoints() {
-    VectorCanvas vg(0.0f);  // no fringe so we only get the exact corner vertices
+    JVectorCanvas vg(0.0f);  // no fringe so we only get the exact corner vertices
     // rect corners coincide with the gradient axis endpoints.
-    Paint g = Paint::linear(0, 0, rgb(255, 0, 0), 100, 0, rgb(0, 0, 255));
+    JPaint g = JPaint::linear(0, 0, rgb(255, 0, 0), 100, 0, rgb(0, 0, 255));
     vg.fillRect(0, 0, 100, 100, g);
     bool sawRed = false, sawBlue = false;
     for (auto& v : vg.geometry()) {
@@ -81,7 +81,7 @@ void test_linear_gradient_endpoints() {
 }
 
 void test_aa_fringe_present() {
-    VectorCanvas vg(1.0f);
+    JVectorCanvas vg(1.0f);
     vg.fillCircle(50, 50, 40, rgb(255, 255, 255));
     bool sawTransparent = false, sawOpaque = false;
     for (auto& v : vg.geometry()) {
@@ -93,20 +93,20 @@ void test_aa_fringe_present() {
 }
 
 void test_flush_to_buffer() {
-    VectorCanvas vg;
+    JVectorCanvas vg;
     vg.fillCircle(10, 10, 5, rgb(1, 2, 3));
-    PrimitiveBuffer buf;
+    JPrimitiveBuffer buf;
     vg.flush(buf);
     int geomCmds = 0;
     for (auto& c : buf.getCommands())
-        if (c.kind == PrimitiveBuffer::DrawCommand::Kind::Geometry) ++geomCmds;
+        if (c.kind == JPrimitiveBuffer::JDrawCommand::JKind::Geometry) ++geomCmds;
     assert(geomCmds == 1);
     assert(buf.getCommands()[0].geom.verts.size() == vg.geometry().size());
     std::cout << "test_flush_to_buffer passed\n";
 }
 
 void test_pie_and_ring() {
-    VectorCanvas vg;
+    JVectorCanvas vg;
     vg.fillPie(100, 100, 60, -1.0f, 1.0f, rgb(120, 60, 200));
     assert(allTriangles(vg) && !vg.empty());
     size_t afterPie = vg.geometry().size();

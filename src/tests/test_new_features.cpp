@@ -17,17 +17,17 @@ using namespace Genesis::Core;
 // ---------------------------------------------------------------------------
 // Minimal mock HAL for texture tests
 // ---------------------------------------------------------------------------
-class MockHal : public GpuHal {
+class MockHal : public JGpuHal {
 public:
     bool initialize() override { return true; }
     void resizeSurface(GpuSurfaceId, uint32_t, uint32_t) override {}
-    GpuFrameContext beginFrame(GpuSurfaceId sid) override { GpuFrameContext c; c.surfaceId = sid; return c; }
+    JGpuFrameContext beginFrame(GpuSurfaceId sid) override { JGpuFrameContext c; c.surfaceId = sid; return c; }
     bool uploadFontAtlas(const uint8_t*, uint32_t, uint32_t) override { return true; }
-    void drawPrimitives(const PrimitiveBuffer&) override {}
-    void submitAndPresentFrame(const GpuFrameContext&) override {}
+    void drawPrimitives(const JPrimitiveBuffer&) override {}
+    void submitAndPresentFrame(const JGpuFrameContext&) override {}
     void waitIdle() override {}
-    GpuApiType getBackendType() const noexcept override { return GpuApiType::Software; }
-    GpuSurfaceId createSurface(const NativeWindowHandle&, uint32_t, uint32_t) override { return 1; }
+    JGpuApiType getBackendType() const noexcept override { return JGpuApiType::Software; }
+    GpuSurfaceId createSurface(const JNativeWindowHandle&, uint32_t, uint32_t) override { return 1; }
     void destroySurface(GpuSurfaceId) override {}
 
     TextureHandle uploadTexture(const uint8_t*, uint32_t w, uint32_t h) override {
@@ -47,12 +47,12 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// Animator
+// JAnimator
 // ---------------------------------------------------------------------------
 
 void test_animator_linear() {
-    AnimatedFloat af(0.0f);
-    af.animateTo(100.0f, 200.0f, Easing::Linear); // 200ms
+    JAnimatedFloat af(0.0f);
+    af.animateTo(100.0f, 200.0f, JEasing::Linear); // 200ms
 
     bool changed = af.advance(0.1f); // 100ms = halfway
     assert(changed);
@@ -66,7 +66,7 @@ void test_animator_linear() {
 }
 
 void test_animator_snap() {
-    AnimatedFloat af(5.0f);
+    JAnimatedFloat af(5.0f);
     af.set(42.0f);
     assert(af.current() == 42.0f);
     assert(af.isDone());
@@ -75,9 +75,9 @@ void test_animator_snap() {
 
 void test_animator_easing_values() {
     // Test key easing properties: t=0 → 0, t=1 → 1
-    for (auto e : {Easing::Linear, Easing::EaseIn, Easing::EaseOut, Easing::EaseInOut,
-                   Easing::EaseInCubic, Easing::EaseOutCubic, Easing::EaseInOutCubic,
-                   Easing::EaseOutElastic, Easing::EaseInBounce, Easing::EaseOutBounce}) {
+    for (auto e : {JEasing::Linear, JEasing::EaseIn, JEasing::EaseOut, JEasing::EaseInOut,
+                   JEasing::EaseInCubic, JEasing::EaseOutCubic, JEasing::EaseInOutCubic,
+                   JEasing::EaseOutElastic, JEasing::EaseInBounce, JEasing::EaseOutBounce}) {
         float v0 = applyEasing(0.0f, e);
         float v1 = applyEasing(1.0f, e);
         assert(std::abs(v0) < 0.001f);
@@ -87,9 +87,9 @@ void test_animator_easing_values() {
 }
 
 void test_animated_color() {
-    AnimatedColor c(255, 0, 0, 255);   // red
+    JAnimatedColor c(255, 0, 0, 255);   // red
     uint8_t target[4] = {0, 0, 255, 255}; // blue
-    c.animateTo(target, 100.0f, Easing::Linear);
+    c.animateTo(target, 100.0f, JEasing::Linear);
 
     c.advance(0.05f); // half way
     uint8_t out[4];
@@ -101,7 +101,7 @@ void test_animated_color() {
 }
 
 void test_animator_manager() {
-    Animator anim;
+    JAnimator anim;
     size_t a = anim.add(0.0f);
     size_t b = anim.add(100.0f);
 
@@ -123,14 +123,14 @@ void test_animator_manager() {
 }
 
 // ---------------------------------------------------------------------------
-// Clipboard (smoke test — skip if xclip/xsel not installed)
+// JClipboard (smoke test — skip if xclip/xsel not installed)
 // ---------------------------------------------------------------------------
 
 void test_clipboard_roundtrip() {
     // Use a unique string to avoid interference from the OS clipboard.
     const std::string text = "genesis-clipboard-test-42";
-    Clipboard::setText(text);
-    std::string got = Clipboard::getText();
+    JClipboard::setText(text);
+    std::string got = JClipboard::getText();
     // If clipboard tools are installed the round-trip should work.
     // If not (CI without xclip/xsel), getText() returns "" — that's acceptable.
     if (!got.empty())
@@ -140,16 +140,16 @@ void test_clipboard_roundtrip() {
 }
 
 // ---------------------------------------------------------------------------
-// Splitter
+// JSplitter
 // ---------------------------------------------------------------------------
 
 void test_splitter_fractions() {
-    SceneGraph graph;
-    Splitter split(graph, Splitter::Orientation::Horizontal, 600.0f, 400.0f);
+    JSceneGraph graph;
+    JSplitter split(graph, JSplitter::JOrientation::Horizontal, 600.0f, 400.0f);
 
     // Create two dummy widget nodes to act as panes.
-    Button pane1(graph, "Pane1", 300.0f, 400.0f);
-    Button pane2(graph, "Pane2", 300.0f, 400.0f);
+    JButton pane1(graph, "Pane1", 300.0f, 400.0f);
+    JButton pane2(graph, "Pane2", 300.0f, 400.0f);
 
     split.addPane(&pane1);
     split.addPane(&pane2);
@@ -163,16 +163,16 @@ void test_splitter_fractions() {
 }
 
 void test_splitter_layout() {
-    SceneGraph graph;
+    JSceneGraph graph;
     // Set splitter's own bounding box via layout
-    Splitter split(graph, Splitter::Orientation::Horizontal, 600.0f, 400.0f);
+    JSplitter split(graph, JSplitter::JOrientation::Horizontal, 600.0f, 400.0f);
     {
         auto& l = graph.getLayout(split.getNodeId());
         l.boundingBox = {0, 0, 600, 400};
     }
 
-    Button pane1(graph, "A", 10.0f, 10.0f);
-    Button pane2(graph, "B", 10.0f, 10.0f);
+    JButton pane1(graph, "A", 10.0f, 10.0f);
+    JButton pane2(graph, "B", 10.0f, 10.0f);
     split.addPane(&pane1, 0.4f);
     split.addPane(&pane2, 0.6f);
     split.layout();
@@ -192,7 +192,7 @@ void test_splitter_layout() {
 // ---------------------------------------------------------------------------
 
 void test_renderprimitive_image() {
-    PrimitiveBuffer buf;
+    JPrimitiveBuffer buf;
 
     // pushImage with null handle should not add a command.
     buf.pushImage(0, 0, 100, 100, kNullTexture);
@@ -203,7 +203,7 @@ void test_renderprimitive_image() {
     buf.pushImage(10, 20, 200, 150, fake);
     assert(buf.getCommands().size() == 1);
     const auto& cmd = buf.getCommands()[0];
-    assert(cmd.kind == PrimitiveBuffer::DrawCommand::Kind::Image);
+    assert(cmd.kind == JPrimitiveBuffer::JDrawCommand::JKind::Image);
     assert(cmd.image.tex == fake);
     assert(cmd.image.x == 10.0f);
     assert(cmd.image.y == 20.0f);
@@ -217,7 +217,7 @@ void test_renderprimitive_image() {
 }
 
 void test_renderprimitive_image_tint() {
-    PrimitiveBuffer buf;
+    JPrimitiveBuffer buf;
     const uint8_t red[4] = {255, 0, 0, 200};
     buf.pushImage(0, 0, 50, 50, 1u, red, 0.1f, 0.2f, 0.8f, 0.9f);
     assert(buf.getCommands().size() == 1);
@@ -230,7 +230,7 @@ void test_renderprimitive_image_tint() {
 }
 
 // ---------------------------------------------------------------------------
-// GpuHal texture interface
+// JGpuHal texture interface
 // ---------------------------------------------------------------------------
 
 void test_hal_texture_interface() {
@@ -259,18 +259,18 @@ void test_image_widget_render() {
     uint8_t rgba[4] = {255, 128, 0, 255};
     TextureHandle tex = hal.uploadTexture(rgba, 1, 1);
 
-    SceneGraph graph;
-    ImageWidget img(graph, tex, 100.0f, 80.0f);
+    JSceneGraph graph;
+    JImageWidget img(graph, tex, 100.0f, 80.0f);
     {
         auto& l = graph.getLayout(img.getNodeId());
         l.boundingBox = {10, 20, 100, 80};
     }
 
-    PrimitiveBuffer buf;
+    JPrimitiveBuffer buf;
     img.populateRenderPrimitives(buf);
     assert(buf.getCommands().size() == 1);
     const auto& cmd = buf.getCommands()[0];
-    assert(cmd.kind == PrimitiveBuffer::DrawCommand::Kind::Image);
+    assert(cmd.kind == JPrimitiveBuffer::JDrawCommand::JKind::Image);
     assert(cmd.image.tex == tex);
     assert(cmd.image.x == 10.0f && cmd.image.y == 20.0f);
     assert(cmd.image.w == 100.0f && cmd.image.h == 80.0f);

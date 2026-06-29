@@ -10,27 +10,27 @@
 using namespace Genesis;
 
 void test_hello_world_window() {
-    SceneGraph graph;
-    StyleEngine styles(graph);
-    PrimitiveBuffer buffer;
+    JSceneGraph graph;
+    JStyleEngine styles(graph);
+    JPrimitiveBuffer buffer;
     
-    // 1. Create a "Hello World" Window
-    Window win(graph, "Hello Genesis");
+    // 1. Create a "Hello World" JWindow
+    JWindow win(graph, "Hello Genesis");
     NodeId winId = win.getNodeId();
     
-    // 2. Setup initial layout constraints (Window size)
+    // 2. Setup initial layout constraints (JWindow size)
     auto& layout = graph.getLayout(winId);
     layout.boundingBox = { 100, 100, 400, 300 }; // Pos X:100, Y:100, Dim 400x300
     
     // 3. Apply a custom style override (Blue Title Bar)
-    Color customTitle = { 0, 120, 215, 255 }; // Modern UI Blue
+    JColor customTitle = { 0, 120, 215, 255 }; // Modern UI Blue
     styles.setLocal(winId, WindowStyle::TitleBarColor, customTitle);
     
     // 4. Perform Layout Pass
     // For this isolated test, we skip the parent-constraint pass because we defined bounds manually
     // graph.computeLayout(winId, constraints);
     
-    // 5. Render the Window
+    // 5. Render the JWindow
     win.renderWithStyles(buffer, styles);
     
     // 6. Validation
@@ -40,7 +40,7 @@ void test_hello_world_window() {
     int rectCount = 0;
     bool foundBlue = false;
     for (const auto& cmd : cmds) {
-        if (cmd.kind != PrimitiveBuffer::DrawCommand::Kind::Rect) continue;
+        if (cmd.kind != JPrimitiveBuffer::JDrawCommand::JKind::JRect) continue;
         ++rectCount;
         if (cmd.rect.color[0] == 0 && cmd.rect.color[1] == 120 && cmd.rect.color[2] == 215)
             foundBlue = true;
@@ -50,19 +50,19 @@ void test_hello_world_window() {
     // Verify our custom blue color reached the instance buffer for the title bar
     assert(foundBlue);
     
-    std::cout << "[GENESIS] Hello World Window Logical Bootstrapping: PASSED" << std::endl;
-    std::cout << "[GENESIS] Window bounds: " << layout.boundingBox.width << "x" << layout.boundingBox.height << std::endl;
+    std::cout << "[GENESIS] Hello World JWindow Logical Bootstrapping: PASSED" << std::endl;
+    std::cout << "[GENESIS] JWindow bounds: " << layout.boundingBox.width << "x" << layout.boundingBox.height << std::endl;
 }
 
 void test_window_transient_layering() {
     // 1. Create a parent window
-    LinuxPlatformWindow parentWin("Parent Window", 400, 300);
+    JLinuxPlatformWindow parentWin("Parent JWindow", 400, 300);
     xcb_window_t parentId = parentWin.nativeWindow();
     xcb_connection_t* conn = parentWin.nativeConnection();
     assert(parentId != 0);
 
     // 2. Create a child borderless window with parentId as transient parent
-    LinuxPlatformWindow childWin("Child Window", 200, 150, 150, 150, PlatformWindowStyle::Borderless, parentId);
+    JLinuxPlatformWindow childWin("Child JWindow", 200, 150, 150, 150, JPlatformWindowStyle::Borderless, parentId);
     xcb_window_t childId = childWin.nativeWindow();
     assert(childId != 0);
 
@@ -98,7 +98,7 @@ void test_window_transient_layering() {
 
     assert(queried_type == normal_atom);
 
-    std::cout << "[GENESIS] Window Transient Layering Hint Verification: PASSED" << std::endl;
+    std::cout << "[GENESIS] JWindow Transient Layering Hint Verification: PASSED" << std::endl;
 }
 
 int main() {

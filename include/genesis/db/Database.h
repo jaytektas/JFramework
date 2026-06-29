@@ -11,39 +11,39 @@
 
 #include <genesis/core/MainThreadDispatcher.h>
 
-// Database.h requires linking against sqlite3:
+// JDatabase.h requires linking against sqlite3:
 //   target_link_libraries(myapp PRIVATE sqlite3)
 
 namespace Genesis {
 
 // ============================================================================
-// Database — thread-safe SQLite3 wrapper
+// JDatabase — thread-safe SQLite3 wrapper
 //
 // All synchronous methods are mutex-protected — safe to call from any thread.
 // Async variants run the query on a background thread and fire the callback
-// on the main thread via MainThreadDispatcher, so UI updates are safe.
+// on the main thread via JMainThreadDispatcher, so UI updates are safe.
 //
 // Synchronous usage (any thread):
-//   Database db;
+//   JDatabase db;
 //   db.open("runs.db");
 //   db.exec("CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY, name TEXT)");
-//   db.exec("INSERT INTO runs (name) VALUES (?)", {Bind::from("run1")});
-//   db.query("SELECT * FROM runs", {}, [](const Database::Row& r) {
+//   db.exec("INSERT INTO runs (name) VALUES (?)", {JBind::from("run1")});
+//   db.query("SELECT * FROM runs", {}, [](const JDatabase::JRow& r) {
 //       printf("%lld  %s\n", r.integer(0), r.text(1).c_str());
 //   });
 //
 // Async usage (background write, main-thread callback):
-//   db.execAsync("INSERT INTO telemetry VALUES (?,?)", {Bind::from(ts), Bind::from(val)});
-//   db.queryAsync("SELECT * FROM runs", {}, [](std::vector<Database::RowSnapshot> rows) {
+//   db.execAsync("INSERT INTO telemetry VALUES (?,?)", {JBind::from(ts), JBind::from(val)});
+//   db.queryAsync("SELECT * FROM runs", {}, [](std::vector<JDatabase::JRowSnapshot> rows) {
 //       for (auto& r : rows) printf("%s\n", r.text(1).c_str());
 //   });
 // ============================================================================
-class Database {
+class JDatabase {
 public:
     // ---- Live row view — valid only inside a synchronous query() callback ----
-    class Row {
+    class JRow {
     public:
-        explicit Row(sqlite3_stmt* s) : m_stmt(s) {}
+        explicit JRow(sqlite3_stmt* s) : m_stmt(s) {}
         int         columns()           const { return sqlite3_column_count(m_stmt); }
         std::string text(int col)       const {
             auto* p = reinterpret_cast<const char*>(sqlite3_column_text(m_stmt, col));
@@ -63,15 +63,15 @@ public:
     // ---- Materialized row — used by queryAsync callbacks ----
     // Copied off the SQLite statement while still on the background thread;
     // safe to read on the main thread after the query completes.
-    struct RowSnapshot {
-        struct Cell {
+    struct JRowSnapshot {
+        struct JCell {
             int         type{SQLITE_NULL}; // SQLITE_INTEGER / SQLITE_FLOAT / SQLITE_TEXT / SQLITE_NULL
             int64_t     ival{0};
             double      dval{0.0};
             std::string sval;
             std::string name;
         };
-        std::vector<Cell> cells;
+        std::vector<JCell> cells;
 
         int         columns()           const { return static_cast<int>(cells.size()); }
         std::string text(int col)       const { return cells[col].sval; }
@@ -80,8 +80,8 @@ public:
         bool        isNull(int col)     const { return cells[col].type == SQLITE_NULL; }
         std::string columnName(int col) const { return cells[col].name; }
 
-        static RowSnapshot from(const Row& r) {
-            RowSnapshot s;
+        static JRowSnapshot from(const JRow& r) {
+            JRowSnapshot s;
             int n = r.columns();
             s.cells.resize(n);
             for (int i = 0; i < n; ++i) {
@@ -95,25 +95,25 @@ public:
         }
     };
 
-    // ---- Bind parameter ----
-    struct Bind {
-        enum class Kind { Null, Int, Real, Text } kind{Kind::Null};
+    // ---- JBind parameter ----
+    struct JBind {
+        enum class JKind { Null, Int, Real, Text } kind{JKind::Null};
         int64_t     ival{0};
         double      dval{0};
         std::string sval;
-        static Bind null()               { return {Kind::Null, 0, 0, {}}; }
-        static Bind from(int64_t v)      { return {Kind::Int,  v, 0, {}}; }
-        static Bind from(int v)          { return {Kind::Int,  v, 0, {}}; }
-        static Bind from(double v)       { return {Kind::Real, 0, v, {}}; }
-        static Bind from(std::string v)  { Bind b; b.kind=Kind::Text; b.sval=std::move(v); return b; }
-        static Bind from(const char* v)  { return from(std::string(v ? v : "")); }
+        static JBind null()               { return {JKind::Null, 0, 0, {}}; }
+        static JBind from(int64_t v)      { return {JKind::Int,  v, 0, {}}; }
+        static JBind from(int v)          { return {JKind::Int,  v, 0, {}}; }
+        static JBind from(double v)       { return {JKind::Real, 0, v, {}}; }
+        static JBind from(std::string v)  { JBind b; b.kind=JKind::Text; b.sval=std::move(v); return b; }
+        static JBind from(const char* v)  { return from(std::string(v ? v : "")); }
     };
 
-    Database()  = default;
-    ~Database() { close(); }
+    JDatabase()  = default;
+    ~JDatabase() { close(); }
 
-    Database(const Database&)            = delete;
-    Database& operator=(const Database&) = delete;
+    JDatabase(const JDatabase&)            = delete;
+    JDatabase& operator=(const JDatabase&) = delete;
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -156,14 +156,14 @@ public:
 
     // Parameterised query with per-row callback. Returns row count or -1 on error.
     int query(const std::string& sql,
-              std::vector<Bind> params,
-              std::function<void(const Row&)> cb) {
+              std::vector<JBind> params,
+              std::function<void(const JRow&)> cb) {
         std::lock_guard<std::recursive_mutex> lk(m_mutex);
         return _queryUnlocked(sql, params, cb);
     }
 
     // Parameterised exec (INSERT / UPDATE / DELETE).
-    bool exec(const std::string& sql, std::vector<Bind> params) {
+    bool exec(const std::string& sql, std::vector<JBind> params) {
         std::lock_guard<std::recursive_mutex> lk(m_mutex);
         return _queryUnlocked(sql, params, nullptr) >= 0;
     }
@@ -195,23 +195,23 @@ public:
 
     // -------------------------------------------------------------------------
     // Async API — query/exec runs on a background thread; callback fires on
-    // the main thread via MainThreadDispatcher (safe for UI updates).
+    // the main thread via JMainThreadDispatcher (safe for UI updates).
     // -------------------------------------------------------------------------
 
     // Runs SELECT on background thread; cb receives all rows on main thread.
     void queryAsync(const std::string& sql,
-                    std::vector<Bind> params,
-                    std::function<void(std::vector<RowSnapshot>)> cb) {
+                    std::vector<JBind> params,
+                    std::function<void(std::vector<JRowSnapshot>)> cb) {
         std::thread([this, sql, params = std::move(params), cb]() mutable {
-            std::vector<RowSnapshot> rows;
+            std::vector<JRowSnapshot> rows;
             {
                 std::lock_guard<std::recursive_mutex> lk(m_mutex);
-                _queryUnlocked(sql, params, [&rows](const Row& r) {
-                    rows.push_back(RowSnapshot::from(r));
+                _queryUnlocked(sql, params, [&rows](const JRow& r) {
+                    rows.push_back(JRowSnapshot::from(r));
                 });
             }
             if (cb) {
-                MainThreadDispatcher::instance().post(
+                JMainThreadDispatcher::instance().post(
                     [cb, rows = std::move(rows)]() mutable { cb(std::move(rows)); });
             }
         }).detach();
@@ -219,7 +219,7 @@ public:
 
     // Runs INSERT/UPDATE/DELETE on background thread; optional cb(success) on main thread.
     void execAsync(const std::string& sql,
-                   std::vector<Bind> params,
+                   std::vector<JBind> params,
                    std::function<void(bool)> cb = nullptr) {
         std::thread([this, sql, params = std::move(params), cb]() mutable {
             bool ok;
@@ -228,7 +228,7 @@ public:
                 ok = _queryUnlocked(sql, params, nullptr) >= 0;
             }
             if (cb) {
-                MainThreadDispatcher::instance().post([cb, ok]() { cb(ok); });
+                JMainThreadDispatcher::instance().post([cb, ok]() { cb(ok); });
             }
         }).detach();
     }
@@ -250,7 +250,7 @@ public:
                 }
             }
             if (cb) {
-                MainThreadDispatcher::instance().post([cb, ok]() { cb(ok); });
+                JMainThreadDispatcher::instance().post([cb, ok]() { cb(ok); });
             }
         }).detach();
     }
@@ -277,8 +277,8 @@ private:
     }
 
     int _queryUnlocked(const std::string& sql,
-                       const std::vector<Bind>& params,
-                       std::function<void(const Row&)> cb) {
+                       const std::vector<JBind>& params,
+                       std::function<void(const JRow&)> cb) {
         if (!m_db) { m_lastError = "database not open"; return -1; }
         sqlite3_stmt* stmt = nullptr;
         int rc = sqlite3_prepare_v2(m_db, sql.c_str(), -1, &stmt, nullptr);
@@ -286,7 +286,7 @@ private:
         _bindUnlocked(stmt, params);
         int rows = 0;
         while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-            if (cb) cb(Row(stmt));
+            if (cb) cb(JRow(stmt));
             ++rows;
         }
         if (rc != SQLITE_DONE) m_lastError = sqlite3_errmsg(m_db);
@@ -294,14 +294,14 @@ private:
         return (rc == SQLITE_DONE) ? rows : -1;
     }
 
-    static void _bindUnlocked(sqlite3_stmt* s, const std::vector<Bind>& params) {
+    static void _bindUnlocked(sqlite3_stmt* s, const std::vector<JBind>& params) {
         for (int i = 0; i < static_cast<int>(params.size()); ++i) {
             const auto& p = params[i];
             switch (p.kind) {
-                case Bind::Kind::Null: sqlite3_bind_null(s, i+1);                                         break;
-                case Bind::Kind::Int:  sqlite3_bind_int64(s, i+1, p.ival);                               break;
-                case Bind::Kind::Real: sqlite3_bind_double(s, i+1, p.dval);                              break;
-                case Bind::Kind::Text: sqlite3_bind_text(s, i+1, p.sval.c_str(), -1, SQLITE_TRANSIENT); break;
+                case JBind::JKind::Null: sqlite3_bind_null(s, i+1);                                         break;
+                case JBind::JKind::Int:  sqlite3_bind_int64(s, i+1, p.ival);                               break;
+                case JBind::JKind::Real: sqlite3_bind_double(s, i+1, p.dval);                              break;
+                case JBind::JKind::Text: sqlite3_bind_text(s, i+1, p.sval.c_str(), -1, SQLITE_TRANSIENT); break;
             }
         }
     }

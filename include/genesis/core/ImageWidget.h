@@ -6,24 +6,24 @@
 namespace Genesis {
 
 // ============================================================================
-// ImageWidget — displays a GPU-resident RGBA texture.
+// JImageWidget — displays a GPU-resident RGBA texture.
 //
 // Usage:
 //   // Upload pixels through the platform window's HAL, then:
 //   auto tex = hal.uploadTexture(rgba, w, h);
-//   ImageWidget img(graph, tex, w, h);
+//   JImageWidget img(graph, tex, w, h);
 //   img.setTint({255, 200, 200, 255});  // red tint (optional)
 //
 //   // Release when no longer needed:
 //   img.releaseTexture(hal);
 // ============================================================================
-class ImageWidget : public Widget {
+class JImageWidget : public JWidget {
 public:
-    ImageWidget(SceneGraph& graph,
+    JImageWidget(JSceneGraph& graph,
                 TextureHandle tex = kNullTexture,
                 float w = 100.0f,
                 float h = 100.0f)
-        : Widget(graph, "ImageWidget")
+        : JWidget(graph, "JImageWidget")
         , m_tex(tex)
     {
         auto& l = m_graph.getLayout(m_nodeId);
@@ -55,7 +55,7 @@ public:
     }
 
     // Releases the underlying texture handle via the HAL.
-    void releaseTexture(GpuHal& hal) {
+    void releaseTexture(JGpuHal& hal) {
         if (m_tex != kNullTexture) {
             hal.releaseTexture(m_tex);
             m_tex = kNullTexture;
@@ -63,15 +63,15 @@ public:
         }
     }
 
-    void populateRenderPrimitives(PrimitiveBuffer& buf) override {
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         if (m_tex == kNullTexture) return;
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         buf.pushImage(b.x, b.y, b.width, b.height, m_tex, m_tint,
                       m_u0, m_v0, m_u1, m_v1);
     }
 
-    AISemanticNode getSemanticNode() const override {
-        return {"ImageWidget", m_debugName, "", false};
+    JAISemanticNode getSemanticNode() const override {
+        return {"JImageWidget", m_debugName, "", false};
     }
 
 private:

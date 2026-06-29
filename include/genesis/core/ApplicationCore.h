@@ -24,9 +24,9 @@ namespace Core {
 /**
  * @brief Normalized cross-platform raw input data package.
  */
-struct InputEvent {
-    enum class Type { KeyDown, KeyUp, MouseMove, MouseButtonDown, MouseButtonUp, Scroll };
-    Type type;
+struct JInputEvent {
+    enum class JType { KeyDown, KeyUp, MouseMove, MouseButtonDown, MouseButtonUp, Scroll };
+    JType type;
     int32_t deviceId = 0;
     double timestamp = 0.0;
     
@@ -37,11 +37,11 @@ struct InputEvent {
 };
 
 /**
- * @brief Base Platform Window Interface. 
+ * @brief Base Platform JWindow Interface. 
  */
-class PlatformWindow {
+class JPlatformWindow {
 public:
-    virtual ~PlatformWindow() = default;
+    virtual ~JPlatformWindow() = default;
     virtual void pollNativeEvents() = 0;
     virtual void swapBuffers() = 0;
     virtual void setVSync(bool enabled) = 0;
@@ -58,19 +58,19 @@ public:
     
     // Keyboard events
     virtual bool hasKeyEvents() const { return false; }
-    virtual Genesis::KeyEvent consumeKey() { return {}; }
-    virtual std::vector<Genesis::KeyEvent> consumeAllKeys() { return {}; }
+    virtual Genesis::JKeyEvent consumeKey() { return {}; }
+    virtual std::vector<Genesis::JKeyEvent> consumeAllKeys() { return {}; }
 
-    // Window dimensions and state
+    // JWindow dimensions and state
     virtual int      screenX() const { return 0; }
     virtual int      screenY() const { return 0; }
     virtual uint32_t width()   const { return 0; }
     virtual uint32_t height()  const { return 0; }
     virtual void     setPosition(int x, int y) { (void)x; (void)y; }
     virtual void     setSize(uint32_t w, uint32_t h) { (void)w; (void)h; }
-    virtual void     setCursor(Genesis::PlatformCursor shape) { (void)shape; }
-    virtual Genesis::PlatformWindowStyle windowStyle() const { return Genesis::PlatformWindowStyle::Normal; }
-    virtual Genesis::NativeWindowHandle nativeHandle() const { return {}; }
+    virtual void     setCursor(Genesis::JPlatformCursor shape) { (void)shape; }
+    virtual Genesis::JPlatformWindowStyle windowStyle() const { return Genesis::JPlatformWindowStyle::Normal; }
+    virtual Genesis::JNativeWindowHandle nativeHandle() const { return {}; }
     
     // Focus & state checks
     virtual bool consumeFocusLost()  { return false; }
@@ -102,15 +102,15 @@ public:
 /**
  * @brief Ultra-stable, high-performance cross-platform application runtime manager.
  */
-class Application {
+class JApplication {
 public:
     using Task = std::function<void()>;
 
-    Application() : m_isRunning(false), m_targetFrameTime(std::chrono::microseconds(16666)) {} 
-    virtual ~Application() { shutdown(); }   // base of the GUI application tier
+    JApplication() : m_isRunning(false), m_targetFrameTime(std::chrono::microseconds(16666)) {} 
+    virtual ~JApplication() { shutdown(); }   // base of the GUI application tier
 
-    Application(const Application&) = delete;
-    Application& operator=(const Application&) = delete;
+    JApplication(const JApplication&) = delete;
+    JApplication& operator=(const JApplication&) = delete;
 
     /**
      * @brief Post a task safely from any worker thread into the main UI loop.
@@ -124,7 +124,7 @@ public:
     }
 
     // Called once per frame (main thread, before swapBuffers).
-    // Wire AI snapshot publishing, MainThreadDispatcher::drain(), etc. here.
+    // Wire AI snapshot publishing, JMainThreadDispatcher::drain(), etc. here.
     std::function<void(double deltaTime)> onFrameUpdate;
 
     void setTargetFps(uint32_t fps) {
@@ -137,9 +137,9 @@ public:
         }
     }
 
-    int run(std::unique_ptr<PlatformWindow> window) {
+    int run(std::unique_ptr<JPlatformWindow> window) {
         if (!window) {
-            qCCritical(LogEngineCore) << "Failed to start runtime application loop: Window Abstraction layer is null." << std::endl;
+            qCCritical(LogEngineCore) << "Failed to start runtime application loop: JWindow Abstraction layer is null." << std::endl;
             return -1;
         }
 
@@ -208,9 +208,9 @@ private:
     }
 
     void updateEngineSystems(double deltaTime) {
-        // Always drain the main-thread dispatcher so Timer/SerialPort callbacks
+        // Always drain the main-thread dispatcher so JTimer/JSerialPort callbacks
         // reach the UI even when used without a GUI application.
-        Genesis::MainThreadDispatcher::instance().drain();
+        Genesis::JMainThreadDispatcher::instance().drain();
         onFrameTick(deltaTime);                 // GUI tier (subclass) injects per-frame work
         if (onFrameUpdate) onFrameUpdate(deltaTime);
     }
@@ -222,7 +222,7 @@ protected:
 
 private:
     std::atomic<bool> m_isRunning;
-    std::unique_ptr<PlatformWindow> m_window;
+    std::unique_ptr<JPlatformWindow> m_window;
     
     std::mutex m_queueMutex;
     std::vector<Task> m_incomingTasks; 

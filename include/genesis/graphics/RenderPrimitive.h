@@ -11,12 +11,12 @@ namespace { inline constexpr auto& LogGraphicsEngine = Genesis::Log::Graphics; }
 
 namespace Genesis {
 
-// Opaque handle to a GPU-resident texture created via GpuHal::uploadTexture().
+// Opaque handle to a GPU-resident texture created via JGpuHal::uploadTexture().
 // 0 is the null/invalid handle.
 using TextureHandle = uint32_t;
 static constexpr TextureHandle kNullTexture = 0;
 
-enum class PrimitiveType : uint32_t {
+enum class JPrimitiveType : uint32_t {
     Rectangle = 0,
     TextRun   = 1,
     CustomPath = 2
@@ -26,7 +26,7 @@ enum class PrimitiveType : uint32_t {
  * @brief Pack-aligned GPU Vertex Layout for high throughput memory streaming.
  * Strict 32-byte alignment per vertex.
  */
-struct RenderVertex {
+struct JRenderVertex {
     float position[2]; // X, Y coordinates
     float texCoord[2]; // U, V coordinates
     uint8_t color[4];  // RGBA8 normalized linear format
@@ -42,41 +42,41 @@ struct alignas(16) GpuPrimitiveInstance {
     uint8_t borderColor[4]; // Border color RGBA8
     float borderRadius;     // Corner rounding radius in pixels
     float borderWidth;      // Border inner width thickness
-    uint32_t primitiveType; // Maps directly to PrimitiveType enum
+    uint32_t primitiveType; // Maps directly to JPrimitiveType enum
     float padding[3];       // Hard GPU alignment constraint padding
 };
 
 /**
  * @brief Ordered draw command buffer.
  *
- * Every pushRectangle / pushTextCall appends one DrawCommand to a single
+ * Every pushRectangle / pushTextCall appends one JDrawCommand to a single
  * sequence.  The HAL walks that sequence in order, batching consecutive
  * same-pipeline commands for efficiency.  This guarantees correct painter's-
  * algorithm z-ordering regardless of how many pipelines are interleaved.
  */
-class PrimitiveBuffer {
+class JPrimitiveBuffer {
 public:
-    PrimitiveBuffer() = default;
-    ~PrimitiveBuffer() = default;
+    JPrimitiveBuffer() = default;
+    ~JPrimitiveBuffer() = default;
 
-    PrimitiveBuffer(const PrimitiveBuffer&) = delete;
-    PrimitiveBuffer& operator=(const PrimitiveBuffer&) = delete;
+    JPrimitiveBuffer(const JPrimitiveBuffer&) = delete;
+    JPrimitiveBuffer& operator=(const JPrimitiveBuffer&) = delete;
 
     // ---- Text types ----
-    struct TextVertex { float x, y, u, v; };
-    struct TextCall {
+    struct JTextVertex { float x, y, u, v; };
+    struct JTextCall {
         uint8_t color[4]{};
-        std::vector<TextVertex> verts;
+        std::vector<JTextVertex> verts;
     };
 
     // Scissor/clip rectangle in window pixels.  enabled=false means "no clip" (full window).
-    struct ClipRect {
+    struct JClipRect {
         float x{0.0f}, y{0.0f}, w{0.0f}, h{0.0f};
         bool  enabled{false};
     };
 
     // ---- Image draw data ----
-    struct ImageData {
+    struct JImageData {
         float x{0}, y{0}, w{0}, h{0};   // destination rect in window pixels
         float u0{0}, v0{0}, u1{1}, v1{1}; // source UV rect (default = full texture)
         TextureHandle tex{kNullTexture};
@@ -84,20 +84,20 @@ public:
     };
 
     // ---- Vector geometry (anti-aliased 2D paths, per-vertex color) ----
-    struct GeometryData {
-        std::vector<RenderVertex> verts;            // triangle list (count % 3 == 0)
+    struct JGeometryData {
+        std::vector<JRenderVertex> verts;            // triangle list (count % 3 == 0)
         TextureHandle             tex{kNullTexture}; // optional; null = solid per-vertex color
     };
 
     // ---- Unified draw command ----
-    struct DrawCommand {
-        enum class Kind : uint8_t { Rect, Text, Image, Geometry };
-        Kind             kind{Kind::Rect};
+    struct JDrawCommand {
+        enum class JKind : uint8_t { JRect, Text, Image, Geometry };
+        JKind             kind{JKind::JRect};
         GpuPrimitiveInstance rect{};
-        TextCall             text{};
-        ImageData            image{};
-        GeometryData         geom{};
-        ClipRect             clip{};   // active clip when this command was recorded
+        JTextCall             text{};
+        JImageData            image{};
+        JGeometryData         geom{};
+        JClipRect             clip{};   // active clip when this command was recorded
     };
 
     // ---- Push API ----
@@ -106,8 +106,8 @@ public:
                        const uint8_t fill[4], float radius = 0.0f,
                        float bWidth = 0.0f, const uint8_t bColor[4] = nullptr)
     {
-        DrawCommand cmd;
-        cmd.kind = DrawCommand::Kind::Rect;
+        JDrawCommand cmd;
+        cmd.kind = JDrawCommand::JKind::JRect;
         cmd.rect.rectBounds[0] = x;
         cmd.rect.rectBounds[1] = y;
         cmd.rect.rectBounds[2] = width;
@@ -118,14 +118,14 @@ public:
         }
         cmd.rect.borderRadius  = radius;
         cmd.rect.borderWidth   = bWidth;
-        cmd.rect.primitiveType = static_cast<uint32_t>(PrimitiveType::Rectangle);
+        cmd.rect.primitiveType = static_cast<uint32_t>(JPrimitiveType::Rectangle);
         cmd.clip = currentClip();
         m_commands.push_back(std::move(cmd));
     }
 
-    void pushTextCall(TextCall call) {
-        DrawCommand cmd;
-        cmd.kind = DrawCommand::Kind::Text;
+    void pushTextCall(JTextCall call) {
+        JDrawCommand cmd;
+        cmd.kind = JDrawCommand::JKind::Text;
         cmd.text = std::move(call);
         cmd.clip = currentClip();
         m_commands.push_back(std::move(cmd));
@@ -136,8 +136,8 @@ public:
                    float u0 = 0.f, float v0 = 0.f, float u1 = 1.f, float v1 = 1.f)
     {
         if (tex == kNullTexture) return;
-        DrawCommand cmd;
-        cmd.kind      = DrawCommand::Kind::Image;
+        JDrawCommand cmd;
+        cmd.kind      = JDrawCommand::JKind::Image;
         cmd.image.x   = x; cmd.image.y  = y;
         cmd.image.w   = w; cmd.image.h  = h;
         cmd.image.u0  = u0; cmd.image.v0 = v0;
@@ -152,10 +152,10 @@ public:
 
     // Push a triangle-list of anti-aliased vector geometry (see VectorGraphics.h).
     // verts.size() must be a multiple of 3. tex defaults to solid per-vertex color.
-    void pushGeometry(std::vector<RenderVertex> verts, TextureHandle tex = kNullTexture) {
+    void pushGeometry(std::vector<JRenderVertex> verts, TextureHandle tex = kNullTexture) {
         if (verts.size() < 3) return;
-        DrawCommand cmd;
-        cmd.kind       = DrawCommand::Kind::Geometry;
+        JDrawCommand cmd;
+        cmd.kind       = JDrawCommand::JKind::Geometry;
         cmd.geom.verts = std::move(verts);
         cmd.geom.tex   = tex;
         cmd.clip       = currentClip();
@@ -164,9 +164,9 @@ public:
 
     // ---- Clip stack: scopes subsequent draws to a rectangle (nested clips intersect) ----
     void pushClip(float x, float y, float w, float h) {
-        ClipRect c{x, y, w, h, true};
+        JClipRect c{x, y, w, h, true};
         if (!m_clipStack.empty()) {
-            const ClipRect& p = m_clipStack.back();
+            const JClipRect& p = m_clipStack.back();
             float x1 = std::max(c.x, p.x), y1 = std::max(c.y, p.y);
             float x2 = std::min(c.x + c.w, p.x + p.w), y2 = std::min(c.y + c.h, p.y + p.h);
             c.x = x1; c.y = y1; c.w = std::max(0.0f, x2 - x1); c.h = std::max(0.0f, y2 - y1);
@@ -174,17 +174,17 @@ public:
         m_clipStack.push_back(c);
     }
     void popClip() { if (!m_clipStack.empty()) m_clipStack.pop_back(); }
-    ClipRect currentClip() const { return m_clipStack.empty() ? ClipRect{} : m_clipStack.back(); }
+    JClipRect currentClip() const { return m_clipStack.empty() ? JClipRect{} : m_clipStack.back(); }
 
     // ---- Read API ----
 
-    const std::vector<DrawCommand>& getCommands() const { return m_commands; }
+    const std::vector<JDrawCommand>& getCommands() const { return m_commands; }
 
     void clear() { m_commands.clear(); m_clipStack.clear(); }
 
 private:
-    std::vector<DrawCommand> m_commands;
-    std::vector<ClipRect>    m_clipStack;
+    std::vector<JDrawCommand> m_commands;
+    std::vector<JClipRect>    m_clipStack;
 };
 
 } // namespace Genesis

@@ -1,5 +1,5 @@
-// Chart showcase — a live scrolling telemetry chart + a static sweep chart,
-// both built on Genesis::Chart over the VectorCanvas 2D layer.
+// JChart showcase — a live scrolling telemetry chart + a static sweep chart,
+// both built on Genesis::JChart over the JVectorCanvas 2D layer.
 #include <genesis/core/ApplicationCore.h>
 #include <genesis/graphics/GpuHal.h>
 #include <genesis/graphics/RenderPrimitive.h>
@@ -7,10 +7,10 @@
 #include <genesis/graphics/FontEngine.h>
 #if defined(_WIN32)
 #include <genesis/platforms/windows/WindowsPlatformWindow.h>
-using PlatformWindowImpl = Genesis::WindowsPlatformWindow;
+using PlatformWindowImpl = Genesis::JWindowsPlatformWindow;
 #else
 #include <genesis/platforms/linux/LinuxPlatformWindow.h>
-using PlatformWindowImpl = Genesis::LinuxPlatformWindow;
+using PlatformWindowImpl = Genesis::JLinuxPlatformWindow;
 #endif
 
 #include <iostream>
@@ -21,27 +21,27 @@ using PlatformWindowImpl = Genesis::LinuxPlatformWindow;
 using namespace Genesis;
 
 int main() {
-    std::cout << "[GENESIS] Chart demo starting...\n";
+    std::cout << "[GENESIS] JChart demo starting...\n";
     constexpr uint32_t W = 820, H = 520;
     uint32_t curW = W, curH = H;
     constexpr float kTitleH = 28.f, kBtnW = 28.f;
 
     auto window = std::make_unique<PlatformWindowImpl>(
-        "Genesis Chart Demo", W, H, 120, 120, Genesis::PlatformWindowStyle::Borderless);
-    auto hal = GpuHal::create(GpuApiType::Vulkan, window->nativeHandle());
+        "Genesis JChart Demo", W, H, 120, 120, Genesis::JPlatformWindowStyle::Borderless);
+    auto hal = JGpuHal::create(JGpuApiType::Vulkan, window->nativeHandle());
     if (!hal) { std::cerr << "[GENESIS] no HAL\n"; return -1; }
     hal->resizeSwapchain(W, H);
     window->setMinSize(420, 320);
 
-    Genesis::FontEngine fontEngine;
+    Genesis::JFontEngine fontEngine;
     if (fontEngine.loadSystemFont()) {
         auto atlas = fontEngine.buildAtlas(13.0f * window->dpiScale());
-        Genesis::TextHelper::setAtlas(atlas);
+        Genesis::JTextHelper::setAtlas(atlas);
         hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
     }
 
     // Live scrolling telemetry chart (top).
-    Chart live;
+    JChart live;
     live.setTitle("Live Telemetry");
     live.setXWindow(10.0);
     live.setAutoY(true);
@@ -51,7 +51,7 @@ int main() {
     live.setAxisTitles("t (s)", "RPM", "Boost (bar)");
 
     // Static power/torque sweep chart (bottom).
-    Chart sweep;
+    JChart sweep;
     sweep.setTitle("Power / Torque Sweep");
     sweep.setXRange(1000, 7000);
     sweep.setAutoY(true);
@@ -68,7 +68,7 @@ int main() {
         sweep.addPoint(sPow, x, kw);
     }
 
-    PrimitiveBuffer buffer;
+    JPrimitiveBuffer buffer;
     auto t0 = std::chrono::steady_clock::now();
     auto last = t0;
     bool closePending = false;
@@ -127,10 +127,10 @@ int main() {
         // Title bar.
         uint8_t tbg[4]{18, 18, 24, 255};
         buffer.pushRectangle(0, 0, Wf, kTitleH, tbg, 0.f);
-        float lh = Genesis::TextHelper::lineHeight();
+        float lh = Genesis::JTextHelper::lineHeight();
         uint8_t tc[4]{200, 200, 210, 230};
-        Genesis::TextHelper::pushText(buffer, 10.f, (kTitleH - lh) * 0.5f,
-                                      "Genesis Chart Demo", tc, Wf - kBtnW - 20.f);
+        Genesis::JTextHelper::pushText(buffer, 10.f, (kTitleH - lh) * 0.5f,
+                                      "Genesis JChart Demo", tc, Wf - kBtnW - 20.f);
         if (inClose) { uint8_t hb[4]{180, 40, 40, 220}; buffer.pushRectangle(closeX, 0, kBtnW, kTitleH, hb, 0.f); }
         uint8_t xc[4]{220, 220, 230, 235};
         float cx = closeX + kBtnW * 0.5f - 4.f, cy = kTitleH * 0.5f - 1.f;
@@ -140,6 +140,6 @@ int main() {
         hal->drawPrimitives(buffer);
         hal->submitAndPresentFrame(frame);
     }
-    std::cout << "[GENESIS] Chart demo exiting.\n";
+    std::cout << "[GENESIS] JChart demo exiting.\n";
     return 0;
 }

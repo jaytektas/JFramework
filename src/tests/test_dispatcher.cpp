@@ -8,7 +8,7 @@
 using namespace Genesis;
 
 void test_post_and_drain() {
-    auto& disp = MainThreadDispatcher::instance();
+    auto& disp = JMainThreadDispatcher::instance();
     disp.drain();  // flush any prior state
     int count = 0;
     disp.post([&]{ count += 1; });
@@ -22,7 +22,7 @@ void test_post_and_drain() {
 }
 
 void test_has_pending() {
-    auto& disp = MainThreadDispatcher::instance();
+    auto& disp = JMainThreadDispatcher::instance();
     disp.drain();
     assert(!disp.hasPending());
     disp.post([]{ });
@@ -33,7 +33,7 @@ void test_has_pending() {
 }
 
 void test_cross_thread_post() {
-    auto& disp = MainThreadDispatcher::instance();
+    auto& disp = JMainThreadDispatcher::instance();
     disp.drain();
     int count = 0;
     std::thread t([&]{
@@ -47,18 +47,18 @@ void test_cross_thread_post() {
 }
 
 void test_timer_posts_to_main_thread() {
-    // Timer ticks are posted through MainThreadDispatcher::instance()
+    // JTimer ticks are posted through JMainThreadDispatcher::instance()
     int ticks = 0;
-    MainThreadDispatcher::instance().drain();  // flush any prior state
+    JMainThreadDispatcher::instance().drain();  // flush any prior state
 
-    Timer timer(std::chrono::milliseconds(20), Timer::Mode::Repeating);
+    JTimer timer(std::chrono::milliseconds(20), JTimer::JMode::Repeating);
     timer.onTick.connect([&]{ ++ticks; });
 
     // Let the timer fire a few times
     std::this_thread::sleep_for(std::chrono::milliseconds(80));
     timer.stop();
 
-    int drained = MainThreadDispatcher::instance().drain();
+    int drained = JMainThreadDispatcher::instance().drain();
     // We don't care about exact count, just that at least one tick was posted
     assert(drained >= 2);
     assert(ticks >= 2);
@@ -66,12 +66,12 @@ void test_timer_posts_to_main_thread() {
 }
 
 void test_single_shot_timer() {
-    MainThreadDispatcher::instance().drain();
+    JMainThreadDispatcher::instance().drain();
     int count = 0;
-    Timer t(std::chrono::milliseconds(30), Timer::Mode::SingleShot);
+    JTimer t(std::chrono::milliseconds(30), JTimer::JMode::SingleShot);
     t.onTick.connect([&]{ ++count; });
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    MainThreadDispatcher::instance().drain();
+    JMainThreadDispatcher::instance().drain();
     assert(count == 1);
     assert(!t.isRunning());
     std::cout << "test_single_shot_timer passed\n";
@@ -83,6 +83,6 @@ int main() {
     test_cross_thread_post();
     test_timer_posts_to_main_thread();
     test_single_shot_timer();
-    std::cout << "All MainThreadDispatcher/Timer tests passed!\n";
+    std::cout << "All JMainThreadDispatcher/JTimer tests passed!\n";
     return 0;
 }

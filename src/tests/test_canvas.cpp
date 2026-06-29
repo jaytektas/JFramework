@@ -7,36 +7,36 @@
 using namespace Genesis;
 
 // Concrete subclass for testing
-class CircleWidget : public CanvasWidget {
+class CircleWidget : public JCanvasWidget {
 public:
     uint8_t fillColor[4] = {255, 0, 0, 255};
     float   radius{40.f};
     int     drawCalls{0};
 
-    CircleWidget(SceneGraph& g) : CanvasWidget(g, "CircleWidget") {}
+    CircleWidget(JSceneGraph& g) : JCanvasWidget(g, "CircleWidget") {}
 
-    void draw(Canvas& c, float w, float h) override {
+    void draw(JCanvas& c, float w, float h) override {
         ++drawCalls;
         c.fillCircle(w * 0.5f, h * 0.5f, radius, fillColor);
     }
 };
 
-class ArcWidget : public CanvasWidget {
+class ArcWidget : public JCanvasWidget {
 public:
     int drawCalls{0};
-    ArcWidget(SceneGraph& g) : CanvasWidget(g, "ArcWidget") {}
-    void draw(Canvas& c, float w, float h) override {
+    ArcWidget(JSceneGraph& g) : JCanvasWidget(g, "ArcWidget") {}
+    void draw(JCanvas& c, float w, float h) override {
         ++drawCalls;
         uint8_t col[4] = {0, 120, 255, 255};
         c.arc(w * 0.5f, h * 0.5f, 40.f, -220.f, 40.f, col, 6.f);
     }
 };
 
-class MultiPrimWidget : public CanvasWidget {
+class MultiPrimWidget : public JCanvasWidget {
 public:
     int drawCalls{0};
-    MultiPrimWidget(SceneGraph& g) : CanvasWidget(g, "MultiPrimWidget") {}
-    void draw(Canvas& c, float w, float h) override {
+    MultiPrimWidget(JSceneGraph& g) : JCanvasWidget(g, "MultiPrimWidget") {}
+    void draw(JCanvas& c, float w, float h) override {
         ++drawCalls;
         uint8_t bg[4] = {30, 30, 30, 255};
         uint8_t fg[4] = {255, 255, 255, 255};
@@ -49,26 +49,26 @@ public:
 };
 
 void test_draw_called() {
-    SceneGraph graph;
+    JSceneGraph graph;
     CircleWidget w(graph);
     auto& l = graph.getLayout(w.getNodeId());
     l.boundingBox = {0.f, 0.f, 100.f, 100.f};
 
-    PrimitiveBuffer buf;
+    JPrimitiveBuffer buf;
     w.populateRenderPrimitives(buf);
     assert(w.drawCalls == 1);
-    // fillCircle emits at least one Rect command (circle = rect with full radius)
+    // fillCircle emits at least one JRect command (circle = rect with full radius)
     assert(!buf.getCommands().empty());
     std::cout << "test_draw_called passed\n";
 }
 
 void test_arc_emits_primitives() {
-    SceneGraph graph;
+    JSceneGraph graph;
     ArcWidget w(graph);
     auto& l = graph.getLayout(w.getNodeId());
     l.boundingBox = {0.f, 0.f, 120.f, 120.f};
 
-    PrimitiveBuffer buf;
+    JPrimitiveBuffer buf;
     w.populateRenderPrimitives(buf);
     assert(w.drawCalls == 1);
     // Arc approximation emits many circle dots
@@ -77,12 +77,12 @@ void test_arc_emits_primitives() {
 }
 
 void test_multi_primitive_widget() {
-    SceneGraph graph;
+    JSceneGraph graph;
     MultiPrimWidget w(graph);
     auto& l = graph.getLayout(w.getNodeId());
     l.boundingBox = {0.f, 0.f, 200.f, 60.f};
 
-    PrimitiveBuffer buf;
+    JPrimitiveBuffer buf;
     w.populateRenderPrimitives(buf);
     assert(w.drawCalls == 1);
     assert(buf.getCommands().size() >= 2);  // bg + border at minimum
@@ -90,16 +90,16 @@ void test_multi_primitive_widget() {
 }
 
 void test_canvas_offset() {
-    SceneGraph graph;
+    JSceneGraph graph;
     CircleWidget w(graph);
     auto& l = graph.getLayout(w.getNodeId());
     l.boundingBox = {50.f, 80.f, 100.f, 100.f};  // widget placed at (50,80)
 
-    PrimitiveBuffer buf;
+    JPrimitiveBuffer buf;
     w.populateRenderPrimitives(buf);
     // All primitives should have x >= 50, y >= 80
     for (const auto& cmd : buf.getCommands()) {
-        if (cmd.kind == PrimitiveBuffer::DrawCommand::Kind::Rect) {
+        if (cmd.kind == JPrimitiveBuffer::JDrawCommand::JKind::JRect) {
             assert(cmd.rect.rectBounds[0] >= 50.f - 1.f);  // small float tolerance
             assert(cmd.rect.rectBounds[1] >= 80.f - 1.f);
         }
@@ -108,7 +108,7 @@ void test_canvas_offset() {
 }
 
 void test_invalidate() {
-    SceneGraph graph;
+    JSceneGraph graph;
     CircleWidget w(graph);
     auto& l = graph.getLayout(w.getNodeId());
     l.boundingBox = {0.f, 0.f, 100.f, 100.f};
@@ -116,17 +116,17 @@ void test_invalidate() {
     // After invalidate, node should be dirty (no crash, no UB)
     w.invalidate();
 
-    PrimitiveBuffer buf;
+    JPrimitiveBuffer buf;
     w.populateRenderPrimitives(buf);
     assert(w.drawCalls == 1);
     std::cout << "test_invalidate passed\n";
 }
 
 void test_semantic_node() {
-    SceneGraph graph;
+    JSceneGraph graph;
     CircleWidget w(graph);
     auto node = w.getSemanticNode();
-    assert(node.role == "CanvasWidget");
+    assert(node.role == "JCanvasWidget");
     assert(node.label == "CircleWidget");
     std::cout << "test_semantic_node passed\n";
 }
@@ -138,6 +138,6 @@ int main() {
     test_canvas_offset();
     test_invalidate();
     test_semantic_node();
-    std::cout << "All CanvasWidget tests passed!\n";
+    std::cout << "All JCanvasWidget tests passed!\n";
     return 0;
 }

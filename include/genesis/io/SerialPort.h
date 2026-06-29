@@ -11,7 +11,7 @@
 #include <cstdint>
 
 // Cross-platform serial port (POSIX termios on Linux/macOS, Win32 on Windows).
-// Signals fire on the main thread via MainThreadDispatcher — safe for widget updates.
+// Signals fire on the main thread via JMainThreadDispatcher — safe for widget updates.
 
 #if defined(_WIN32)
   #define WIN32_LEAN_AND_MEAN
@@ -29,7 +29,7 @@
 namespace Genesis {
 
 // ---- Port info returned by availablePorts() --------------------------------
-struct SerialPortInfo {
+struct JSerialPortInfo {
     std::string port;           // "/dev/ttyUSB0" or "COM3"
     std::string description;    // human-readable device name
     std::string manufacturer;
@@ -39,9 +39,9 @@ struct SerialPortInfo {
     bool        hasVidPid{false};
 };
 
-class SerialPort {
+class JSerialPort {
 public:
-    enum class BaudRate {
+    enum class JBaudRate {
         B1200_   = 1200,
         B4800_   = 4800,
         B9600_   = 9600,
@@ -53,28 +53,28 @@ public:
         B921600_ = 921600,
     };
 
-    enum class DataBits { Five=5, Six=6, Seven=7, Eight=8 };
-    enum class StopBits { One, Two };
-    enum class Parity   { None, Even, Odd };
-    enum class FlowCtrl { None, Hardware, Software };
+    enum class JDataBits { Five=5, Six=6, Seven=7, Eight=8 };
+    enum class JStopBits { One, Two };
+    enum class JParity   { None, Even, Odd };
+    enum class JFlowCtrl { None, Hardware, Software };
 
-    // All signals fire on the main thread via MainThreadDispatcher.
-    Core::Signal<std::vector<uint8_t>> onData;
-    Core::Signal<std::string>          onError;
-    Core::Signal<>                     onDisconnect; // cable pull or device removal
+    // All signals fire on the main thread via JMainThreadDispatcher.
+    Core::JSignal<std::vector<uint8_t>> onData;
+    Core::JSignal<std::string>          onError;
+    Core::JSignal<>                     onDisconnect; // cable pull or device removal
 
-    SerialPort() = default;
-    ~SerialPort() { close(); }
+    JSerialPort() = default;
+    ~JSerialPort() { close(); }
 
-    SerialPort(const SerialPort&)            = delete;
-    SerialPort& operator=(const SerialPort&) = delete;
+    JSerialPort(const JSerialPort&)            = delete;
+    JSerialPort& operator=(const JSerialPort&) = delete;
 
     bool open(const std::string& port,
-              BaudRate  baud     = BaudRate::B115200_,
-              DataBits  dataBits = DataBits::Eight,
-              StopBits  stopBits = StopBits::One,
-              Parity    parity   = Parity::None,
-              FlowCtrl  flow     = FlowCtrl::None)
+              JBaudRate  baud     = JBaudRate::B115200_,
+              JDataBits  dataBits = JDataBits::Eight,
+              JStopBits  stopBits = JStopBits::One,
+              JParity    parity   = JParity::None,
+              JFlowCtrl  flow     = JFlowCtrl::None)
     {
 #if defined(_WIN32)
         // Create an event so we can cancel blocking reads on close.
@@ -92,15 +92,15 @@ public:
         DCB dcb{};
         dcb.DCBlength = sizeof(DCB);
         GetCommState(m_handle, &dcb);
-        dcb.BaudRate = static_cast<DWORD>(baud);
+        dcb.JBaudRate = static_cast<DWORD>(baud);
         dcb.ByteSize = static_cast<BYTE>(dataBits);
-        dcb.StopBits = (stopBits == StopBits::Two) ? TWOSTOPBITS : ONESTOPBIT;
-        dcb.Parity   = (parity == Parity::None) ? NOPARITY :
-                       (parity == Parity::Even) ? EVENPARITY : ODDPARITY;
-        dcb.fOutxCtsFlow = (flow == FlowCtrl::Hardware) ? TRUE : FALSE;
-        dcb.fRtsControl  = (flow == FlowCtrl::Hardware) ? RTS_CONTROL_HANDSHAKE : RTS_CONTROL_ENABLE;
-        dcb.fOutX        = (flow == FlowCtrl::Software) ? TRUE : FALSE;
-        dcb.fInX         = (flow == FlowCtrl::Software) ? TRUE : FALSE;
+        dcb.JStopBits = (stopBits == JStopBits::Two) ? TWOSTOPBITS : ONESTOPBIT;
+        dcb.JParity   = (parity == JParity::None) ? NOPARITY :
+                       (parity == JParity::Even) ? EVENPARITY : ODDPARITY;
+        dcb.fOutxCtsFlow = (flow == JFlowCtrl::Hardware) ? TRUE : FALSE;
+        dcb.fRtsControl  = (flow == JFlowCtrl::Hardware) ? RTS_CONTROL_HANDSHAKE : RTS_CONTROL_ENABLE;
+        dcb.fOutX        = (flow == JFlowCtrl::Software) ? TRUE : FALSE;
+        dcb.fInX         = (flow == JFlowCtrl::Software) ? TRUE : FALSE;
         if (!SetCommState(m_handle, &dcb)) {
             _postError("SetCommState failed"); _closeHandles(); return false;
         }
@@ -124,22 +124,22 @@ public:
 
         tty.c_cflag &= ~CSIZE;
         switch (dataBits) {
-            case DataBits::Five:  tty.c_cflag |= CS5; break;
-            case DataBits::Six:   tty.c_cflag |= CS6; break;
-            case DataBits::Seven: tty.c_cflag |= CS7; break;
-            case DataBits::Eight: tty.c_cflag |= CS8; break;
+            case JDataBits::Five:  tty.c_cflag |= CS5; break;
+            case JDataBits::Six:   tty.c_cflag |= CS6; break;
+            case JDataBits::Seven: tty.c_cflag |= CS7; break;
+            case JDataBits::Eight: tty.c_cflag |= CS8; break;
         }
-        if (stopBits == StopBits::Two) tty.c_cflag |= CSTOPB; else tty.c_cflag &= ~CSTOPB;
+        if (stopBits == JStopBits::Two) tty.c_cflag |= CSTOPB; else tty.c_cflag &= ~CSTOPB;
         tty.c_cflag &= ~PARENB;
-        if (parity != Parity::None) {
+        if (parity != JParity::None) {
             tty.c_cflag |= PARENB;
-            if (parity == Parity::Odd) tty.c_cflag |= PARODD;
+            if (parity == JParity::Odd) tty.c_cflag |= PARODD;
         }
-        if (flow == FlowCtrl::Hardware) tty.c_cflag |= CRTSCTS; else tty.c_cflag &= ~CRTSCTS;
+        if (flow == JFlowCtrl::Hardware) tty.c_cflag |= CRTSCTS; else tty.c_cflag &= ~CRTSCTS;
         tty.c_cflag |= (CREAD | CLOCAL);
         tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
         tty.c_iflag &= ~(IXON | IXOFF | IXANY);
-        if (flow == FlowCtrl::Software) tty.c_iflag |= (IXON | IXOFF);
+        if (flow == JFlowCtrl::Software) tty.c_iflag |= (IXON | IXOFF);
         tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
         tty.c_oflag &= ~OPOST;
         tty.c_cc[VMIN]  = 1;   // block until at least 1 byte
@@ -159,14 +159,14 @@ public:
         m_port    = port;
         m_running = true;
         m_thread  = std::thread([this]{ _readLoop(); });
-        if (AiBusHook::emit) AiBusHook::emit(0, "serial.open", port.c_str());
+        if (JAiBusHook::emit) JAiBusHook::emit(0, "serial.open", port.c_str());
         return true;
     }
 
     void close() {
         if (!m_running.exchange(false)) return;
-        if (AiBusHook::emit && !m_port.empty())
-            AiBusHook::emit(0, "serial.close", m_port.c_str());
+        if (JAiBusHook::emit && !m_port.empty())
+            JAiBusHook::emit(0, "serial.close", m_port.c_str());
         m_port.clear();
         _wakeReadThread();
         if (m_thread.joinable()) m_thread.join();
@@ -234,8 +234,8 @@ public:
     }
 
     // Enumerate available ports with descriptions, manufacturer, and VID/PID.
-    static std::vector<SerialPortInfo> availablePorts() {
-        std::vector<SerialPortInfo> out;
+    static std::vector<JSerialPortInfo> availablePorts() {
+        std::vector<JSerialPortInfo> out;
 #if defined(_WIN32)
         HKEY key;
         if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
@@ -246,7 +246,7 @@ public:
                 nameLen = sizeof(name); valueLen = sizeof(value);
                 if (RegEnumValueA(key, idx++, name, &nameLen, nullptr,
                                   &type, (LPBYTE)value, &valueLen) != ERROR_SUCCESS) break;
-                SerialPortInfo info;
+                JSerialPortInfo info;
                 info.port        = value;
                 info.description = name;
                 out.push_back(std::move(info));
@@ -267,7 +267,7 @@ public:
             if (!isUsb && !hasDevice) continue;
             std::string devNode = "/dev/" + name;
             if (access(devNode.c_str(), F_OK) != 0) continue;
-            SerialPortInfo info;
+            JSerialPortInfo info;
             info.port         = devNode;
             std::string base  = std::string(sysPath) + "/" + name;
             info.description  = _sysfsAttr(base, "device/../product");
@@ -285,7 +285,7 @@ public:
         }
         closedir(dir);
         std::sort(out.begin(), out.end(),
-                  [](const SerialPortInfo& a, const SerialPortInfo& b){ return a.port < b.port; });
+                  [](const JSerialPortInfo& a, const JSerialPortInfo& b){ return a.port < b.port; });
 #endif
         return out;
     }
@@ -349,21 +349,21 @@ private:
     }
 
     void _dispatch(std::vector<uint8_t> data) {
-        if (AiBusHook::emit) {
+        if (JAiBusHook::emit) {
             std::string len = std::to_string(data.size()) + "B";
-            AiBusHook::emit(0, "serial.data", len.c_str());
+            JAiBusHook::emit(0, "serial.data", len.c_str());
         }
-        MainThreadDispatcher::instance().post([this, d = std::move(data)]() mutable {
+        JMainThreadDispatcher::instance().post([this, d = std::move(data)]() mutable {
             onData.emit(std::move(d));
         });
     }
 
     void _postError(const std::string& msg) {
-        MainThreadDispatcher::instance().post([this, msg]{ onError.emit(msg); });
+        JMainThreadDispatcher::instance().post([this, msg]{ onError.emit(msg); });
     }
 
     void _signalDisconnect() {
-        MainThreadDispatcher::instance().post([this]{ onDisconnect.emit(); });
+        JMainThreadDispatcher::instance().post([this]{ onDisconnect.emit(); });
     }
 
 #if !defined(_WIN32)
@@ -387,22 +387,22 @@ private:
 #if defined(_WIN32)
     HANDLE            m_handle{INVALID_HANDLE_VALUE};
     HANDLE            m_cancelEvent{nullptr};
-    static speed_t    _posixBaud(BaudRate) { return 0; }
+    static speed_t    _posixBaud(JBaudRate) { return 0; }
 #else
     int               m_fd{-1};
     int               m_pipeFd[2]{-1, -1};
 
-    static speed_t _posixBaud(BaudRate b) {
+    static speed_t _posixBaud(JBaudRate b) {
         switch (b) {
-            case BaudRate::B1200_:   return B1200;
-            case BaudRate::B4800_:   return B4800;
-            case BaudRate::B9600_:   return B9600;
-            case BaudRate::B19200_:  return B19200;
-            case BaudRate::B38400_:  return B38400;
-            case BaudRate::B57600_:  return B57600;
-            case BaudRate::B115200_: return B115200;
-            case BaudRate::B230400_: return B230400;
-            case BaudRate::B921600_: return B921600;
+            case JBaudRate::B1200_:   return B1200;
+            case JBaudRate::B4800_:   return B4800;
+            case JBaudRate::B9600_:   return B9600;
+            case JBaudRate::B19200_:  return B19200;
+            case JBaudRate::B38400_:  return B38400;
+            case JBaudRate::B57600_:  return B57600;
+            case JBaudRate::B115200_: return B115200;
+            case JBaudRate::B230400_: return B230400;
+            case JBaudRate::B921600_: return B921600;
             default:                 return B115200;
         }
     }

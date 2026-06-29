@@ -12,16 +12,16 @@
 #include <utility>
 
 // Custom Logging Integration
-inline constexpr Genesis::Log::Category LogWin32Backend{"Win32Backend"};
+inline constexpr Genesis::Log::JCategory LogWin32Backend{"Win32Backend"};
 
 namespace Genesis {
 
-class WindowsPlatformWindow : public Core::PlatformWindow {
+class JWindowsPlatformWindow : public Core::JPlatformWindow {
 public:
-    using KeyEvent = Genesis::KeyEvent;
-    WindowsPlatformWindow(const std::string& title, uint32_t width, uint32_t height,
+    using JKeyEvent = Genesis::JKeyEvent;
+    JWindowsPlatformWindow(const std::string& title, uint32_t width, uint32_t height,
                           int screenX = 100, int screenY = 100,
-                          PlatformWindowStyle style = PlatformWindowStyle::Normal,
+                          JPlatformWindowStyle style = JPlatformWindowStyle::Normal,
                           HWND parentWindow = nullptr,
                           HINSTANCE sharedInst = nullptr)
         : m_screenX(screenX), m_screenY(screenY)
@@ -48,7 +48,7 @@ public:
         WNDCLASSEXW wc{};
         wc.cbSize = sizeof(WNDCLASSEXW);
         wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
-        wc.lpfnWndProc = WindowsPlatformWindow::StaticWindowProc;
+        wc.lpfnWndProc = JWindowsPlatformWindow::StaticWindowProc;
         wc.hInstance = m_hInstance;
         wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
         wc.lpszClassName = className;
@@ -56,9 +56,9 @@ public:
         RegisterClassExW(&wc);
 
         DWORD winStyle = WS_OVERLAPPEDWINDOW;
-        if (style == PlatformWindowStyle::Borderless) {
+        if (style == JPlatformWindowStyle::Borderless) {
             winStyle = WS_POPUP | WS_SYSMENU;
-        } else if (style == PlatformWindowStyle::Popup) {
+        } else if (style == JPlatformWindowStyle::Popup) {
             winStyle = WS_POPUP;
         }
 
@@ -95,7 +95,7 @@ public:
         UpdateWindow(m_hwnd);
     }
 
-    ~WindowsPlatformWindow() override {
+    ~JWindowsPlatformWindow() override {
         if (m_hwnd) {
             DestroyWindow(m_hwnd);
         }
@@ -126,13 +126,13 @@ public:
     float consumeWheel() override { float v = m_wheelY; m_wheelY = 0.0f; return v; }
 
     bool hasKeyEvents() const override { return !m_keyQueue.empty(); }
-    Genesis::KeyEvent consumeKey() override {
+    Genesis::JKeyEvent consumeKey() override {
         auto e = m_keyQueue.front();
         m_keyQueue.pop_front();
         return e;
     }
-    std::vector<Genesis::KeyEvent> consumeAllKeys() override {
-        std::vector<Genesis::KeyEvent> out(m_keyQueue.begin(), m_keyQueue.end());
+    std::vector<Genesis::JKeyEvent> consumeAllKeys() override {
+        std::vector<Genesis::JKeyEvent> out(m_keyQueue.begin(), m_keyQueue.end());
         m_keyQueue.clear();
         return out;
     }
@@ -154,12 +154,12 @@ public:
         SetWindowPos(m_hwnd, nullptr, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
-    void setCursor(Genesis::PlatformCursor shape) override { (void)shape; }
-    Genesis::PlatformWindowStyle windowStyle() const override { return m_style; }
+    void setCursor(Genesis::JPlatformCursor shape) override { (void)shape; }
+    Genesis::JPlatformWindowStyle windowStyle() const override { return m_style; }
 
-    Genesis::NativeWindowHandle nativeHandle() const override {
-        Genesis::NativeWindowHandle h{};
-        h.apiTarget         = Genesis::GpuApiType::Vulkan;
+    Genesis::JNativeWindowHandle nativeHandle() const override {
+        Genesis::JNativeWindowHandle h{};
+        h.apiTarget         = Genesis::JGpuApiType::Vulkan;
         h.connectionPointer = m_hInstance;
         h.windowPointer     = m_hwnd;
         return h;
@@ -197,9 +197,9 @@ public:
             SetWindowPos(m_hwnd, HWND_TOP, 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), SWP_FRAMECHANGED);
         } else {
             DWORD winStyle = WS_OVERLAPPEDWINDOW;
-            if (m_style == PlatformWindowStyle::Borderless) {
+            if (m_style == JPlatformWindowStyle::Borderless) {
                 winStyle = WS_POPUP | WS_SYSMENU;
-            } else if (m_style == PlatformWindowStyle::Popup) {
+            } else if (m_style == JPlatformWindowStyle::Popup) {
                 winStyle = WS_POPUP;
             }
             SetWindowLongPtrW(m_hwnd, GWL_STYLE, winStyle | WS_VISIBLE);
@@ -209,13 +209,13 @@ public:
 
 private:
     static LRESULT CALLBACK StaticWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-        WindowsPlatformWindow* pThis = nullptr;
+        JWindowsPlatformWindow* pThis = nullptr;
         if (uMsg == WM_NCCREATE) {
             CREATESTRUCT* pCreate = reinterpret_cast<CREATESTRUCT*>(lParam);
-            pThis = reinterpret_cast<WindowsPlatformWindow*>(pCreate->lpCreateParams);
+            pThis = reinterpret_cast<JWindowsPlatformWindow*>(pCreate->lpCreateParams);
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(pThis));
         } else {
-            pThis = reinterpret_cast<WindowsPlatformWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+            pThis = reinterpret_cast<JWindowsPlatformWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
         }
         if (pThis) {
             return pThis->handleMessage(hwnd, uMsg, wParam, lParam);
@@ -284,7 +284,7 @@ private:
                 return 0;
             }
             case WM_DESTROY: {
-                if (m_style == PlatformWindowStyle::Normal) {
+                if (m_style == JPlatformWindowStyle::Normal) {
                     PostQuitMessage(0);
                 }
                 m_closeRequested = true;
@@ -302,7 +302,7 @@ private:
 
     HWND m_hwnd{nullptr};
     HINSTANCE m_hInstance{nullptr};
-    Genesis::PlatformWindowStyle m_style;
+    Genesis::JPlatformWindowStyle m_style;
     bool m_closeRequested;
     float m_dpiScaleFactor;
 
@@ -320,7 +320,7 @@ private:
     bool  m_focusLost{false};
     bool  m_altDown{false};
 
-    std::deque<Genesis::KeyEvent> m_keyQueue;
+    std::deque<Genesis::JKeyEvent> m_keyQueue;
 };
 
 } // namespace Genesis

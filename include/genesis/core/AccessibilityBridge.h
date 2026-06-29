@@ -16,56 +16,56 @@ struct DBusMessage;
 namespace Genesis {
 
 /**
- * @brief Maps Genesis AISemanticNode roles to AT-SPI role constants.
+ * @brief Maps Genesis JAISemanticNode roles to AT-SPI role constants.
  *
  * These match org.a11y.atspi.ROLE_* values from the AT-SPI2 spec.
  * Screen readers (Orca) use these to describe widgets to the user.
  */
-enum class AtSpiRole : uint32_t {
+enum class JAtSpiRole : uint32_t {
     Invalid        = 0,
-    Application    = 75,
+    JApplication    = 75,
     Frame          = 69,
     Panel          = 22,
     PushButton     = 28,
-    ToggleButton   = 76,
-    CheckBox       = 7,
-    RadioButton    = 33,
-    Label          = 19,
+    JToggleButton   = 76,
+    JCheckBox       = 7,
+    JRadioButton    = 33,
+    JLabel          = 19,
     Text           = 50,
     SliderRole     = 41,  // ROLE_SLIDER
-    ProgressBar    = 27,
+    JProgressBar    = 27,
     SpinButton     = 45,
-    ComboBox       = 11,
+    JComboBox       = 11,
     PageTabList    = 24,
     PageTab        = 23,
-    ScrollBar      = 40,
+    JScrollBar      = 40,
     SeparatorRole  = 38,
 };
 
-static inline AtSpiRole roleForSemanticType(const std::string& role) {
-    if (role == "Button")      return AtSpiRole::PushButton;
-    if (role == "ToggleButton")return AtSpiRole::ToggleButton;
-    if (role == "CheckBox")    return AtSpiRole::CheckBox;
-    if (role == "RadioButton") return AtSpiRole::RadioButton;
-    if (role == "Label")       return AtSpiRole::Label;
-    if (role == "LineEdit")    return AtSpiRole::Text;
-    if (role == "Slider")      return AtSpiRole::SliderRole;
-    if (role == "ProgressBar") return AtSpiRole::ProgressBar;
-    if (role == "SpinBox")     return AtSpiRole::SpinButton;
-    if (role == "ComboBox")    return AtSpiRole::ComboBox;
-    if (role == "TabBar")      return AtSpiRole::PageTabList;
-    if (role == "ScrollBar")   return AtSpiRole::ScrollBar;
-    if (role == "GroupBox")    return AtSpiRole::Panel;
-    if (role == "Separator")   return AtSpiRole::SeparatorRole;
-    if (role == "DockWidget")  return AtSpiRole::Frame;
-    return AtSpiRole::Panel;
+static inline JAtSpiRole roleForSemanticType(const std::string& role) {
+    if (role == "JButton")      return JAtSpiRole::PushButton;
+    if (role == "JToggleButton")return JAtSpiRole::JToggleButton;
+    if (role == "JCheckBox")    return JAtSpiRole::JCheckBox;
+    if (role == "JRadioButton") return JAtSpiRole::JRadioButton;
+    if (role == "JLabel")       return JAtSpiRole::JLabel;
+    if (role == "JLineEdit")    return JAtSpiRole::Text;
+    if (role == "JSlider")      return JAtSpiRole::SliderRole;
+    if (role == "JProgressBar") return JAtSpiRole::JProgressBar;
+    if (role == "JSpinBox")     return JAtSpiRole::SpinButton;
+    if (role == "JComboBox")    return JAtSpiRole::JComboBox;
+    if (role == "JTabBar")      return JAtSpiRole::PageTabList;
+    if (role == "JScrollBar")   return JAtSpiRole::JScrollBar;
+    if (role == "JGroupBox")    return JAtSpiRole::Panel;
+    if (role == "JSeparator")   return JAtSpiRole::SeparatorRole;
+    if (role == "JDockWidget")  return JAtSpiRole::Frame;
+    return JAtSpiRole::Panel;
 }
 
 /**
  * @brief AT-SPI state bitset constants (matches atspi-state-set.h).
  * Two uint32_t words form a 64-bit state set.
  */
-enum class AtSpiState : uint32_t {
+enum class JAtSpiState : uint32_t {
     Enabled     = 1u << 14,
     Visible     = 1u << 16,
     Showing     = 1u << 15,
@@ -79,25 +79,25 @@ enum class AtSpiState : uint32_t {
 };
 
 /**
- * @brief AccessibilityBridge — publishes the Genesis widget tree on the
+ * @brief JAccessibilityBridge — publishes the Genesis widget tree on the
  * AT-SPI2 dbus accessibility bus so screen readers (Orca) can discover
  * and interact with the application.
  *
  * Usage:
- *   AccessibilityBridge bridge;
+ *   JAccessibilityBridge bridge;
  *   bridge.start("My App");
  *   // each frame / on state change:
  *   bridge.update(semanticNodes);
  *   // on focus change:
  *   bridge.notifyFocus(nodeIndex);
  */
-class AccessibilityBridge {
+class JAccessibilityBridge {
 public:
-    AccessibilityBridge() = default;
-    ~AccessibilityBridge() { stop(); }
+    JAccessibilityBridge() = default;
+    ~JAccessibilityBridge() { stop(); }
 
-    AccessibilityBridge(const AccessibilityBridge&)            = delete;
-    AccessibilityBridge& operator=(const AccessibilityBridge&) = delete;
+    JAccessibilityBridge(const JAccessibilityBridge&)            = delete;
+    JAccessibilityBridge& operator=(const JAccessibilityBridge&) = delete;
 
     /** Connect to the AT-SPI bus and register this application. */
     bool start(const std::string& appName);

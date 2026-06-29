@@ -32,9 +32,9 @@ struct SoftwareSurface {
     std::vector<uint32_t> pixels;
 };
 
-class SoftwareGpuHal : public GpuHal {
+class SoftwareGpuHal : public JGpuHal {
 public:
-    SoftwareGpuHal(const NativeWindowHandle& windowHandle)
+    SoftwareGpuHal(const JNativeWindowHandle& windowHandle)
         : m_mainHandle(windowHandle) {}
 
     ~SoftwareGpuHal() override {
@@ -69,9 +69,9 @@ public:
         }
     }
 
-    GpuFrameContext beginFrame(GpuSurfaceId sid = kPrimarySurface) override {
+    JGpuFrameContext beginFrame(GpuSurfaceId sid = kPrimarySurface) override {
         std::lock_guard<std::mutex> lock(m_mutex);
-        GpuFrameContext ctx{};
+        JGpuFrameContext ctx{};
         ctx.frameIndex = m_frameIndex++;
         ctx.surfaceId = sid;
         m_activeSurfaceId = sid;
@@ -106,7 +106,7 @@ public:
         return packColor(out_r, out_g, out_b, 255);
     }
 
-    void drawPrimitives(const PrimitiveBuffer& buffer) override {
+    void drawPrimitives(const JPrimitiveBuffer& buffer) override {
         std::lock_guard<std::mutex> lock(m_mutex);
         auto it = m_surfaces.find(m_activeSurfaceId);
         if (it == m_surfaces.end()) {
@@ -129,7 +129,7 @@ public:
 
             if (cx1 >= cx2 || cy1 >= cy2) continue;
 
-            if (cmd.kind == PrimitiveBuffer::DrawCommand::Kind::Rect) {
+            if (cmd.kind == JPrimitiveBuffer::JDrawCommand::JKind::JRect) {
                 float rx = cmd.rect.rectBounds[0];
                 float ry = cmd.rect.rectBounds[1];
                 float rw = cmd.rect.rectBounds[2];
@@ -193,7 +193,7 @@ public:
                                      static_cast<uint8_t>(out_b), a);
                     }
                 }
-            } else if (cmd.kind == PrimitiveBuffer::DrawCommand::Kind::Image) {
+            } else if (cmd.kind == JPrimitiveBuffer::JDrawCommand::JKind::Image) {
                 const auto& img = cmd.image;
                 auto texIt = m_textures.find(img.tex);
                 if (texIt == m_textures.end()) continue;
@@ -232,7 +232,7 @@ public:
                         dest = blend(dest, tr, tg, tb, ta);
                     }
                 }
-            } else if (cmd.kind == PrimitiveBuffer::DrawCommand::Kind::Text) {
+            } else if (cmd.kind == JPrimitiveBuffer::JDrawCommand::JKind::Text) {
                 if (m_fontAtlas.empty()) continue;
                 const auto& call = cmd.text;
                 
@@ -276,7 +276,7 @@ public:
         }
     }
 
-    void submitAndPresentFrame(const GpuFrameContext& context) override {
+    void submitAndPresentFrame(const JGpuFrameContext& context) override {
         std::lock_guard<std::mutex> lock(m_mutex);
         auto it = m_surfaces.find(context.surfaceId);
         if (it == m_surfaces.end()) return;
@@ -317,9 +317,9 @@ public:
 
     void waitIdle() override {}
 
-    GpuApiType getBackendType() const noexcept override { return GpuApiType::Software; }
+    JGpuApiType getBackendType() const noexcept override { return JGpuApiType::Software; }
 
-    GpuSurfaceId createSurface(const NativeWindowHandle& window, uint32_t w, uint32_t h) override {
+    GpuSurfaceId createSurface(const JNativeWindowHandle& window, uint32_t w, uint32_t h) override {
         std::lock_guard<std::mutex> lock(m_mutex);
         GpuSurfaceId sid = m_nextSurfaceId++;
         SoftwareSurface surf;
@@ -364,7 +364,7 @@ public:
     }
 
 private:
-    NativeWindowHandle m_mainHandle;
+    JNativeWindowHandle m_mainHandle;
     std::mutex m_mutex;
     uint32_t m_frameIndex{0};
     uint32_t m_nextSurfaceId{1};
