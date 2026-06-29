@@ -4,7 +4,7 @@
 #include <iostream>
 #include <cmath>
 
-using namespace Genesis;
+using namespace jf;
 using JVec2 = JVectorCanvas::JVec2;
 
 static bool allTriangles(const JVectorCanvas& vg) { return vg.geometry().size() % 3 == 0; }

@@ -8,7 +8,7 @@
 #  include <windows.h>
 #endif
 
-namespace Genesis {
+inline namespace jf {
 
 /**
  * Platform-agnostic text clipboard.
@@ -93,4 +93,4 @@ public:
     }
 };
 
-} // namespace Genesis
+} // inline namespace jf

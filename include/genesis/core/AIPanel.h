@@ -6,7 +6,7 @@
 #include <deque>
 #include <algorithm>
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // JAIPanel — AI companion side panel.
@@ -49,7 +49,7 @@ public:
     }
 
     // Fires when the user submits a command via the input field or Enter key.
-    Core::JSignal<std::string> onCommand;
+    jf::JSignal<std::string> onCommand;
 
     JAISemanticNode getSemanticNode() const override {
         return {"JAIPanel", "AI Panel", "", false};
@@ -250,4 +250,4 @@ private:
     int                  m_hoveredTreeIdx{-1};
 };
 
-} // namespace Genesis
+} // inline namespace jf

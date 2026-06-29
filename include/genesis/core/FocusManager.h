@@ -9,7 +9,7 @@
 
 #include "BaseWidgets.h"
 
-namespace Genesis {
+inline namespace jf {
 
 #include "KeyEvent.h"
 
@@ -28,7 +28,7 @@ class JFocusManager {
 public:
     JFocusManager() = default;
 
-    Core::JSignal<JWidget*> onFocusChanged; // nullptr = focus cleared
+    jf::JSignal<JWidget*> onFocusChanged; // nullptr = focus cleared
 
     void registerWidget(JWidget* w) {
         if (w && std::find(m_order.begin(), m_order.end(), w) == m_order.end())
@@ -83,4 +83,4 @@ private:
     JWidget*              m_focused{nullptr};
 };
 
-} // namespace Genesis
+} // inline namespace jf

@@ -14,7 +14,7 @@
 #include <vector>
 #include <functional>
 
-namespace Genesis {
+inline namespace jf {
 
 class JPopupWindow {
 public:
@@ -420,4 +420,4 @@ private:
     }
 };
 
-} // namespace Genesis
+} // inline namespace jf

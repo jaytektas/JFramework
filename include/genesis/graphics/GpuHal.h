@@ -7,9 +7,9 @@
 #include <string>
 #include <genesis/graphics/RenderPrimitive.h>
 
-namespace { inline constexpr auto& LogGraphicsBackend = Genesis::Log::Vulkan; }
+namespace { inline constexpr auto& LogGraphicsBackend = jf::Log::Vulkan; }
 
-namespace Genesis {
+inline namespace jf {
 
 /**
  * @brief Identifiers for concrete GPU backends supported by the toolkit.
@@ -127,4 +127,4 @@ protected:
     JGpuHal() = default;
 };
 
-} // namespace Genesis
+} // inline namespace jf

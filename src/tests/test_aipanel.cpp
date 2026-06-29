@@ -8,7 +8,7 @@
 #include <string>
 #include <iostream>
 
-using namespace Genesis;
+using namespace jf;
 
 static void test_aipanel_is_widget() {
     JSceneGraph g;

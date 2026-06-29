@@ -1,7 +1,7 @@
 #pragma once
 
 // ============================================================================
-// Genesis::VariantJson — opt-in bridge between JVariant and JJson.
+// jf::VariantJson — opt-in bridge between JVariant and JJson.
 //
 // Keeps JVariant a dependency-free leaf: include this header only where you
 // actually need to cross between the universal value type and JSON.
@@ -24,7 +24,7 @@
 #include <cmath>
 #include <limits>
 
-namespace Genesis {
+inline namespace jf {
 
 inline JJson toJson(const JVariant& v) {
     switch (v.type()) {
@@ -90,4 +90,4 @@ inline void deserialize(T& obj, const JJson& j) {
     if (v.isMap()) JMetaClass<T>::instance().fromMap(obj, v.toMap());
 }
 
-}  // namespace Genesis
+}  // inline namespace jf

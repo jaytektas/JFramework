@@ -4,7 +4,7 @@
 #include <iostream>
 #include <cstring>
 
-using namespace Genesis;
+using namespace jf;
 
 // Concrete subclass for testing
 class CircleWidget : public JCanvasWidget {

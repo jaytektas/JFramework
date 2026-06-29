@@ -10,7 +10,7 @@
 #  include <shlobj.h>
 #endif
 
-namespace Genesis {
+inline namespace jf {
 
 /**
  * Native file-picker dialogs.
@@ -144,4 +144,4 @@ private:
 #endif
 };
 
-} // namespace Genesis
+} // inline namespace jf

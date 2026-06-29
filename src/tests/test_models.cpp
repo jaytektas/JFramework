@@ -7,7 +7,7 @@
 #include <thread>
 #include <chrono>
 
-using namespace Genesis;
+using namespace jf;
 
 // ---------------------------------------------------------------------------
 // JTableModel
@@ -244,7 +244,7 @@ void test_tree_onchanged() {
 // ---------------------------------------------------------------------------
 
 void test_signal_connect_returns_disconnect() {
-    Core::JSignal<int> sig;
+    jf::JSignal<int> sig;
     int count = 0;
     auto disc = sig.connect([&](int){ ++count; });
 
@@ -258,10 +258,10 @@ void test_signal_connect_returns_disconnect() {
 }
 
 void test_slot_tracker_disconnect() {
-    Core::JSignal<> sig;
+    jf::JSignal<> sig;
     int count = 0;
     {
-        Core::JSlotTracker tracker;
+        jf::JSlotTracker tracker;
         tracker.addConnection(sig.connect([&]{ ++count; }));
         sig.emit();
         assert(count == 1);

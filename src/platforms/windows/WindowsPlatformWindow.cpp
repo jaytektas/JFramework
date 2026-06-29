@@ -1,6 +1,6 @@
 #include <genesis/core/AccessibilityBridge.h>
 
-namespace Genesis {
+inline namespace jf {
 
 bool JAccessibilityBridge::start(const std::string& appName) {
     (void)appName;
@@ -25,4 +25,4 @@ void JAccessibilityBridge::notifyChecked(uint32_t nodeIndex, bool checked) {
     (void)checked;
 }
 
-} // namespace Genesis
+} // inline namespace jf

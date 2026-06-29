@@ -11,9 +11,9 @@
 #include "ApplicationCore.h"
 
 #include <genesis/core/muted_logging_mock.h>
-namespace { inline constexpr auto& LogAssetPipeline = Genesis::Log::Assets; }
+namespace { inline constexpr auto& LogAssetPipeline = jf::Log::Assets; }
 
-namespace Genesis {
+inline namespace jf {
 
 /**
  * @brief Opaque container for raw, cache-aligned asset data staged in background.
@@ -32,7 +32,7 @@ struct JStagedAsset {
  */
 class JAssetManager {
 public:
-    JAssetManager(Core::JApplication& app) : m_appContext(app), m_activeLoads(0) {}
+    JAssetManager(jf::JApplication& app) : m_appContext(app), m_activeLoads(0) {}
     ~JAssetManager() {
         // Ensure all background workers are joined or detached safely
     }
@@ -84,8 +84,8 @@ public:
     }
 
 private:
-    Core::JApplication& m_appContext;
+    jf::JApplication& m_appContext;
     std::atomic<uint32_t> m_activeLoads;
 };
 
-} // namespace Genesis
+} // inline namespace jf

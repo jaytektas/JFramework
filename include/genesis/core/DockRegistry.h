@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cstdint>
 
-namespace Genesis {
+inline namespace jf {
 
 class JDockHost;
 
@@ -105,4 +105,4 @@ private:
     std::vector<JEntry> m_entries;
 };
 
-} // namespace Genesis
+} // inline namespace jf

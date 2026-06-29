@@ -2,7 +2,7 @@
 #include <cassert>
 #include <string>
 
-class Receiver : public Core::JSlotTracker {
+class Receiver : public jf::JSlotTracker {
 public:
     int value = 0;
     std::string text;
@@ -17,7 +17,7 @@ public:
 };
 
 void test_basic_signal() {
-    Core::JSignal<int> sig;
+    jf::JSignal<int> sig;
     Receiver recv;
     
     sig.connect(&recv, &Receiver::onValueChanged);
@@ -32,7 +32,7 @@ void test_basic_signal() {
 }
 
 void test_lambda_signal() {
-    Core::JSignal<int, int> sig;
+    jf::JSignal<int, int> sig;
     int sum = 0;
     
     sig.connect([&sum](int a, int b) {
@@ -46,7 +46,7 @@ void test_lambda_signal() {
 }
 
 void test_raii_disconnection() {
-    Core::JSignal<int> sig;
+    jf::JSignal<int> sig;
     int last_val = 0;
     
     {

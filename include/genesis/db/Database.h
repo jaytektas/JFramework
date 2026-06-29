@@ -14,7 +14,7 @@
 // JDatabase.h requires linking against sqlite3:
 //   target_link_libraries(myapp PRIVATE sqlite3)
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // JDatabase — thread-safe SQLite3 wrapper
@@ -307,4 +307,4 @@ private:
     }
 };
 
-} // namespace Genesis
+} // inline namespace jf

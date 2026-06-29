@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace Genesis {
+inline namespace jf {
 
 enum class JPlatformWindowStyle : uint8_t { 
     Normal, 
@@ -20,4 +20,4 @@ enum class JPlatformCursor : uint8_t {
     ResizeBottomRight
 };
 
-} // namespace Genesis
+} // inline namespace jf

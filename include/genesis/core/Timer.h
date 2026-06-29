@@ -9,7 +9,7 @@
 #include "Signal.h"
 #include "MainThreadDispatcher.h"
 
-namespace Genesis {
+inline namespace jf {
 
 // Repeating or single-shot timer backed by a private thread.
 // onTick fires on the main thread via JMainThreadDispatcher — safe for widget updates.
@@ -41,7 +41,7 @@ public:
     JTimer(const JTimer&)            = delete;
     JTimer& operator=(const JTimer&) = delete;
 
-    Core::JSignal<> onTick;
+    jf::JSignal<> onTick;
 
     void start(std::chrono::milliseconds interval, JMode mode = JMode::Repeating) {
         // Clear sentinel before stopping — the old thread must not fire after restart.
@@ -102,4 +102,4 @@ private:
     std::condition_variable            m_cv;
 };
 
-} // namespace Genesis
+} // inline namespace jf

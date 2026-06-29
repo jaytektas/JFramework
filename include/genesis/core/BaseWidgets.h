@@ -17,7 +17,7 @@
 #include "../platform/Clipboard.h"
 #include "../graphics/FontEngine.h"
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // JWidget states
@@ -62,7 +62,7 @@ public:
 
 class JMenu;
 
-class JWidget : public Core::JSlotTracker, public JIAIState {
+class JWidget : public jf::JSlotTracker, public JIAIState {
 public:
     inline static std::vector<JWidget*> s_activeWidgets;
 
@@ -191,10 +191,10 @@ protected:
 
 class JControl : public JWidget {
 public:
-    Core::JSignal<>     onHoverEntered;
-    Core::JSignal<>     onHoverExited;
-    Core::JSignal<>     onClicked;
-    Core::JSignal<bool> onFocusChanged;
+    jf::JSignal<>     onHoverEntered;
+    jf::JSignal<>     onHoverExited;
+    jf::JSignal<>     onClicked;
+    jf::JSignal<bool> onFocusChanged;
 
     JControl(JSceneGraph& graph, const std::string& name) : JWidget(graph, name) {}
 
@@ -322,9 +322,9 @@ struct JAction {
     bool checkable{false};
     bool checked  {false};
 
-    Core::JSignal<>     onTriggered;
-    Core::JSignal<bool> onEnabledChanged;
-    Core::JSignal<bool> onCheckedChanged;
+    jf::JSignal<>     onTriggered;
+    jf::JSignal<bool> onEnabledChanged;
+    jf::JSignal<bool> onCheckedChanged;
 
     void trigger()          { if (!enabled) return;
                               if (checkable) setChecked(!checked);
@@ -648,7 +648,7 @@ private:
 
 class JToggleButton : public JControl {
 public:
-    Core::JSignal<bool> onToggled;
+    jf::JSignal<bool> onToggled;
 
     JToggleButton(JSceneGraph& graph, const std::string& label,
                  float w = 160.0f, float h = 36.0f)
@@ -732,7 +732,7 @@ private:
 
 class JCheckBox : public JControl {
 public:
-    Core::JSignal<bool> onStateChanged;
+    jf::JSignal<bool> onStateChanged;
 
     JCheckBox(JSceneGraph& graph, const std::string& label, float w = 200.0f, float h = 22.0f)
         : JControl(graph, "JCheckBox"), m_label(label)
@@ -818,7 +818,7 @@ private:
 
 class JRadioButton : public JControl {
 public:
-    Core::JSignal<bool> onSelected;
+    jf::JSignal<bool> onSelected;
 
     JRadioButton(JSceneGraph& graph, const std::string& label,
                 float w = 200.0f, float h = 22.0f)
@@ -891,7 +891,7 @@ private:
 
 class JSlider : public JControl {
 public:
-    Core::JSignal<float> onValueChanged;
+    jf::JSignal<float> onValueChanged;
 
     JSlider(JSceneGraph& graph, float w = 280.0f, float h = 24.0f)
         : JControl(graph, "JSlider"), m_value(0.5f)
@@ -1021,7 +1021,7 @@ private:
 
 class JScrollBar : public JControl {
 public:
-    Core::JSignal<float> onScrolled; // emits 0..1 position
+    jf::JSignal<float> onScrolled; // emits 0..1 position
 
     JScrollBar(JSceneGraph& graph, float w = 280.0f, float h = 14.0f,
               float thumbRatio = 0.3f)
@@ -1086,8 +1086,8 @@ private:
 
 class JLineEdit : public JControl {
 public:
-    Core::JSignal<std::string> onTextChanged;
-    Core::JSignal<>            onReturnPressed;
+    jf::JSignal<std::string> onTextChanged;
+    jf::JSignal<>            onReturnPressed;
 
     JLineEdit(JSceneGraph& graph, const std::string& placeholder = "",
              float w = 280.0f, float h = 32.0f)
@@ -1200,7 +1200,7 @@ private:
 
 class JTextArea : public JControl {
 public:
-    Core::JSignal<std::string> onTextChanged;
+    jf::JSignal<std::string> onTextChanged;
 
     JTextArea(JSceneGraph& graph, const std::string& placeholder = "",
              float w = 340.0f, float h = 120.0f)
@@ -1601,7 +1601,7 @@ private:
 
 class JSpinBox : public JControl {
 public:
-    Core::JSignal<int> onValueChanged;
+    jf::JSignal<int> onValueChanged;
 
     JSpinBox(JSceneGraph& graph, int minVal = 0, int maxVal = 100,
             float w = 140.0f, float h = 32.0f)
@@ -1685,7 +1685,7 @@ private:
 
 class JPopupItem : public JControl {
 public:
-    Core::JSignal<> onActivated;
+    jf::JSignal<> onActivated;
 
     JPopupItem(JSceneGraph& graph, const std::string& label,
               float width = 200.f, float itemHeight = 28.f)
@@ -1771,9 +1771,9 @@ enum class JComboBoxMode {
 
 class JComboBox : public JControl {
 public:
-    Core::JSignal<int>         onIndexChanged;
-    Core::JSignal<std::string> onTextChanged;
-    Core::JSignal<JComboBox*>   onPopupRequested;
+    jf::JSignal<int>         onIndexChanged;
+    jf::JSignal<std::string> onTextChanged;
+    jf::JSignal<JComboBox*>   onPopupRequested;
 
     JComboBox(JSceneGraph& graph, std::vector<std::string> items = {},
              float w = 200.0f, float h = 36.0f)
@@ -1907,8 +1907,8 @@ class JTabBar : public JControl {
 public:
     static constexpr float TEAR_THRESHOLD = 8.0f; // px of movement to initiate a tear
 
-    Core::JSignal<int>          onTabChanged;
-    Core::JSignal<int, NodeId>  onTabTorn;   // (tabIndex, contentNode) — app should create a JDockWidget
+    jf::JSignal<int>          onTabChanged;
+    jf::JSignal<int, NodeId>  onTabTorn;   // (tabIndex, contentNode) — app should create a JDockWidget
 
     JTabBar(JSceneGraph& graph, std::vector<std::string> tabs = {},
            float w = 400.0f, float h = 36.0f)
@@ -2382,8 +2382,8 @@ private:
 
 class JListView : public JControl {
 public:
-    Core::JSignal<int> onSelectionChanged;
-    Core::JSignal<int> onItemActivated;
+    jf::JSignal<int> onSelectionChanged;
+    jf::JSignal<int> onItemActivated;
 
     JListView(JSceneGraph& graph, std::vector<std::string> items = {},
              float w = 240.0f, float h = 200.0f)
@@ -2620,8 +2620,8 @@ struct JTreeViewNode {
 
 class JTreeView : public JControl {
 public:
-    Core::JSignal<JTreeViewNode*> onSelectionChanged;
-    Core::JSignal<JTreeViewNode*> onNodeActivated;
+    jf::JSignal<JTreeViewNode*> onSelectionChanged;
+    jf::JSignal<JTreeViewNode*> onNodeActivated;
 
     JTreeView(JSceneGraph& graph, float w = 240.0f, float h = 300.0f)
         : JControl(graph, "JTreeView"), m_root{"Root", true, false, {}}
@@ -2963,8 +2963,8 @@ private:
 
 class JDataGrid : public JControl {
 public:
-    Core::JSignal<int> onSelectionChanged;
-    Core::JSignal<int> onRowActivated;
+    jf::JSignal<int> onSelectionChanged;
+    jf::JSignal<int> onRowActivated;
 
     JDataGrid(JSceneGraph& graph, std::vector<std::string> headers = {}, float w = 400.0f, float h = 250.0f)
         : JControl(graph, "JDataGrid"), m_headers(std::move(headers))
@@ -3346,4 +3346,4 @@ private:
     float                                 m_dragStartScrollX{0.0f};
 };
 
-} // namespace Genesis
+} // inline namespace jf

@@ -18,7 +18,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-using namespace Genesis;
+using namespace jf;
 
 static std::string id(NodeId n) { return std::to_string(n); }
 static bool near(double a, double b) { return std::fabs(a - b) < 1e-6; }

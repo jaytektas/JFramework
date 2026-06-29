@@ -3,7 +3,7 @@
 // Recompile: cmake --build <build-dir> --target genesis_shaders
 #include <cstdint>
 
-namespace Genesis::Shaders {
+inline namespace jf { namespace Shaders {
 
 // kRectVert (2464 bytes)
 inline constexpr uint32_t kRectVert[616] = {
@@ -502,4 +502,4 @@ inline constexpr uint32_t kVectorFrag[134] = {
     0x0000000bu, 0x0003003eu, 0x00000009u, 0x0000000cu, 0x000100fdu, 0x00010038u,
 };
 
-} // namespace Genesis::Shaders
+}} // namespace Shaders (in jf)

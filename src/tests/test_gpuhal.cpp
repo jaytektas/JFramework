@@ -1,7 +1,7 @@
 #include <genesis/graphics/GpuHal.h>
 #include <cassert>
 
-using namespace Genesis;
+using namespace jf;
 
 class MockGpuHal : public JGpuHal {
 public:

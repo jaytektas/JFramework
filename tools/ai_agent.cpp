@@ -36,7 +36,7 @@
 #  include <unistd.h>
 #endif
 
-using namespace Genesis;
+using namespace jf;
 
 static const AiNodeDescriptor* findNode(const std::vector<AiNodeDescriptor>& v,
                                         const char* role, const char* label) {

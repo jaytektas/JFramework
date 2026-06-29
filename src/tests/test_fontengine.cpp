@@ -2,7 +2,7 @@
 #include <cassert>
 #include <iostream>
 
-using namespace Genesis;
+using namespace jf;
 
 void test_font_load_system() {
     JFontEngine engine;

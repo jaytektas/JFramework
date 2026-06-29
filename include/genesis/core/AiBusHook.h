@@ -15,7 +15,7 @@
 #include <cstdint>
 #include <functional>
 
-namespace Genesis {
+inline namespace jf {
 
 struct JAiBusHook {
     /** Called by widgets on user interaction.  Set via install(); no-op if null. */
@@ -38,4 +38,4 @@ struct JAiBusHook {
     static constexpr const char* kValueChanged = "value_changed";
 };
 
-} // namespace Genesis
+} // inline namespace jf

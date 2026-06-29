@@ -12,7 +12,7 @@
 #include "SceneGraph.h"
 #include "AiBusHook.h"
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // JDataBus — thread-safe reactive publish/subscribe data bus.
@@ -148,8 +148,8 @@ public:
     }
 
     // ---- Typed publish signals (for cross-component wiring) ----------------
-    Core::JSignal<std::string, double>      onDoublePublished;
-    Core::JSignal<std::string, std::string> onStringPublished;
+    jf::JSignal<std::string, double>      onDoublePublished;
+    jf::JSignal<std::string, std::string> onStringPublished;
 
 private:
     JDataBus() = default;
@@ -165,4 +165,4 @@ private:
     std::unordered_map<std::string, std::string>          m_lastString;
 };
 
-} // namespace Genesis
+} // inline namespace jf

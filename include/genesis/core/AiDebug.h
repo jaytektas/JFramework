@@ -30,7 +30,7 @@
 #include <iostream>
 #include <cstdio>
 
-namespace Genesis {
+inline namespace jf {
 
 class JAiDebug {
 public:
@@ -228,4 +228,4 @@ private:
     }
 };
 
-} // namespace Genesis
+} // inline namespace jf

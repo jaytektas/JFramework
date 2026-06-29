@@ -1,10 +1,10 @@
 #pragma once
 
 // ============================================================================
-// Genesis::MetaObject — JVariant-based reflection, the QObject meta-layer
+// jf::MetaObject — JVariant-based reflection, the QObject meta-layer
 // without a meta-object compiler.
 //
-// Two complementary facilities, both built on Genesis::JVariant:
+// Two complementary facilities, both built on jf::JVariant:
 //
 // 1. JPropertyBag — a dynamic, named bag of JVariant properties with a change
 //    signal. The "dynamic properties" half of QObject.
@@ -43,13 +43,13 @@
 #include <vector>
 #include <functional>
 
-namespace Genesis {
+inline namespace jf {
 
 // ---- Dynamic property bag ---------------------------------------------------
 class JPropertyBag {
 public:
     // Fires (key, newValue) whenever a property is set or changed.
-    Core::JSignal<std::string, JVariant> onPropertyChanged;
+    jf::JSignal<std::string, JVariant> onPropertyChanged;
 
     void setProperty(const std::string& name, JVariant value) {
         for (auto& kv : m_props) {
@@ -207,4 +207,4 @@ private:
     template<class C, class A> struct detail_arg<void (C::*)(A) const> { using type = A; };
 };
 
-}  // namespace Genesis
+}  // inline namespace jf

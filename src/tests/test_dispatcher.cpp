@@ -5,7 +5,7 @@
 #include <thread>
 #include <chrono>
 
-using namespace Genesis;
+using namespace jf;
 
 void test_post_and_drain() {
     auto& disp = JMainThreadDispatcher::instance();

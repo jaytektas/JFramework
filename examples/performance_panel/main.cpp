@@ -9,13 +9,13 @@
 #include <vector>
 #include <thread>
 
-using namespace Genesis;
+using namespace jf;
 
 /**
  * @brief Mock Headless JWindow for the Validation App.
  * Simulates a 1920x1080 display.
  */
-class HeadlessWindow : public Core::JPlatformWindow {
+class HeadlessWindow : public jf::JPlatformWindow {
 public:
     void pollNativeEvents() override {
         // In a real app, this pulls from X11/Wayland/Win32
@@ -62,7 +62,7 @@ public:
 
         m_loadSlider->onValueChanged.connect([this](float val) {
             m_targetLoad = val;
-            qCInfo(Genesis::Log::Widgets) << "System Target Load Adjusted: " << (val * 100.0f) << "%" << std::endl;
+            qCInfo(jf::Log::Widgets) << "System Target Load Adjusted: " << (val * 100.0f) << "%" << std::endl;
         });
 
         // 4. Reset JButton
@@ -72,7 +72,7 @@ public:
 
         m_resetBtn->onClicked.connect([this]() {
             m_loadSlider->setValue(0.5f);
-            qCInfo(Genesis::Log::Widgets) << "Performance Metrics Reset to Baseline." << std::endl;
+            qCInfo(jf::Log::Widgets) << "Performance Metrics Reset to Baseline." << std::endl;
         });
     }
 
@@ -122,7 +122,7 @@ private:
 int main() {
     qCInfo(LogEngineCore) << "Starting Genesis Validation JApplication..." << std::endl;
 
-    Core::JApplication app;
+    jf::JApplication app;
     JSceneGraph graph;
     JAiControlBus aiBus;
     

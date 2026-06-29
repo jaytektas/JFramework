@@ -3,7 +3,7 @@
 #include <genesis/core/BaseWidgets.h>
 #include <genesis/graphics/GpuHal.h>
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // JImageWidget — displays a GPU-resident RGBA texture.
@@ -80,4 +80,4 @@ private:
     float         m_u0{0.f}, m_v0{0.f}, m_u1{1.f}, m_v1{1.f};
 };
 
-} // namespace Genesis
+} // inline namespace jf

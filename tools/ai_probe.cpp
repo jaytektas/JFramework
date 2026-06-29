@@ -20,7 +20,7 @@
 #  include <unistd.h>
 #endif
 
-using namespace Genesis;
+using namespace jf;
 
 int main(int argc, char** argv) {
     const char* name   = DefaultBusName;

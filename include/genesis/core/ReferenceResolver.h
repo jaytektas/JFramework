@@ -1,7 +1,7 @@
 #pragma once
 
 // ============================================================================
-// Genesis::resolveRef — the control-domain half of the reference scheme.
+// jf::resolveRef — the control-domain half of the reference scheme.
 //
 // A reference is a dotted path whose HEAD is a NodeId (the durable reference key
 // of a widget) and whose TAIL walks that widget's getRef() and descends into any
@@ -12,7 +12,7 @@
 //     "42.y.sigid"            -> widget 42, "y" axis Map, "sigid" entry
 //     "42.yAxis[3]"           -> widget 42, "yAxis" List, element 3
 //
-// Framework-free: it sits on Genesis::JVariant + the JWidget registry, nothing GUI-
+// Framework-free: it sits on jf::JVariant + the JWidget registry, nothing GUI-
 // backend specific, so it ports with the widgets rather than the renderer. Reads
 // only — writes are a separate, explicit path (see the evaluator's assignment form).
 //
@@ -27,7 +27,7 @@
 #include <vector>
 #include <cstdlib>
 
-namespace Genesis {
+inline namespace jf {
 
 // Linear scan of the active-widget registry. Isolated here so it can become an index
 // if it ever shows up in a profile; the rest of the system only sees resolveRef().
@@ -104,4 +104,4 @@ inline JVariant resolveRef(const std::string& expr) {
     return resolveRefPath(w, detail::splitRefPath(expr.substr(dot + 1)));
 }
 
-}  // namespace Genesis
+}  // inline namespace jf

@@ -4,7 +4,7 @@
 #include <vector>
 #include <string>
 
-using namespace Genesis;
+using namespace jf;
 using B = JDatabase::JBind;
 
 void test_open_memory() {

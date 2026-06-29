@@ -14,7 +14,7 @@
 #include <genesis/core/Variant.h>
 #include <genesis/core/VariantJson.h>
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // JSettings — thread-safe persistent key-value store of JVariant values.
@@ -38,7 +38,7 @@ namespace Genesis {
 class JSettings {
 public:
     // Fires on the main thread whenever a value is set, with the new JVariant.
-    Core::JSignal<std::string, JVariant> onChange;
+    jf::JSignal<std::string, JVariant> onChange;
 
     JSettings() = default;
 
@@ -208,4 +208,4 @@ private:
     }
 };
 
-} // namespace Genesis
+} // inline namespace jf

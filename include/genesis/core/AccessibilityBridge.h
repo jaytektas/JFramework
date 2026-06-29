@@ -13,7 +13,7 @@
 struct DBusConnection;
 struct DBusMessage;
 
-namespace Genesis {
+inline namespace jf {
 
 /**
  * @brief Maps Genesis JAISemanticNode roles to AT-SPI role constants.
@@ -144,4 +144,4 @@ private:
     std::atomic<bool>           m_dirty{false};
 };
 
-} // namespace Genesis
+} // inline namespace jf

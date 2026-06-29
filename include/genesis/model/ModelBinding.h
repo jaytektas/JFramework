@@ -29,7 +29,7 @@
 #include <genesis/model/SortFilterModel.h>
 #include <genesis/core/BaseWidgets.h>
 
-namespace Genesis {
+inline namespace jf {
 
 // ---- Internal helpers -------------------------------------------------------
 
@@ -49,10 +49,10 @@ inline JTreeViewNode treeItemToNode(const JTreeItem& item) {
 
 // ---- JDataGrid ↔ JTableModel --------------------------------------------------
 
-inline Core::JSlotTracker bindDataGrid(JDataGrid& grid, JTableModel& model) {
+inline jf::JSlotTracker bindDataGrid(JDataGrid& grid, JTableModel& model) {
     grid.setHeaders(model.headers());
     grid.setRows(model.rows());
-    Core::JSlotTracker tracker;
+    jf::JSlotTracker tracker;
     tracker.addConnection(model.onChanged.connect([&grid, &model]{
         grid.setHeaders(model.headers());
         grid.setRows(model.rows());
@@ -62,10 +62,10 @@ inline Core::JSlotTracker bindDataGrid(JDataGrid& grid, JTableModel& model) {
 
 // ---- JDataGrid ↔ JSortFilterModel ---------------------------------------------
 
-inline Core::JSlotTracker bindDataGrid(JDataGrid& grid, JSortFilterModel& proxy) {
+inline jf::JSlotTracker bindDataGrid(JDataGrid& grid, JSortFilterModel& proxy) {
     grid.setHeaders(proxy.headers());
     grid.setRows(proxy.rows());
-    Core::JSlotTracker tracker;
+    jf::JSlotTracker tracker;
     tracker.addConnection(proxy.onChanged.connect([&grid, &proxy]{
         grid.setHeaders(proxy.headers());
         grid.setRows(proxy.rows());
@@ -75,16 +75,16 @@ inline Core::JSlotTracker bindDataGrid(JDataGrid& grid, JSortFilterModel& proxy)
 
 // ---- JTreeView ↔ JTreeModel ---------------------------------------------------
 
-inline Core::JSlotTracker bindTreeView(JTreeView& tree, JTreeModel& model) {
+inline jf::JSlotTracker bindTreeView(JTreeView& tree, JTreeModel& model) {
     // Build root node from JTreeModel root's children (JTreeView shows children of root).
     auto sync = [&tree, &model]{
         JTreeViewNode root = detail::treeItemToNode(model.root());
         tree.setRootNode(std::move(root));
     };
     sync();
-    Core::JSlotTracker tracker;
+    jf::JSlotTracker tracker;
     tracker.addConnection(model.onChanged.connect([sync]{ sync(); }));
     return tracker;
 }
 
-} // namespace Genesis
+} // inline namespace jf

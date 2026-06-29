@@ -37,7 +37,7 @@
   #include <commdlg.h>
 #endif
 
-namespace Genesis {
+inline namespace jf {
 
 // ---- JDialogKeyBindings -----------------------------------------------------
 // Configurable key bindings for dialog button navigation.
@@ -614,4 +614,4 @@ private:
     }
 };
 
-} // namespace Genesis
+} // inline namespace jf

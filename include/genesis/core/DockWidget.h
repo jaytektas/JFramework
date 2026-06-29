@@ -9,7 +9,7 @@
 #include <cmath>
 #include "BaseWidgets.h"         // TornTabState, Colors, PrimitiveBuffer
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // JDockWidget — a floating panel that renders at an absolute screen position,
@@ -425,4 +425,4 @@ private:
     std::optional<JTornTabState> m_tornState;
 };
 
-} // namespace Genesis
+} // inline namespace jf

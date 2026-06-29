@@ -16,11 +16,11 @@
 #include <xcb/xcb.h>
 #endif
 
-using namespace Genesis;
+using namespace jf;
 
 // Simple internal helper to avoid including concrete platform headers here if they are not exposed
 #if defined(__linux__)
-namespace Genesis {
+inline namespace jf {
     // Forward declaration or local re-definition if needed for the host
     class JLinuxPlatformWindow;
 }
@@ -29,8 +29,8 @@ namespace Genesis {
 int main() {
     std::cout << "[GENESIS] Bootstrapping Native Genesis Host...\n";
 
-    Genesis::JGuiApplication app;
-    Genesis::JMainWindow mainWindow("Genesis Host");
+    jf::JGuiApplication app;
+    jf::JMainWindow mainWindow("Genesis Host");
     mainWindow.show();
 
     std::cout << "[GENESIS] Host initialized successfully. Platform-agnostic core is ready.\n";

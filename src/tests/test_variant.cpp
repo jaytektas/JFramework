@@ -5,7 +5,7 @@
 #include <iostream>
 #include <string>
 
-using namespace Genesis;
+using namespace jf;
 
 void test_scalars_and_type() {
     JVariant n;                 assert(n.isNull() && !n.isValid());

@@ -1,7 +1,7 @@
 #pragma once
 
 // ============================================================================
-// Genesis::JJson — lightweight read/write JSON
+// jf::JJson — lightweight read/write JSON
 //
 // std::variant-based node tree. No external dependencies.
 //
@@ -33,7 +33,7 @@
 #include <cstdint>
 #include <cstring>
 
-namespace Genesis {
+inline namespace jf {
 
 class JJson {
 public:
@@ -417,4 +417,4 @@ private:
     }
 };
 
-} // namespace Genesis
+} // inline namespace jf

@@ -4,7 +4,7 @@
 #include <iostream>
 #include <cmath>
 
-using namespace Genesis;
+using namespace jf;
 
 static int geomCommands(const JPrimitiveBuffer& buf) {
     int n = 0;

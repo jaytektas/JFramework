@@ -10,9 +10,9 @@
 #include <concepts>
 #include "muted_logging_mock.h"
 
-namespace { inline constexpr auto& LogUIEvent = Genesis::Log::JSignal; }
+namespace { inline constexpr auto& LogUIEvent = jf::Log::JSignal; }
 
-namespace Core {
+inline namespace jf {
 
 class JSlotTracker;
 
@@ -164,4 +164,4 @@ private:
     mutable std::vector<std::shared_ptr<JSlotInternal>> m_slots;
 };
 
-} // namespace Core
+} // inline namespace jf

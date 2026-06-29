@@ -4,14 +4,14 @@
 #include <iostream>
 #include <chrono>
 
-using namespace Genesis;
+using namespace jf;
 
 /**
  * @brief Test for the asynchronous asset pipeline.
  * Verified that background loads do not block and results arrive on the main thread.
  */
 void test_async_asset_loading() {
-    Core::JApplication app;
+    jf::JApplication app;
     JAssetManager assets(app);
     
     bool loaded = false;
@@ -49,7 +49,7 @@ void test_async_asset_loading() {
 
 int main() {
     // Basic verification of structure and non-blocking spawning
-    Core::JApplication app;
+    jf::JApplication app;
     JAssetManager assets(app);
     
     std::atomic<bool> success{false};

@@ -8,7 +8,7 @@
 #include <iostream>
 #include <filesystem>
 
-using namespace Genesis;
+using namespace jf;
 
 // (1) JSettings now stores typed Variants and JSON persistence preserves types.
 void test_settings_typed_json() {

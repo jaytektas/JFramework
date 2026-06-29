@@ -20,9 +20,9 @@
 #endif
 
 #include <genesis/core/muted_logging_mock.h>
-namespace { inline constexpr auto& LogAiBus = Genesis::Log::AI; }
+namespace { inline constexpr auto& LogAiBus = jf::Log::AI; }
 
-namespace Genesis {
+inline namespace jf {
 
 constexpr uint32_t MaxBusNodes      = 2048;
 constexpr uint32_t SharedMagicCookie = 0x47454E53; // "GENS"
@@ -345,4 +345,4 @@ private:
     char             m_name[64]{0};
 };
 
-} // namespace Genesis
+} // inline namespace jf

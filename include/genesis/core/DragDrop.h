@@ -11,7 +11,7 @@
 #include <typeindex>
 #include <vector>
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // Typed Drag & Drop — Step 5
@@ -145,4 +145,4 @@ struct JWidgetIdPayload {
     std::string debugName;
 };
 
-} // namespace Genesis
+} // inline namespace jf

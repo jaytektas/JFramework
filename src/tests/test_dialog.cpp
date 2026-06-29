@@ -8,7 +8,7 @@
 #include <iostream>
 #include <vector>
 
-using namespace Genesis;
+using namespace jf;
 
 static void _clearDialogs() {
     while (JDialogManager::instance().hasPending())

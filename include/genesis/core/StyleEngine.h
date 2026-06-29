@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <iostream>
 #include "SceneGraph.h"
-namespace Genesis {
+inline namespace jf {
 
 /**
  * @brief Normalized RGBA8 linear color primitive.
@@ -114,4 +114,4 @@ namespace JStyle {
     constexpr JStyleKey<float> CellPadding{ 0x52 };
 }
 
-} // namespace Genesis
+} // inline namespace jf

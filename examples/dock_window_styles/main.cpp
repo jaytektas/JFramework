@@ -22,7 +22,7 @@
 #include <thread>
 #include <chrono>
 
-using namespace Genesis;
+using namespace jf;
 using namespace std::chrono_literals;
 
 // ---- tiny helpers ----------------------------------------------------------

@@ -5,7 +5,7 @@
 #include <mutex>
 #include <optional>
 
-namespace Genesis {
+inline namespace jf {
 
 /**
  * @brief Identifies the origin of an input event.
@@ -21,13 +21,13 @@ enum class JInputOrigin : uint8_t {
  */
 class JSymmetricArbiter {
 public:
-    JSymmetricArbiter(Core::JApplication& app, JAiControlBus& aiBus)
+    JSymmetricArbiter(jf::JApplication& app, JAiControlBus& aiBus)
         : m_app(app), m_aiBus(aiBus) {}
 
     /**
      * @brief Pushes a human input event into the arbiter.
      */
-    void pushHumanInput(const Core::JInputEvent& event) {
+    void pushHumanInput(const jf::JInputEvent& event) {
         // High priority - bypass queues for immediate tactile response
         m_humanFocus = resolveNodeAt(event.data.mouse.x, event.data.mouse.y);
         processEvent(event, JInputOrigin::Human);
@@ -42,10 +42,10 @@ public:
             m_agentFocus = resolveNodeAt(aiInput.targetX, aiInput.targetY);
             
             // Map AI command to internal JInputEvent
-            Core::JInputEvent ie{};
+            jf::JInputEvent ie{};
             ie.type = (aiInput.type == AiVirtualInput::JCommandType::MouseClick) 
-                       ? Core::JInputEvent::JType::MouseButtonDown 
-                       : Core::JInputEvent::JType::KeyDown;
+                       ? jf::JInputEvent::JType::MouseButtonDown 
+                       : jf::JInputEvent::JType::KeyDown;
             
             processEvent(ie, JInputOrigin::Agent);
         }
@@ -55,7 +55,7 @@ public:
     std::optional<NodeId> getAgentFocus() const { return m_agentFocus; }
 
 private:
-    void processEvent(const Core::JInputEvent& event, JInputOrigin origin) {
+    void processEvent(const jf::JInputEvent& event, JInputOrigin origin) {
         // Logical Routing:
         // 1. If Origin == Human, target m_humanFocus.
         // 2. If Origin == Agent, target m_agentFocus.
@@ -67,11 +67,11 @@ private:
         return 0; // Placeholder
     }
 
-    Core::JApplication& m_app;
+    jf::JApplication& m_app;
     JAiControlBus& m_aiBus;
 
     std::optional<NodeId> m_humanFocus;
     std::optional<NodeId> m_agentFocus;
 };
 
-} // namespace Genesis
+} // inline namespace jf

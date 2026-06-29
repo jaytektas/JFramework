@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <filesystem>
 
-using namespace Genesis;
+using namespace jf;
 
 static std::filesystem::path tmpFile() {
     return std::filesystem::temp_directory_path() / "genesis_test_settings.ini";

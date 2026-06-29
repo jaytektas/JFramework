@@ -13,7 +13,7 @@
 // This header only gets the declarations.
 #include <stb_truetype.h>
 
-namespace Genesis {
+inline namespace jf {
 
 /** Per-glyph metrics in both pixel space and normalised atlas UV space. */
 struct JGlyphInfo {
@@ -62,7 +62,7 @@ public:
     bool loadFromFile(const std::string& path) {
         std::ifstream f(path, std::ios::binary | std::ios::ate);
         if (!f.is_open()) {
-            qCWarning(Genesis::Log::Graphics) << "JFontEngine: cannot open " << path << "\n";
+            qCWarning(jf::Log::Graphics) << "JFontEngine: cannot open " << path << "\n";
             return false;
         }
         auto sz = static_cast<size_t>(f.tellg());
@@ -72,13 +72,13 @@ public:
 
         int offset = stbtt_GetFontOffsetForIndex(m_fontData.data(), 0);
         if (!stbtt_InitFont(&m_info, m_fontData.data(), offset)) {
-            qCWarning(Genesis::Log::Graphics) << "JFontEngine: stbtt_InitFont failed for " << path << "\n";
+            qCWarning(jf::Log::Graphics) << "JFontEngine: stbtt_InitFont failed for " << path << "\n";
             m_fontData.clear();
             return false;
         }
         m_loaded = true;
         m_path   = path;
-        qCInfo(Genesis::Log::Graphics) << "JFontEngine: loaded " << path << "\n";
+        qCInfo(jf::Log::Graphics) << "JFontEngine: loaded " << path << "\n";
         return true;
     }
 
@@ -100,7 +100,7 @@ public:
         };
         for (const char** p = kCandidates; *p; ++p)
             if (loadFromFile(*p)) return true;
-        qCWarning(Genesis::Log::Graphics) << "JFontEngine: no system font found\n";
+        qCWarning(jf::Log::Graphics) << "JFontEngine: no system font found\n";
         return false;
     }
 
@@ -182,7 +182,7 @@ public:
         packRange(0x2018, 0x201F); // typographic quotes
 
         atlas.valid = true;
-        qCInfo(Genesis::Log::Graphics) << "JFontEngine: atlas " << atlasW << "x" << atlasH
+        qCInfo(jf::Log::Graphics) << "JFontEngine: atlas " << atlasW << "x" << atlasH
                                         << " at " << pixelSize << "px, "
                                         << atlas.glyphs.size() << " glyphs\n";
         return atlas;
@@ -207,4 +207,4 @@ private:
     stbtt_fontinfo m_info{};
 };
 
-} // namespace Genesis
+} // inline namespace jf

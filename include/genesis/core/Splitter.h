@@ -6,7 +6,7 @@
 #include <numeric>
 #include <vector>
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // JSplitter — resizable split-pane container
@@ -301,4 +301,4 @@ private:
     float            m_dragFractionB{0.5f};
 };
 
-} // namespace Genesis
+} // inline namespace jf

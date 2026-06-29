@@ -14,7 +14,7 @@
 #include <functional>
 #include <memory>
 
-namespace Genesis {
+inline namespace jf {
 
 class JPopupListWindow {
 public:
@@ -160,4 +160,4 @@ private:
     int m_hoveredIndex{-1};
 };
 
-} // namespace Genesis
+} // inline namespace jf

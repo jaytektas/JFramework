@@ -32,7 +32,7 @@
 #include <string>
 #include <vector>
 
-namespace Genesis {
+inline namespace jf {
 
 class JNativeDialogWindow {
 public:
@@ -321,4 +321,4 @@ private:
     std::vector<JKeyEvent>            m_keys;
 };
 
-} // namespace Genesis
+} // inline namespace jf

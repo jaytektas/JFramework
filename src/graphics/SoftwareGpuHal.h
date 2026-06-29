@@ -13,7 +13,7 @@
 #include <xcb/xcb.h>
 #endif
 
-namespace Genesis {
+inline namespace jf {
 
 struct SoftwareTexture {
     std::vector<uint32_t> pixels; // packed ARGB (same as SoftwareSurface format)
@@ -65,7 +65,7 @@ public:
             it->second.width = width;
             it->second.height = height;
             it->second.pixels.assign(width * height, 0xFF1E1E23);
-            qCInfo(Genesis::Log::Graphics) << "SoftwareGpuHal: resizeSurface sid=" << sid << " to " << width << "x" << height << "\n";
+            qCInfo(jf::Log::Graphics) << "SoftwareGpuHal: resizeSurface sid=" << sid << " to " << width << "x" << height << "\n";
         }
     }
 
@@ -110,13 +110,13 @@ public:
         std::lock_guard<std::mutex> lock(m_mutex);
         auto it = m_surfaces.find(m_activeSurfaceId);
         if (it == m_surfaces.end()) {
-            qCWarning(Genesis::Log::Graphics) << "SoftwareGpuHal: drawPrimitives on inactive surface " << m_activeSurfaceId << "\n";
+            qCWarning(jf::Log::Graphics) << "SoftwareGpuHal: drawPrimitives on inactive surface " << m_activeSurfaceId << "\n";
             return;
         }
 
         SoftwareSurface& surf = it->second;
         if (surf.width == 0 || surf.height == 0) return;
-        qCDebug(Genesis::Log::Graphics) << "SoftwareGpuHal: drawPrimitives surf=" << m_activeSurfaceId << ", commands=" << buffer.getCommands().size() << "\n";
+        qCDebug(jf::Log::Graphics) << "SoftwareGpuHal: drawPrimitives surf=" << m_activeSurfaceId << ", commands=" << buffer.getCommands().size() << "\n";
 
         for (const auto& cmd : buffer.getCommands()) {
             int cx1 = 0, cy1 = 0, cx2 = surf.width, cy2 = surf.height;
@@ -335,14 +335,14 @@ public:
 #endif
 
         m_surfaces[sid] = std::move(surf);
-        qCInfo(Genesis::Log::Graphics) << "SoftwareGpuHal: createSurface sid=" << sid << " w=" << w << " h=" << h << "\n";
+        qCInfo(jf::Log::Graphics) << "SoftwareGpuHal: createSurface sid=" << sid << " w=" << w << " h=" << h << "\n";
         return sid;
     }
 
     void destroySurface(GpuSurfaceId sid) override {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_surfaces.erase(sid);
-        qCInfo(Genesis::Log::Graphics) << "SoftwareGpuHal: destroySurface sid=" << sid << "\n";
+        qCInfo(jf::Log::Graphics) << "SoftwareGpuHal: destroySurface sid=" << sid << "\n";
     }
 
     TextureHandle uploadTexture(const uint8_t* rgba, uint32_t w, uint32_t h) override {
@@ -379,4 +379,4 @@ private:
     TextureHandle m_nextTexHandle{1};
 };
 
-} // namespace Genesis
+} // inline namespace jf

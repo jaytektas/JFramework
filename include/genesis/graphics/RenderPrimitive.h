@@ -7,9 +7,9 @@
 #include <algorithm>
 
 #include <genesis/core/muted_logging_mock.h>
-namespace { inline constexpr auto& LogGraphicsEngine = Genesis::Log::Graphics; }
+namespace { inline constexpr auto& LogGraphicsEngine = jf::Log::Graphics; }
 
-namespace Genesis {
+inline namespace jf {
 
 // Opaque handle to a GPU-resident texture created via JGpuHal::uploadTexture().
 // 0 is the null/invalid handle.
@@ -187,4 +187,4 @@ private:
     std::vector<JClipRect>    m_clipStack;
 };
 
-} // namespace Genesis
+} // inline namespace jf

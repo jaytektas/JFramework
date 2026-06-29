@@ -11,8 +11,8 @@
 #include <cstring>
 #include <unordered_map>
 
-using namespace Genesis;
-using namespace Genesis::Core;
+using namespace jf;
+using namespace jf;
 
 // ---------------------------------------------------------------------------
 // Minimal mock HAL for texture tests

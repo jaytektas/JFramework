@@ -4,7 +4,7 @@
 #include <cassert>
 #include <iostream>
 
-using namespace Genesis;
+using namespace jf;
 
 // Minimal JCanvasWidget-like subclass for testing bind()
 class TestWidget : public JWidget {

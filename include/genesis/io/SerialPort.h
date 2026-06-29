@@ -26,7 +26,7 @@
   #include <sys/ioctl.h>
 #endif
 
-namespace Genesis {
+inline namespace jf {
 
 // ---- Port info returned by availablePorts() --------------------------------
 struct JSerialPortInfo {
@@ -59,9 +59,9 @@ public:
     enum class JFlowCtrl { None, Hardware, Software };
 
     // All signals fire on the main thread via JMainThreadDispatcher.
-    Core::JSignal<std::vector<uint8_t>> onData;
-    Core::JSignal<std::string>          onError;
-    Core::JSignal<>                     onDisconnect; // cable pull or device removal
+    jf::JSignal<std::vector<uint8_t>> onData;
+    jf::JSignal<std::string>          onError;
+    jf::JSignal<>                     onDisconnect; // cable pull or device removal
 
     JSerialPort() = default;
     ~JSerialPort() { close(); }
@@ -414,4 +414,4 @@ private:
     std::mutex        m_writeMutex;
 };
 
-} // namespace Genesis
+} // inline namespace jf

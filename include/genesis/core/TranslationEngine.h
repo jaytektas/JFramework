@@ -9,7 +9,7 @@
 #include <algorithm>
 #include "muted_logging_mock.h"
 
-namespace Genesis {
+inline namespace jf {
 
 /**
  * @brief Global translation lookup — use via the tr() free function below.
@@ -37,7 +37,7 @@ public:
         m_locale = locale;
         m_strings.clear();
         _load(locale);
-        qCInfo(Genesis::Log::Core) << "Locale set to: " << locale << "\n";
+        qCInfo(jf::Log::Core) << "Locale set to: " << locale << "\n";
     }
 
     const std::string& locale() const { return m_locale; }
@@ -98,9 +98,9 @@ private:
             if (under != std::string::npos) {
                 std::string base = locale.substr(0, under);
                 f.open(m_dir + "/" + base + ".json");
-                if (!f.is_open()) { qCWarning(Genesis::Log::Core) << "No catalog for: " << locale << "\n"; return; }
+                if (!f.is_open()) { qCWarning(jf::Log::Core) << "No catalog for: " << locale << "\n"; return; }
             } else {
-                qCWarning(Genesis::Log::Core) << "No catalog for: " << locale << "\n";
+                qCWarning(jf::Log::Core) << "No catalog for: " << locale << "\n";
                 return;
             }
         }
@@ -117,7 +117,7 @@ private:
             auto v = _nextString(src, pos);
             if (k != "locale") m_strings[k] = v;
         }
-        qCInfo(Genesis::Log::Core) << "Loaded " << m_strings.size()
+        qCInfo(jf::Log::Core) << "Loaded " << m_strings.size()
                                    << " strings for locale '" << locale << "'\n";
     }
 
@@ -149,4 +149,4 @@ inline std::string tr(const std::string& key, int n) {
     return JTranslationEngine::instance().tr(key, n);
 }
 
-} // namespace Genesis
+} // inline namespace jf

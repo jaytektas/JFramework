@@ -12,13 +12,13 @@
 #include <utility>
 
 // Custom Logging Integration
-inline constexpr Genesis::Log::JCategory LogWin32Backend{"Win32Backend"};
+inline constexpr jf::Log::JCategory LogWin32Backend{"Win32Backend"};
 
-namespace Genesis {
+inline namespace jf {
 
-class JWindowsPlatformWindow : public Core::JPlatformWindow {
+class JWindowsPlatformWindow : public jf::JPlatformWindow {
 public:
-    using JKeyEvent = Genesis::JKeyEvent;
+    using JKeyEvent = jf::JKeyEvent;
     JWindowsPlatformWindow(const std::string& title, uint32_t width, uint32_t height,
                           int screenX = 100, int screenY = 100,
                           JPlatformWindowStyle style = JPlatformWindowStyle::Normal,
@@ -126,13 +126,13 @@ public:
     float consumeWheel() override { float v = m_wheelY; m_wheelY = 0.0f; return v; }
 
     bool hasKeyEvents() const override { return !m_keyQueue.empty(); }
-    Genesis::JKeyEvent consumeKey() override {
+    jf::JKeyEvent consumeKey() override {
         auto e = m_keyQueue.front();
         m_keyQueue.pop_front();
         return e;
     }
-    std::vector<Genesis::JKeyEvent> consumeAllKeys() override {
-        std::vector<Genesis::JKeyEvent> out(m_keyQueue.begin(), m_keyQueue.end());
+    std::vector<jf::JKeyEvent> consumeAllKeys() override {
+        std::vector<jf::JKeyEvent> out(m_keyQueue.begin(), m_keyQueue.end());
         m_keyQueue.clear();
         return out;
     }
@@ -154,12 +154,12 @@ public:
         SetWindowPos(m_hwnd, nullptr, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
-    void setCursor(Genesis::JPlatformCursor shape) override { (void)shape; }
-    Genesis::JPlatformWindowStyle windowStyle() const override { return m_style; }
+    void setCursor(jf::JPlatformCursor shape) override { (void)shape; }
+    jf::JPlatformWindowStyle windowStyle() const override { return m_style; }
 
-    Genesis::JNativeWindowHandle nativeHandle() const override {
-        Genesis::JNativeWindowHandle h{};
-        h.apiTarget         = Genesis::JGpuApiType::Vulkan;
+    jf::JNativeWindowHandle nativeHandle() const override {
+        jf::JNativeWindowHandle h{};
+        h.apiTarget         = jf::JGpuApiType::Vulkan;
         h.connectionPointer = m_hInstance;
         h.windowPointer     = m_hwnd;
         return h;
@@ -302,7 +302,7 @@ private:
 
     HWND m_hwnd{nullptr};
     HINSTANCE m_hInstance{nullptr};
-    Genesis::JPlatformWindowStyle m_style;
+    jf::JPlatformWindowStyle m_style;
     bool m_closeRequested;
     float m_dpiScaleFactor;
 
@@ -320,7 +320,7 @@ private:
     bool  m_focusLost{false};
     bool  m_altDown{false};
 
-    std::deque<Genesis::JKeyEvent> m_keyQueue;
+    std::deque<jf::JKeyEvent> m_keyQueue;
 };
 
-} // namespace Genesis
+} // inline namespace jf

@@ -7,10 +7,10 @@
 #include <genesis/graphics/FontEngine.h>
 #if defined(_WIN32)
 #include <genesis/platforms/windows/WindowsPlatformWindow.h>
-using PlatformWindowImpl = Genesis::JWindowsPlatformWindow;
+using PlatformWindowImpl = jf::JWindowsPlatformWindow;
 #else
 #include <genesis/platforms/linux/LinuxPlatformWindow.h>
-using PlatformWindowImpl = Genesis::JLinuxPlatformWindow;
+using PlatformWindowImpl = jf::JLinuxPlatformWindow;
 #endif
 
 #include <iostream>
@@ -18,7 +18,7 @@ using PlatformWindowImpl = Genesis::JLinuxPlatformWindow;
 #include <chrono>
 #include <cmath>
 
-using namespace Genesis;
+using namespace jf;
 
 static void buildScene(JVectorCanvas& vg, float W, float H, float t) {
     constexpr float kTitleH = 28.f;
@@ -92,16 +92,16 @@ int main() {
     constexpr float kTitleH = 28.f, kBtnW = 28.f;
 
     auto window = std::make_unique<PlatformWindowImpl>(
-        "Genesis Vector Demo", W, H, 120, 120, Genesis::JPlatformWindowStyle::Borderless);
+        "Genesis Vector Demo", W, H, 120, 120, jf::JPlatformWindowStyle::Borderless);
     auto hal = JGpuHal::create(JGpuApiType::Vulkan, window->nativeHandle());
     if (!hal) { std::cerr << "[GENESIS] no HAL\n"; return -1; }
     hal->resizeSwapchain(W, H);
     window->setMinSize(300, 200);
 
-    Genesis::JFontEngine fontEngine;
+    jf::JFontEngine fontEngine;
     if (fontEngine.loadSystemFont()) {
         auto atlas = fontEngine.buildAtlas(14.0f * window->dpiScale());
-        Genesis::JTextHelper::setAtlas(atlas);
+        jf::JTextHelper::setAtlas(atlas);
         hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
     }
 
@@ -138,9 +138,9 @@ int main() {
         // Title bar over the top.
         uint8_t tbg[4] = {18, 18, 24, 255};
         buffer.pushRectangle(0, 0, Wf, kTitleH, tbg, 0.f);
-        float lh = Genesis::JTextHelper::lineHeight();
+        float lh = jf::JTextHelper::lineHeight();
         uint8_t tc[4] = {200, 200, 210, 230};
-        Genesis::JTextHelper::pushText(buffer, 10.f, (kTitleH - lh) * 0.5f,
+        jf::JTextHelper::pushText(buffer, 10.f, (kTitleH - lh) * 0.5f,
                                       "Genesis Vector Demo", tc, Wf - kBtnW - 20.f);
         uint8_t hb[4] = {180, 40, 40, 220};
         if (my >= 0 && my < kTitleH && mx >= closeX)

@@ -8,9 +8,9 @@
 #include <algorithm>
 
 #include <genesis/core/muted_logging_mock.h>
-namespace { inline constexpr auto& LogLayoutEngine = Genesis::Log::Layout; }
+namespace { inline constexpr auto& LogLayoutEngine = jf::Log::Layout; }
 
-namespace Genesis {
+inline namespace jf {
 
 using NodeId = uint32_t;
 constexpr NodeId InvalidNodeId = 0xFFFFFFFF;
@@ -375,4 +375,4 @@ private:
     std::vector<uint8_t> m_dirtyFlags;
 };
 
-} // namespace Genesis
+} // inline namespace jf

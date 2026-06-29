@@ -1,7 +1,7 @@
 #pragma once
 
 // ============================================================================
-// Genesis::JVariant — the framework's universal value type.
+// jf::JVariant — the framework's universal value type.
 //
 // A small, dependency-free tagged union (the modern-C++ answer to QVariant).
 // It is the lingua franca that lets generic code — model/view, settings,
@@ -39,7 +39,7 @@
 #include <sstream>
 #include <type_traits>
 
-namespace Genesis {
+inline namespace jf {
 
 class JVariant;
 
@@ -286,4 +286,4 @@ private:
     }
 };
 
-}  // namespace Genesis
+}  // inline namespace jf

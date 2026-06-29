@@ -13,7 +13,7 @@
 #include <genesis/core/MainThreadDispatcher.h>
 #include <genesis/core/Variant.h>
 
-namespace Genesis {
+inline namespace jf {
 
 namespace detail {
 
@@ -72,9 +72,9 @@ inline bool cellLess(const JVariant& a, const JVariant& b) {
 // ============================================================================
 class JTableModel {
 public:
-    Core::JSignal<> onChanged;    // always fires on the main thread
-    Core::JSignal<int> onRowInserted;
-    Core::JSignal<int> onRowRemoved;
+    jf::JSignal<> onChanged;    // always fires on the main thread
+    jf::JSignal<int> onRowInserted;
+    jf::JSignal<int> onRowRemoved;
 
     ~JTableModel() {
         // Invalidate any callbacks already queued in the dispatcher so they
@@ -309,4 +309,4 @@ private:
     }
 };
 
-} // namespace Genesis
+} // inline namespace jf

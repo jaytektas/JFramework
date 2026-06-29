@@ -2,7 +2,7 @@
 #include <cassert>
 #include <iostream>
 
-using namespace Genesis;
+using namespace jf;
 
 void test_basic_typed_drag() {
     assert(!JDragDrop::isDragging());

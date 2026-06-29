@@ -1,7 +1,7 @@
 #pragma once
 
 // ============================================================================
-// Genesis::JChart — line/area/bar/scatter chart built on JVectorCanvas.
+// jf::JChart — line/area/bar/scatter chart built on JVectorCanvas.
 //
 // Anti-aliased GPU vector rendering with: nice-number axis ticks, optional log
 // scales, a second (right) Y-axis, axis titles, a legend, multiple series of
@@ -30,7 +30,7 @@
 #include <cstdio>
 #include <algorithm>
 
-namespace Genesis {
+inline namespace jf {
 
 enum class JSeriesType : uint8_t { Line, Bar, Scatter };
 
@@ -410,4 +410,4 @@ private:
     }
 };
 
-}  // namespace Genesis
+}  // inline namespace jf

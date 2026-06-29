@@ -5,7 +5,7 @@
 #include "BaseWidgets.h"
 #include "StyleEngine.h"
 
-namespace Genesis {
+inline namespace jf {
 
 /**
  * @brief Opaque identifiers for window styling properties.
@@ -87,4 +87,4 @@ private:
     std::unique_ptr<JWindowSkin> m_skin;
 };
 
-} // namespace Genesis
+} // inline namespace jf

@@ -18,7 +18,7 @@
 #include <vector>
 #include <algorithm>
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // JFloatingDragBehavior — defines the drag behavior of the floating host window:
@@ -689,4 +689,4 @@ private:
     int       m_startMouseX{0}, m_startMouseY{0};
 };
 
-} // namespace Genesis
+} // inline namespace jf

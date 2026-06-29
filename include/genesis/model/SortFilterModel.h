@@ -7,7 +7,7 @@
 #include <genesis/core/Signal.h>
 #include <genesis/model/TableModel.h>
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // JSortFilterModel — sort and filter proxy over a JTableModel.
@@ -28,7 +28,7 @@ namespace Genesis {
 // ============================================================================
 class JSortFilterModel {
 public:
-    Core::JSignal<> onChanged;
+    jf::JSignal<> onChanged;
 
     explicit JSortFilterModel(JTableModel& source) : m_source(&source) {
         m_conn.addConnection(source.onChanged.connect([this]{
@@ -105,7 +105,7 @@ public:
 
 private:
     JTableModel*                                       m_source{nullptr};
-    Core::JSlotTracker                                 m_conn;
+    jf::JSlotTracker                                 m_conn;
     std::vector<std::vector<JVariant>>                 m_snapshot;
     std::vector<int>                                  m_indices;
     std::function<bool(const std::vector<std::string>&)> m_filter;
@@ -141,4 +141,4 @@ private:
     }
 };
 
-} // namespace Genesis
+} // inline namespace jf

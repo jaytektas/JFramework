@@ -1,7 +1,7 @@
 #pragma once
 
 // ============================================================================
-// Genesis::JEvaluator — OPT-IN, generic, precompiled expression evaluation.
+// jf::JEvaluator — OPT-IN, generic, precompiled expression evaluation.
 //
 // A small arithmetic/logic evaluator that is deliberately a *framework* primitive:
 // it knows nothing about channels, config, telemetry, derived values, memoisation
@@ -48,7 +48,7 @@
 #include <memory>
 #include <unordered_map>
 
-namespace Genesis {
+inline namespace jf {
 
 class JEvaluator {
 public:
@@ -390,4 +390,4 @@ private:
     }
 };
 
-}  // namespace Genesis
+}  // inline namespace jf

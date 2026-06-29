@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace Genesis {
+inline namespace jf {
 
 /** Keyboard input event passed from platform to the app each frame. */
 struct JKeyEvent {
@@ -24,4 +24,4 @@ struct JKeyEvent {
     bool     pressed{true}; // false on release
 };
 
-} // namespace Genesis
+} // inline namespace jf

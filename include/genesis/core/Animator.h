@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <algorithm>
 
-namespace Genesis::Core {
+inline namespace jf {
 
 enum class JEasing {
     Linear,
@@ -227,4 +227,4 @@ private:
     std::vector<JAnimatedFloat> m_values;
 };
 
-} // namespace Genesis::Core
+} // inline namespace jf

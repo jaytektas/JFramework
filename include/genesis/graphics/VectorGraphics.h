@@ -1,7 +1,7 @@
 #pragma once
 
 // ============================================================================
-// Genesis::JVectorCanvas — anti-aliased 2D vector drawing.
+// jf::JVectorCanvas — anti-aliased 2D vector drawing.
 //
 // A retained-immediate painter that tessellates high-level vector ops (lines,
 // polylines, arcs, circles, ellipses, pies/rings, bezier curves, polygons,
@@ -32,7 +32,7 @@
 #include <cmath>
 #include <vector>
 
-namespace Genesis {
+inline namespace jf {
 
 // ---- Colour -----------------------------------------------------------------
 struct JColor {
@@ -422,4 +422,4 @@ private:
     }
 };
 
-}  // namespace Genesis
+}  // inline namespace jf

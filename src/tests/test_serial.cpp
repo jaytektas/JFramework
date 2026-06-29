@@ -8,7 +8,7 @@
 #include <vector>
 #include <iostream>
 
-using namespace Genesis;
+using namespace jf;
 
 static void test_initial_state() {
     JSerialPort sp;

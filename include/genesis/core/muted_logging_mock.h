@@ -9,7 +9,7 @@
 #include <string>
 #include <sstream>
 
-namespace Genesis::Log {
+inline namespace jf { namespace Log {
 
 struct JCategory { const char* name; };
 
@@ -95,11 +95,11 @@ private:
     std::stringstream m_stream;
 };
 
-} // namespace Genesis::Log
+}} // namespace Log (in jf)
 
-#define qCInfo(cat)     (Genesis::Log::JLogStream("INFO",     (cat).name))
-#define qCWarning(cat)  (Genesis::Log::JLogStream("WARNING",  (cat).name))
-#define qCCritical(cat) (Genesis::Log::JLogStream("CRITICAL", (cat).name))
-#define qCDebug(cat)    (Genesis::Log::JLogStream("DEBUG",    (cat).name))
+#define qCInfo(cat)     (jf::Log::JLogStream("INFO",     (cat).name))
+#define qCWarning(cat)  (jf::Log::JLogStream("WARNING",  (cat).name))
+#define qCCritical(cat) (jf::Log::JLogStream("CRITICAL", (cat).name))
+#define qCDebug(cat)    (jf::Log::JLogStream("DEBUG",    (cat).name))
 
 #endif // GENESIS_LOGGING_MOCK_DEFINED

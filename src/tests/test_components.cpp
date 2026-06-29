@@ -1,7 +1,7 @@
 #include <genesis/core/GenesisComponents.h>
 
 // --- Mock Platform JWindow For Verification Testing Loop ---
-class MockPlatformWindow : public Core::JPlatformWindow {
+class MockPlatformWindow : public jf::JPlatformWindow {
 public:
     MockPlatformWindow() : m_frames(0) {}
     void pollNativeEvents() override {}
@@ -16,9 +16,9 @@ private:
  * @brief Execution test verifying clean API replacements for standard toolkits.
  */
 int main() {
-    Genesis::JGuiApplication app;
+    jf::JGuiApplication app;
     
-    Genesis::JMainWindow mainWindow("Genesis Main Performance Deck");
+    jf::JMainWindow mainWindow("Genesis Main Performance Deck");
     mainWindow.show();
 
     // Pasting this single block replaces standard Qt application orchestration paths cleanly

@@ -9,7 +9,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // JCanvas — immediate-mode drawing API passed to JCanvasWidget::draw().
@@ -171,4 +171,4 @@ public:
     bool executeSemanticAction(const std::string&) override { return false; }
 };
 
-} // namespace Genesis
+} // inline namespace jf

@@ -27,9 +27,9 @@
 #include <genesis/platform/FileDialog.h>
 
 #if defined(_WIN32)
-using PlatformWindowImpl = Genesis::JWindowsPlatformWindow;
+using PlatformWindowImpl = jf::JWindowsPlatformWindow;
 #else
-using PlatformWindowImpl = Genesis::JLinuxPlatformWindow;
+using PlatformWindowImpl = jf::JLinuxPlatformWindow;
 #endif
 
 #include <iostream>
@@ -41,7 +41,7 @@ using PlatformWindowImpl = Genesis::JLinuxPlatformWindow;
 #include <cmath>
 #include <algorithm>
 
-using namespace Genesis;
+using namespace jf;
 
 // ============================================================================
 // Controls Catalog — showcases every Genesis widget with live rendering
@@ -71,9 +71,9 @@ public:
         if (m_demoAnimator.isDone() && m_animBar0) {
             m_animForward = !m_animForward;
             float tgt = m_animForward ? 1.0f : 0.0f;
-            m_demoAnimator.animateTo(m_animSlot0, tgt, 1200.0f, Genesis::Core::JEasing::EaseInOut);
-            m_demoAnimator.animateTo(m_animSlot1, tgt, 1800.0f, Genesis::Core::JEasing::EaseOutElastic);
-            m_demoAnimator.animateTo(m_animSlot2, tgt, 2400.0f, Genesis::Core::JEasing::EaseOutBounce);
+            m_demoAnimator.animateTo(m_animSlot0, tgt, 1200.0f, jf::JEasing::EaseInOut);
+            m_demoAnimator.animateTo(m_animSlot1, tgt, 1800.0f, jf::JEasing::EaseOutElastic);
+            m_demoAnimator.animateTo(m_animSlot2, tgt, 2400.0f, jf::JEasing::EaseOutBounce);
         }
     }
 
@@ -92,8 +92,8 @@ public:
         }
     }
 
-    Genesis::JMenuBar* menuBar() const noexcept { return m_menuBar.get(); }
-    Genesis::JMenu* viewMenu() const noexcept { return m_menus.size() > 2 ? m_menus[2].get() : nullptr; }
+    jf::JMenuBar* menuBar() const noexcept { return m_menuBar.get(); }
+    jf::JMenu* viewMenu() const noexcept { return m_menus.size() > 2 ? m_menus[2].get() : nullptr; }
     void layoutMenuBar(float winW, float yOffset = 0.f) {
         if (m_menuBar) {
             auto& l = m_graph.getLayout(m_menuBar->getNodeId());
@@ -788,58 +788,58 @@ public:
 
     void buildMenus() {
         // Create menus
-        auto fileMenu = std::make_unique<Genesis::JMenu>("File");
-        fileMenu->add(m_graph, "New Project", {Genesis::JKeyEvent::JKey::N, true, false, false})->onTriggered.connect([]() {
+        auto fileMenu = std::make_unique<jf::JMenu>("File");
+        fileMenu->add(m_graph, "New Project", {jf::JKeyEvent::JKey::N, true, false, false})->onTriggered.connect([]() {
             std::cout << "[MENU] New Project triggered\n";
         });
-        fileMenu->add(m_graph, "Open Project...", {Genesis::JKeyEvent::JKey::O, true, false, false})->onTriggered.connect([]() {
+        fileMenu->add(m_graph, "Open Project...", {jf::JKeyEvent::JKey::O, true, false, false})->onTriggered.connect([]() {
             std::cout << "[MENU] Open Project triggered\n";
         });
         fileMenu->addSeparator(m_graph);
-        fileMenu->add(m_graph, "Save", {Genesis::JKeyEvent::JKey::S, true, false, false})->onTriggered.connect([]() {
+        fileMenu->add(m_graph, "Save", {jf::JKeyEvent::JKey::S, true, false, false})->onTriggered.connect([]() {
             std::cout << "[MENU] Save triggered\n";
         });
-        fileMenu->add(m_graph, "Save As...", {Genesis::JKeyEvent::JKey::S, true, false, true})->onTriggered.connect([]() {
+        fileMenu->add(m_graph, "Save As...", {jf::JKeyEvent::JKey::S, true, false, true})->onTriggered.connect([]() {
             std::cout << "[MENU] Save As triggered\n";
         });
         fileMenu->addSeparator(m_graph);
-        fileMenu->add(m_graph, "Exit", {Genesis::JKeyEvent::JKey::Unknown, false, false, false})->onTriggered.connect([]() {
+        fileMenu->add(m_graph, "Exit", {jf::JKeyEvent::JKey::Unknown, false, false, false})->onTriggered.connect([]() {
             std::cout << "[MENU] Exit triggered\n";
         });
 
-        auto editMenu = std::make_unique<Genesis::JMenu>("Edit");
-        editMenu->add(m_graph, "Undo", {Genesis::JKeyEvent::JKey::Z, true, false, false})->onTriggered.connect([]() {
+        auto editMenu = std::make_unique<jf::JMenu>("Edit");
+        editMenu->add(m_graph, "Undo", {jf::JKeyEvent::JKey::Z, true, false, false})->onTriggered.connect([]() {
             std::cout << "[MENU] Undo triggered\n";
         });
-        editMenu->add(m_graph, "Redo", {Genesis::JKeyEvent::JKey::Y, true, false, false})->onTriggered.connect([]() {
+        editMenu->add(m_graph, "Redo", {jf::JKeyEvent::JKey::Y, true, false, false})->onTriggered.connect([]() {
             std::cout << "[MENU] Redo triggered\n";
         });
         editMenu->addSeparator(m_graph);
-        editMenu->add(m_graph, "Cut", {Genesis::JKeyEvent::JKey::X, true, false, false})->onTriggered.connect([]() {
+        editMenu->add(m_graph, "Cut", {jf::JKeyEvent::JKey::X, true, false, false})->onTriggered.connect([]() {
             std::cout << "[MENU] Cut triggered\n";
         });
-        editMenu->add(m_graph, "Copy", {Genesis::JKeyEvent::JKey::C, true, false, false})->onTriggered.connect([]() {
+        editMenu->add(m_graph, "Copy", {jf::JKeyEvent::JKey::C, true, false, false})->onTriggered.connect([]() {
             std::cout << "[MENU] Copy triggered\n";
         });
-        editMenu->add(m_graph, "Paste", {Genesis::JKeyEvent::JKey::V, true, false, false})->onTriggered.connect([]() {
+        editMenu->add(m_graph, "Paste", {jf::JKeyEvent::JKey::V, true, false, false})->onTriggered.connect([]() {
             std::cout << "[MENU] Paste triggered\n";
         });
         
-        auto prefMenu = std::make_unique<Genesis::JMenu>("Preferences");
+        auto prefMenu = std::make_unique<jf::JMenu>("Preferences");
         auto* prefItem1 = prefMenu->add(m_graph, "Embedded JSlider");
         prefItem1->setEmbeddedWidgetFactory([](JSceneGraph& g) -> std::unique_ptr<JWidget> {
-            auto slider = std::make_unique<Genesis::JSlider>(g, 120.f, 20.f);
+            auto slider = std::make_unique<jf::JSlider>(g, 120.f, 20.f);
             slider->setValue(0.5f);
             return slider;
         });
         
-        Genesis::JMenu* prefMenuPtr = prefMenu.get();
+        jf::JMenu* prefMenuPtr = prefMenu.get();
         m_submenus.push_back(std::move(prefMenu));
         
         editMenu->addSeparator(m_graph);
         editMenu->add(m_graph, "Preferences...", {}, prefMenuPtr);
 
-        auto viewMenu = std::make_unique<Genesis::JMenu>("View");
+        auto viewMenu = std::make_unique<jf::JMenu>("View");
         auto* scrollbarsItem = viewMenu->add(m_graph, "Show Scrollbars");
         scrollbarsItem->setCheckable(true);
         scrollbarsItem->setChecked(m_showPanelScrollbars);
@@ -856,7 +856,7 @@ public:
             std::cout << "[MENU] Animate Progress: " << !m_animPaused << "\n";
         });
 
-        auto helpMenu = std::make_unique<Genesis::JMenu>("Help");
+        auto helpMenu = std::make_unique<jf::JMenu>("Help");
         helpMenu->add(m_graph, "Documentation")->onTriggered.connect([]() {
             std::cout << "[MENU] Help Documentation triggered\n";
         });
@@ -867,17 +867,17 @@ public:
 
         // Set tooltips!
         for (const auto& item : fileMenu->items()) {
-            if (auto* mi = dynamic_cast<Genesis::JMenuItem*>(item.get())) {
+            if (auto* mi = dynamic_cast<jf::JMenuItem*>(item.get())) {
                 mi->setTooltip("Execute " + mi->label() + " action");
             }
         }
         for (const auto& item : editMenu->items()) {
-            if (auto* mi = dynamic_cast<Genesis::JMenuItem*>(item.get())) {
+            if (auto* mi = dynamic_cast<jf::JMenuItem*>(item.get())) {
                 mi->setTooltip("Edit: " + mi->label());
             }
         }
         for (const auto& item : viewMenu->items()) {
-            if (auto* mi = dynamic_cast<Genesis::JMenuItem*>(item.get())) {
+            if (auto* mi = dynamic_cast<jf::JMenuItem*>(item.get())) {
                 mi->setTooltip("Configure: " + mi->label());
             }
         }
@@ -887,19 +887,19 @@ public:
         m_menus.push_back(std::move(viewMenu));
         m_menus.push_back(std::move(helpMenu));
         
-        m_menuBar = std::make_unique<Genesis::JMenuBar>(m_graph);
+        m_menuBar = std::make_unique<jf::JMenuBar>(m_graph);
         for (const auto& m : m_menus) {
             m_menuBar->addMenu(m.get());
         }
 
         // Register global shortcuts
-        Genesis::JMenuManager::instance().clearShortcuts();
+        jf::JMenuManager::instance().clearShortcuts();
         for (const auto& m : m_menus) {
             for (const auto& item : m->items()) {
                 if (!item) continue;
-                if (auto* mi = dynamic_cast<Genesis::JMenuItem*>(item.get())) {
-                    if (mi->shortcut().key != Genesis::JKeyEvent::JKey::Unknown) {
-                        Genesis::JMenuManager::instance().registerShortcut(mi->shortcut(), [mi]() {
+                if (auto* mi = dynamic_cast<jf::JMenuItem*>(item.get())) {
+                    if (mi->shortcut().key != jf::JKeyEvent::JKey::Unknown) {
+                        jf::JMenuManager::instance().registerShortcut(mi->shortcut(), [mi]() {
                             mi->onTriggered.emit();
                         });
                     }
@@ -922,22 +922,22 @@ private:
         {
             auto* msgBtn = add<JButton>(m_graph, "Message JDialog", 200.0f, 34.0f);
             msgBtn->onClicked.connect([]{
-                Genesis::JDialog::message("Genesis UI",
+                jf::JDialog::message("Genesis UI",
                     "This is a native genesis dialog overlay.\nNo OS dependency required.");
             });
             auto* cfmBtn = add<JButton>(m_graph, "Confirm JDialog", 200.0f, 34.0f);
             cfmBtn->onClicked.connect([]{
-                Genesis::JDialog::confirm("Delete File?",
+                jf::JDialog::confirm("Delete File?",
                     "Are you sure you want to delete the selected file?\nThis cannot be undone.",
-                    []{ Genesis::JDialog::message("Deleted", "File deleted."); },
-                    []{ Genesis::JDialog::message("Cancelled", "Nothing was deleted."); });
+                    []{ jf::JDialog::message("Deleted", "File deleted."); },
+                    []{ jf::JDialog::message("Cancelled", "Nothing was deleted."); });
             });
             auto* inBtn = add<JButton>(m_graph, "Input JDialog", 200.0f, 34.0f);
             inBtn->onClicked.connect([]{
-                Genesis::JDialog::input("Rename File",
+                jf::JDialog::input("Rename File",
                     "Enter the new file name:",
                     [](std::string name){
-                        Genesis::JDialog::message("Renamed", "File renamed to: " + name);
+                        jf::JDialog::message("Renamed", "File renamed to: " + name);
                     },
                     {}, "new_name.cpp");
             });
@@ -1077,9 +1077,9 @@ private:
         m_animSlot0 = m_demoAnimator.add(0.0f);
         m_animSlot1 = m_demoAnimator.add(0.0f);
         m_animSlot2 = m_demoAnimator.add(0.0f);
-        m_demoAnimator.animateTo(m_animSlot0, 1.0f, 1200.0f, Genesis::Core::JEasing::EaseInOut);
-        m_demoAnimator.animateTo(m_animSlot1, 1.0f, 1800.0f, Genesis::Core::JEasing::EaseOutElastic);
-        m_demoAnimator.animateTo(m_animSlot2, 1.0f, 2400.0f, Genesis::Core::JEasing::EaseOutBounce);
+        m_demoAnimator.animateTo(m_animSlot0, 1.0f, 1200.0f, jf::JEasing::EaseInOut);
+        m_demoAnimator.animateTo(m_animSlot1, 1.0f, 1800.0f, jf::JEasing::EaseOutElastic);
+        m_demoAnimator.animateTo(m_animSlot2, 1.0f, 2400.0f, jf::JEasing::EaseOutBounce);
 
         section("JTextArea — Shift+Arrow selects, Ctrl+C/V/X/A");
         {
@@ -1257,7 +1257,7 @@ public:
             m_imageWidget->setTexture(m_imageTex);
     }
 
-    void createPanelFromMenu(Genesis::JMenu* menu) {
+    void createPanelFromMenu(jf::JMenu* menu) {
         if (panelByTitle(menu->title())) return;
 
         beginPanel(menu->title());
@@ -1267,8 +1267,8 @@ public:
         static constexpr float kMenuItemMinW = 152.f;
         for (const auto& item : menu->items()) {
             if (!item) continue;
-            if (auto* mi = dynamic_cast<Genesis::JMenuItem*>(item.get())) {
-                auto* added = add<Genesis::JMenuItem>(m_graph, mi->label(), mi->shortcut(), mi->submenu());
+            if (auto* mi = dynamic_cast<jf::JMenuItem*>(item.get())) {
+                auto* added = add<jf::JMenuItem>(m_graph, mi->label(), mi->shortcut(), mi->submenu());
                 added->setCheckable(mi->isCheckable());
                 added->setChecked(mi->isChecked());
                 added->setTooltip(mi->tooltip());
@@ -1279,9 +1279,9 @@ public:
                     mi->onTriggered.emit();
                 });
                 m_graph.getLayout(added->getNodeId()).minWidth = kMenuItemMinW;
-            } else if (auto* sep = dynamic_cast<Genesis::JMenuSeparator*>(item.get())) {
+            } else if (auto* sep = dynamic_cast<jf::JMenuSeparator*>(item.get())) {
                 (void)sep;
-                auto* added = add<Genesis::JMenuSeparator>(m_graph);
+                auto* added = add<jf::JMenuSeparator>(m_graph);
                 m_graph.getLayout(added->getNodeId()).minWidth = kMenuItemMinW;
             }
         }
@@ -1354,12 +1354,12 @@ public:
     float  m_scrollDragStartY{0.0f};
     float  m_scrollDragStartScrollY{0.0f};
 
-    std::unique_ptr<Genesis::JMenuBar> m_menuBar;
-    std::vector<std::unique_ptr<Genesis::JMenu>> m_menus;
-    std::vector<std::unique_ptr<Genesis::JMenu>> m_submenus;
+    std::unique_ptr<jf::JMenuBar> m_menuBar;
+    std::vector<std::unique_ptr<jf::JMenu>> m_menus;
+    std::vector<std::unique_ptr<jf::JMenu>> m_submenus;
 
     // ---- New-feature demos ----
-    Genesis::Core::JAnimator m_demoAnimator;
+    jf::JAnimator m_demoAnimator;
     size_t         m_animSlot0{0}, m_animSlot1{0}, m_animSlot2{0};
     JProgressBar*   m_animBar0{nullptr};
     JProgressBar*   m_animBar1{nullptr};
@@ -1390,15 +1390,15 @@ int main() {
 
     // (Title-bar dragging is handled by _NET_WM_MOVERESIZE — no local state needed.)
 
-    Genesis::JTranslationEngine::instance().setSearchPath("./translations");
-    Genesis::JTranslationEngine::instance().setLocale("en");
+    jf::JTranslationEngine::instance().setSearchPath("./translations");
+    jf::JTranslationEngine::instance().setLocale("en");
 
     std::string winTitle = "Genesis Controls Catalog";
     if (getenv("GENESIS_WIN_TITLE") != nullptr) {
         winTitle = getenv("GENESIS_WIN_TITLE");
     }
     auto window = std::make_unique<PlatformWindowImpl>(
-        winTitle, W, H, 100, 100, Genesis::JPlatformWindowStyle::Borderless);
+        winTitle, W, H, 100, 100, jf::JPlatformWindowStyle::Borderless);
 
     JNativeWindowHandle handle = window->nativeHandle();
 
@@ -1406,21 +1406,21 @@ int main() {
     if (!hal) { std::cerr << "[GENESIS] Failed to create Vulkan HAL\n"; return -1; }
     hal->resizeSwapchain(W, H);
 
-    Genesis::JFontEngine fontEngine;
+    jf::JFontEngine fontEngine;
     if (fontEngine.loadSystemFont()) {
         auto atlas = fontEngine.buildAtlas(14.0f * window->dpiScale());
-        Genesis::JTextHelper::setAtlas(atlas);
+        jf::JTextHelper::setAtlas(atlas);
         hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
         std::cout << "[GENESIS] Font atlas ready (DPI scale: " << window->dpiScale() << ").\n";
     } else {
         std::cout << "[GENESIS] No system font found — text will use placeholder rendering.\n";
     }
 
-    Genesis::JAccessibilityBridge a11y;
+    jf::JAccessibilityBridge a11y;
     a11y.start("GenesisControlsCatalog");
 
     JGuiApplication app;
-    Genesis::JFocusManager focus;
+    jf::JFocusManager focus;
     auto catalog = std::make_unique<ControlsCatalog>(app.sceneGraph(), focus, W, H);
     catalog->initTextures(*hal);
 
@@ -1443,10 +1443,10 @@ int main() {
     float lastMouseX = -1.f, lastMouseY = -1.f;
     uint32_t lastHintMinW = 0, lastHintMinH = 0;  // last minimum size sent to the WM
 
-    Genesis::JFloatingDockOptions g_dockOptions;
+    jf::JFloatingDockOptions g_dockOptions;
     catalog->dockHost().setLivePreviewEnabled(g_dockOptions.livePreviewEnabled);
     std::vector<JFloatingDockWindow> floatingDocks;
-    std::vector<Genesis::JNativeDialogWindow> activeDialogs;
+    std::vector<jf::JNativeDialogWindow> activeDialogs;
     std::vector<std::unique_ptr<JPopupWindow>> floatingMenus;
     std::unique_ptr<JPopupWindow> activePopup;
     JComboBox* activePopupComboBox = nullptr;
@@ -1481,7 +1481,7 @@ int main() {
 
         const auto& items = cb->items();
         for (int i = 0; i < static_cast<int>(items.size()); ++i) {
-            auto* pi = popup->add<Genesis::JPopupItem>(
+            auto* pi = popup->add<jf::JPopupItem>(
                 items[i],
                 static_cast<float>(popupW), 28.f);
 
@@ -1503,7 +1503,7 @@ int main() {
     std::vector<std::function<void()>> deferredMenuActions;
     bool isPollingMenuEvents = false;
 
-    Genesis::JMenuManager::instance().onOpenMenu = [&](Genesis::JMenu* menu, int sx, int sy, bool parentTorn) {
+    jf::JMenuManager::instance().onOpenMenu = [&](jf::JMenu* menu, int sx, int sy, bool parentTorn) {
         auto action = [menu, sx, sy, parentTorn, &activeMenuPopups, &deferredMenuPopups, &floatingMenus, &floatingDocks, &g_dockOptions, &hal, &window, &catalog, &isPollingMenuEvents, &deferredMenuActions]() {
             if (!menu) {
                 for (auto& p : activeMenuPopups) p->destroySurface(*hal);
@@ -1528,8 +1528,8 @@ int main() {
 #endif
             );
 
-            if (menu->isTearOffEnabled() && Genesis::JMenuManager::instance().isTearOffEnabled()) {
-                auto* handle = popup->add<Genesis::JTearOffHandle>();
+            if (menu->isTearOffEnabled() && jf::JMenuManager::instance().isTearOffEnabled()) {
+                auto* handle = popup->add<jf::JTearOffHandle>();
                 handle->onTornOff.connect([menu, &activeMenuPopups, &deferredMenuPopups, &floatingMenus, &hal, &window, &isPollingMenuEvents, &deferredMenuActions, &catalog]() {
                     auto tearAction = [menu, &activeMenuPopups, &deferredMenuPopups, &floatingMenus, &hal, &window, &catalog]() {
                         // Park any submenus off-screen — we only promote the main popup.
@@ -1560,8 +1560,8 @@ int main() {
 
             for (const auto& item : menu->items()) {
                 if (!item) continue;
-                if (auto* mi = dynamic_cast<Genesis::JMenuItem*>(item.get())) {
-                    auto* added = popup->add<Genesis::JMenuItem>(mi->label(), mi->shortcut(), mi->submenu());
+                if (auto* mi = dynamic_cast<jf::JMenuItem*>(item.get())) {
+                    auto* added = popup->add<jf::JMenuItem>(mi->label(), mi->shortcut(), mi->submenu());
                     added->setCheckable(mi->isCheckable());
                     added->setChecked(mi->isChecked());
                     added->setTooltip(mi->tooltip());
@@ -1592,11 +1592,11 @@ int main() {
                             const auto& layout = parentPopup->graph().getLayoutConst(added->getNodeId());
                             int sx = parentPopup->window().screenX() + static_cast<int>(layout.boundingBox.x + layout.boundingBox.width);
                             int sy = parentPopup->window().screenY() + static_cast<int>(layout.boundingBox.y);
-                            Genesis::JMenuManager::instance().onOpenMenu(added->submenu(), sx, sy, true);
+                            jf::JMenuManager::instance().onOpenMenu(added->submenu(), sx, sy, true);
                         });
                     }
-                } else if (dynamic_cast<Genesis::JMenuSeparator*>(item.get())) {
-                    popup->add<Genesis::JMenuSeparator>();
+                } else if (dynamic_cast<jf::JMenuSeparator*>(item.get())) {
+                    popup->add<jf::JMenuSeparator>();
                 }
             }
 
@@ -1811,7 +1811,7 @@ int main() {
         // Block widget input only when a modal dialog is active.
         // Modal = any active native dialog window is modal
         bool dialogActive = std::any_of(activeDialogs.begin(), activeDialogs.end(),
-                                        [](const Genesis::JNativeDialogWindow& d){ return d.isModal(); });
+                                        [](const jf::JNativeDialogWindow& d){ return d.isModal(); });
 
         // ---- Keyboard ----
         bool wantScreenshot = false;
@@ -1822,10 +1822,10 @@ int main() {
             keyActivity = true;
             // When a dialog is active it owns keyboard input; skip widget/accelerator dispatch.
             if (dialogActive) continue;
-            if (Genesis::JMenuManager::instance().processAccelerator(ke)) {
+            if (jf::JMenuManager::instance().processAccelerator(ke)) {
                 continue;
             }
-            using K = Genesis::JKeyEvent::JKey;
+            using K = jf::JKeyEvent::JKey;
             bool handled = false;
             if (focus.focused()) {
                 handled = focus.focused()->handleKeyEvent(ke);
@@ -1841,7 +1841,7 @@ int main() {
 
             // Toggle config options:
             if (ke.utf8[0] == 'd' || ke.utf8[0] == 'D') {
-                using B = Genesis::JFloatingDragBehavior;
+                using B = jf::JFloatingDragBehavior;
                 if (g_dockOptions.dragBehavior == B::ConditionalGlobalTitleBar) {
                     g_dockOptions.dragBehavior = B::Legacy;
                     std::cout << "[CONFIG] Drag Behavior: Legacy (No global title bar, Alt+Drag to move)\n";
@@ -1876,8 +1876,8 @@ int main() {
                 for (auto& fd : floatingDocks) fd.setOptions(g_dockOptions);
             }
             if (ke.utf8[0] == 'r' || ke.utf8[0] == 'R') {
-                bool on = !Genesis::JMenuManager::instance().isTearOffEnabled();
-                Genesis::JMenuManager::instance().setTearOffEnabled(on);
+                bool on = !jf::JMenuManager::instance().isTearOffEnabled();
+                jf::JMenuManager::instance().setTearOffEnabled(on);
                 std::cout << "[CONFIG] Global TearOff: " << (on ? "ENABLED" : "DISABLED") << "\n";
             }
         }
@@ -1893,18 +1893,18 @@ int main() {
 
         if (rightPressed) {
             // Check for a widget-specific context menu first, fall back to the app view menu.
-            Genesis::JMenu* ctxMenu = nullptr;
-            for (auto* w : Genesis::JWidget::s_activeWidgets) {
+            jf::JMenu* ctxMenu = nullptr;
+            for (auto* w : jf::JWidget::s_activeWidgets) {
                 if (w->contextMenu() && w->isVisible() && w->hitTest(mouseX_val, mouseY_val)) {
                     ctxMenu = w->contextMenu();
                     break;
                 }
             }
             if (!ctxMenu) ctxMenu = catalog->viewMenu();
-            if (ctxMenu && Genesis::JMenuManager::instance().onOpenMenu) {
+            if (ctxMenu && jf::JMenuManager::instance().onOpenMenu) {
                 int sx = window->screenX() + static_cast<int>(mouseX_val);
                 int sy = window->screenY() + static_cast<int>(mouseY_val);
-                Genesis::JMenuManager::instance().onOpenMenu(ctxMenu, sx, sy, false);
+                jf::JMenuManager::instance().onOpenMenu(ctxMenu, sx, sy, false);
             }
         }
 
@@ -2343,15 +2343,15 @@ int main() {
         if (doRender) --redrawFrames;
 
         // ---- Spawn JNativeDialogWindow for each pending dialog request ----
-        while (Genesis::JDialogManager::instance().hasPending()) {
-            const auto* req = Genesis::JDialogManager::instance().front();
+        while (jf::JDialogManager::instance().hasPending()) {
+            const auto* req = jf::JDialogManager::instance().front();
             const auto& opts = req->options;
 
-            int dlgW = static_cast<int>(Genesis::JNativeDialogWindow::kW);
-            int dlgH = static_cast<int>(Genesis::JNativeDialogWindow::calcHeight(req->kind, opts));
+            int dlgW = static_cast<int>(jf::JNativeDialogWindow::kW);
+            int dlgH = static_cast<int>(jf::JNativeDialogWindow::calcHeight(req->kind, opts));
 
             int dlgX, dlgY;
-            using Pos = Genesis::JDialogOptions::JPosition;
+            using Pos = jf::JDialogOptions::JPosition;
             switch (opts.position) {
             case Pos::Fixed:
                 dlgX = opts.x; dlgY = opts.y;
@@ -2398,9 +2398,9 @@ int main() {
             }
 
             activeDialogs.emplace_back(*req, *hal, dlgX, dlgY,
-                static_cast<Genesis::JNativeDialogWindow::NativeWinHandleType>(
+                static_cast<jf::JNativeDialogWindow::NativeWinHandleType>(
                     window->rawWindowId()));
-            Genesis::JDialogManager::instance().pop();
+            jf::JDialogManager::instance().pop();
         }
 
         // ---- Poll and render all native dialog windows ----
@@ -2423,21 +2423,21 @@ int main() {
             // ---- Custom title bar (drawn last so it sits on top of everything) ----
             {
                 float W = static_cast<float>(curW);
-                float lh = Genesis::JTextHelper::lineHeight();
+                float lh = jf::JTextHelper::lineHeight();
 
                 // Background strip
                 uint8_t tbg[4] = {22, 22, 28, 255};
                 buffer.pushRectangle(0.f, 0.f, W, kTitleH, tbg, 0.f);
 
                 // App title
-                uint8_t tc[4]; std::copy(Genesis::Colors::TextSecondary,
-                                         Genesis::Colors::TextSecondary + 4, tc);
-                Genesis::JTextHelper::pushText(buffer, 10.f, (kTitleH - lh) * 0.5f,
+                uint8_t tc[4]; std::copy(jf::Colors::TextSecondary,
+                                         jf::Colors::TextSecondary + 4, tc);
+                jf::JTextHelper::pushText(buffer, 10.f, (kTitleH - lh) * 0.5f,
                                               winTitle, tc, W - kBtnW * 3.f - 20.f);
 
                 // JSeparator line between title bar and menu bar
-                uint8_t sep[4] = {Genesis::Colors::Border[0], Genesis::Colors::Border[1],
-                                  Genesis::Colors::Border[2], Genesis::Colors::Border[3]};
+                uint8_t sep[4] = {jf::Colors::Border[0], jf::Colors::Border[1],
+                                  jf::Colors::Border[2], jf::Colors::Border[3]};
                 buffer.pushRectangle(0.f, kTitleH - 1.f, W, 1.f, sep, 0.f);
 
                 // JWindow control buttons: [−] [□/⊡] [×]

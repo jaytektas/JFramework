@@ -16,14 +16,14 @@
 #include "DockWidget.h"
 #include "MainThreadDispatcher.h"
 
-namespace { inline constexpr auto& LogWidget = Genesis::Log::Widgets; }
+namespace { inline constexpr auto& LogWidget = jf::Log::Widgets; }
 
-namespace Genesis {
+inline namespace jf {
 
 /**
  * JObject — base lifecycle and slot-tracking.
  */
-class JObject : public Core::JSlotTracker {
+class JObject : public jf::JSlotTracker {
 public:
     explicit JObject(std::string name = "") : m_objectName(std::move(name)) {}
     virtual ~JObject() = default;
@@ -41,7 +41,7 @@ private:
 // JGuiApplication — coordinates the event loop, JSceneGraph, AI JControl Bus,
 //                JMainThreadDispatcher drain, and full semantic publishing.
 // ============================================================================
-class JGuiApplication : public JObject, public Core::JApplication {
+class JGuiApplication : public JObject, public jf::JApplication {
 public:
     JGuiApplication() : JObject("JGuiApplication") {
         assert(s_instance == nullptr && "Only one JGuiApplication may exist.");
@@ -132,8 +132,8 @@ public:
                              static_cast<uint32_t>(m_descriptors.size()));
     }
 
-    int exec(std::unique_ptr<Core::JPlatformWindow> nativeWindow) {
-        return run(std::move(nativeWindow));   // run() inherited from Core::JApplication
+    int exec(std::unique_ptr<jf::JPlatformWindow> nativeWindow) {
+        return run(std::move(nativeWindow));   // run() inherited from jf::JApplication
     }
 
 protected:
@@ -199,4 +199,4 @@ public:
     }
 };
 
-} // namespace Genesis
+} // inline namespace jf

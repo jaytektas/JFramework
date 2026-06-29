@@ -18,7 +18,7 @@
 #include "../platforms/linux/LinuxPlatformWindow.h"
 #endif
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // JMenuShortcut — keyboard shortcut representation and matching
@@ -72,7 +72,7 @@ class JMenu; // Forward decl
 // ============================================================================
 class JMenuItem : public JControl {
 public:
-    Core::JSignal<> onTriggered;
+    jf::JSignal<> onTriggered;
 
     JMenuItem(JSceneGraph& graph, const std::string& label, JMenuShortcut shortcut = {}, JMenu* submenu = nullptr)
         : JControl(graph, "JMenuItem"), m_label(label), m_shortcut(shortcut), m_submenu(submenu)
@@ -241,7 +241,7 @@ public:
 // ============================================================================
 class JTearOffHandle : public JControl {
 public:
-    Core::JSignal<> onTornOff;
+    jf::JSignal<> onTornOff;
 
     JTearOffHandle(JSceneGraph& graph) : JControl(graph, "JTearOffHandle") {
         auto& l = m_graph.getLayout(m_nodeId);
@@ -492,4 +492,4 @@ private:
     int m_hoveredIdx{-1};
 };
 
-} // namespace Genesis
+} // inline namespace jf

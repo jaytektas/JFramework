@@ -5,7 +5,7 @@
 #include <cassert>
 #include <iostream>
 
-using namespace Genesis;
+using namespace jf;
 
 void test_button_interaction() {
     JSceneGraph graph;

@@ -29,7 +29,7 @@
 #include "DockWidget.h"    // DockWidget
 #include "DockRegistry.h"
 
-namespace Genesis {
+inline namespace jf {
 
 // ----------------------------------------------------------------------------
 // Public enums / value types
@@ -1662,4 +1662,4 @@ private:
     JDockOptions m_options;
 };
 
-} // namespace Genesis
+} // inline namespace jf

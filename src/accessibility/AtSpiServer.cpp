@@ -8,7 +8,7 @@
 #include <dbus/dbus.h>
 #include <cstring>
 
-namespace { inline constexpr auto& LogA11y = Genesis::Log::AI; }
+namespace { inline constexpr auto& LogA11y = jf::Log::AI; }
 
 static constexpr const char* ATSPI_IFACE_ACCESSIBLE  = "org.a11y.atspi.Accessible";
 static constexpr const char* ATSPI_IFACE_APPLICATION  = "org.a11y.atspi.JApplication";
@@ -41,7 +41,7 @@ static const char* INTROSPECT_XML = R"xml(
   </interface>
 </node>)xml";
 
-namespace Genesis {
+inline namespace jf {
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -338,4 +338,4 @@ void JAccessibilityBridge::_sendEvent(const std::string& eventType,
     dbus_message_unref(sig);
 }
 
-} // namespace Genesis
+} // inline namespace jf

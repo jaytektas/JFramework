@@ -9,7 +9,7 @@
 #include "SceneGraph.h"
 #include "AiControlBus.h"
 
-namespace Genesis {
+inline namespace jf {
 
 /**
  * @brief Represents a managed application surface within Genesis Prime.
@@ -74,4 +74,4 @@ private:
     std::unordered_map<uint32_t, JAppSurface> m_surfaces;
 };
 
-} // namespace Genesis
+} // inline namespace jf

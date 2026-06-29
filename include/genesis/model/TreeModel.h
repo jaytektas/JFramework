@@ -8,7 +8,7 @@
 #include <genesis/core/MainThreadDispatcher.h>
 #include <genesis/core/Variant.h>
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // JTreeItem — node in a JTreeModel tree.
@@ -47,7 +47,7 @@ struct JTreeItem {
 // ============================================================================
 class JTreeModel {
 public:
-    Core::JSignal<> onChanged;  // always fires on the main thread
+    jf::JSignal<> onChanged;  // always fires on the main thread
 
     JTreeModel() : m_root{"", "Root", "", true, {}} {}
 
@@ -137,4 +137,4 @@ private:
     }
 };
 
-} // namespace Genesis
+} // inline namespace jf

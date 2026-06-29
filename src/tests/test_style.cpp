@@ -3,11 +3,11 @@
 #include <cassert>
 #include <iostream>
 
-using namespace Genesis;
+using namespace jf;
 
-namespace Genesis::JStyle {
+inline namespace jf { namespace JStyle {
     constexpr JStyleKey<JColor> ThemeColor{ 0x10 };
-}
+}}
 
 void test_style_inheritance() {
     JSceneGraph graph;

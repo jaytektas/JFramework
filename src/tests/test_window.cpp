@@ -7,7 +7,7 @@
 #include <iostream>
 #include <xcb/xcb.h>
 
-using namespace Genesis;
+using namespace jf;
 
 void test_hello_world_window() {
     JSceneGraph graph;

@@ -28,9 +28,9 @@
 #include <cstring>
 #include <algorithm>
 
-namespace { inline constexpr auto& LogVulkan = Genesis::Log::Vulkan; }
+namespace { inline constexpr auto& LogVulkan = jf::Log::Vulkan; }
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // Helpers
@@ -1349,4 +1349,4 @@ std::unique_ptr<JGpuHal> JGpuHal::create(JGpuApiType api, const JNativeWindowHan
     return nullptr;
 }
 
-} // namespace Genesis
+} // inline namespace jf

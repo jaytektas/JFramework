@@ -4,7 +4,7 @@
 #include <mutex>
 #include <vector>
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // JMainThreadDispatcher — thread-safe callback queue (Step 4: thread-safe signals)
@@ -54,4 +54,4 @@ private:
     std::vector<std::function<void()>> m_pending;
 };
 
-} // namespace Genesis
+} // inline namespace jf

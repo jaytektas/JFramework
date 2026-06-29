@@ -9,7 +9,7 @@
 #include <cstddef>
 #include <genesis/core/MainThreadDispatcher.h>
 
-namespace Genesis {
+inline namespace jf {
 
 // ============================================================================
 // JWorkerThread — persistent background thread with a serialised task queue.
@@ -154,4 +154,4 @@ private:
     std::thread                       m_thread;
 };
 
-} // namespace Genesis
+} // inline namespace jf

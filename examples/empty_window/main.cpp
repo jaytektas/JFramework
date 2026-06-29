@@ -7,17 +7,17 @@
 #include <genesis/graphics/FontEngine.h>
 #if defined(_WIN32)
 #include <genesis/platforms/windows/WindowsPlatformWindow.h>
-using PlatformWindowImpl = Genesis::JWindowsPlatformWindow;
+using PlatformWindowImpl = jf::JWindowsPlatformWindow;
 #else
 #include <genesis/platforms/linux/LinuxPlatformWindow.h>
-using PlatformWindowImpl = Genesis::JLinuxPlatformWindow;
+using PlatformWindowImpl = jf::JLinuxPlatformWindow;
 #endif
 
 #include <iostream>
 #include <memory>
 #include <chrono>
 
-using namespace Genesis;
+using namespace jf;
 
 int main() {
     std::cout << "[GENESIS] Empty JWindow test starting...\n";
@@ -30,17 +30,17 @@ int main() {
 
     auto window = std::make_unique<PlatformWindowImpl>(
         "Genesis Empty JWindow", W, H, 100, 100,
-        Genesis::JPlatformWindowStyle::Borderless);
+        jf::JPlatformWindowStyle::Borderless);
 
     JNativeWindowHandle handle = window->nativeHandle();
     auto hal = JGpuHal::create(JGpuApiType::Vulkan, handle);
     if (!hal) { std::cerr << "[GENESIS] Failed to create Vulkan HAL\n"; return -1; }
     hal->resizeSwapchain(W, H);
 
-    Genesis::JFontEngine fontEngine;
+    jf::JFontEngine fontEngine;
     if (fontEngine.loadSystemFont()) {
         auto atlas = fontEngine.buildAtlas(14.0f * window->dpiScale());
-        Genesis::JTextHelper::setAtlas(atlas);
+        jf::JTextHelper::setAtlas(atlas);
         hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
     }
 
@@ -212,9 +212,9 @@ int main() {
         // Title bar
         uint8_t tbg[4] = {22, 22, 28, 255};
         buffer.pushRectangle(0.f, 0.f, Wf, kTitleH, tbg, 0.f);
-        float lh = Genesis::JTextHelper::lineHeight();
+        float lh = jf::JTextHelper::lineHeight();
         uint8_t tc[4] = {190, 190, 200, 220};
-        Genesis::JTextHelper::pushText(buffer, 10.f, (kTitleH - lh) * 0.5f,
+        jf::JTextHelper::pushText(buffer, 10.f, (kTitleH - lh) * 0.5f,
                                       "Genesis Empty JWindow", tc, Wf - kBtnW * 3.f - 20.f);
         uint8_t sep[4] = {60, 60, 70, 255};
         buffer.pushRectangle(0.f, kTitleH - 1.f, Wf, 1.f, sep, 0.f);

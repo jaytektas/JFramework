@@ -3,7 +3,7 @@
 #include <iostream>
 #include <cmath>
 
-using namespace Genesis;
+using namespace jf;
 
 void test_parse_primitives() {
     assert(JJson::parse("null").isNull());

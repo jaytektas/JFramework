@@ -11,7 +11,7 @@
 #include <thread>
 
 #include <genesis/core/muted_logging_mock.h>
-namespace { inline constexpr auto& LogEngineCore = Genesis::Log::Core; }
+namespace { inline constexpr auto& LogEngineCore = jf::Log::Core; }
 
 #include <genesis/core/PlatformCommon.h>
 #include <genesis/graphics/GpuHal.h>
@@ -19,7 +19,7 @@ namespace { inline constexpr auto& LogEngineCore = Genesis::Log::Core; }
 #include <genesis/core/KeyEvent.h>
 #include <genesis/core/MainThreadDispatcher.h>
 
-namespace Core {
+inline namespace jf {
 
 /**
  * @brief Normalized cross-platform raw input data package.
@@ -58,8 +58,8 @@ public:
     
     // Keyboard events
     virtual bool hasKeyEvents() const { return false; }
-    virtual Genesis::JKeyEvent consumeKey() { return {}; }
-    virtual std::vector<Genesis::JKeyEvent> consumeAllKeys() { return {}; }
+    virtual jf::JKeyEvent consumeKey() { return {}; }
+    virtual std::vector<jf::JKeyEvent> consumeAllKeys() { return {}; }
 
     // JWindow dimensions and state
     virtual int      screenX() const { return 0; }
@@ -68,9 +68,9 @@ public:
     virtual uint32_t height()  const { return 0; }
     virtual void     setPosition(int x, int y) { (void)x; (void)y; }
     virtual void     setSize(uint32_t w, uint32_t h) { (void)w; (void)h; }
-    virtual void     setCursor(Genesis::JPlatformCursor shape) { (void)shape; }
-    virtual Genesis::JPlatformWindowStyle windowStyle() const { return Genesis::JPlatformWindowStyle::Normal; }
-    virtual Genesis::JNativeWindowHandle nativeHandle() const { return {}; }
+    virtual void     setCursor(jf::JPlatformCursor shape) { (void)shape; }
+    virtual jf::JPlatformWindowStyle windowStyle() const { return jf::JPlatformWindowStyle::Normal; }
+    virtual jf::JNativeWindowHandle nativeHandle() const { return {}; }
     
     // Focus & state checks
     virtual bool consumeFocusLost()  { return false; }
@@ -210,7 +210,7 @@ private:
     void updateEngineSystems(double deltaTime) {
         // Always drain the main-thread dispatcher so JTimer/JSerialPort callbacks
         // reach the UI even when used without a GUI application.
-        Genesis::JMainThreadDispatcher::instance().drain();
+        jf::JMainThreadDispatcher::instance().drain();
         onFrameTick(deltaTime);                 // GUI tier (subclass) injects per-frame work
         if (onFrameUpdate) onFrameUpdate(deltaTime);
     }
@@ -229,4 +229,4 @@ private:
     std::chrono::microseconds m_targetFrameTime;
 };
 
-} // namespace Core
+} // inline namespace jf
