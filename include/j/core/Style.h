@@ -1,16 +1,8 @@
 #pragma once
 
-// JStyle — the global stylesheet. A single runtime-mutable struct of visual defaults read by
-// the whole framework EACH FRAME (not cached), so mutating a field reflows the GUI live.
-//
-// Cascade (CSS-style): every component keeps SPARSE local overrides and falls back to the
-// global for anything unset —
-//   effective = localOverride.value_or(style().field)
-// So one host can be styled one way and another differently, while both inherit everything
-// they didn't override; change the global and every un-overridden component updates at once.
-//
-// This is a leaf header (no framework deps) so anything — widgets, dock, menu, chrome — can
-// read style() without include cycles.
+// Style enums shared between the dock layer and the unified stylesheet (JTheme, in
+// BaseWidgets.h). Kept in this leaf header (no framework deps) so both can use them without
+// an include cycle. The stylesheet itself is JTheme; read it via style() (= JTheme::current()).
 
 #include <cstdint>
 
@@ -20,20 +12,9 @@ inline namespace jf {
 enum class JTabBarEdge : uint8_t { Top, Bottom, Left, Right };
 
 // How tabs occupy the bar:
-//   Fill     — equal share of the bar (current behaviour)
+//   Fill     — equal share of the bar
 //   Left     — natural width, left-justified (trailing space left empty)
 //   Compress — shrink equally to fit, but never beyond their natural width
 enum class JTabFill : uint8_t { Fill, Left, Compress };
-
-struct JStyle {
-    // --- Dock tabs ---
-    JTabBarEdge tabEdge{JTabBarEdge::Top};
-    JTabFill    tabFill{JTabFill::Fill};
-    float       tabBarSize{28.0f};
-    // (grows as more of the GUI migrates off hardcoded constants)
-};
-
-// The one global stylesheet.
-inline JStyle& style() { static JStyle s; return s; }
 
 } // inline namespace jf

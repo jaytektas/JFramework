@@ -13,6 +13,7 @@
 #include "TranslationEngine.h"
 #include "AiBusHook.h"          // zero-dependency AI bus bridge
 #include "KeyEvent.h"
+#include "Style.h"              // JTabBarEdge / JTabFill (folded into JTheme)
 #include "../graphics/RenderPrimitive.h"
 #include "../platform/Clipboard.h"
 #include "../graphics/FontEngine.h"
@@ -231,32 +232,14 @@ public:
 // ============================================================================
 // JColor helpers
 // ============================================================================
-namespace Colors {
-    // Genesis palette (dark theme)
-    inline constexpr uint8_t Surface0[4]  = {18,  18,  20,  255}; // #121214
-    inline constexpr uint8_t Surface1[4]  = {28,  28,  30,  255}; // #1C1C1E
-    inline constexpr uint8_t Surface2[4]  = {40,  40,  42,  255}; // #28282A
-    inline constexpr uint8_t Surface3[4]  = {56,  56,  58,  255}; // #38383A
-    inline constexpr uint8_t Border[4]    = {72,  72,  76,  255}; // #48484C
-    inline constexpr uint8_t TextPrimary[4]  = {240, 240, 245, 255};
-    inline constexpr uint8_t TextSecondary[4] = {160, 160, 168, 255};
-    inline constexpr uint8_t Accent[4]    = {10,  132, 255, 255}; // iOS-style blue
-    inline constexpr uint8_t AccentHover[4] = {50, 160, 255, 255};
-    inline constexpr uint8_t AccentPress[4] = {0,  100, 220, 255};
-    inline constexpr uint8_t Success[4]   = {48,  209, 88,  255}; // green
-    inline constexpr uint8_t Warning[4]   = {255, 159, 10,  255}; // amber
-    inline constexpr uint8_t Danger[4]    = {255, 69,  58,  255}; // red
-    inline constexpr uint8_t Transparent[4] = {0, 0, 0, 0};
-    // Close-button shared style — used by JDockWidget and floating popup windows
-    inline constexpr uint8_t CloseBtn[4]      = {60,  40,  44,  160};
-    inline constexpr uint8_t CloseBtnHover[4] = {220, 50,  50,  255};
-    inline constexpr uint8_t CloseBtnMark[4]  = {255, 255, 255, 200};
-}
+// Colors now lives AFTER JTheme (below) — each role is a live pointer into the
+// runtime stylesheet (JTheme::current()), so existing Colors:: call sites read the
+// active theme with no churn.
 
 // ============================================================================
-// JTheme — runtime-configurable style. Switch the whole app with JTheme::apply().
-// All palette entries mirror the Colors namespace; widgets can use either, but
-// new code should prefer JTheme::current() for runtime-swappability.
+// JTheme — THE stylesheet (unified). Runtime-mutable colours + dimensions + dock
+// tab style; swap the whole app with JTheme::apply(). Read it via style() (alias
+// for current()); legacy Colors:: now points into it.
 // ============================================================================
 struct JTheme {
     // Palette
@@ -277,7 +260,7 @@ struct JTheme {
     uint8_t CloseBtnHover[4] = {220, 50,  50,  255};
     uint8_t CloseBtnMark[4]  = {255, 255, 255, 200};
 
-    // JStyle dimensions
+    // Dimensions
     float cornerRadius   = 6.f;
     float menuItemHeight = 28.f;
     float itemPadding    = 8.f;
@@ -286,6 +269,11 @@ struct JTheme {
     float titleBarHeight = 30.f;
     float focusRingWidth = 1.5f;
     float animSpeed      = 1.0f;
+
+    // Dock tabs (formerly JStyle — unified here as the one stylesheet).
+    JTabBarEdge tabEdge{JTabBarEdge::Top};
+    JTabFill    tabFill{JTabFill::Fill};
+    float       tabBarSize = 28.f;
 
     static JTheme  dark();
     static JTheme  light();
@@ -310,6 +298,33 @@ inline JTheme JTheme::light() {
 }
 inline JTheme& JTheme::current() { static JTheme inst; return inst; }
 inline void   JTheme::apply(JTheme t) { current() = std::move(t); }
+
+// The one stylesheet accessor — read by the whole framework each frame.
+inline JTheme& style() { return JTheme::current(); }
+
+// Legacy palette access: each role is a live pointer into the runtime stylesheet, so
+// every existing `Colors::Role` site now reads JTheme::current() (mutate it / apply() a
+// new theme and the whole GUI follows). apply() copies into the same singleton object,
+// so these pointers stay valid.
+namespace Colors {
+    inline const uint8_t* const Surface0      = JTheme::current().Surface0;
+    inline const uint8_t* const Surface1      = JTheme::current().Surface1;
+    inline const uint8_t* const Surface2      = JTheme::current().Surface2;
+    inline const uint8_t* const Surface3      = JTheme::current().Surface3;
+    inline const uint8_t* const Border        = JTheme::current().Border;
+    inline const uint8_t* const TextPrimary   = JTheme::current().TextPrimary;
+    inline const uint8_t* const TextSecondary = JTheme::current().TextSecondary;
+    inline const uint8_t* const Accent        = JTheme::current().Accent;
+    inline const uint8_t* const AccentHover   = JTheme::current().AccentHover;
+    inline const uint8_t* const AccentPress   = JTheme::current().AccentPress;
+    inline const uint8_t* const Success       = JTheme::current().Success;
+    inline const uint8_t* const Warning       = JTheme::current().Warning;
+    inline const uint8_t* const Danger        = JTheme::current().Danger;
+    inline const uint8_t* const CloseBtn      = JTheme::current().CloseBtn;
+    inline const uint8_t* const CloseBtnHover = JTheme::current().CloseBtnHover;
+    inline const uint8_t* const CloseBtnMark  = JTheme::current().CloseBtnMark;
+    inline constexpr uint8_t    Transparent[4] = {0, 0, 0, 0};  // truly constant, not themed
+}
 
 // ============================================================================
 // JAction — shareable command object. JBind to menu items, toolbar buttons,
