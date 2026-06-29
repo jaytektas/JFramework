@@ -8,6 +8,7 @@
 #include <vector>
 #include <functional>
 #include "Signal.h"
+#include "Variant.h"
 #include "SceneGraph.h"
 #include "TranslationEngine.h"
 #include "AiBusHook.h"          // zero-dependency AI bus bridge
@@ -46,6 +47,13 @@ public:
     virtual ~IAIState() = default;
     virtual AISemanticNode getSemanticNode() const = 0;
     virtual bool executeSemanticAction(const std::string& action) = 0;
+
+    // Typed, named read access to a control's own state — the reference-resolution
+    // seam (e.g. "value", "checked", "cursorRow"). Returns a Null Variant for an
+    // unknown key. Keys are the element's NATIVE member names: no translation layer,
+    // so a renamed member renames its reference. A Map/List return lets a resolver
+    // descend further (uid.axis.sigid, uid.bins[3]) — see ReferenceResolver.h.
+    virtual Variant getRef(const std::string& key) const { return Variant{}; }
 };
 
 // ============================================================================
@@ -136,6 +144,28 @@ public:
         return {"Widget", m_debugName, "", true};
     }
     bool executeSemanticAction(const std::string&) override { return false; }
+
+    // Common native keys every widget exposes. Typed widgets override to add their
+    // own members (and to return a real number for "value" instead of the semantic
+    // string). Geometry mirrors the layout box; identity/role/label/value mirror the
+    // semantic node, so the reference scheme and the AI bus read one model.
+    Variant getRef(const std::string& key) const override {
+        if (key == "id")      return static_cast<int64_t>(m_nodeId);
+        if (key == "role")    return getSemanticNode().role;
+        if (key == "label" || key == "name") return getSemanticNode().label;
+        if (key == "value")   return getSemanticNode().value;
+        if (key == "enabled") return isEnabled();
+        if (key == "visible") return isVisible();
+        if (key == "focused") return isFocused();
+        if (key == "x" || key == "y" || key == "width" || key == "height") {
+            const BBox b = getBoundingBox();
+            if (key == "x")     return b.x;
+            if (key == "y")     return b.y;
+            if (key == "width") return b.width;
+            return b.height;
+        }
+        return Variant{};
+    }
 
 protected:
     bool isPointInside(float mx, float my) const {
@@ -726,6 +756,11 @@ public:
     }
     bool isChecked() const { return m_checked; }
 
+    Variant getRef(const std::string& key) const override {
+        if (key == "checked" || key == "value") return m_checked;
+        return Widget::getRef(key);
+    }
+
     void handleMousePress(float mx, float my) override {
         if (isPointInside(mx, my)) setChecked(!m_checked);
     }
@@ -872,6 +907,11 @@ public:
         if (m_value != c) { m_value = c; m_graph.invalidateNode(m_nodeId, DirtySelf); onValueChanged.emit(c); }
     }
     float getValue() const { return m_value; }
+
+    Variant getRef(const std::string& key) const override {
+        if (key == "value") return static_cast<double>(m_value);
+        return Widget::getRef(key);
+    }
 
     void handleMouseMove(float mx, float my) override {
         Control::handleMouseMove(mx, my);
