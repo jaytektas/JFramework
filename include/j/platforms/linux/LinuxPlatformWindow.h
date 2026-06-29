@@ -6,6 +6,7 @@
 #include <j/graphics/GpuHal.h>
 #include <xcb/xcb.h>
 #include <xcb/xcb_keysyms.h>
+#include <xcb/sync.h>
 #include <stdexcept>
 #include <algorithm>
 #include <cstring>
@@ -159,14 +160,28 @@ public:
         xcb_intern_atom_reply_t* delete_r = xcb_intern_atom_reply(
             m_connection,
             xcb_intern_atom(m_connection, 0, 16, "WM_DELETE_WINDOW"), nullptr);
+        m_syncRequestAtom = _internAtom("_NET_WM_SYNC_REQUEST");
         if (protocols_r && delete_r) {
             m_deleteWindowAtom = delete_r->atom;
+            // Advertise BOTH WM_DELETE_WINDOW and _NET_WM_SYNC_REQUEST.
+            xcb_atom_t protos[2] = { delete_r->atom, m_syncRequestAtom };
             xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
                                 protocols_r->atom, XCB_ATOM_ATOM,
-                                32, 1, &delete_r->atom);
+                                32, 2, protos);
         }
         free(protocols_r);
         free(delete_r);
+
+        // _NET_WM_SYNC_REQUEST counter (basic protocol): after we render a frame for a
+        // requested resize, we set this counter to the value the WM sent. The compositor
+        // waits for that before showing the new size, so the resized window is never
+        // displayed before we've drawn it — eliminates the resize edge-flash.
+        m_syncCounter = xcb_generate_id(m_connection);
+        xcb_sync_int64_t zero{0, 0};
+        xcb_sync_create_counter(m_connection, m_syncCounter, zero);
+        xcb_atom_t syncCounterAtom = _internAtom("_NET_WM_SYNC_REQUEST_COUNTER");
+        xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
+                            syncCounterAtom, XCB_ATOM_CARDINAL, 32, 1, &m_syncCounter);
 
         // Load standard cursors from cursor font
         m_cursorFont = xcb_generate_id(m_connection);
@@ -278,8 +293,15 @@ public:
                 }
                 case XCB_CLIENT_MESSAGE: {
                     auto* cm = reinterpret_cast<xcb_client_message_event_t*>(ev);
-                    if (cm->data.data32[0] == m_deleteWindowAtom)
+                    if (cm->data.data32[0] == m_deleteWindowAtom) {
                         m_closeRequested = true;
+                    } else if (cm->data.data32[0] == m_syncRequestAtom) {
+                        // WM asks us to echo this counter value once we've drawn the
+                        // (about-to-be-resized) frame. data32[2]=lo, data32[3]=hi.
+                        m_syncValueLo = cm->data.data32[2];
+                        m_syncValueHi = cm->data.data32[3];
+                        m_syncPending = true;
+                    }
                     break;
                 }
                 case XCB_CONFIGURE_NOTIFY: {
@@ -388,7 +410,16 @@ public:
     bool consumeFocusLost()  override { bool v = m_focusLost;  m_focusLost  = false; return v; }
     bool consumeMouseLeave() override { bool v = m_mouseLeft; m_mouseLeft = false; return v; }
     bool consumeWasResized() override { bool v = m_wasResized; m_wasResized = false; return v; }
-    void swapBuffers()        override {}
+    void swapBuffers()        override {
+        // Per-frame: if the WM requested a sync (resize handshake), echo the value now
+        // that this frame has been presented, releasing the compositor to show it.
+        if (m_syncPending) {
+            xcb_sync_int64_t v{ static_cast<int32_t>(m_syncValueHi), m_syncValueLo };
+            xcb_sync_set_counter(m_connection, m_syncCounter, v);
+            xcb_flush(m_connection);
+            m_syncPending = false;
+        }
+    }
     void setVSync(bool)       override {}
 
     // ---- Mouse state accessors (consume-once for press/release) ----
@@ -898,6 +929,11 @@ private:
     xcb_window_t        m_windowId{0};
     xcb_window_t        m_rootWindow{0};
     xcb_atom_t          m_deleteWindowAtom{0};
+    xcb_atom_t          m_syncRequestAtom{0};
+    xcb_sync_counter_t  m_syncCounter{0};
+    uint32_t            m_syncValueLo{0};
+    uint32_t            m_syncValueHi{0};
+    bool                m_syncPending{false};
     xcb_key_symbols_t*  m_syms{nullptr};
 
     JPlatformWindowStyle m_style{JPlatformWindowStyle::Normal};

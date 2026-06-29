@@ -56,6 +56,7 @@ if(NOT WIN32)
     if(UNIX AND NOT APPLE)
         pkg_check_modules(XCB         REQUIRED xcb)
         pkg_check_modules(XCB_KEYSYMS REQUIRED xcb-keysyms)
+        pkg_check_modules(XCB_SYNC    REQUIRED xcb-sync)
         pkg_check_modules(DBUS        REQUIRED dbus-1)
         pkg_check_modules(ATSPI       QUIET    atspi-2)
     endif()
@@ -135,12 +136,14 @@ if(UNIX AND NOT APPLE)
     target_include_directories(j_platform PRIVATE
         ${XCB_INCLUDE_DIRS}
         ${XCB_KEYSYMS_INCLUDE_DIRS}
+        ${XCB_SYNC_INCLUDE_DIRS}
         ${DBUS_INCLUDE_DIRS}
         ${STB_INCLUDE_DIR}
     )
     target_link_libraries(j_platform PRIVATE
         ${XCB_LIBRARIES}
         ${XCB_KEYSYMS_LIBRARIES}
+        ${XCB_SYNC_LIBRARIES}
         ${DBUS_LIBRARIES}
         rt          # POSIX shared memory (AI control bus)
     )

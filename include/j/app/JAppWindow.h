@@ -122,6 +122,7 @@ public:
                 if (onRender) onRender(buffer);
                 m_hal->drawPrimitives(buffer);
                 m_hal->submitAndPresentFrame(frame);
+                m_window->swapBuffers();   // frame presented -> echo _NET_WM_SYNC_REQUEST
             } else {
                 std::this_thread::sleep_for(std::chrono::milliseconds(8));
             }
