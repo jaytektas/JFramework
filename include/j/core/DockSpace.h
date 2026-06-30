@@ -174,10 +174,27 @@ public:
                 return {};
             }
         }
-        Area a = areaAt(mx, my);
+        // Mouse capture: a press captures the host under the cursor, and every subsequent
+        // event routes there until release — even if the cursor leaves that host's rect. Without
+        // this, dragging a tab OUT of its host (e.g. tearing it toward the centre) would hand
+        // events to whatever host is now under the cursor, so the source host never sees the
+        // drag cross its tear-out threshold and the drag silently dies. Capture follows the
+        // gesture, not the pointer.
+        Area a;
+        if (m_captureArea != AreaCount && !pressed) {
+            a = m_captureArea;                 // mid-gesture: stay with the captured host
+        } else {
+            a = areaAt(mx, my);
+            if (pressed) m_captureArea = a;    // press (re)arms capture on the host under cursor
+        }
+        if (released) m_captureArea = AreaCount;
         if (a == AreaCount) return {};
         return { &m_host[a], m_host[a].handleMouse(mx, my, pressed, released) };
     }
+
+    // The app calls this when a tear-out (WantsFloat) settles, so a capture that won't see its
+    // own release (the button comes up over the floating window) doesn't stay stuck on a host.
+    void releaseMouseCapture() { m_captureArea = AreaCount; }
 
     JDockHost::JHoverCursor getHoverCursor(float mx, float my) {
         using HC = JDockHost::JHoverCursor;
@@ -216,7 +233,11 @@ private:
         const int a = m_dragSplit;
         const float delta = (a == Top || a == Bottom) ? (my - m_dragStart) : (mx - m_dragStart);
         const float sign = (a == Left || a == Top) ? 1.f : -1.f;   // grow toward the centre
-        m_size[a] = std::max(60.f, m_dragStartSize + sign * delta);
+        // Clamp the stored size to the SAME cap computeLayout displays (45% of the content),
+        // so it can't overshoot the visible splitter — otherwise dragging back out has a
+        // dead-zone equal to the overshoot before the splitter moves.
+        const float cap = ((a == Left || a == Right) ? m_content.width : m_content.height) * 0.45f;
+        m_size[a] = std::clamp(m_dragStartSize + sign * delta, 60.f, cap);
         computeLayout(m_content);
     }
 
@@ -236,6 +257,7 @@ private:
     JRect m_content{};
     bool  m_sidesOwnCorners{true};
     int   m_dragSplit{-1};
+    Area  m_captureArea{AreaCount};   // host that owns the in-progress press gesture (capture)
     float m_dragStart{0.f}, m_dragStartSize{0.f};
 };
 

@@ -814,17 +814,25 @@ public:
         }
 
         if (m_titleDrag.active) {
-            float dx = mx - m_titleDrag.startX;
-            float dy = my - m_titleDrag.startY;
-            // A title drag past the threshold becomes a float request.
-            if (std::sqrt(dx * dx + dy * dy) > 16.0f) {
-                JDockWidget* d = m_titleDrag.dock;
+            // A release ends the gesture FIRST: if the button-up event is polled in the same
+            // frame as the threshold-crossing motion, this is a click that happened to drift —
+            // NOT a tear-out. Firing WantsFloat here would spawn a float with the button already
+            // up, which can't be dragged and instantly commits/vanishes. So cancel on release
+            // before testing the threshold.
+            if (released) {
                 m_titleDrag = {};
-                if (d->isFloatable())
-                    return JDockEvent{d, JDockEvent::JType::WantsFloat};
-                // Non-floatable: silently cancel the drag.
+            } else {
+                float dx = mx - m_titleDrag.startX;
+                float dy = my - m_titleDrag.startY;
+                // A title drag past the threshold (while still held) becomes a float request.
+                if (std::sqrt(dx * dx + dy * dy) > 16.0f) {
+                    JDockWidget* d = m_titleDrag.dock;
+                    m_titleDrag = {};
+                    if (d->isFloatable())
+                        return JDockEvent{d, JDockEvent::JType::WantsFloat};
+                    // Non-floatable: silently cancel the drag.
+                }
             }
-            if (released) m_titleDrag = {};
         }
 
         // 3. Route tab clicks to switch the active tab.

@@ -170,7 +170,19 @@ public:
                 activity = true;
             }
 
-            const float mx = m_window->mouseX(), my = m_window->mouseY();
+            float mx = m_window->mouseX(), my = m_window->mouseY();
+            // While the left button is held, the pointer is grabbed (so drags can leave the
+            // window). On some WMs/compositors MotionNotify stops updating during that grab,
+            // which freezes mx/my mid-drag and makes tear-out/threshold detection erratic
+            // (drags that never initiate, "invisible" drags). Poll the global cursor instead —
+            // XQueryPointer works under a grab — so the main window tracks drags reliably,
+            // matching how floating windows already track. event_x is window-relative, and so
+            // is (global - windowOrigin), so the two coordinate spaces agree.
+            if (m_leftHeld) {
+                auto [gx, gy] = m_window->globalCursorPos();
+                mx = static_cast<float>(gx - m_window->screenX());
+                my = static_cast<float>(gy - m_window->screenY());
+            }
             m_mx = mx; m_my = my;   // remembered for chrome hover in drawChrome()
             // Resize-cursor feedback — window edges first, then dock splitters. Both are
             // framework-managed: the app never sets a resize cursor itself.
@@ -189,10 +201,19 @@ public:
             m_window->setCursor(c);
             const bool pressed  = m_window->consumePress();
             const bool released = m_window->consumeRelease();
+            // App-tracked button state: more reliable than querying the server's button mask
+            // (which some compositors / synthetic-input paths don't report). Drives the
+            // poll-the-global-cursor branch above so drags track even while the pointer is
+            // grabbed and MotionNotify goes quiet.
+            m_leftHeld = (m_leftHeld || pressed) && !released;
             if (pressed || released || mx != lastMx || my != lastMy) activity = true;
-            // While a button is held (drag / WM resize), render continuously — never sleep
-            // through resize events, or the swapchain lags the window and the edge flashes.
-            if (m_window->isLeftButtonDown()) activity = true;
+            // While a button is held (drag / WM resize), keep the loop live every frame —
+            // never sleep through a drag. This matters because we poll the global cursor (above)
+            // rather than relying on MotionNotify (which can go quiet under the press grab); if
+            // the loop slept, the poll would miss the motion and only see the cursor at release,
+            // turning every drag into a click. m_leftHeld is app-tracked so it's reliable even
+            // where the server's button mask / motion events aren't.
+            if (m_leftHeld || m_window->isLeftButtonDown()) activity = true;
             lastMx = mx; lastMy = my;
 
             const bool chromeAte = handleChrome(mx, my, pressed);
@@ -376,6 +397,10 @@ private:
         const int offX = std::clamp(gx - sx, 0, static_cast<int>(fw) - 1);
         const int offY = std::clamp(gy - sy, 0, static_cast<int>(fh) - 1);
 
+        // Never tear out unless the button is actually held: if the drag-gesture already ended
+        // (button up), spawning a float would remove the dock into a window that can't be
+        // dragged and instantly commits/closes — the dock just vanishes. Leave it docked.
+        if (!m_window->isLeftButtonDown()) return;
         m_revert = { true, host->saveTree(), dw, host };   // enable Escape-to-revert this drag
         host->removeDock(dw);
         JDockWidget moved = std::move(*dw);
@@ -386,6 +411,10 @@ private:
                                 offX, offY, *m_hal, /*initialDrag=*/true,
                                 JFloatingDockOptions{},
                                 static_cast<xcb_window_t>(m_window->rawWindowId()));
+        // The drag now lives in the floating window; the main window won't see this gesture's
+        // button-release, so drop the capture and held-state here rather than leaving them stuck.
+        m_space.releaseMouseCapture();
+        m_leftHeld = false;
 #else
         (void)host; (void)dw;
 #endif
@@ -548,6 +577,7 @@ private:
     std::string                      m_title;
     uint32_t                         m_w{0}, m_h{0};
     float                            m_mx{-1.0f}, m_my{-1.0f};
+    bool                             m_leftHeld{false};   // app-tracked button state (press→release)
     float                            m_titleH{28.0f};
     bool                             m_needRedraw{false};
 };
