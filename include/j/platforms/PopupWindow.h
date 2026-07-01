@@ -112,31 +112,7 @@ public:
             return out;
         }
 
-        if (!m_focusSet) {
-#if defined(_WIN32)
-            SetFocus(m_window->nativeWindow());
-            SetCapture(m_window->nativeWindow());
-            m_hasPointerGrab = true;
-#else
-            xcb_connection_t* conn = m_window->nativeConnection();
-            xcb_window_t      wid  = m_window->nativeWindow();
-            xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, wid, XCB_CURRENT_TIME);
-            auto grabCookie = xcb_grab_pointer(conn, 0, wid,
-                XCB_EVENT_MASK_BUTTON_PRESS   |
-                XCB_EVENT_MASK_BUTTON_RELEASE |
-                XCB_EVENT_MASK_POINTER_MOTION,
-                XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
-                XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
-            xcb_flush(conn);
-            auto* grabReply = xcb_grab_pointer_reply(conn, grabCookie, nullptr);
-            m_hasPointerGrab = grabReply && grabReply->status == XCB_GRAB_STATUS_SUCCESS;
-            free(grabReply);
-#endif
-            // Retry next frame if the grab failed — it commonly does when the menu opens on a
-            // button PRESS while the parent still holds the button's implicit grab. Without the
-            // retry the popup never captures the pointer and its hover/clicks stall.
-            m_focusSet = m_hasPointerGrab;
-        }
+        _ensureGrab();
 
         float mx = m_window->mouseX();
         float my = m_window->mouseY();
@@ -219,25 +195,7 @@ public:
     bool pumpAndGrab() {
         m_window->pollNativeEvents();
         if (m_window->shouldClose() || m_window->consumeFocusLost()) return true;
-        if (!m_focusSet) {
-#if defined(_WIN32)
-            SetFocus(m_window->nativeWindow());
-            SetCapture(m_window->nativeWindow());
-            m_hasPointerGrab = true;
-#else
-            xcb_connection_t* conn = m_window->nativeConnection();
-            xcb_window_t      wid  = m_window->nativeWindow();
-            xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, wid, XCB_CURRENT_TIME);
-            auto grabCookie = xcb_grab_pointer(conn, 0, wid,
-                XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
-                XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
-            xcb_flush(conn);
-            auto* grabReply = xcb_grab_pointer_reply(conn, grabCookie, nullptr);
-            m_hasPointerGrab = grabReply && grabReply->status == XCB_GRAB_STATUS_SUCCESS;
-            free(grabReply);
-#endif
-            m_focusSet = m_hasPointerGrab;   // retry next frame if the grab wasn't acquired yet
-        }
+        _ensureGrab();
         return false;
     }
 
@@ -480,6 +438,30 @@ private:
 
     // Move the keyboard selection by dir (+1 = down, -1 = up), skipping
     // non-focusable items (separators etc.) and wrapping around.
+    // Take the modal pointer grab once. Retried next frame if it wasn't acquired — common
+    // when the popup opens on a button PRESS the parent still holds an implicit grab for;
+    // without the retry the popup never captures the pointer and its hover/clicks stall.
+    void _ensureGrab() {
+        if (m_focusSet) return;
+#if defined(_WIN32)
+        SetFocus(m_window->nativeWindow());
+        SetCapture(m_window->nativeWindow());
+        m_hasPointerGrab = true;
+#else
+        xcb_connection_t* conn = m_window->nativeConnection();
+        xcb_window_t      wid  = m_window->nativeWindow();
+        xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, wid, XCB_CURRENT_TIME);
+        auto grabCookie = xcb_grab_pointer(conn, 0, wid,
+            XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
+            XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
+        xcb_flush(conn);
+        auto* grabReply = xcb_grab_pointer_reply(conn, grabCookie, nullptr);
+        m_hasPointerGrab = grabReply && grabReply->status == XCB_GRAB_STATUS_SUCCESS;
+        free(grabReply);
+#endif
+        m_focusSet = m_hasPointerGrab;
+    }
+
     void _navStep(int dir) {
         int n = static_cast<int>(m_widgets.size());
         if (n == 0) return;

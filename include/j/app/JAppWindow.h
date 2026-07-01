@@ -275,16 +275,10 @@ public:
                 }
             }
             // Focus-on-click: pressing a focusable widget focuses it (keyboard then routes
-            // there); pressing empty space / non-focusable chrome clears focus. Topmost wins
-            // (s_activeWidgets is paint order, so scan back-to-front). The app registers nothing.
-            if (pressed && !chromeAte && !menuAte) {
-                JWidget* hit = nullptr;
-                for (auto it = JWidget::s_activeWidgets.rbegin(); it != JWidget::s_activeWidgets.rend(); ++it) {
-                    JWidget* w = *it;
-                    if (w && w->isVisible() && w->isFocusable() && w->hitTest(mx, my)) { hit = w; break; }
-                }
-                m_focus.setFocus(hit);
-            }
+            // there); pressing empty space / non-focusable chrome clears focus. The app
+            // registers nothing.
+            if (pressed && !chromeAte && !menuAte)
+                m_focus.focusAt(JWidget::s_activeWidgets, mx, my);
             if (onInput) onInput(mx, my, (chromeAte || menuAte) ? false : pressed, released);
 
             // Route content input (clicks / wheel / hover) to the dock under the cursor. The
@@ -545,8 +539,7 @@ private:
         }
         if (m_comboPopup) { m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); }
 
-        auto& g = JGuiApplication::instance()->sceneGraph();
-        const auto& bb = g.getLayoutConst(cb->getNodeId()).boundingBox;
+        const auto bb = cb->getBoundingBox();
         const int sx = m_window->screenX() + static_cast<int>(bb.x);
         const int sy = m_window->screenY() + static_cast<int>(bb.y + bb.height);
         const auto popupW = static_cast<uint32_t>(bb.width);

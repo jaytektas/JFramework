@@ -77,6 +77,18 @@ public:
             m_focused = nullptr;
     }
 
+    // Focus the topmost focusable+visible widget under (mx,my) from `widgets` (paint order,
+    // so scanned back-to-front), or clear focus if none is hit. Lets a runner do click-to-focus
+    // without itself walking the widget set / hit-testing.
+    void focusAt(const std::vector<JWidget*>& widgets, float mx, float my) {
+        JWidget* hit = nullptr;
+        for (auto it = widgets.rbegin(); it != widgets.rend(); ++it) {
+            JWidget* w = *it;
+            if (w && w->isVisible() && w->isFocusable() && w->hitTest(mx, my)) { hit = w; break; }
+        }
+        setFocus(hit);
+    }
+
     void clear() { m_order.clear(); m_focused = nullptr; }
 
 private:

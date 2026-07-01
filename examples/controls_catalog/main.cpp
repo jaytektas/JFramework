@@ -139,18 +139,6 @@ public:
     void forceTear(int idx) {
         if (m_tearableTab) m_tearableTab->forceTear(idx);
     }
-
-    std::optional<std::pair<JTornTabState, std::pair<float,float>>> consumeNewFloat() {
-        if (!m_tearableTab || !m_tearableTab->hasTornTab()) return std::nullopt;
-        auto state = m_tearableTab->consumeTornTab();
-        float dx = m_tearableTab->lastDragX();
-        float dy = m_tearableTab->lastDragY();
-        return std::make_pair(std::move(state), std::make_pair(dx, dy));
-    }
-
-
-
-
     void buildMenus() {
         // Create menus
         auto fileMenu = std::make_unique<jf::JMenu>("File");
@@ -710,14 +698,6 @@ public:
             if (released) w->handleMouseRelease(x, y);
         }
     }
-
-    float panelMinHeight(const std::string& t) {
-        Panel* p = panelByTitle(t);
-        if (!p) return 0.f;
-        m_graph.computeMinSize(p->root);
-        return m_graph.getLayoutConst(p->root).minHeight;
-    }
-
     JSceneGraph& m_graph;
     JFocusManager& m_focus;
     uint32_t    m_winW, m_winH;
