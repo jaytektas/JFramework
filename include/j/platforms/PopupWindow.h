@@ -208,6 +208,77 @@ public:
         return out;
     }
 
+    // ---- Managed-stack input (driven by JMenuRuntime) --------------------------------
+    // A cascade of menu popups can't each hold the X pointer grab — only one window can, so
+    // the child would freeze the parent and steal its clicks. Instead the runtime keeps ONE
+    // grab on the ROOT popup, reads the global cursor from it, and drives every popup in the
+    // stack via these methods. Dismiss is decided by the runtime (press outside ALL popups).
+
+    // Root popup: pump native events + ensure the single pointer grab. Returns true if this
+    // popup should dismiss the whole stack (window closed / focus lost).
+    bool pumpAndGrab() {
+        m_window->pollNativeEvents();
+        if (m_window->shouldClose() || m_window->consumeFocusLost()) return true;
+        if (!m_focusSet) {
+#if defined(_WIN32)
+            SetFocus(m_window->nativeWindow());
+            SetCapture(m_window->nativeWindow());
+            m_hasPointerGrab = true;
+#else
+            xcb_connection_t* conn = m_window->nativeConnection();
+            xcb_window_t      wid  = m_window->nativeWindow();
+            xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, wid, XCB_CURRENT_TIME);
+            auto grabCookie = xcb_grab_pointer(conn, 0, wid,
+                XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
+                XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
+            xcb_flush(conn);
+            auto* grabReply = xcb_grab_pointer_reply(conn, grabCookie, nullptr);
+            m_hasPointerGrab = grabReply && grabReply->status == XCB_GRAB_STATUS_SUCCESS;
+            free(grabReply);
+#endif
+            m_focusSet = m_hasPointerGrab;   // retry next frame if the grab wasn't acquired yet
+        }
+        return false;
+    }
+
+    // Child popup: pump native events only (no grab — the root owns it) so the surface stays
+    // alive and repaints. Mark it viewable: isViewable() is normally gated on holding the
+    // pointer grab, but a managed child never grabs, so without this it would never render.
+    void pumpManaged() { m_window->pollNativeEvents(); m_focusSet = true; }
+
+    std::pair<int,int> globalCursor() const { return m_window->globalCursorPos(); }
+    bool takePress()   { return m_window->consumePress(); }
+    bool takeRelease() { return m_window->consumeRelease(); }
+    std::vector<JKeyEvent> takeKeys() { return m_window->consumeAllKeys(); }
+
+    // Is the global point inside this popup's screen rect?
+    bool containsGlobal(int gx, int gy) const {
+        const int lx = gx - m_window->screenX(), ly = gy - m_window->screenY();
+        return lx >= 0 && lx < static_cast<int>(m_winW) && ly >= 0 && ly < static_cast<int>(m_winH);
+    }
+
+    // Drive this popup's widgets with the cursor at (mx,my) popup-local coords. Fires hover
+    // (opens submenus) and, on press, activation (onTriggered). Returns clicked info.
+    JPollResult driveInput(float mx, float my, bool pressed, bool released) {
+        JPollResult out{};
+        uint32_t    clickedId = 0;
+        std::string clickedLabel;
+        for (auto& w : m_widgets) {
+            if (!w->isVisible()) continue;
+            w->handleMouseMove(mx, my);
+            if (pressed) {
+                w->handleMousePress(mx, my);
+                if (w->hitTest(mx, my)) {
+                    clickedId = w->getNodeId();
+                    if (auto* pi = dynamic_cast<JPopupItem*>(w.get())) clickedLabel = pi->label();
+                }
+            }
+            if (released) w->handleMouseRelease(mx, my);
+        }
+        if (clickedId != 0) { out.activatedNodeId = clickedId; out.activatedLabel = clickedLabel; }
+        return out;
+    }
+
     // Keyboard-navigate the popup: call from outside if the platform routes keys here.
     // Returns true if the key was consumed.
     bool handleKeyNav(const JKeyEvent& ke) {

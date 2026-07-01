@@ -918,6 +918,18 @@ public:
         return leaf ? contentArea(leafId, leaf->activeTab) : JRect{};
     }
 
+    // The active-tab dock whose content area contains (mx,my), or nullptr. Used to route
+    // content input (clicks / wheel / hover) to the right dock's onInputContent hook.
+    JDockWidget* contentDockAt(float mx, float my) {
+        for (auto& n : m_nodes) {
+            if (n.type != JDockNode::JType::Leaf) continue;
+            int at = n.activeTab;
+            if (at < 0 || at >= static_cast<int>(n.tabs.size()) || !n.tabs[at]) continue;
+            if (_inRect(_leafContentRect(n), mx, my)) return n.tabs[at];
+        }
+        return nullptr;
+    }
+
     JRect contentArea(JDockNodeId leafId, int /*tabIdx*/) const {
         const JDockNode* leaf = node(leafId);
         if (!leaf || leaf->type != JDockNode::JType::Leaf) return JRect{};
@@ -1278,6 +1290,13 @@ private:
         JRect content = _leafContentRect(leaf);
         uint8_t contentBg[4] = {14, 14, 16, 255};
         buf.pushRectangle(content.x, content.y, content.width, content.height, contentBg, 0.0f);
+
+        // App-supplied content for the active tab. The dock carries the hook, so this same
+        // path renders it whether the leaf is inline (main window) or inside a floating
+        // window's internal host — no per-context wiring.
+        if (int at = leaf.activeTab; at >= 0 && at < static_cast<int>(leaf.tabs.size())
+                && leaf.tabs[at] && leaf.tabs[at]->onRenderContent)
+            leaf.tabs[at]->onRenderContent(buf, content);
 
         // Tab / title bar.
         JRect bar = _tabBarRect(leaf);

@@ -64,6 +64,19 @@ public:
     void nextFocus() { _shift(+1); }
     void prevFocus() { _shift(-1); }
 
+    // Rebuild the tab order from a live widget set (e.g. JWidget::s_activeWidgets), keeping
+    // only focusable entries and preserving the current focus. Lets a runner own focus
+    // without the app registering widgets by hand; a focused widget that has since been
+    // removed / destroyed is dropped safely (no dangling pointer in the order).
+    void syncOrder(const std::vector<JWidget*>& widgets) {
+        m_order.clear();
+        for (auto* w : widgets)
+            if (w && w->isFocusable())
+                m_order.push_back(w);
+        if (m_focused && std::find(m_order.begin(), m_order.end(), m_focused) == m_order.end())
+            m_focused = nullptr;
+    }
+
     void clear() { m_order.clear(); m_focused = nullptr; }
 
 private:

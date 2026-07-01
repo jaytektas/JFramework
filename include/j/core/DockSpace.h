@@ -50,6 +50,15 @@ public:
     }
     const JRect& rect(Area a) const { return m_rect[a]; }
 
+    // The active-tab dock whose content area contains (mx,my) across all active areas, or
+    // nullptr. Lets the runner route content input (clicks / wheel) to the dock's hook.
+    JDockWidget* contentDockAt(float mx, float my) {
+        for (int a = 0; a < AreaCount; ++a)
+            if (active(Area(a)))
+                if (JDockWidget* d = m_host[a].contentDockAt(mx, my)) return d;
+        return nullptr;
+    }
+
     void dump(const char* tag) const {
         static const char* nm[] = {"L", "R", "T", "B", "C"};
         std::fprintf(stderr, "[space %s]", tag);

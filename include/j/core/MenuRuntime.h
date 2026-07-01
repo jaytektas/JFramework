@@ -38,24 +38,48 @@ public:
     // render active + floating menus. Each popup is its own window/surface, so it renders
     // into a fresh scratch buffer (like a floating dock window).
     void updateAndRender(JGpuHal& hal) {
-        bool dismissed = false;
-        m_isPolling = true;
-        for (auto& p : m_active) {
-            if (p->pollEvents(hal).type == JPopupWindow::JPollResult::JType::Dismissed) {
-                dismissed = true;
-                break;
+        if (!m_active.empty()) {
+            m_isPolling = true;
+            // Single grab: the ROOT popup owns the pointer and receives every event; we read
+            // the global cursor from it and drive the whole stack ourselves. This is what
+            // makes submenu cascades work — a child can't steal the grab and freeze / dismiss
+            // its parent.
+            JPopupWindow* root = m_active.front().get();
+            bool dismissed = root->pumpAndGrab();
+            int  gx = 0, gy = 0;
+            bool pressed = false, released = false;
+            if (!dismissed) {
+                auto gc = root->globalCursor(); gx = gc.first; gy = gc.second;
+                pressed  = root->takePress();
+                released = root->takeRelease();
+                for (const auto& ke : root->takeKeys()) {
+                    if (!ke.pressed) continue;
+                    if (ke.key == JKeyEvent::JKey::Escape) { dismissed = true; break; }
+                    m_active.back()->handleKeyNav(ke);   // arrow nav on the topmost popup
+                }
             }
-        }
-        m_isPolling = false;
+            if (!dismissed) {
+                bool insideAny = false;
+                for (auto& p : m_active) {
+                    p->pumpManaged();
+                    if (p->containsGlobal(gx, gy)) insideAny = true;
+                    p->driveInput(static_cast<float>(gx - p->window().screenX()),
+                                  static_cast<float>(gy - p->window().screenY()),
+                                  pressed, released);
+                }
+                if (pressed && !insideAny) dismissed = true;   // clicked outside every menu
+            }
+            m_isPolling = false;
 
-        if (!m_deferred.empty()) {
-            auto acts = std::move(m_deferred);
-            m_deferred.clear();
-            for (auto& a : acts) a();
-        }
+            if (!m_deferred.empty()) {
+                auto acts = std::move(m_deferred);
+                m_deferred.clear();
+                for (auto& a : acts) a();
+            }
 
-        if (dismissed) closeAll();
-        else for (auto& p : m_active) if (p->isViewable()) { JPrimitiveBuffer b; p->render(hal, b); }
+            if (dismissed) closeAll();
+            else for (auto& p : m_active) if (p->isViewable()) { JPrimitiveBuffer b; p->render(hal, b); }
+        }
 
         for (auto it = m_floating.begin(); it != m_floating.end(); ) {
             if ((*it)->pollFloating() == JPopupWindow::JFloatPollResult::Close) {
@@ -91,6 +115,8 @@ private:
                 auto* added = popup->add<JMenuItem>(mi->label(), mi->shortcut(), mi->submenu());
                 added->setCheckable(mi->isCheckable());
                 added->setChecked(mi->isChecked());
+                added->setTooltip(mi->tooltip());
+                if (mi->embeddedWidgetFactory()) added->setEmbeddedWidgetFactory(mi->embeddedWidgetFactory());
 
                 JMenuItem* src = mi;
                 added->onTriggered.connect([this, src]() {

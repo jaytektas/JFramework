@@ -83,6 +83,8 @@ public:
         , m_resizeAnchorX(o.m_resizeAnchorX), m_resizeAnchorY(o.m_resizeAnchorY)
         , m_closeRequested(o.m_closeRequested), m_pinned(o.m_pinned)
         , m_hoverClose(o.m_hoverClose), m_hoverPin(o.m_hoverPin), m_hoverResize(o.m_hoverResize)
+        , onRenderContent(std::move(o.onRenderContent))
+        , onInputContent(std::move(o.onInputContent))
     {
         // Replace old pointer in registry with this
         auto& v = s_activeDocks;
@@ -198,6 +200,16 @@ public:
         for (const auto& a : m_acceptLeafLabels) if (a == label) return true;
         return false;
     }
+
+    // --- Content hooks ---
+    // Let the framework host a dock's inner content wherever the dock lives — inline in a
+    // JDockHost leaf, or torn out into a floating window. The hooks travel WITH the dock
+    // (moved by the move-ctor), so tear-out / re-dock carries the content automatically and
+    // the app never re-wires anything. Without hooks a dock shows only its chrome.
+    //   onRenderContent(buf, contentRect): draw into contentRect (host-local coordinates).
+    //   onInputContent(mx,my,pressed,released,wheel): route input (host-local coordinates).
+    std::function<void(JPrimitiveBuffer&, const JRect&)> onRenderContent;
+    std::function<void(float, float, bool, bool, float)> onInputContent;
 
     // --- Input ---
 

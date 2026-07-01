@@ -25,8 +25,9 @@
 #include <j/core/DockManager.h>          // JDockHost (auto-managed dock layout)
 #include <j/core/DockSpace.h>            // JDockSpace (centre + 4 dock areas)
 #include <j/core/DockRegistry.h>         // host registration for floating re-dock
-#include <j/core/MenuSystem.h>           // JMenuBar
+#include <j/core/MenuSystem.h>           // JMenuBar, JMenuManager (accelerators)
 #include <j/core/MenuRuntime.h>          // JMenuRuntime (popup menu engine)
+#include <j/core/FocusManager.h>         // JFocusManager (keyboard focus + Tab cycling)
 #include <j/core/ToolBar.h>              // JToolBar
 #include <j/platforms/PlatformWindow.h>  // createPlatformWindow
 #if defined(__linux__)
@@ -139,10 +140,17 @@ public:
         return *m_toolBar;
     }
 
+    // The window's keyboard-focus manager. The runner owns focus: it rebuilds the tab order
+    // from the live widget set each frame, focuses the widget under a click, cycles focus on
+    // Tab/Shift-Tab, and routes key events to the focused widget — the app registers nothing.
+    // Exposed so the app can query/set focus (e.g. focus a field programmatically).
+    JFocusManager& focus() { return m_focus; }
+
     // App hooks.
     std::function<void(JPrimitiveBuffer&)>              onRender;  // draw content (below contentTop())
     std::function<void(float,float,bool,bool)>          onInput;   // mx,my,pressed,released (chrome-filtered)
     std::function<void(uint32_t,uint32_t)>              onResize;  // new client size (px)
+    std::function<void(const JKeyEvent&)>               onKey;     // key events not consumed by menu/focus/Tab
 
     void requestRedraw() { m_needRedraw = true; }   // app asks for a frame (e.g. animation)
 
@@ -216,6 +224,12 @@ public:
             if (m_leftHeld || m_window->isLeftButtonDown()) activity = true;
             lastMx = mx; lastMy = my;
 
+            // Consume the frame's key events once — shared by drag-abort (Escape) and the
+            // keyboard-focus routing below. Consuming twice would starve one of the two.
+            auto frameKeys = m_window->consumeAllKeys();
+            const float wheel = m_window->consumeWheel();
+            if (wheel != 0.f) activity = true;
+
             const bool chromeAte = handleChrome(mx, my, pressed);
             const bool menusOpen = m_menuRuntime.hasOpenMenus();
             // While a menu popup is open it owns input modally (its own grab); the main UI is
@@ -255,7 +269,42 @@ public:
                         res.host->removeDock(res.ev->dock);
                 }
             }
+            // Focus-on-click: pressing a focusable widget focuses it (keyboard then routes
+            // there); pressing empty space / non-focusable chrome clears focus. Topmost wins
+            // (s_activeWidgets is paint order, so scan back-to-front). The app registers nothing.
+            if (pressed && !chromeAte && !menuAte) {
+                JWidget* hit = nullptr;
+                for (auto it = JWidget::s_activeWidgets.rbegin(); it != JWidget::s_activeWidgets.rend(); ++it) {
+                    JWidget* w = *it;
+                    if (w && w->isVisible() && w->isFocusable() && w->hitTest(mx, my)) { hit = w; break; }
+                }
+                m_focus.setFocus(hit);
+            }
             if (onInput) onInput(mx, my, (chromeAte || menuAte) ? false : pressed, released);
+
+            // Route content input (clicks / wheel / hover) to the dock under the cursor. The
+            // framework hosts dock content, so a dock's onInputContent hook fires whether the
+            // dock is inline here or torn into a float (spawnFloat bridges to the same hook).
+            if (!chromeAte && !menuAte)
+                if (JDockWidget* cd = m_space.contentDockAt(mx, my); cd && cd->onInputContent)
+                    cd->onInputContent(mx, my, pressed, released, wheel);
+
+            // Keyboard: the runner owns focus routing. Re-sync the tab order from the live
+            // widget set (so newly created / destroyed widgets are tracked without app
+            // registration), then for each pressed key: menu accelerators first, then the
+            // focused widget, then Tab/Shift-Tab focus cycling, then the app's onKey hook.
+            // An open menu popup grabs the keyboard at the OS level, so its keys never arrive
+            // here — no special-casing needed.
+            m_focus.syncOrder(JWidget::s_activeWidgets);
+            for (const auto& ke : frameKeys) {
+                if (!ke.pressed) continue;
+                activity = true;
+                if (JMenuManager::instance().processAccelerator(ke)) continue;
+                if (JWidget* f = m_focus.focused(); f && f->handleKeyEvent(ke)) continue;
+                if (ke.key == JKeyEvent::JKey::Tab)     { m_focus.nextFocus(); continue; }
+                if (ke.key == JKeyEvent::JKey::BackTab) { m_focus.prevFocus(); continue; }
+                if (onKey) onKey(ke);
+            }
 
             if (auto* app = JGuiApplication::instance()) app->serviceFrame();
 
@@ -272,7 +321,7 @@ public:
                 if (fd.consumeAbortRequest()) escAbort = true;
             }
             if (anyDragging)
-                for (const auto& k : m_window->consumeAllKeys())
+                for (const auto& k : frameKeys)
                     if (k.key == JKeyEvent::JKey::Escape) escAbort = true;
             if (escAbort) revertActiveDrag();
 #endif
@@ -411,6 +460,17 @@ private:
                                 offX, offY, *m_hal, /*initialDrag=*/true,
                                 JFloatingDockOptions{},
                                 static_cast<xcb_window_t>(m_window->rawWindowId()));
+        // Bridge the float's content input (which carries the wheel) to the torn dock's
+        // onInputContent hook. Content RENDER needs no bridge: the float's internal host
+        // renders through the same _renderLeaf path, invoking the dock's onRenderContent.
+        {
+            JDockHost* fhost = &m_floating.back().dockHost();
+            m_floating.back().setContentInputHost(
+                [fhost](float x, float y, bool p, bool r, float w) {
+                    if (JDockWidget* d = fhost->contentDockAt(x, y); d && d->onInputContent)
+                        d->onInputContent(x, y, p, r, w);
+                });
+        }
         // The drag now lives in the floating window; the main window won't see this gesture's
         // button-release, so drop the capture and held-state here rather than leaving them stuck.
         m_space.releaseMouseCapture();
@@ -570,6 +630,7 @@ private:
 
     std::unique_ptr<JMenuBar> m_menuBar;     // lazily created on menuBar()
     JMenuRuntime              m_menuRuntime; // popup menu engine
+    JFocusManager             m_focus;       // keyboard focus + Tab order (auto-synced each frame)
     std::unique_ptr<JToolBar> m_toolBar;     // lazily created on toolBar()
     float                     m_menuH{0.f}, m_toolbarH{0.f}, m_statusH{0.f};
     std::string               m_statusText;

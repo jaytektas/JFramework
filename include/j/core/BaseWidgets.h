@@ -1009,7 +1009,10 @@ public:
 
         float thumbW = 16.0f, thumbH = b.height;
         float thumbX = b.x + fillW - thumbW * 0.5f;
-        thumbX = std::clamp(thumbX, b.x, b.x + b.width - thumbW);
+        // Guard the hi bound: when the slider is narrower than the thumb (e.g. a dock
+        // collapsing to ~0 width during a drag), b.x + b.width - thumbW < b.x, which would
+        // make std::clamp's lo > hi and abort under libstdc++ hardening.
+        thumbX = std::clamp(thumbX, b.x, std::max(b.x, b.x + b.width - thumbW));
         const uint8_t* tc = (m_state == JWidgetState::Pressed) ? Colors::AccentPress : Colors::TextPrimary;
         bool focused = isFocused();
         drawThumb(buf, b, thumbX, thumbW, thumbH, tc, focused);

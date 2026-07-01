@@ -513,7 +513,11 @@ public:
     // Window translucency via _NET_WM_WINDOW_OPACITY (compositor-applied). 1 = opaque.
     void setOpacity(float a) {
         a = a < 0.f ? 0.f : (a > 1.f ? 1.f : a);
-        uint32_t v = static_cast<uint32_t>(a * 4294967295.0f);
+        // Use a DOUBLE scale and special-case fully-opaque. 4294967295.0f (float) rounds up to
+        // 2^32, and static_cast<uint32_t>(2^32) overflows to 0 — so a=1.0 would set
+        // _NET_WM_WINDOW_OPACITY=0, i.e. FULLY TRANSPARENT (invisible under a compositor).
+        uint32_t v = (a >= 1.0f) ? 0xFFFFFFFFu
+                                 : static_cast<uint32_t>(a * 4294967295.0);
         xcb_atom_t atom = _internAtom("_NET_WM_WINDOW_OPACITY");
         xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
                             atom, XCB_ATOM_CARDINAL, 32, 1, &v);
