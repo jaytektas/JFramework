@@ -156,6 +156,7 @@ public:
             _postError("pipe failed"); ::close(m_fd); m_fd = -1; return false;
         }
 #endif
+        flushInput();                 // start clean — drop any stale bytes from a prior session
         m_port    = port;
         m_running = true;
         m_thread  = std::thread([this]{ _readLoop(); });
@@ -178,6 +179,17 @@ public:
         return m_handle != INVALID_HANDLE_VALUE;
 #else
         return m_fd >= 0;
+#endif
+    }
+
+    // Discard any bytes the OS has already buffered on the receive side. open() calls this so a
+    // stale or mid-frame buffer left from a previous session can't corrupt the first parse; callers
+    // may also use it to resync after a protocol error.
+    void flushInput() {
+#if defined(_WIN32)
+        if (m_handle != INVALID_HANDLE_VALUE) PurgeComm(m_handle, PURGE_RXCLEAR);
+#else
+        if (m_fd >= 0) tcflush(m_fd, TCIFLUSH);
 #endif
     }
 
