@@ -109,6 +109,14 @@ private:
         auto popup = std::make_unique<JPopupWindow>(
             sx, sy, 180, 8, *m_hal, JPopupWindow::JStyle::Bordered, m_parent, nullptr);
 
+        // Tear-off handle (the grab-strip at the top): pressing it promotes this menu to a
+        // floating, draggable, closeable window — reusing JPopupWindow's floating mode and the
+        // m_floating servicing in updateAndRender (same mechanism a torn-out dock uses in spirit).
+        if (menu->isTearOffEnabled() && JMenuManager::instance().isTearOffEnabled()) {
+            popup->add<JTearOffHandle>()->onTornOff.connect(
+                [this]() { m_deferred.push_back([this]() { _tearOff(); }); });
+        }
+
         for (const auto& item : menu->items()) {
             if (!item) continue;
             if (auto* mi = dynamic_cast<JMenuItem*>(item.get())) {
@@ -142,6 +150,21 @@ private:
 
         popup->computeNaturalHeight();
         m_active.push_back(std::move(popup));
+    }
+
+    // Promote the open menu's root popup to a floating menu. Submenus (if any) are dropped —
+    // only the torn menu survives, now with no grab, a close button, and drag-to-move (all
+    // provided by JPopupWindow's floating mode; serviced by the m_floating loop above).
+    void _tearOff() {
+        if (m_active.empty()) return;
+        auto root = std::move(m_active.front());
+        m_active.erase(m_active.begin());
+        if (m_hal) for (auto& p : m_active) p->destroySurface(*m_hal);
+        m_active.clear();
+        root->releasePointerGrab();
+        root->enableCloseButton();
+        m_floating.push_back(std::move(root));
+        if (m_bar) m_bar->closeMenu();
     }
 
     JGpuHal*                          m_hal{nullptr};
