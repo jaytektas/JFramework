@@ -30,6 +30,7 @@
 #include <j/core/FocusManager.h>         // JFocusManager (keyboard focus + Tab cycling)
 #include <j/core/MainThreadDispatcher.h> // drain UI-thread callbacks (JTimer / JSerialPort / posts)
 #include <j/core/ToolBar.h>              // JToolBar
+#include <j/core/StatusBar.h>            // JStatusBar (text + transient messages + widgets)
 #include <j/core/Dialog.h>               // JDialogManager (native dialog request queue)
 #include <j/platforms/PlatformWindow.h>  // createPlatformWindow
 #include <j/platforms/PopupWindow.h>     // JPopupWindow (combo dropdown)
@@ -130,11 +131,12 @@ public:
         return *m_menuBar;
     }
 
-    // Status bar (reserves a strip at the bottom; framework draws the text).
-    void setStatusText(std::string s) {
-        m_statusText = std::move(s);
-        if (m_statusH == 0.f) { m_statusH = 24.f; layoutDocks(); }
-    }
+    // Status bar (reserves a strip at the bottom). setStatusText sets the PERMANENT text; showStatus
+    // shows a transient message that auto-reverts after `ms` (0 = until replaced). statusBar() exposes
+    // the bar itself (e.g. to host a right-aligned widget). Any of these lazily reserves the strip.
+    void setStatusText(std::string s) { ensureStatusBar(); m_statusBar.setText(std::move(s)); }
+    void showStatus(std::string s, int ms = 0) { ensureStatusBar(); m_statusBar.showMessage(std::move(s), ms); }
+    JStatusBar& statusBar() { ensureStatusBar(); return m_statusBar; }
 
     // The window's toolbar — built lazily (reserves a 40px strip below the menu bar). Add
     // buttons with addButton(label, onClick); the framework lays it out, renders it, and
@@ -271,6 +273,13 @@ public:
                 if (m_toolBar->handleMouse(mx, my, act && pressed, act && released) && !menusOpen)
                     menuAte = true;   // swallow input over the toolbar strip
             }
+            if (m_statusH > 0.f) {
+                const float sy = static_cast<float>(m_h) - m_statusH;
+                m_statusBar.setRect(JRect{0.f, sy, static_cast<float>(m_w), m_statusH});
+                const bool act = !chromeAte && !menusOpen;
+                if (m_statusBar.handleMouse(mx, my, act && pressed, act && released) && !menusOpen)
+                    menuAte = true;   // swallow input over the status strip (its hosted widgets)
+            }
             if (!chromeAte && !menuAte) {
                 auto res = m_space.handleMouse(mx, my, pressed, released);
                 if (res.ev && res.host) {
@@ -393,6 +402,8 @@ private:
         return -1;
     }
 
+    void ensureStatusBar() { if (m_statusH == 0.f) { m_statusH = 24.f; layoutDocks(); } }
+
     void layoutDocks() {
         const float top = contentTop();
         m_space.computeLayout({0.f, top, static_cast<float>(m_w),
@@ -427,10 +438,8 @@ private:
             const float y = static_cast<float>(m_h) - m_statusH;
             buf.pushRectangle(0.f, y, W, m_statusH, bg, 0.f);
             buf.pushRectangle(0.f, y, W, 1.f, sep, 0.f);   // separator at the top edge
-            if (JTextHelper::hasAtlas() && !m_statusText.empty()) {
-                uint8_t tc[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, tc);
-                JTextHelper::pushText(buf, 10.f, y + (m_statusH - JTextHelper::lineHeight()) * 0.5f, m_statusText, tc);
-            }
+            m_statusBar.setRect(JRect{0.f, y, W, m_statusH});
+            m_statusBar.render(buf);
         }
     }
 
@@ -722,7 +731,7 @@ private:
     std::vector<JNativeDialogWindow> m_dialogs;
     std::unique_ptr<JToolBar> m_toolBar;     // lazily created on toolBar()
     float                     m_menuH{0.f}, m_toolbarH{0.f}, m_statusH{0.f};
-    std::string               m_statusText;
+    JStatusBar                m_statusBar;
     JFontEngine                      m_font;
     std::string                      m_title;
     uint32_t                         m_w{0}, m_h{0};
