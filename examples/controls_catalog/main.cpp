@@ -645,23 +645,30 @@ public:
         place(space.bottom(), "Output");
         place(space.center(), "New Features");
 
-        // --- Content-hosting verification -------------------------------------------------
-        // A dock whose content is a REAL framework widget tree (a JScrollArea of checkboxes),
-        // hosted via setContent — NOT a paint hook. The framework lays it out, renders it, and
-        // routes input (click a box → it toggles), inline here or torn out to a float. This is
-        // the "a dock is a window that manages its own widgets" path.
+        // --- Content-hosting + Form-layout verification -----------------------------------
+        // A dock whose content is a REAL framework widget tree (a JContainer in Form mode: a
+        // label | field two-column property form), hosted via setContent — NOT a paint hook.
+        // The framework arranges it (scene-graph Form layout), renders it, and routes input
+        // (click the field / checkbox), inline here or torn out to a float. This is the "a dock
+        // is a window that manages its own widgets" path over the 2D layout engine.
         {
-            auto scroll = std::make_unique<JScrollArea>(m_graph, 240.f, 180.f);
-            for (const char* lbl : {"Hosted CheckBox A", "Hosted CheckBox B", "Hosted CheckBox C"}) {
-                auto cb = std::make_unique<JCheckBox>(m_graph, lbl);
-                scroll->addChildWidget(cb.get());
-                m_widgets.push_back(std::move(cb));
-            }
-            auto d = std::make_unique<JDockWidget>("Hosted Widgets", 0.f, 0.f, 260.f, 200.f);
+            auto form = std::make_unique<JContainer>(m_graph, 240.f, 180.f);
+            form->setLayoutMode(JLayoutMode::Form)->setGap(8.f)->setPadding(JEdges{12.f});
+            auto addRow = [&](const char* label, std::unique_ptr<JWidget> field) {
+                auto lab = std::make_unique<JLabel>(m_graph, label, 80.f, 22.f);
+                form->add(lab.get());
+                form->add(field.get());
+                m_widgets.push_back(std::move(lab));
+                m_widgets.push_back(std::move(field));
+            };
+            addRow("Name:",    std::make_unique<JLineEdit>(m_graph, "panel name"));
+            addRow("Channel:", std::make_unique<JLineEdit>(m_graph, "rpm"));
+            addRow("Enabled:", std::make_unique<JCheckBox>(m_graph, ""));
+            auto d = std::make_unique<JDockWidget>("Hosted Form", 0.f, 0.f, 260.f, 200.f);
             d->setMinSize(120.f, 80.f);
-            d->setContent(scroll.get());
+            d->setContent(form.get());
             space.left().addDock(d.get());
-            m_widgets.push_back(std::move(scroll));
+            m_widgets.push_back(std::move(form));
             m_inlineDocks.push_back(std::move(d));
         }
     }

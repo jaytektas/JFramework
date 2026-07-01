@@ -20,6 +20,13 @@ enum class JJustifyContent { FlexStart, Center, FlexEnd, SpaceBetween, SpaceArou
 // Cross-axis alignment of children within a container.
 enum class JAlignItems { Start, Center, End, Stretch };
 
+// Layout algorithm for a container's children:
+//   Flex — single-axis flow (direction / justifyContent / alignItems). The default.
+//   Grid — row-major grid `columns` wide; all columns share the inner width equally.
+//   Form — two columns (label | field): column 0 auto-sizes to its widest child, column 1
+//          takes the rest. Children pair up label,field,label,field… (the classic property form).
+enum class JLayoutMode : uint8_t { Flex, Grid, Form };
+
 /**
  * @brief Per-side edge values (padding / margin).  Implicitly constructs/assigns from a
  *        single float so `layout.padding = 12.0f` still means "12 on all sides".
@@ -74,6 +81,8 @@ struct JLayoutComponent {
     JFlexDirection  direction{JFlexDirection::Column};
     JJustifyContent justifyContent{JJustifyContent::FlexStart};  // main-axis distribution
     JAlignItems     alignItems{JAlignItems::Start};              // cross-axis for children
+    JLayoutMode     mode{JLayoutMode::Flex};                     // Flex (default) / Grid / Form
+    int            columns{2};                                  // Grid column count (>=1)
     // Per-child override of the parent's alignItems (-1 = inherit, else JAlignItems value).
     int            alignSelf{-1};
     float          flexGrow{0.0f};   // share of leftover main-axis space this node claims
@@ -189,6 +198,7 @@ public:
     void _measure(NodeId nodeId, const JConstraints& c) {
         auto& L = m_layouts[nodeId];
         const auto& kids = m_hierarchy[nodeId].childrenIds;
+        if (L.mode != JLayoutMode::Flex && !kids.empty()) { _measureGrid(nodeId, c); return; }
         const JFlexDirection d = L.direction;
         const bool row = (d == JFlexDirection::JRow);
         auto mainOf  = [&](const JRect& r){ return row ? r.width  : r.height; };
@@ -270,6 +280,7 @@ public:
         L.boundingBox.y = y;
         const auto& kids = m_hierarchy[nodeId].childrenIds;
         if (kids.empty()) return;
+        if (L.mode != JLayoutMode::Flex) { _arrangeGrid(nodeId, x, y); return; }
 
         const JFlexDirection d = L.direction;
         const bool row = (d == JFlexDirection::JRow);
@@ -325,6 +336,7 @@ public:
         if (kids.empty()) {
             return;
         }
+        if (L.mode != JLayoutMode::Flex) { _computeMinSizeGrid(nodeId); return; }
 
         const JFlexDirection d = L.direction;
         const bool row = (d == JFlexDirection::JRow);
@@ -360,6 +372,109 @@ public:
     void _markCleanRec(NodeId nodeId) {
         m_dirtyFlags[nodeId] = Clean;
         for (NodeId k : m_hierarchy[nodeId].childrenIds) _markCleanRec(k);
+    }
+
+    // --- Grid / Form layout (mode != Flex). Row-major cells; children stretch to column width,
+    //     keep their measured height; each row is as tall as its tallest child. ------------------
+    void _measureGrid(NodeId nodeId, const JConstraints& c) {
+        auto& L = m_layouts[nodeId];
+        const auto& kids = m_hierarchy[nodeId].childrenIds;
+        const JEdges& pad = L.padding;
+        const float gap = L.gap;
+        const int n = static_cast<int>(kids.size());
+        const bool form = (L.mode == JLayoutMode::Form);
+        const int cols = form ? 2 : std::max(1, L.columns);
+        const int rows = (n + cols - 1) / cols;
+        const float innerMaxW = std::max(0.0f, c.maxWidth - pad.horizontal());
+
+        std::vector<float> colW(cols, 0.0f);
+        if (form) {
+            // Column 0 = widest label (even indices), capped so the field column keeps room.
+            float lab = 0.0f;
+            for (int i = 0; i < n; i += 2) {
+                _measure(kids[i], JConstraints{0.0f, innerMaxW, 0.0f, c.maxHeight});
+                lab = std::max(lab, m_layouts[kids[i]].boundingBox.width);
+            }
+            lab = std::min(lab, innerMaxW * 0.6f);
+            colW[0] = lab;
+            colW[1] = std::max(0.0f, innerMaxW - lab - gap);
+        } else {
+            float w = (innerMaxW - gap * (cols - 1)) / static_cast<float>(cols);
+            for (auto& x : colW) x = std::max(0.0f, w);
+        }
+
+        std::vector<float> rowH(std::max(1, rows), 0.0f);
+        for (int i = 0; i < n; ++i) {
+            const int col = i % cols, row = i / cols;
+            auto& cl = m_layouts[kids[i]];
+            _measure(kids[i], JConstraints{colW[col], colW[col], 0.0f, c.maxHeight});
+            cl.boundingBox.width = colW[col];                       // stretch to the column
+            rowH[row] = std::max(rowH[row], cl.boundingBox.height + cl.margin.vertical());
+        }
+
+        float contentH = pad.vertical();
+        for (int r = 0; r < rows; ++r) contentH += rowH[r];
+        if (rows > 1) contentH += gap * (rows - 1);
+
+        L.boundingBox.width  = clampF(innerMaxW + pad.horizontal(), c.minWidth,  c.maxWidth);
+        L.boundingBox.height = clampF(contentH,                     c.minHeight, c.maxHeight);
+    }
+
+    void _arrangeGrid(NodeId nodeId, float x, float y) {
+        auto& L = m_layouts[nodeId];
+        L.boundingBox.x = x;
+        L.boundingBox.y = y;
+        const auto& kids = m_hierarchy[nodeId].childrenIds;
+        const JEdges& pad = L.padding;
+        const float gap = L.gap;
+        const int n = static_cast<int>(kids.size());
+        const bool form = (L.mode == JLayoutMode::Form);
+        const int cols = form ? 2 : std::max(1, L.columns);
+        const int rows = (n + cols - 1) / cols;
+
+        // Column widths + row heights read back from the measured children.
+        std::vector<float> colW(cols, 0.0f);
+        std::vector<float> rowH(std::max(1, rows), 0.0f);
+        for (int i = 0; i < n; ++i) {
+            auto& cl = m_layouts[kids[i]];
+            colW[i % cols] = std::max(colW[i % cols], cl.boundingBox.width);
+            rowH[i / cols] = std::max(rowH[i / cols], cl.boundingBox.height + cl.margin.vertical());
+        }
+
+        float cy = y + pad.top;
+        for (int r = 0; r < rows; ++r) {
+            float cx = x + pad.left;
+            for (int col = 0; col < cols; ++col) {
+                const int i = r * cols + col;
+                if (i >= n) break;
+                auto& cl = m_layouts[kids[i]];
+                _arrange(kids[i], cx + cl.margin.left, cy + cl.margin.top);
+                cx += colW[col] + gap;
+            }
+            cy += rowH[r] + gap;
+        }
+    }
+
+    void _computeMinSizeGrid(NodeId nodeId) {
+        auto& L = m_layouts[nodeId];
+        const auto& kids = m_hierarchy[nodeId].childrenIds;
+        const JEdges& pad = L.padding;
+        const float gap = L.gap;
+        const int n = static_cast<int>(kids.size());
+        const int cols = (L.mode == JLayoutMode::Form) ? 2 : std::max(1, L.columns);
+        const int rows = (n + cols - 1) / cols;
+
+        std::vector<float> rowMinH(std::max(1, rows), 0.0f);
+        for (int i = 0; i < n; ++i) {
+            _computeMinSize(kids[i]);
+            auto& cl = m_layouts[kids[i]];
+            rowMinH[i / cols] = std::max(rowMinH[i / cols], cl.minHeight + cl.margin.vertical());
+        }
+        float minH = pad.vertical();
+        for (int r = 0; r < rows; ++r) minH += rowMinH[r];
+        if (rows > 1) minH += gap * (rows - 1);
+        L.minHeight = std::max(L.minHeight, minH);
+        L.minWidth  = std::max(L.minWidth, pad.horizontal());   // width can shrink; host sets it
     }
 
 private:
