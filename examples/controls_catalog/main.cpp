@@ -644,6 +644,26 @@ public:
         place(space.bottom(), "Console");
         place(space.bottom(), "Output");
         place(space.center(), "New Features");
+
+        // --- Content-hosting verification -------------------------------------------------
+        // A dock whose content is a REAL framework widget tree (a JScrollArea of checkboxes),
+        // hosted via setContent — NOT a paint hook. The framework lays it out, renders it, and
+        // routes input (click a box → it toggles), inline here or torn out to a float. This is
+        // the "a dock is a window that manages its own widgets" path.
+        {
+            auto scroll = std::make_unique<JScrollArea>(m_graph, 240.f, 180.f);
+            for (const char* lbl : {"Hosted CheckBox A", "Hosted CheckBox B", "Hosted CheckBox C"}) {
+                auto cb = std::make_unique<JCheckBox>(m_graph, lbl);
+                scroll->addChildWidget(cb.get());
+                m_widgets.push_back(std::move(cb));
+            }
+            auto d = std::make_unique<JDockWidget>("Hosted Widgets", 0.f, 0.f, 260.f, 200.f);
+            d->setMinSize(120.f, 80.f);
+            d->setContent(scroll.get());
+            space.left().addDock(d.get());
+            m_widgets.push_back(std::move(scroll));
+            m_inlineDocks.push_back(std::move(d));
+        }
     }
 
     // Route content input (wheel + widget hover/click) to a panel. Used as the

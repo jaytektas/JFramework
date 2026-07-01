@@ -1291,12 +1291,13 @@ private:
         uint8_t contentBg[4] = {14, 14, 16, 255};
         buf.pushRectangle(content.x, content.y, content.width, content.height, contentBg, 0.0f);
 
-        // App-supplied content for the active tab. The dock carries the hook, so this same
-        // path renders it whether the leaf is inline (main window) or inside a floating
-        // window's internal host — no per-context wiring.
-        if (int at = leaf.activeTab; at >= 0 && at < static_cast<int>(leaf.tabs.size())
-                && leaf.tabs[at] && leaf.tabs[at]->onRenderContent)
-            leaf.tabs[at]->onRenderContent(buf, content);
+        // Content for the active tab. The dock carries either a framework-hosted content widget
+        // (rendered via its own populateRenderPrimitives) or, for custom studio-drawn controls,
+        // the onRenderContent paint hook — JDockWidget::renderContent picks whichever it holds.
+        // This same path serves an inline leaf (main window) and a torn-out float (its internal
+        // host runs the same _renderLeaf), so there is no per-context wiring.
+        if (int at = leaf.activeTab; at >= 0 && at < static_cast<int>(leaf.tabs.size()) && leaf.tabs[at])
+            leaf.tabs[at]->renderContent(buf, content);
 
         // Tab / title bar.
         JRect bar = _tabBarRect(leaf);

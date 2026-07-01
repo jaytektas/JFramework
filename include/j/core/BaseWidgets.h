@@ -107,6 +107,12 @@ public:
     }
 
     void setVisible(bool v) { m_visible = v; }
+
+    // Position/size this widget's layout box directly — for host-driven placement (e.g. a dock
+    // laying its content widget into the leaf's content rect). Marks the node dirty so the
+    // subtree re-lays-out; container widgets (JScrollArea/JGroupBox/…) arrange children from it.
+    void setBounds(const JRect& r) { m_graph.getLayout(m_nodeId).boundingBox = r; }
+
     void setEnabled(bool e) {
         setState(e ? JWidgetState::Normal : JWidgetState::Disabled);
     }

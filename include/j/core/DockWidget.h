@@ -85,6 +85,7 @@ public:
         , m_hoverClose(o.m_hoverClose), m_hoverPin(o.m_hoverPin), m_hoverResize(o.m_hoverResize)
         , onRenderContent(std::move(o.onRenderContent))
         , onInputContent(std::move(o.onInputContent))
+        , m_content(o.m_content)
     {
         // Replace old pointer in registry with this
         auto& v = s_activeDocks;
@@ -210,6 +211,36 @@ public:
     //   onInputContent(mx,my,pressed,released,wheel): route input (host-local coordinates).
     std::function<void(JPrimitiveBuffer&, const JRect&)> onRenderContent;
     std::function<void(float, float, bool, bool, float)> onInputContent;
+
+    // --- Hosted content widget ---
+    // The primary content path: a framework widget tree the framework lays out, renders, and
+    // routes input to. A dock is thus a window that manages its own content — identically whether
+    // it's docked inline in a host leaf or torn out into a float. If no content widget is set, the
+    // onRenderContent/onInputContent paint hooks above are used instead (custom studio-drawn
+    // controls). The pointer is non-owning; the app owns the widget (as it owns the dock).
+    void     setContent(JWidget* w) { m_content = w; }
+    JWidget* content() const        { return m_content; }
+
+    // Render this dock's content into `area` (host-local). Prefers the hosted content widget
+    // (placed at `area` then drawn via its own render); else the paint hook. Called by
+    // JDockHost::_renderLeaf for inline leaves and floats alike.
+    void renderContent(JPrimitiveBuffer& buf, const JRect& area) {
+        if (m_content) { m_content->setBounds(area); m_content->populateRenderPrimitives(buf); }
+        else if (onRenderContent) onRenderContent(buf, area);
+    }
+
+    // Route content input (host-local coords) to the hosted content widget's own handlers; else
+    // the input hook. One method, both call sites (inline runner + float input bridge).
+    void dispatchContentInput(float mx, float my, bool pressed, bool released, float wheel) {
+        if (m_content) {
+            m_content->handleMouseMove(mx, my);
+            if (pressed)      m_content->handleMousePress(mx, my);
+            if (released)     m_content->handleMouseRelease(mx, my);
+            if (wheel != 0.f) m_content->handleScroll(mx, my, wheel);
+        } else if (onInputContent) {
+            onInputContent(mx, my, pressed, released, wheel);
+        }
+    }
 
     // --- Input ---
 
@@ -435,6 +466,9 @@ private:
     bool m_hoverResize{false};
 
     std::optional<JTornTabState> m_tornState;
+
+    // Framework-hosted content widget tree (non-owning); null = use the paint/input hooks.
+    JWidget* m_content{nullptr};
 };
 
 } // inline namespace jf

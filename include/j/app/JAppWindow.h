@@ -285,8 +285,8 @@ public:
             // framework hosts dock content, so a dock's onInputContent hook fires whether the
             // dock is inline here or torn into a float (spawnFloat bridges to the same hook).
             if (!chromeAte && !menuAte)
-                if (JDockWidget* cd = m_space.contentDockAt(mx, my); cd && cd->onInputContent)
-                    cd->onInputContent(mx, my, pressed, released, wheel);
+                if (JDockWidget* cd = m_space.contentDockAt(mx, my))
+                    cd->dispatchContentInput(mx, my, pressed, released, wheel);
 
             // Keyboard: the runner owns focus routing. Re-sync the tab order from the live
             // widget set (so newly created / destroyed widgets are tracked without app
@@ -468,8 +468,8 @@ private:
             JDockHost* fhost = &m_floating.back().dockHost();
             m_floating.back().setContentInputHost(
                 [fhost](float x, float y, bool p, bool r, float w) {
-                    if (JDockWidget* d = fhost->contentDockAt(x, y); d && d->onInputContent)
-                        d->onInputContent(x, y, p, r, w);
+                    if (JDockWidget* d = fhost->contentDockAt(x, y))
+                        d->dispatchContentInput(x, y, p, r, w);
                 });
         }
         // The drag now lives in the floating window; the main window won't see this gesture's
