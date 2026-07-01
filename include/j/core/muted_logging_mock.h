@@ -9,6 +9,8 @@
 #include <string>
 #include <sstream>
 
+#include "Log.h"    // the real category logger the qC* macros route through
+
 inline namespace jf { namespace Log {
 
 struct JCategory { const char* name; };
@@ -97,9 +99,11 @@ private:
 
 }} // namespace Log (in jf)
 
-#define qCInfo(cat)     (jf::Log::JLogStream("INFO",     (cat).name))
-#define qCWarning(cat)  (jf::Log::JLogStream("WARNING",  (cat).name))
-#define qCCritical(cat) (jf::Log::JLogStream("CRITICAL", (cat).name))
-#define qCDebug(cat)    (jf::Log::JLogStream("DEBUG",    (cat).name))
+// The legacy qC* macros now route through the category logger (JLog), so framework logs gain the
+// same per-category level control as everything else. Category name = the JCategory's .name.
+#define qCInfo(cat)     JLOGC((cat).name, ::jf::JLogLevel::Info)
+#define qCWarning(cat)  JLOGC((cat).name, ::jf::JLogLevel::Warn)
+#define qCCritical(cat) JLOGC((cat).name, ::jf::JLogLevel::Error)
+#define qCDebug(cat)    JLOGC((cat).name, ::jf::JLogLevel::Debug)
 
 #endif // GENESIS_LOGGING_MOCK_DEFINED
