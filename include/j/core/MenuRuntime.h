@@ -127,9 +127,15 @@ private:
                 if (mi->embeddedWidgetFactory()) added->setEmbeddedWidgetFactory(mi->embeddedWidgetFactory());
 
                 JMenuItem* src = mi;
-                added->onTriggered.connect([this, src]() {
+                added->onTriggered.connect([this, src, added]() {
+                    // Reflect a checkable toggle back onto the model item so the app's handler
+                    // (which reads the model item's state) and a re-opened menu are correct —
+                    // the popup entry is only a copy.
+                    if (src->isCheckable()) src->setChecked(added->isChecked());
                     src->onTriggered.emit();
-                    if (!src->submenu())           // leaf item: close the whole stack
+                    // A plain leaf dismisses the menu; a checkable item toggles and stays open
+                    // (so several can be toggled) — same as it already behaves when torn off.
+                    if (!src->submenu() && !src->isCheckable())
                         m_deferred.push_back([this]() { closeAll(); });
                 });
 
