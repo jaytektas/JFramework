@@ -29,7 +29,10 @@
 #include <j/core/MenuRuntime.h>          // JMenuRuntime (popup menu engine)
 #include <j/core/FocusManager.h>         // JFocusManager (keyboard focus + Tab cycling)
 #include <j/core/ToolBar.h>              // JToolBar
+#include <j/core/Dialog.h>               // JDialogManager (native dialog request queue)
 #include <j/platforms/PlatformWindow.h>  // createPlatformWindow
+#include <j/platforms/PopupWindow.h>     // JPopupWindow (combo dropdown)
+#include <j/platforms/NativeDialogWindow.h>  // JNativeDialogWindow
 #if defined(__linux__)
 #  include <j/platforms/linux/FloatingDockWindow.h>   // tear-out / floating docks
 #endif
@@ -158,6 +161,8 @@ public:
         if (!valid()) return -1;
         m_window->setVSync(true);
         layoutDocks();
+        // The runner owns combo dropdowns: any Popup-mode combo opens/closes through us.
+        JComboBox::onOpenPopupHook = [this](JComboBox* cb){ openComboDropdown(cb); };
         int   redraw = 4;                  // frames left to render (armed by activity)
         float lastMx = -1.f, lastMy = -1.f;
         while (!m_window->shouldClose()) {
@@ -339,6 +344,8 @@ public:
                 m_menuRuntime.updateAndRender(*m_hal);
                 if (m_menuRuntime.hasOpenMenus()) activity = true;
             }
+            // Combo dropdown + native dialogs — their own surfaces, outside the main frame.
+            if (serviceComboAndDialogs()) activity = true;
 
             if (m_needRedraw) { activity = true; m_needRedraw = false; }
             if (activity) redraw = 4;
@@ -530,6 +537,83 @@ private:
 #endif
     }
 
+    // Open (or toggle/replace) a Popup-mode combo's dropdown below the combo. Installed as
+    // JComboBox::onOpenPopupHook so any combo just works — the app wires nothing.
+    void openComboDropdown(JComboBox* cb) {
+        if (m_comboPopup && m_comboOwner == cb) {   // click same combo again → close
+            m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); m_comboOwner = nullptr; return;
+        }
+        if (m_comboPopup) { m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); }
+
+        auto& g = JGuiApplication::instance()->sceneGraph();
+        const auto& bb = g.getLayoutConst(cb->getNodeId()).boundingBox;
+        const int sx = m_window->screenX() + static_cast<int>(bb.x);
+        const int sy = m_window->screenY() + static_cast<int>(bb.y + bb.height);
+        const auto popupW = static_cast<uint32_t>(bb.width);
+        auto popup = std::make_unique<JPopupWindow>(sx, sy, popupW, 8, *m_hal,
+                        JPopupWindow::JStyle::Borderless,
+                        static_cast<JPopupWindow::NativeWinHandleType>(m_window->rawWindowId()));
+        const auto& items = cb->items();
+        for (int i = 0; i < static_cast<int>(items.size()); ++i) {
+            auto* pi = popup->add<JPopupItem>(items[i], static_cast<float>(popupW), 28.f);
+            pi->onActivated.connect([this, cb, i]() {
+                cb->setCurrentIndex(i);
+                m_comboCloseReq = m_comboPopup.get();   // defer close until after pollEvents returns
+                m_comboOwner = nullptr;
+            });
+        }
+        popup->computeNaturalHeight();
+        m_comboPopup = std::move(popup);
+        m_comboOwner = cb;
+    }
+
+    // Per-frame: poll/render the open combo dropdown, and drain the JDialogManager queue into
+    // native dialog windows then poll/render them. Overlays own their surfaces (own beginFrame),
+    // so this runs OUTSIDE the main window's frame. Returns true while any overlay is active.
+    bool serviceComboAndDialogs() {
+        JPrimitiveBuffer scratch;   // overlays render to their OWN surfaces; this is scratch
+        if (m_comboPopup) {
+            auto res = m_comboPopup->pollEvents(*m_hal);
+            const bool close = res.type == JPopupWindow::JPollResult::JType::Dismissed
+                               || m_comboCloseReq == m_comboPopup.get();
+            m_comboCloseReq = nullptr;
+            if (close) { m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); m_comboOwner = nullptr; }
+            else if (m_comboPopup->isViewable()) m_comboPopup->render(*m_hal, scratch);
+        }
+
+        while (JDialogManager::instance().hasPending()) {
+            const auto* req  = JDialogManager::instance().front();
+            const auto& opts = req->options;
+            const int dlgW = static_cast<int>(JNativeDialogWindow::kW);
+            const int dlgH = static_cast<int>(JNativeDialogWindow::calcHeight(req->kind, opts));
+            const int cW = static_cast<int>(m_w), cH = static_cast<int>(m_h);
+            const int wx = m_window->screenX(), wy = m_window->screenY();
+            int dlgX, dlgY;
+            using Pos = JDialogOptions::JPosition;
+            switch (opts.position) {
+            case Pos::Fixed:          dlgX = opts.x; dlgY = opts.y; break;
+            case Pos::CenterOnScreen: { auto [sw, sh] = m_window->virtualDesktopSize(); dlgX = (sw - dlgW) / 2; dlgY = (sh - dlgH) / 2; break; }
+            case Pos::AtCursor:       { auto [gx, gy] = m_window->globalCursorPos();     dlgX = gx; dlgY = gy; break; }
+            case Pos::TopLeft:        dlgX = wx + 16;                 dlgY = wy + 16; break;
+            case Pos::TopRight:       dlgX = wx + cW - dlgW - 16;     dlgY = wy + 16; break;
+            case Pos::TopCenter:      dlgX = wx + (cW - dlgW) / 2;    dlgY = wy + 16; break;
+            case Pos::BottomLeft:     dlgX = wx + 16;                 dlgY = wy + cH - dlgH - 16; break;
+            case Pos::BottomRight:    dlgX = wx + cW - dlgW - 16;     dlgY = wy + cH - dlgH - 16; break;
+            case Pos::BottomCenter:   dlgX = wx + (cW - dlgW) / 2;    dlgY = wy + cH - dlgH - 16; break;
+            case Pos::CenterOnParent:
+            default:                  dlgX = wx + (cW - dlgW) / 2;    dlgY = wy + (cH - dlgH) / 2; break;
+            }
+            m_dialogs.emplace_back(*req, *m_hal, dlgX, dlgY,
+                static_cast<JNativeDialogWindow::NativeWinHandleType>(m_window->rawWindowId()));
+            JDialogManager::instance().pop();
+        }
+        for (auto it = m_dialogs.begin(); it != m_dialogs.end();) {
+            if (!it->pollAndRender(*m_hal, scratch)) { it->destroySurface(*m_hal); it = m_dialogs.erase(it); }
+            else ++it;
+        }
+        return m_comboPopup != nullptr || !m_dialogs.empty();
+    }
+
     static JPlatformCursor cursorForDir(int d) {
         switch (d) {
             case 4: return JPlatformCursor::ResizeBottomRight;
@@ -631,6 +715,12 @@ private:
     std::unique_ptr<JMenuBar> m_menuBar;     // lazily created on menuBar()
     JMenuRuntime              m_menuRuntime; // popup menu engine
     JFocusManager             m_focus;       // keyboard focus + Tab order (auto-synced each frame)
+    // Combo dropdown + native dialogs — overlay OS-windows the runner owns and services each
+    // frame (like menu popups), so apps don't hand-roll JPopupWindow / JNativeDialogWindow.
+    std::unique_ptr<JPopupWindow>    m_comboPopup;
+    JComboBox*                       m_comboOwner{nullptr};
+    JPopupWindow*                    m_comboCloseReq{nullptr};
+    std::vector<JNativeDialogWindow> m_dialogs;
     std::unique_ptr<JToolBar> m_toolBar;     // lazily created on toolBar()
     float                     m_menuH{0.f}, m_toolbarH{0.f}, m_statusH{0.f};
     std::string               m_statusText;

@@ -17,8 +17,6 @@
 #include <j/platforms/linux/LinuxPlatformWindow.h>
 #endif
 #include <j/platforms/linux/FloatingDockWindow.h>
-#include <j/platforms/NativeDialogWindow.h>
-#include <j/platforms/PopupWindow.h>
 #include <j/core/MenuSystem.h>
 #include <j/core/Dialog.h>
 #include <j/core/Animator.h>
@@ -53,7 +51,6 @@ public:
     // AI node ids at/above this base are docked panels (offset past scene-graph node ids).
     static constexpr uint32_t kDockAiIdBase = 0x40000000u;
 
-    std::function<void(JComboBox*)> onComboBoxPopupRequested;
     std::function<void(const std::string&)> onFloatPanelRequested;
 
     explicit ControlsCatalog(JSceneGraph& graph, JFocusManager& focus, uint32_t winW, uint32_t winH)
@@ -441,17 +438,11 @@ private:
         {
             auto cb1 = add<JComboBox>(m_graph, std::vector<std::string>{"1080p", "1440p", "4K", "8K"}, 200.0f, 34.0f);
             cb1->setCurrentIndex(1);
-            cb1->setMode(JComboBoxMode::Popup);
-            cb1->onPopupRequested.connect([this](JComboBox* cb) {
-                if (onComboBoxPopupRequested) onComboBoxPopupRequested(cb);
-            });
+            cb1->setMode(JComboBoxMode::Popup);   // dropdown owned + serviced by the runner
 
             auto cb2 = add<JComboBox>(m_graph, std::vector<std::string>{"60 Hz", "120 Hz", "144 Hz", "240 Hz"}, 200.0f, 34.0f);
             cb2->setCurrentIndex(2);
             cb2->setMode(JComboBoxMode::Popup);
-            cb2->onPopupRequested.connect([this](JComboBox* cb) {
-                if (onComboBoxPopupRequested) onComboBoxPopupRequested(cb);
-            });
         }
         add<JGroupBox>(m_graph, "Render JSettings", 340.0f, 90.0f);
 
@@ -814,95 +805,10 @@ int main() {
     catalog.installMenus(win.menuBar());     // File / Edit / View / Help on the runner's bar
     catalog.installDocks(win.dockSpace());
 
-    // ---- Overlay OS-windows the app owns: combo dropdowns + native dialogs -------------
-    // These are separate top-level windows with their own surfaces (their own beginFrame),
-    // so they're serviced in onInput — which the runner calls every loop iteration, BEFORE
-    // it opens the main window's frame — never nested inside it. (Menu-bar popups are the
-    // runner's own; only these app-created overlays are serviced here.)
-    std::unique_ptr<JPopupWindow>       comboPopup;
-    JComboBox*                          comboOwner    = nullptr;
-    JPopupWindow*                       comboCloseReq = nullptr;
-    std::vector<jf::JNativeDialogWindow> dialogs;
-
-    catalog.onComboBoxPopupRequested = [&](JComboBox* cb) {
-        auto& hal = win.hal();
-        auto& pw  = win.window();
-        // Toggle: clicking the same combo while open closes it; a different combo replaces it.
-        if (comboPopup && comboOwner == cb) { comboPopup->destroySurface(hal); comboPopup.reset(); comboOwner = nullptr; return; }
-        if (comboPopup) { comboPopup->destroySurface(hal); comboPopup.reset(); }
-
-        const auto& bb = app.sceneGraph().getLayoutConst(cb->getNodeId()).boundingBox;
-        int sx = pw.screenX() + static_cast<int>(bb.x);
-        int sy = pw.screenY() + static_cast<int>(bb.y + bb.height);
-        auto popupW = static_cast<uint32_t>(bb.width);
-        auto popup = std::make_unique<JPopupWindow>(sx, sy, popupW, 8, hal,
-                        JPopupWindow::JStyle::Borderless,
-                        static_cast<JPopupWindow::NativeWinHandleType>(pw.rawWindowId()));
-        const auto& items = cb->items();
-        for (int i = 0; i < static_cast<int>(items.size()); ++i) {
-            auto* pi = popup->add<jf::JPopupItem>(items[i], static_cast<float>(popupW), 28.f);
-            pi->onActivated.connect([cb, i, &comboPopup, &comboCloseReq, &comboOwner]() {
-                cb->setCurrentIndex(i);
-                comboCloseReq = comboPopup.get();   // defer close until after pollEvents returns
-                comboOwner = nullptr;
-            });
-        }
-        popup->computeNaturalHeight();
-        comboPopup = std::move(popup);
-        comboOwner = cb;
-    };
-
-    auto serviceOverlays = [&]() {
-        auto& hal = win.hal();
-        auto& pw  = win.window();
-        static JPrimitiveBuffer scratch;   // popups render into their OWN surfaces; this is scratch
-
-        if (comboPopup) {
-            auto res = comboPopup->pollEvents(hal);
-            const bool close = res.type == JPopupWindow::JPollResult::JType::Dismissed
-                               || comboCloseReq == comboPopup.get();
-            comboCloseReq = nullptr;
-            if (close) { comboPopup->destroySurface(hal); comboPopup.reset(); comboOwner = nullptr; }
-            else { if (comboPopup->isViewable()) comboPopup->render(hal, scratch); win.requestRedraw(); }
-        }
-
-        // Drain queued dialog requests into native dialog windows.
-        while (jf::JDialogManager::instance().hasPending()) {
-            const auto* req  = jf::JDialogManager::instance().front();
-            const auto& opts = req->options;
-            const int dlgW = static_cast<int>(jf::JNativeDialogWindow::kW);
-            const int dlgH = static_cast<int>(jf::JNativeDialogWindow::calcHeight(req->kind, opts));
-            const int cW = static_cast<int>(win.width()), cH = static_cast<int>(win.height());
-            int dlgX, dlgY;
-            using Pos = jf::JDialogOptions::JPosition;
-            switch (opts.position) {
-            case Pos::Fixed:          dlgX = opts.x; dlgY = opts.y; break;
-            case Pos::CenterOnScreen: { auto [sw, sh] = pw.virtualDesktopSize(); dlgX = (sw - dlgW) / 2; dlgY = (sh - dlgH) / 2; break; }
-            case Pos::AtCursor:       { auto [gx, gy] = pw.globalCursorPos();     dlgX = gx; dlgY = gy; break; }
-            case Pos::TopLeft:        dlgX = pw.screenX() + 16;                   dlgY = pw.screenY() + 16; break;
-            case Pos::TopRight:       dlgX = pw.screenX() + cW - dlgW - 16;       dlgY = pw.screenY() + 16; break;
-            case Pos::TopCenter:      dlgX = pw.screenX() + (cW - dlgW) / 2;      dlgY = pw.screenY() + 16; break;
-            case Pos::BottomLeft:     dlgX = pw.screenX() + 16;                   dlgY = pw.screenY() + cH - dlgH - 16; break;
-            case Pos::BottomRight:    dlgX = pw.screenX() + cW - dlgW - 16;       dlgY = pw.screenY() + cH - dlgH - 16; break;
-            case Pos::BottomCenter:   dlgX = pw.screenX() + (cW - dlgW) / 2;      dlgY = pw.screenY() + cH - dlgH - 16; break;
-            case Pos::CenterOnParent:
-            default:                  dlgX = pw.screenX() + (cW - dlgW) / 2;      dlgY = pw.screenY() + (cH - dlgH) / 2; break;
-            }
-            dialogs.emplace_back(*req, hal, dlgX, dlgY,
-                static_cast<jf::JNativeDialogWindow::NativeWinHandleType>(pw.rawWindowId()));
-            jf::JDialogManager::instance().pop();
-        }
-        for (auto it = dialogs.begin(); it != dialogs.end();) {
-            if (!it->pollAndRender(hal, scratch)) { it->destroySurface(hal); it = dialogs.erase(it); }
-            else ++it;
-        }
-        if (!dialogs.empty()) win.requestRedraw();
-    };
-
     // Latest cursor position (for tooltips; content input is routed by the runner straight
     // to each dock's onInputContent hook, so no manual widget dispatch here).
     float mx = -1.f, my = -1.f;
-    win.onInput = [&](float x, float y, bool, bool) { mx = x; my = y; serviceOverlays(); };
+    win.onInput = [&](float x, float y, bool, bool) { mx = x; my = y; };
 
     // App hotkeys for keys the runner didn't route to a focused widget.
     win.onKey = [&](const JKeyEvent& ke) {

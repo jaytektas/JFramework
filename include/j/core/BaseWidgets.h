@@ -1850,6 +1850,11 @@ public:
     jf::JSignal<int>         onIndexChanged;
     jf::JSignal<std::string> onTextChanged;
     jf::JSignal<JComboBox*>   onPopupRequested;
+    // Framework hook: the app runner installs this to OWN the dropdown — it creates, polls,
+    // dismisses the popup window and sets the selected index. When set, it fires on a
+    // Popup-mode click so the app needn't wire or service anything. (The per-instance
+    // onPopupRequested still fires, for apps not on the runner.)
+    static inline std::function<void(JComboBox*)> onOpenPopupHook;
 
     JComboBox(JSceneGraph& graph, std::vector<std::string> items = {},
              float w = 200.0f, float h = 36.0f)
@@ -1890,6 +1895,7 @@ public:
                 if (m_mode == JComboBoxMode::Cycling) {
                     setCurrentIndex((m_currentIndex + 1) % (int)m_items.size());
                 } else if (m_mode == JComboBoxMode::Popup) {
+                    if (onOpenPopupHook) onOpenPopupHook(this);
                     onPopupRequested.emit(this);
                 }
             }
