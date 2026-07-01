@@ -136,6 +136,12 @@ public:
     // the bar itself (e.g. to host a right-aligned widget). Any of these lazily reserves the strip.
     void setStatusText(std::string s) { ensureStatusBar(); m_statusBar.setText(std::move(s)); }
     void showStatus(std::string s, int ms = 0) { ensureStatusBar(); m_statusBar.showMessage(std::move(s), ms); }
+    // A right-aligned live readout the bar refreshes itself: `provider` returns the current text
+    // (return "" to show nothing), re-asked every `ms`. The bar owns the timer — the app just
+    // supplies the string. See JStatusBar::setLiveText.
+    void setLiveStatus(std::function<std::string()> provider, int ms = 250) {
+        ensureStatusBar(); m_statusBar.setLiveText(std::move(provider), ms);
+    }
     JStatusBar& statusBar() { ensureStatusBar(); return m_statusBar; }
 
     // The window's toolbar — built lazily (reserves a 40px strip below the menu bar). Add

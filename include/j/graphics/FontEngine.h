@@ -179,7 +179,9 @@ public:
 
         packRange(32, 126);   // printable ASCII
         packRange(160, 255);  // Latin-1 supplement
-        packRange(0x2018, 0x201F); // typographic quotes
+        packRange(0x2013, 0x2022); // dashes, typographic quotes, dagger, bullet (•)
+        packRange(0x2026, 0x2026); // ellipsis (…)
+        packRange(0x25CF, 0x25CF); // black circle (●) — present in DejaVu/Noto (absent in Ubuntu)
 
         atlas.valid = true;
         qCInfo(jf::Log::Graphics) << "JFontEngine: atlas " << atlasW << "x" << atlasH
