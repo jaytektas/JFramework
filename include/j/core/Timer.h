@@ -77,8 +77,11 @@ public:
 
     // Stops the timer — no new ticks will be queued, but lambdas already posted
     // to JMainThreadDispatcher are still valid to fire (this object is still alive).
+    // Always joins a lingering thread: a SingleShot timer that has already fired leaves its
+    // thread finished-but-joinable while m_running is already false, so we must NOT early-out on
+    // m_running — otherwise a subsequent start() would assign onto a joinable thread and abort.
     void stop() {
-        if (!m_running.exchange(false)) return;
+        m_running.store(false, std::memory_order_release);
         // Do NOT clear m_alive here — queued lambdas can safely call onTick.emit().
         m_cv.notify_all();
         if (m_thread.joinable()) m_thread.join();
