@@ -280,6 +280,24 @@ public:
                 if (m_statusBar.handleMouse(mx, my, act && pressed, act && released) && !menusOpen)
                     menuAte = true;   // swallow input over the status strip (its hosted widgets)
             }
+            // Right-click → open the context menu of the top-most widget under the cursor that has
+            // one, reusing the floating-menu popup path (JMenuRuntime drives it modally). Consume
+            // the flag every frame; only act when no menu is already open.
+            const bool rightPressed = m_window->consumeRightPress();
+            if (rightPressed && !menusOpen && !chromeAte) {
+                for (auto it = JWidget::s_activeWidgets.rbegin(); it != JWidget::s_activeWidgets.rend(); ++it) {
+                    JWidget* w = *it;
+                    if (w && w->isVisible() && w->contextMenu() && w->hitTest(mx, my)) {
+                        if (JMenuManager::instance().onOpenMenu)
+                            JMenuManager::instance().onOpenMenu(
+                                w->contextMenu(),
+                                m_window->screenX() + static_cast<int>(mx),
+                                m_window->screenY() + static_cast<int>(my), false);
+                        menuAte = true;
+                        break;
+                    }
+                }
+            }
             if (!chromeAte && !menuAte) {
                 auto res = m_space.handleMouse(mx, my, pressed, released);
                 if (res.ev && res.host) {

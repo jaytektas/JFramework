@@ -2794,6 +2794,11 @@ public:
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
+    // Expand / collapse the whole tree. The (synthetic) root stays expanded so its top-level rows
+    // remain visible; every descendant is set accordingly.
+    void expandAll()   { for (auto& c : m_root.children) _setExpandedRec(c, true);  m_root.expanded = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    void collapseAll() { for (auto& c : m_root.children) _setExpandedRec(c, false); m_root.expanded = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+
     float rowHeight() const { return m_rowHeight; }
     void setRowHeight(float h) { m_rowHeight = h; m_graph.invalidateNode(m_nodeId, DirtySelf); }
 
@@ -3103,6 +3108,8 @@ private:
             m_graph.invalidateNode(m_nodeId, DirtySelf);
         }
     }
+
+    static void _setExpandedRec(JTreeViewNode& n, bool e) { n.expanded = e; for (auto& c : n.children) _setExpandedRec(c, e); }
 
     JTreeViewNode  m_root;
     JTreeViewNode* m_selectedNode{nullptr};
