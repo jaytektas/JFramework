@@ -136,57 +136,6 @@ public:
 
 
 
-    // Drive a floated panel's content (window-local coords).
-    void handleFloatingPanelInput(const std::string& title, float x, float y, bool press, bool release, float wheel = 0.0f) {
-        if (release) {
-            m_scrollDraggingPanel = nullptr;
-        }
-
-        if (m_scrollDraggingPanel && m_scrollDraggingPanel->title == title) {
-            Panel* p = m_scrollDraggingPanel;
-            float trackH = p->viewport.height;
-            float handleH = std::max(20.0f, (p->viewport.height / p->contentH) * p->viewport.height);
-            float thumbRange = trackH - handleH;
-            float maxScroll = p->contentH - p->viewport.height;
-            if (thumbRange > 0.0f) {
-                p->scrollY = std::clamp(m_scrollDragStartScrollY + (y - m_scrollDragStartY) * maxScroll / thumbRange, 0.0f, maxScroll);
-                m_graph.invalidateNode(p->root, DirtySelf);
-            }
-            return;
-        }
-
-        Panel* p = panelByTitle(title);
-        if (!p) return;
-        bool hitAny = false;
-
-        if (press && m_showPanelScrollbars && p->contentH > p->viewport.height) {
-            float scrollBarW = 6.0f;
-            float trackX = p->viewport.x + p->viewport.width - scrollBarW - 2.0f;
-            if (x >= trackX - 4.0f && x <= trackX + scrollBarW + 4.0f &&
-                y >= p->viewport.y && y <= p->viewport.y + p->viewport.height) {
-                m_scrollDraggingPanel = p;
-                m_scrollDragStartY = y;
-                m_scrollDragStartScrollY = p->scrollY;
-                hitAny = true;
-            }
-        }
-
-        if (!hitAny) {
-            for (JWidget* wt : p->widgets) {
-                wt->handleMouseMove(x, y);
-                if (press) {
-                    wt->handleMousePress(x, y);
-                    if (wt->hitTest(x, y)) hitAny = true;
-                }
-                if (release) wt->handleMouseRelease(x, y);
-            }
-        }
-
-        if (press && !hitAny) {
-            m_focus.setFocus(nullptr);
-        }
-    }
-
     void forceTear(int idx) {
         if (m_tearableTab) m_tearableTab->forceTear(idx);
     }
@@ -718,6 +667,23 @@ public:
         Panel* p = panelByTitle(title);
         if (!p || !p->visible) return;
         const JRect content = p->viewport;
+        const float scrollBarW = 6.0f;
+        const float trackX = content.x + content.width - scrollBarW - 2.0f;
+        const bool  scrollable = m_showPanelScrollbars && p->contentH > content.height;
+
+        // Scrollbar thumb drag: continue an in-progress drag, mapping cursor Y to scroll.
+        if (released) m_scrollDraggingPanel = nullptr;
+        if (m_scrollDraggingPanel == p) {
+            const float handleH    = std::max(20.0f, (content.height / p->contentH) * content.height);
+            const float thumbRange = content.height - handleH;
+            const float maxScroll  = p->contentH - content.height;
+            if (thumbRange > 0.0f)
+                p->scrollY = std::clamp(m_scrollDragStartScrollY + (y - m_scrollDragStartY) * maxScroll / thumbRange,
+                                        0.0f, maxScroll);
+            return;   // owning the drag — don't also route to widgets
+        }
+
+        // Wheel scroll (widgets get first refusal, e.g. an inner scroll area).
         if (wheel != 0.0f && x >= content.x && x < content.x + content.width
                           && y >= content.y && y < content.y + content.height) {
             bool consumed = false;
@@ -727,6 +693,17 @@ public:
                 p->scrollY = std::clamp(p->scrollY, 0.0f, std::max(0.0f, p->contentH - content.height));
             }
         }
+
+        // Press on the scrollbar starts a thumb drag (claim it before widgets see the press).
+        if (pressed && scrollable &&
+            x >= trackX - 4.0f && x <= trackX + scrollBarW + 4.0f &&
+            y >= content.y && y <= content.y + content.height) {
+            m_scrollDraggingPanel    = p;
+            m_scrollDragStartY       = y;
+            m_scrollDragStartScrollY = p->scrollY;
+            return;
+        }
+
         for (JWidget* w : p->widgets) {
             w->handleMouseMove(x, y);
             if (pressed)  w->handleMousePress(x, y);
