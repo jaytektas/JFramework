@@ -20,6 +20,13 @@ public:
         m_items.push_back({ std::move(label), std::move(onClick), false, 0.f, 0.f });
     }
     void addSeparator() { m_items.push_back({ {}, {}, true, 0.f, 0.f }); }
+    // Host an arbitrary widget in the bar (an icon button, status indicator, combo, …). The bar
+    // lays it into a slot `width` wide (default = a square the bar's height), renders it via its
+    // own populateRenderPrimitives, and routes input to it. The widget is non-owning.
+    void addWidget(JWidget* w, float width = 0.f) {
+        Item it{}; it.widget = w; it.w = width;
+        m_items.push_back(std::move(it));
+    }
     bool empty() const { return m_items.empty(); }
 
     void setRect(JRect r) { m_rect = r; }
@@ -30,12 +37,17 @@ public:
         const bool inside = (mx >= m_rect.x && mx < m_rect.x + m_rect.width &&
                              my >= m_rect.y && my < m_rect.y + m_rect.height);
         m_hover = -1;
-        if (inside)
-            for (size_t i = 0; i < m_items.size(); ++i)
-                if (!m_items[i].sep && mx >= m_items[i].x && mx < m_items[i].x + m_items[i].w) {
-                    m_hover = static_cast<int>(i);
-                    break;
-                }
+        for (size_t i = 0; i < m_items.size(); ++i) {
+            auto& it = m_items[i];
+            if (it.widget) {                       // hosted widget: route input; it hit-tests itself
+                it.widget->handleMouseMove(mx, my);
+                if (pressed)  it.widget->handleMousePress(mx, my);
+                if (released) it.widget->handleMouseRelease(mx, my);
+                continue;
+            }
+            if (m_hover < 0 && inside && !it.sep && mx >= it.x && mx < it.x + it.w)
+                m_hover = static_cast<int>(i);
+        }
         if (pressed) m_pressed = m_hover;
         if (released) {
             if (m_pressed >= 0 && m_pressed == m_hover && m_items[m_pressed].onClick)
@@ -53,6 +65,12 @@ public:
             if (it.sep) {
                 uint8_t s[4] = {Colors::Border[0], Colors::Border[1], Colors::Border[2], 160};
                 buf.pushRectangle(it.x + kSep * 0.5f, m_rect.y + 8.f, 1.f, h - 16.f, s, 0.f);
+                continue;
+            }
+            if (it.widget) {                                   // hosted widget draws itself in its slot
+                const float pad = 4.f;
+                it.widget->setBounds({ it.x, m_rect.y + pad, it.w, h - 2.f * pad });
+                it.widget->populateRenderPrimitives(buf);
                 continue;
             }
             if (static_cast<int>(i) == m_pressed && static_cast<int>(i) == m_hover) {
@@ -76,6 +94,10 @@ private:
         float x = m_rect.x + kPad;
         for (auto& it : m_items) {
             if (it.sep) { it.x = x; it.w = kSep; x += kSep; continue; }
+            if (it.widget) {                                   // widget slot: given width, or a square
+                if (it.w <= 0.f) it.w = m_rect.height - 6.f;
+                it.x = x; x += it.w + kGap; continue;
+            }
             float tw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(it.label)
                                                : static_cast<float>(it.label.size()) * 8.f;
             it.w = tw + kBtnPad * 2.f;
@@ -84,7 +106,7 @@ private:
         }
     }
 
-    struct Item { std::string label; std::function<void()> onClick; bool sep; float x, w; };
+    struct Item { std::string label; std::function<void()> onClick; bool sep{false}; float x{0}, w{0}; JWidget* widget{nullptr}; };
     std::vector<Item> m_items;
     JRect m_rect{};
     int   m_hover{-1}, m_pressed{-1};
