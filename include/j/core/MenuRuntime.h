@@ -133,9 +133,10 @@ private:
                     // the popup entry is only a copy.
                     if (src->isCheckable()) src->setChecked(added->isChecked());
                     src->onTriggered.emit();
-                    // A plain leaf dismisses the menu; a checkable item toggles and stays open
-                    // (so several can be toggled) — same as it already behaves when torn off.
-                    if (!src->submenu() && !src->isCheckable())
+                    // Any leaf (plain or checkable) dismisses a docked menu once chosen.
+                    // A floating/torn menu stays open — closeAll() only affects m_active,
+                    // so its checkables keep toggling in place.
+                    if (!src->submenu())
                         m_deferred.push_back([this]() { closeAll(); });
                 });
 
