@@ -28,6 +28,7 @@
 #include <j/core/MenuSystem.h>           // JMenuBar, JMenuManager (accelerators)
 #include <j/core/MenuRuntime.h>          // JMenuRuntime (popup menu engine)
 #include <j/core/FocusManager.h>         // JFocusManager (keyboard focus + Tab cycling)
+#include <j/core/MainThreadDispatcher.h> // drain UI-thread callbacks (JTimer / JSerialPort / posts)
 #include <j/core/ToolBar.h>              // JToolBar
 #include <j/core/Dialog.h>               // JDialogManager (native dialog request queue)
 #include <j/platforms/PlatformWindow.h>  // createPlatformWindow
@@ -168,6 +169,11 @@ public:
         while (!m_window->shouldClose()) {
             m_window->pollNativeEvents();
             bool activity = false;
+
+            // Drain callbacks posted to the UI thread (JTimer ticks, JSerialPort data, async
+            // posts) so framework primitives that marshal to the main thread actually fire under
+            // the runner. Any work done arms a redraw so the UI reflects it this frame.
+            if (JMainThreadDispatcher::instance().drain() > 0) activity = true;
 
             // Sync the swapchain to the window's CURRENT size every iteration, by direct
             // comparison rather than the resize flag (which can lag/coalesce). If the
