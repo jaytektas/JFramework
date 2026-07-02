@@ -55,7 +55,12 @@ public:
         m_search = std::make_unique<JLineEdit>(m_graph, "Search fonts…");
         m_list   = std::make_unique<JListView>(m_graph, m_allFamilies);
         m_size   = std::make_unique<JSpinBox>(m_graph, 6, 96, 96.f, kRowH); m_size->setValue(std::atoi(sz.c_str()));
+        m_sizeSlider = std::make_unique<JSlider>(m_graph);
+        m_sizeSlider->setValue(_sizeToNorm(m_size->value()));
         for (size_t i = 0; i < m_allFamilies.size(); ++i) if (m_allFamilies[i] == fam) m_list->setSelectedIndex(static_cast<int>(i));
+        // Slider (0..1) and spin (6..96 px) mirror one size; a guard stops the mutual setValue from looping.
+        m_sizeSlider->onValueChanged.connect([this](float v) { if (m_syncing) return; m_syncing = true; m_size->setValue(_normToSize(v)); m_syncing = false; });
+        m_size->onValueChanged.connect([this](int s) { if (m_syncing) return; m_syncing = true; m_sizeSlider->setValue(_sizeToNorm(s)); m_syncing = false; });
 
         // Search filters the family list (keeping the current pick selected if it survives the filter).
         // NB: JListView emits onItemActivated on a single click, so a click only SELECTS here — the pick is
@@ -90,10 +95,12 @@ public:
         const float listY = kHeader + kRowH + 2.f * kPad, sizeY = kH - kRowH - kPad, prevY = sizeY - kRowH - 8.f;
         m_search->setBounds({ kPad, kHeader + kPad, static_cast<float>(kW) - 2.f * kPad, kRowH });
         m_list->setBounds({ kPad, listY, static_cast<float>(kW) - 2.f * kPad, prevY - listY - 8.f });
-        m_size->setBounds({ static_cast<float>(kW) - kPad - 96.f, sizeY, 96.f, kRowH });
-        m_search->handleMouseMove(mx, my); m_list->handleMouseMove(mx, my); m_size->handleMouseMove(mx, my);
-        if (pressed)  { m_search->handleMousePress(mx, my);   m_list->handleMousePress(mx, my);   m_size->handleMousePress(mx, my); }
-        if (released) { m_search->handleMouseRelease(mx, my); m_list->handleMouseRelease(mx, my); m_size->handleMouseRelease(mx, my); }
+        const float spinX = static_cast<float>(kW) - kPad - 96.f, slX = kPad + 44.f, slW = spinX - 8.f - slX;
+        m_size->setBounds({ spinX, sizeY, 96.f, kRowH });
+        m_sizeSlider->setBounds({ slX, sizeY + (kRowH - 24.f) * 0.5f, slW, 24.f });
+        m_search->handleMouseMove(mx, my); m_list->handleMouseMove(mx, my); m_size->handleMouseMove(mx, my); m_sizeSlider->handleMouseMove(mx, my);
+        if (pressed)  { m_search->handleMousePress(mx, my);   m_list->handleMousePress(mx, my);   m_size->handleMousePress(mx, my);   m_sizeSlider->handleMousePress(mx, my); }
+        if (released) { m_search->handleMouseRelease(mx, my); m_list->handleMouseRelease(mx, my); m_size->handleMouseRelease(mx, my); m_sizeSlider->handleMouseRelease(mx, my); }
 
         // Header buttons.
         if (pressed && my >= 8.f && my < 8.f + kBtnH) {
@@ -122,6 +129,8 @@ private:
         const int i = m_list->selectedIndex();
         return (i >= 0 && i < static_cast<int>(m_list->items().size())) ? m_list->items()[i] : std::string("Default");
     }
+    static float _sizeToNorm(int px) { return (std::clamp(px, 6, 96) - 6) / 90.f; }   // 6..96 px -> 0..1
+    static int   _normToSize(float v) { return 6 + static_cast<int>(std::clamp(v, 0.f, 1.f) * 90.f + 0.5f); }
     void _accept() {
         const std::string fam = _selectedFamily();
         const std::string famSpec = (fam == "Default") ? std::string() : fam;   // Default = ""
@@ -157,6 +166,7 @@ private:
             JTextHelper::pushText(buf, kPad + 8.f, prevY + (kRowH - lh) * 0.5f, "The quick brown fox jumps over the lazy dog.", sub, W - 2.f * kPad - 16.f);
             JTextHelper::pushText(buf, kPad, (H - kRowH - kPad) + (kRowH - lh) * 0.5f, "Size", tc);
         }
+        m_sizeSlider->populateRenderPrimitives(buf);
         m_size->populateRenderPrimitives(buf);
     }
 
@@ -168,8 +178,10 @@ private:
     // JWidget::s_activeWidgets while its scene graph is still alive, so nothing dangles for the AI snapshot.
     std::unique_ptr<JLineEdit> m_search;
     std::unique_ptr<JListView> m_list;
+    std::unique_ptr<JSlider>   m_sizeSlider;
     std::unique_ptr<JSpinBox>  m_size;
     std::vector<std::string>   m_allFamilies;
+    bool m_syncing{false};   // re-entrancy guard for the slider <-> spin two-way sync
     bool m_bold{false}, m_ital{false};
     bool m_done{false}, m_drag{false};
     float m_ax{0}, m_ay{0};
