@@ -3530,7 +3530,8 @@ class JTreeView : public JControl {
 public:
     jf::JSignal<JTreeViewNode*> onSelectionChanged;
     jf::JSignal<JTreeViewNode*> onNodeActivated;
-    jf::JSignal<JTreeViewNode*> onNodeRenamed;   // fired after an in-place label edit commits
+    jf::JSignal<JTreeViewNode*> onNodeRenamed;    // fired after an in-place label edit commits
+    jf::JSignal<JTreeViewNode*> onNodeDragStarted; // press-and-drag on a node past a threshold (app starts a JDragDrop)
 
     // Begin an in-place rename of the selected node (context-menu "Rename"). Enter commits (fires
     // onNodeRenamed), Escape cancels; the row draws an edit field with a caret while active.
@@ -3637,6 +3638,7 @@ public:
                         flat.node->expanded = !flat.node->expanded;
                         m_graph.invalidateNode(m_nodeId, DirtySelf);
                     } else {
+                        m_pressNode = flat.node; m_pressX = mx; m_pressY = my;   // arm a potential drag
                         // Clicking an already-selected node starts an in-place rename (Explorer-style);
                         // otherwise select + activate the node.
                         const bool wasSelected = (m_selectedNode == flat.node);
@@ -3651,6 +3653,7 @@ public:
 
     void handleMouseRelease(float mx, float my) override {
         m_draggingScroll = false;
+        m_pressNode = nullptr;
         JControl::handleMouseRelease(mx, my);
     }
 
@@ -3669,6 +3672,12 @@ public:
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
             }
             return;
+        }
+        // Press-and-drag on a node past a small threshold starts a drag; the app turns it into a
+        // JDragDrop of the node payload (one-shot: clear the armed node so it fires once).
+        if (m_pressNode && !m_editNode) {
+            const float ddx = mx - m_pressX, ddy = my - m_pressY;
+            if (ddx * ddx + ddy * ddy > 25.0f) { JTreeViewNode* n = m_pressNode; m_pressNode = nullptr; onNodeDragStarted.emit(n); }
         }
         JControl::handleMouseMove(mx, my);
     }
@@ -3955,6 +3964,8 @@ private:
     bool          m_draggingScroll{false};
     float         m_dragStartY{0.0f};
     float         m_dragStartScrollY{0.0f};
+    JTreeViewNode* m_pressNode{nullptr};   // node pressed (candidate for a drag), cleared once the drag fires/ends
+    float          m_pressX{0.0f}, m_pressY{0.0f};
 };
 
 class JDataGrid : public JControl {
