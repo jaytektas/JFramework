@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <cstdint>
+#include <cstdio>
 #include <iostream>
 #include <algorithm>
 
@@ -152,15 +153,30 @@ public:
         }
     }
 
-    JLayoutComponent& getLayout(NodeId id) { 
-        invalidateNode(id, DirtySelf); 
-        return m_layouts[id]; 
+    JLayoutComponent& getLayout(NodeId id) {
+        if (id >= m_layouts.size()) { _reportStaleNode("getLayout", id); static JLayoutComponent scratch; return scratch = JLayoutComponent{}; }
+        invalidateNode(id, DirtySelf);
+        return m_layouts[id];
     }
 
-    const JLayoutComponent& getLayoutConst(NodeId id) const { return m_layouts[id]; }
+    const JLayoutComponent& getLayoutConst(NodeId id) const {
+        if (id >= m_layouts.size()) { _reportStaleNode("getLayoutConst", id); static const JLayoutComponent kDefault{}; return kDefault; }
+        return m_layouts[id];
+    }
     const std::vector<NodeId>& getChildren(NodeId id) const { return m_hierarchy[id].childrenIds; }
     NodeId getParent(NodeId id) const { return m_hierarchy[id].parentId; }
     size_t totalNodes() const { return m_layouts.size(); }
+
+    // A layout accessor was handed a node id past the end of m_layouts — a stale/removed node (most often
+    // a widget that outlived its node, surfaced by the every-frame AI semantic snapshot). Report it loudly
+    // (throttled) rather than overrunning the vector and aborting the whole app; callers get a default box.
+    static void _reportStaleNode(const char* who, NodeId id) {
+        static int warned = 0;
+        if (warned++ < 20)
+            std::fprintf(stderr, "[JSceneGraph] %s: node id %u out of range — stale/freed widget node; "
+                                 "returning a default layout instead of overrunning (warning %d/20)\n",
+                         who, unsigned(id), warned), std::fflush(stderr);
+    }
     
     bool isDirty(NodeId id) const { return m_dirtyFlags[id] != Clean; }
 
