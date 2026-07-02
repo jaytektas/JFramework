@@ -3542,6 +3542,17 @@ public:
     }
     bool isEditing() const { return m_editNode != nullptr; }
 
+    // Commit an in-place rename (Enter, click elsewhere, or focus loss): apply the buffer + fire
+    // onNodeRenamed. Cancel (Escape) just clears m_editNode without applying.
+    void commitRename() {
+        if (!m_editNode) return;
+        m_editNode->label = m_editBuf;
+        JTreeViewNode* n = m_editNode;
+        m_editNode = nullptr;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+        onNodeRenamed.emit(n);
+    }
+
     // Whether F2 / double-activate may start an in-place rename (default on). Apps with read-only
     // trees (e.g. a fixed config navigator) can disable it.
     void setEditable(bool e) { m_editable = e; }
@@ -3601,6 +3612,10 @@ public:
 
     void handleMousePress(float mx, float my) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        // A press anywhere commits an in-place rename in progress (clicking another node, the same node,
+        // or empty tree space all end editing) before the click is handled.
+        const bool wasEditing = (m_editNode != nullptr);
+        if (wasEditing) commitRename();
         if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
             onClicked.emit();
             float trackW = 10.0f;
@@ -3626,7 +3641,7 @@ public:
                         // otherwise select + activate the node.
                         const bool wasSelected = (m_selectedNode == flat.node);
                         _selectNode(flat.node);
-                        if (m_editable && wasSelected) beginRename();
+                        if (m_editable && wasSelected && !wasEditing) beginRename();   // not right after a commit
                         else onNodeActivated.emit(flat.node);
                     }
                 }
@@ -3678,7 +3693,7 @@ public:
 
         // In-place rename: the tree owns keyboard while editing a label.
         if (m_editNode) {
-            if (ke.key == EK::Return) { m_editNode->label = m_editBuf; JTreeViewNode* n = m_editNode; m_editNode = nullptr; m_graph.invalidateNode(m_nodeId, DirtySelf); onNodeRenamed.emit(n); return true; }
+            if (ke.key == EK::Return) { commitRename(); return true; }
             if (ke.key == EK::Escape) { m_editNode = nullptr; m_graph.invalidateNode(m_nodeId, DirtySelf); return true; }
             if (ke.key == EK::Backspace) { if (!m_editBuf.empty()) m_editBuf.pop_back(); m_graph.invalidateNode(m_nodeId, DirtySelf); return true; }
             if (static_cast<unsigned char>(ke.utf8[0]) >= 32) { m_editBuf += ke.utf8; m_graph.invalidateNode(m_nodeId, DirtySelf); return true; }
@@ -3761,6 +3776,7 @@ public:
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         bool focused = isFocused();
+        if (m_editNode && !focused) commitRename();   // focus moved elsewhere (another widget) — end the edit
 
         buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1, 6.0f,
                           focused ? 1.5f : 1.0f,
