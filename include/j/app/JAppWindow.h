@@ -259,29 +259,35 @@ public:
                 }
             }
             m_window->setCursor(c);
-            const bool pressed  = m_window->consumePress();
-            const bool released = m_window->consumeRelease();
-            // Drop-on-release: a content drag (Dictionary binding / palette control) begun over a dock ends
-            // on the main window's (reliable) button-release. Resolve it on the surface over the centre —
-            // BEFORE the normal central routing, which the chrome/menu/hover gates below can suppress mid-
-            // drag, leaving the drag stuck to the cursor until a click. Off the centre → cancel.
-            if (released && JDragDrop::isDragging() && !m_space.isResizing()) {
+            const bool pressed     = m_window->consumePress();
+            const bool releasedRaw = m_window->consumeRelease();
+            // Fundamental drag-release routing. While a JDragDrop is active, the button-release belongs to
+            // drop resolution ALONE. Resolve it here — deliver to the drop target under the cursor (the
+            // central surface), else cancel — and then WITHHOLD the release from every downstream handler
+            // below (chrome, menu bar, toolbar, status bar, dock splitters, dock content, central routing).
+            // One choke point, so no chrome element can steal the drop; replaces the per-consumer patches.
+            const bool dragActive = JDragDrop::isDragging();
+            if (releasedRaw && dragActive) {
                 bool dropped = false;
-                if (JWidget* cw = m_space.centralWidget()) {
-                    const JRect& cr = m_space.centerRect();
-                    if (mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height) { cw->handleMouseRelease(mx, my); dropped = true; }
-                }
+                if (!m_space.isResizing())
+                    if (JWidget* cw = m_space.centralWidget()) {
+                        const JRect& cr = m_space.centerRect();
+                        if (mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height) { cw->handleMouseRelease(mx, my); dropped = true; }
+                    }
                 if (!dropped && JDragDrop::isDragging()) JDragDrop::cancel();
                 m_needRedraw = true;
             }
+            // Downstream widget routing never sees a release that a drag has claimed (physical-state
+            // tracking below still uses releasedRaw so the button state stays honest).
+            const bool released = releasedRaw && !dragActive;
             JWidget::s_ctrlDown  = m_window->isCtrlDown();    // publish modifier state for handleMousePress
             JWidget::s_shiftDown = m_window->isShiftDown();
             // App-tracked button state: more reliable than querying the server's button mask
             // (which some compositors / synthetic-input paths don't report). Drives the
             // poll-the-global-cursor branch above so drags track even while the pointer is
             // grabbed and MotionNotify goes quiet.
-            m_leftHeld = (m_leftHeld || pressed) && !released;
-            if (pressed || released || mx != lastMx || my != lastMy) activity = true;
+            m_leftHeld = (m_leftHeld || pressed) && !releasedRaw;
+            if (pressed || releasedRaw || mx != lastMx || my != lastMy) activity = true;
             // While a button is held (drag / WM resize), keep the loop live every frame —
             // never sleep through a drag. This matters because we poll the global cursor (above)
             // rather than relying on MotionNotify (which can go quiet under the press grab); if
@@ -452,23 +458,12 @@ public:
             // a drag still active, deliver the release to the surface (if the cursor is over the centre) or
             // cancel (so the ghost can't stay stuck to the cursor until a click). Also force one more frame
             // when the drag ends so the drop's result repaints immediately.
+            // Trail the drag ghost every frame. The drop itself is resolved authoritatively on release —
+            // by the choke point above for an inline drag, or by _resolveFloatDrop for a floating-dock
+            // drag (a genuinely separate window) — so there is no button-polling drop path here.
             const bool dragging = JDragDrop::isDragging();
-            if (dragging) {
-                JDragDrop::update(mx, my);
-                activity = true;
-                const bool btnDown = m_window->isLeftButtonDown() || m_leftHeld;
-                if (m_dragBtnWasDown && !btnDown) {
-                    bool dropped = false;
-                    if (!m_space.isResizing())
-                        if (JWidget* cw = m_space.centralWidget()) {
-                            const JRect& cr = m_space.centerRect();
-                            if (mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height) { cw->handleMouseRelease(mx, my); dropped = true; }
-                        }
-                    if (!dropped && JDragDrop::isDragging()) JDragDrop::cancel();
-                }
-                m_dragBtnWasDown = btnDown;
-            } else m_dragBtnWasDown = false;
-            if (m_wasDragging && !JDragDrop::isDragging()) activity = true;
+            if (dragging) { JDragDrop::update(mx, my); activity = true; }
+            if (m_wasDragging && !JDragDrop::isDragging()) activity = true;   // one more frame so the drop's result paints
             m_wasDragging = JDragDrop::isDragging();
 
             if (m_needRedraw) { activity = true; m_needRedraw = false; }
