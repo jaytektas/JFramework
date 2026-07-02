@@ -2,6 +2,7 @@
 
 #include <string>
 #include <cstdint>
+#include <cstdio>
 #include <algorithm>
 #include <cmath>
 #include <optional>
@@ -66,6 +67,10 @@ class JMenu;
 class JWidget : public jf::JSlotTracker, public JIAIState {
 public:
     inline static std::vector<JWidget*> s_activeWidgets;
+    // Live keyboard-modifier state, refreshed by the runner each frame so handleMousePress (which
+    // carries no modifier args) can honour Ctrl/Shift — e.g. additive/toggle multi-select.
+    inline static bool s_ctrlDown = false;
+    inline static bool s_shiftDown = false;
 
     JWidget(JSceneGraph& graph, const std::string& debugName = "")
         : m_graph(graph), m_state(JWidgetState::Normal), m_debugName(debugName)
@@ -91,6 +96,10 @@ public:
     // Context menu — shown on right-click. The pointer is non-owning.
     void  setContextMenu(JMenu* menu) { m_contextMenu = menu; }
     JMenu* contextMenu() const        { return m_contextMenu; }
+    // Called by the runner at the click point (widget-local) just before the context menu opens, so a
+    // widget can update state the menu depends on — e.g. select the element under the cursor / refresh
+    // which items are enabled. Default no-op.
+    virtual void prepareContextMenu(float /*mx*/, float /*my*/) {}
 
     static void renderTooltips(JPrimitiveBuffer& buf, float mouseX, float mouseY);
 
@@ -196,6 +205,10 @@ protected:
 // JControl — interactive widget with hover/press/click signals
 // ============================================================================
 
+// The scheme's default interior text padding (defined after JTheme, below). Forward-declared here so
+// JControl — which precedes JTheme in this header — can fall back to it in textPadding().
+inline float _jStyleFieldPadding();
+
 class JControl : public JWidget {
 public:
     jf::JSignal<>     onHoverEntered;
@@ -233,6 +246,15 @@ public:
         }
         return false;
     }
+
+    // Interior text padding for input controls (JLineEdit/JSpinBox/JComboBox…). Falls back to the
+    // scheme's JTheme::fieldPadding; set per-instance for granular control (a negative value restores
+    // the scheme default).
+    void  setTextPadding(float p) { m_textPad = p; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    float textPadding() const { return m_textPad >= 0.f ? m_textPad : _jStyleFieldPadding(); }
+
+protected:
+    float m_textPad = -1.f;   // -1 = inherit the scheme's fieldPadding
 };
 
 // ============================================================================
@@ -270,6 +292,7 @@ struct JTheme {
     float cornerRadius   = 6.f;
     float menuItemHeight = 28.f;
     float itemPadding    = 8.f;
+    float fieldPadding   = 8.f;   // interior text padding for input fields (JLineEdit/JSpinBox/JComboBox…)
     float spacing        = 4.f;
     float borderWidth    = 1.f;
     float titleBarHeight = 30.f;
@@ -286,6 +309,8 @@ struct JTheme {
     static JTheme& current();
     static void   apply(JTheme t);
 };
+
+inline float _jStyleFieldPadding() { return JTheme::current().fieldPadding; }
 
 inline JTheme JTheme::dark()  { return JTheme{}; }
 inline JTheme JTheme::light() {
@@ -1235,8 +1260,9 @@ public:
                           focused ? 1.5f : 1.0f,
                           focused ? Colors::Accent : Colors::Border);
 
-        float innerX = b.x + 8.0f;
-        float innerW = b.width - 16.0f;
+        const float pad = textPadding();
+        float innerX = b.x + pad;
+        float innerW = b.width - 2.0f * pad;
         float midY   = b.y + (b.height - 7.0f) * 0.5f;
 
         if (JTextHelper::hasAtlas()) {
@@ -1702,31 +1728,71 @@ public:
     int  value() const { return m_value; }
 
     void handleMousePress(float mx, float my) override {
-        if (!isPointInside(mx, my)) return;
+        if (!isPointInside(mx, my)) { _commitEdit(); return; }
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float btnW = b.height * 0.7f;
-        if (mx >= b.x + b.width - btnW)          setValue(m_value + (my < b.y + b.height * 0.5f ? 1 : -1));
-        else                                       setState(JWidgetState::Pressed);
+        if (mx >= b.x + b.width - btnW) {
+            _commitEdit();
+            setValue(m_value + (my < b.y + b.height * 0.5f ? 1 : -1));
+        } else {
+            setState(JWidgetState::Pressed);
+            _beginEdit();
+        }
+    }
+
+    bool handleScroll(float mx, float my, float wheel) override {
+        if (!isPointInside(mx, my)) return false;
+        _commitEdit();
+        setValue(m_value + (wheel > 0.0f ? 1 : -1));
+        return true;
+    }
+
+    bool handleKeyEvent(const JKeyEvent& ke) override {
+        if (!ke.pressed) return false;
+        using K = JKeyEvent::JKey;
+        if (ke.key == K::Up)   { _commitEdit(); setValue(m_value + 1); return true; }
+        if (ke.key == K::Down) { _commitEdit(); setValue(m_value - 1); return true; }
+        if (ke.key == K::Return) { _commitEdit(); return true; }
+        if (ke.key == K::Escape) { if (m_editing) { m_editing = false; invalidate(); return true; } return false; }
+        if (ke.key == K::Backspace) {
+            if (!m_editing) return false;
+            if (!m_editBuf.empty()) { m_editBuf.pop_back(); invalidate(); }
+            return true;
+        }
+        const char c = ke.utf8[0];
+        if (c != '\0' && _acceptChar(c)) {
+            if (!m_editing) { m_editing = true; m_editBuf.clear(); }
+            m_editBuf += c;
+            invalidate();
+            return true;
+        }
+        return false;
     }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        if (m_editing && !isFocused()) _commitEdit();
         float btnW = b.height * 0.7f;
         float fieldW = b.width - btnW;
 
         bool focused = isFocused();
         // Value field
         buf.pushRectangle(b.x, b.y, fieldW, b.height, Colors::Surface1, 6.0f,
-                          focused ? 1.5f : 1.0f,
-                          focused ? Colors::Accent : Colors::Border);
+                          (focused || m_editing) ? 1.5f : 1.0f,
+                          (focused || m_editing) ? Colors::Accent : Colors::Border);
         // Value text
+        const std::string txt = m_editing ? m_editBuf : std::to_string(m_value);
         if (JTextHelper::hasAtlas()) {
             uint8_t vc[4] = {210, 210, 220, 220};
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
-            JTextHelper::pushText(buf, b.x + 8.0f, ty, std::to_string(m_value), vc, fieldW - 8.0f);
+            JTextHelper::pushText(buf, b.x + textPadding(), ty, txt, vc, fieldW - textPadding());
+            if (m_editing) {
+                float cx = b.x + textPadding() + JTextHelper::measureWidth(txt) + 1.0f;
+                buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f, Colors::Accent);
+            }
         } else {
             uint8_t vc[4] = {200, 200, 210, 180};
-            buf.pushRectangle(b.x + 8.0f, b.y + (b.height-7.0f)*0.5f, fieldW * 0.6f, 7.0f, vc, 2.0f);
+            buf.pushRectangle(b.x + textPadding(), b.y + (b.height-7.0f)*0.5f, fieldW * 0.6f, 7.0f, vc, 2.0f);
         }
 
         // Up/down button area
@@ -1751,7 +1817,182 @@ public:
     }
 
 private:
+    void _beginEdit() { m_editBuf = std::to_string(m_value); m_editing = true; invalidate(); }
+    void _commitEdit() {
+        if (!m_editing) return;
+        m_editing = false;
+        try { setValue(std::stoi(m_editBuf)); } catch (...) {}
+        invalidate();
+    }
+    bool _acceptChar(char c) const {
+        if (c >= '0' && c <= '9') return true;
+        if (c == '-') return m_min < 0 && m_editBuf.find('-') == std::string::npos;
+        return false;
+    }
+
     int m_min, m_max, m_value;
+    bool m_editing{false};
+    std::string m_editBuf;
+};
+
+// ============================================================================
+// JDoubleSpinBox — floating-point spin box.
+//
+// Mirrors JSpinBox exactly, but stores a `double` with configurable step,
+// decimal places and an optional textual suffix.  Full precision is kept
+// internally; only the rendered text is rounded to `decimals`.
+// ============================================================================
+
+class JDoubleSpinBox : public JControl {
+public:
+    jf::JSignal<double> onValueChanged;
+
+    JDoubleSpinBox(JSceneGraph& graph, double min, double max,
+                   double step = 1.0, int decimals = 2,
+                   float w = 120.0f, float h = 32.0f)
+        : JControl(graph, "JDoubleSpinBox"),
+          m_value(min), m_min(min), m_max(max), m_step(step), m_decimals(decimals)
+    {
+        auto& l = m_graph.getLayout(m_nodeId);
+        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.minWidth = 60.0f;
+        l.minHeight = h;
+    }
+
+    void setValue(double v) {
+        double c = std::clamp(v, m_min, m_max);
+        if (m_value != c) { m_value = c; m_graph.invalidateNode(m_nodeId, DirtySelf); onValueChanged.emit(c); }
+    }
+    double value() const { return m_value; }
+
+    void setRange(double min, double max) { m_min = min; m_max = max; setValue(m_value); }
+    void setStep(double step)             { m_step = step; }
+    void setDecimals(int decimals)        { m_decimals = decimals; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    void setSuffix(const std::string& s)  { m_suffix = s; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    const std::string& suffix() const     { return m_suffix; }
+
+    void handleMousePress(float mx, float my) override {
+        if (!isPointInside(mx, my)) { _commitEdit(); return; }
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        float btnW = b.height * 0.7f;
+        if (mx >= b.x + b.width - btnW) {   // an arrow — commit any edit, then step
+            _commitEdit();
+            setValue(m_value + (my < b.y + b.height * 0.5f ? m_step : -m_step));
+        } else {                            // the value field — begin direct text entry
+            setState(JWidgetState::Pressed);
+            _beginEdit();
+        }
+    }
+
+    bool handleScroll(float mx, float my, float wheel) override {
+        if (!isPointInside(mx, my)) return false;
+        _commitEdit();
+        setValue(m_value + (wheel > 0.0f ? m_step : -m_step));
+        return true;
+    }
+
+    bool handleKeyEvent(const JKeyEvent& ke) override {
+        if (!ke.pressed) return false;
+        using K = JKeyEvent::JKey;
+        if (ke.key == K::Up)   { _commitEdit(); setValue(m_value + m_step); return true; }
+        if (ke.key == K::Down) { _commitEdit(); setValue(m_value - m_step); return true; }
+        if (ke.key == K::Return) { _commitEdit(); return true; }
+        if (ke.key == K::Escape) { if (m_editing) { m_editing = false; invalidate(); return true; } return false; }
+        if (ke.key == K::Backspace) {
+            if (!m_editing) return false;
+            if (!m_editBuf.empty()) { m_editBuf.pop_back(); invalidate(); }
+            return true;
+        }
+        // Printable characters: accept only what can form a number.
+        const char c = ke.utf8[0];
+        if (c != '\0' && _acceptChar(c)) {
+            if (!m_editing) { m_editing = true; m_editBuf.clear(); }
+            m_editBuf += c;
+            invalidate();
+            return true;
+        }
+        return false;
+    }
+
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        // Clicking away drops keyboard focus — commit the pending edit so it isn't lost.
+        if (m_editing && !isFocused()) _commitEdit();
+        float btnW = b.height * 0.7f;
+        float fieldW = b.width - btnW;
+
+        bool focused = isFocused();
+        // Value field
+        buf.pushRectangle(b.x, b.y, fieldW, b.height, Colors::Surface1, 6.0f,
+                          (focused || m_editing) ? 1.5f : 1.0f,
+                          (focused || m_editing) ? Colors::Accent : Colors::Border);
+        // Value text (the live edit buffer while typing, otherwise the formatted value)
+        const std::string txt = m_editing ? m_editBuf : _formatValue();
+        if (JTextHelper::hasAtlas()) {
+            uint8_t vc[4] = {210, 210, 220, 220};
+            float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
+            JTextHelper::pushText(buf, b.x + textPadding(), ty, txt, vc, fieldW - textPadding());
+            if (m_editing) {   // caret at the end of the typed text
+                float cx = b.x + textPadding() + JTextHelper::measureWidth(txt) + 1.0f;
+                buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f, Colors::Accent);
+            }
+        } else {
+            uint8_t vc[4] = {200, 200, 210, 180};
+            buf.pushRectangle(b.x + textPadding(), b.y + (b.height-7.0f)*0.5f, fieldW * 0.6f, 7.0f, vc, 2.0f);
+        }
+
+        // Up/down button area
+        float halfH = b.height * 0.5f;
+        buf.pushRectangle(b.x + fieldW, b.y,          btnW, halfH, Colors::Surface2, 0.0f, 1.0f, Colors::Border);
+        buf.pushRectangle(b.x + fieldW, b.y + halfH,  btnW, halfH, Colors::Surface2, 0.0f, 1.0f, Colors::Border);
+        // Arrow marks (tiny rects)
+        float ax = b.x + fieldW + btnW * 0.3f, aw = btnW * 0.4f;
+        uint8_t ac[4] = {180, 180, 190, 200};
+        buf.pushRectangle(ax, b.y + halfH * 0.35f,        aw, 2.0f, ac);  // up mark
+        buf.pushRectangle(ax, b.y + halfH + halfH * 0.55f, aw, 2.0f, ac); // down mark
+    }
+
+    JAISemanticNode getSemanticNode() const override {
+        return {"JDoubleSpinBox", "", _formatValue(), true};
+    }
+    bool executeSemanticAction(const std::string& a) override {
+        if (a.rfind("set_value:", 0) == 0) { try { setValue(std::stod(a.substr(10))); return true; } catch (...) {} }
+        if (a == "increment") { setValue(m_value + m_step); return true; }
+        if (a == "decrement") { setValue(m_value - m_step); return true; }
+        return false;
+    }
+
+private:
+    std::string _formatValue() const {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%.*f", m_decimals, m_value);
+        return std::string(buf) + m_suffix;
+    }
+    // Seed the edit buffer with the current numeric value (no suffix) so the user edits from it.
+    void _beginEdit() {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%.*f", m_decimals, m_value);
+        m_editBuf = buf; m_editing = true; invalidate();
+    }
+    void _commitEdit() {
+        if (!m_editing) return;
+        m_editing = false;
+        try { setValue(std::stod(m_editBuf)); } catch (...) {}
+        invalidate();
+    }
+    // Which typed characters can build a number for this box.
+    bool _acceptChar(char c) const {
+        if (c >= '0' && c <= '9') return true;
+        if (c == '-') return m_min < 0.0 && m_editBuf.find('-') == std::string::npos;
+        if (c == '.') return m_decimals > 0 && m_editBuf.find('.') == std::string::npos;
+        return false;
+    }
+
+    double      m_value, m_min, m_max, m_step;
+    int         m_decimals;
+    std::string m_suffix;
+    bool        m_editing{false};
+    std::string m_editBuf;
 };
 
 // ============================================================================
@@ -1875,6 +2116,15 @@ public:
         m_items.push_back(item);
         _updateMinSize();
     }
+    // Replace the whole item list (dynamic combos). Resets the selection; does not emit onIndexChanged
+    // (the caller sets the desired index afterwards).
+    void setItems(std::vector<std::string> items) {
+        m_items = std::move(items);
+        m_currentIndex = m_items.empty() ? -1 : std::clamp(m_currentIndex, 0, (int)m_items.size() - 1);
+        _updateMinSize();
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+    void clearItems() { setItems({}); }
     void setCurrentIndex(int i) {
         int c = (m_items.empty()) ? -1 : std::clamp(i, 0, (int)m_items.size()-1);
         if (m_currentIndex != c) {
@@ -1929,11 +2179,11 @@ public:
         if (JTextHelper::hasAtlas() && !currentText().empty()) {
             uint8_t tc[4] = {210, 210, 220, 220};
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
-            JTextHelper::pushText(buf, b.x + 8.0f, ty, tr(currentText()), tc, b.width - arrowW - 14.0f);
+            JTextHelper::pushText(buf, b.x + textPadding(), ty, tr(currentText()), tc, b.width - arrowW - textPadding() - 6.0f);
         } else {
             uint8_t tc[4] = {200, 200, 210, 180};
-            buf.pushRectangle(b.x + 8.0f, b.y + (b.height-7.0f)*0.5f,
-                              b.width - arrowW - 14.0f, 7.0f, tc, 2.0f);
+            buf.pushRectangle(b.x + textPadding(), b.y + (b.height-7.0f)*0.5f,
+                              b.width - arrowW - textPadding() - 6.0f, 7.0f, tc, 2.0f);
         }
     }
 
@@ -1970,7 +2220,141 @@ private:
 
     std::vector<std::string> m_items;
     int m_currentIndex{-1};
-    JComboBoxMode m_mode{JComboBoxMode::Cycling};
+    JComboBoxMode m_mode{JComboBoxMode::Popup};   // dropdown list by default (the app wires the popup hook)
+};
+
+// ============================================================================
+// JColorButton — the property-inspector colour field. The whole control IS the swatch: it fills with
+// the chosen colour and prints its hex in a contrast-picked text colour (black on light, white on dark).
+// Unset ("") means "inherit the scheme" and shows "(scheme)" on a plain surface. Click opens a picker
+// (the app wires onOpenPickerHook → a JColorPicker popup); when inheritable, an inline ✕ clears to
+// scheme without opening the picker. Emits onColorChanged("#rrggbb" | "") whenever the value changes.
+// Dumb-by-design, exactly like JComboBox: it holds the value + requests the popup, the app owns it.
+// ============================================================================
+
+class JColorButton : public JControl {
+public:
+    static inline std::function<void(JColorButton*)> onOpenPickerHook;
+    jf::JSignal<std::string> onColorChanged;
+
+    JColorButton(JSceneGraph& graph, float w = 200.0f, float h = 28.0f) : JControl(graph, "JColorButton") {
+        auto& l = m_graph.getLayout(m_nodeId); l.boundingBox.width = w; l.boundingBox.height = h;
+    }
+    void setInheritable(bool v) { m_inheritable = v; }
+    bool inheritable() const    { return m_inheritable; }
+
+    void setColorHex(const std::string& hex) { if (m_hex != hex) { m_hex = hex; m_graph.invalidateNode(m_nodeId, DirtySelf); } }
+    const std::string& colorHex() const { return m_hex; }
+    // Programmatic set that fires the change signal (used by the picker + clear button).
+    void pick(const std::string& hex) { if (m_hex != hex) { m_hex = hex; m_graph.invalidateNode(m_nodeId, DirtySelf); onColorChanged.emit(hex); } }
+
+    void handleMousePress(float mx, float my) override {
+        if (!isPointInside(mx, my)) return;
+        onClicked.emit();
+        if (m_inheritable && !m_hex.empty()) {   // inline ✕ hit region on the right clears to scheme
+            const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+            if (mx >= b.x + b.width - b.height) { pick(""); return; }
+        }
+        if (onOpenPickerHook) onOpenPickerHook(this);
+    }
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const bool focused = isFocused();
+        uint8_t c[4];
+        if (_parse(m_hex, c)) {
+            buf.pushRectangle(b.x, b.y, b.width, b.height, c, 4.0f, focused ? 1.5f : 1.0f, focused ? Colors::Accent : Colors::Border);
+            if (JTextHelper::hasAtlas()) {
+                uint8_t tc[4] = {0, 0, 0, 230};
+                if (_luma(c) < 0.5f) { tc[0] = tc[1] = tc[2] = 240; }   // white text on dark fills
+                JTextHelper::pushText(buf, b.x + 8.0f, b.y + (b.height - JTextHelper::lineHeight()) * 0.5f, m_hex, tc, b.width - 16.0f);
+            }
+        } else {
+            buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface2, 4.0f, focused ? 1.5f : 1.0f, focused ? Colors::Accent : Colors::Border);
+            if (JTextHelper::hasAtlas()) {
+                uint8_t tc[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, tc);
+                JTextHelper::pushText(buf, b.x + 8.0f, b.y + (b.height - JTextHelper::lineHeight()) * 0.5f, "(scheme)", tc, b.width - 16.0f);
+            }
+        }
+        // Inline clear affordance (only when inheritable + a colour is set).
+        if (m_inheritable && !m_hex.empty() && JTextHelper::hasAtlas()) {
+            uint8_t xc[4] = {0, 0, 0, 200};
+            if (_parse(m_hex, c) && _luma(c) < 0.5f) { xc[0] = xc[1] = xc[2] = 235; }
+            JTextHelper::pushText(buf, b.x + b.width - b.height + 6.0f, b.y + (b.height - JTextHelper::lineHeight()) * 0.5f, "x", xc, b.height);
+        }
+    }
+    JAISemanticNode getSemanticNode() const override { return {"JColorButton", "", m_hex, true}; }
+    bool executeSemanticAction(const std::string& a) override { if (a.rfind("set:", 0) == 0) { pick(a.substr(4)); return true; } return false; }
+
+private:
+    static bool _parse(const std::string& s, uint8_t o[4]) {
+        if (s.size() != 7 || s[0] != '#') return false;
+        auto hx = [](char c) -> int { if (c >= '0' && c <= '9') return c - '0'; if (c >= 'a' && c <= 'f') return c - 'a' + 10; if (c >= 'A' && c <= 'F') return c - 'A' + 10; return -1; };
+        int v[6]; for (int i = 0; i < 6; ++i) { v[i] = hx(s[i + 1]); if (v[i] < 0) return false; }
+        o[0] = uint8_t(v[0] * 16 + v[1]); o[1] = uint8_t(v[2] * 16 + v[3]); o[2] = uint8_t(v[4] * 16 + v[5]); o[3] = 255; return true;
+    }
+    static float _luma(const uint8_t c[4]) { return (0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]) / 255.0f; }
+    std::string m_hex;
+    bool        m_inheritable{false};
+};
+
+// ============================================================================
+// JFontButton — the property-inspector font field (mirrors JColorButton). Shows the current font
+// spec ("Family 12 Bold") or "(scheme)" when unset; click opens a picker via onOpenPickerHook (the app
+// wires it to a font dialog). Inheritable → inline ✕ clears to scheme. Emits onFontChanged(spec).
+// The spec is a compact string "family|size|b|i" (b/i = 1/0); label() renders it human-readably.
+// ============================================================================
+class JFontButton : public JControl {
+public:
+    static inline std::function<void(JFontButton*)> onOpenPickerHook;
+    jf::JSignal<std::string> onFontChanged;
+
+    JFontButton(JSceneGraph& graph, float w = 200.0f, float h = 28.0f) : JControl(graph, "JFontButton") {
+        auto& l = m_graph.getLayout(m_nodeId); l.boundingBox.width = w; l.boundingBox.height = h;
+    }
+    void setInheritable(bool v) { m_inheritable = v; }
+    void setFontSpec(const std::string& s) { if (m_spec != s) { m_spec = s; m_graph.invalidateNode(m_nodeId, DirtySelf); } }
+    const std::string& fontSpec() const { return m_spec; }
+    void pick(const std::string& s) { if (m_spec != s) { m_spec = s; m_graph.invalidateNode(m_nodeId, DirtySelf); onFontChanged.emit(s); } }
+
+    // Human-readable label from the "family|size|b|i" spec.
+    static std::string prettify(const std::string& spec) {
+        if (spec.empty()) return "(scheme)";
+        std::string out; size_t p = 0; int field = 0; std::string fam, sz; bool b = false, i = false;
+        while (p <= spec.size()) { const size_t c = spec.find('|', p); const std::string t = spec.substr(p, c == std::string::npos ? std::string::npos : c - p);
+            if (field == 0) fam = t; else if (field == 1) sz = t; else if (field == 2) b = (t == "1"); else if (field == 3) i = (t == "1");
+            ++field; if (c == std::string::npos) break; p = c + 1; }
+        out = fam.empty() ? "Default" : fam; if (!sz.empty()) out += " " + sz; if (b) out += " Bold"; if (i) out += " Italic";
+        return out;
+    }
+
+    void handleMousePress(float mx, float my) override {
+        if (!isPointInside(mx, my)) return;
+        onClicked.emit();
+        if (m_inheritable && !m_spec.empty()) {
+            const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+            if (mx >= b.x + b.width - b.height) { pick(""); return; }
+        }
+        if (onOpenPickerHook) onOpenPickerHook(this);
+    }
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const bool focused = isFocused();
+        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface2, 4.0f, focused ? 1.5f : 1.0f, focused ? Colors::Accent : Colors::Border);
+        if (JTextHelper::hasAtlas()) {
+            uint8_t tc[4]; std::copy(m_spec.empty() ? Colors::TextSecondary : Colors::TextPrimary, (m_spec.empty() ? Colors::TextSecondary : Colors::TextPrimary) + 4, tc);
+            JTextHelper::pushText(buf, b.x + 8.0f, b.y + (b.height - JTextHelper::lineHeight()) * 0.5f, prettify(m_spec), tc, b.width - 16.0f);
+            if (m_inheritable && !m_spec.empty()) {
+                uint8_t xc[4] = {200, 200, 210, 200};
+                JTextHelper::pushText(buf, b.x + b.width - b.height + 6.0f, b.y + (b.height - JTextHelper::lineHeight()) * 0.5f, "x", xc, b.height);
+            }
+        }
+    }
+    JAISemanticNode getSemanticNode() const override { return {"JFontButton", "", m_spec, true}; }
+    bool executeSemanticAction(const std::string& a) override { if (a.rfind("set:", 0) == 0) { pick(a.substr(4)); return true; } return false; }
+
+private:
+    std::string m_spec;
+    bool        m_inheritable{false};
 };
 
 // ============================================================================
@@ -2121,6 +2505,22 @@ public:
     // Programmatically tear off a tab — useful for keyboard shortcuts and testing.
     void forceTear(int idx) { _emitTear(idx); }
 
+    // Close a tab outright (dynamic tab sets: open on demand, close when done). Unlike a tear this
+    // doesn't spawn a float — the tab is gone. Emits onTabChanged with the new active index (-1 when
+    // the bar empties) so the host can swap the shown content.
+    void removeTab(int idx) {
+        if (idx < 0 || idx >= (int)m_tabs.size()) return;
+        m_tabs.erase(m_tabs.begin() + idx);
+        if (idx < (int)m_contentNodes.size()) m_contentNodes.erase(m_contentNodes.begin() + idx);
+        if (m_tabs.empty())                        m_activeIndex = -1;
+        else if (m_activeIndex >= (int)m_tabs.size()) m_activeIndex = (int)m_tabs.size() - 1;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+        _updateMinSize();
+        onTabChanged.emit(m_activeIndex);
+    }
+    int         tabCount() const { return (int)m_tabs.size(); }
+    std::string tabLabel(int idx) const { return (idx >= 0 && idx < (int)m_tabs.size()) ? m_tabs[idx] : std::string(); }
+
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         if (m_tabs.empty()) return;
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
@@ -2232,6 +2632,273 @@ private:
     bool   m_tearable{false};
     JDragState                m_drag{};
     std::optional<JTornTabState> m_pendingTorn;
+};
+
+// ============================================================================
+// JTabWidget — content-hosting tabs with close. A dynamic set of tabs, each holding a custom JWidget
+// as its content (non-owning; the app owns the widgets). The bar draws label + a × close affordance
+// per closable tab; the active tab's content fills the area below and receives input. This is the
+// "tabs that come and go, each showing a custom view" primitive (e.g. a studio's surface editor).
+// JTabBar (above) is the bar-only, tear-off-into-a-dock variant; this one owns its content stack.
+// ============================================================================
+
+class JTabWidget : public JWidget {
+public:
+    jf::JSignal<int> onTabChanged;   // (active index, or -1 when empty)
+    jf::JSignal<int> onTabClosed;    // (index that was closed) — fired after removal
+
+    JTabWidget(JSceneGraph& graph, float w = 640.0f, float h = 400.0f)
+        : JWidget(graph, "JTabWidget")
+    {
+        auto& l = m_graph.getLayout(m_nodeId);
+        l.boundingBox.width = w; l.boundingBox.height = h;
+    }
+
+    // content is non-owning; caller keeps it alive while the tab exists. Returns the new tab index.
+    // closable and draggable are opt-in per tab: only a closable tab gets a ×; only a draggable tab
+    // can be dragged to rearrange. A permanent home tab leaves both off — it stays put and stays open.
+    int addTab(const std::string& label, JWidget* content, bool closable = false, bool draggable = false) {
+        m_tabs.push_back({ label, content, closable, draggable });
+        const int idx = (int)m_tabs.size() - 1;
+        if (m_active < 0) { m_active = idx; onTabChanged.emit(m_active); }
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+        return idx;
+    }
+    void removeTab(int idx) {
+        if (idx < 0 || idx >= (int)m_tabs.size()) return;
+        m_tabs.erase(m_tabs.begin() + idx);
+        if (m_tabs.empty())            m_active = -1;
+        else if (m_active > idx)       --m_active;
+        else if (m_active >= (int)m_tabs.size()) m_active = (int)m_tabs.size() - 1;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+        onTabClosed.emit(idx);
+        onTabChanged.emit(m_active);
+    }
+    void setActiveTab(int i) {
+        if (i < 0 || i >= (int)m_tabs.size() || i == m_active) return;
+        m_active = i;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+        onTabChanged.emit(i);
+    }
+    int      activeTab() const { return m_active; }
+    int      tabCount()  const { return (int)m_tabs.size(); }
+    JWidget* content(int i) const { return (i >= 0 && i < (int)m_tabs.size()) ? m_tabs[i].content : nullptr; }
+    JWidget* activeContent() const { return content(m_active); }
+    void     setTabLabel(int i, const std::string& s) { if (i >= 0 && i < (int)m_tabs.size()) { m_tabs[i].label = s; m_graph.invalidateNode(m_nodeId, DirtySelf); } }
+
+    // Pro layout config (opt-in; defaults = a Top strip, tabs at natural width).
+    //   edge — which side the strip sits on (Top / Bottom / Left / Right; Left/Right run vertical).
+    //   fill — how tabs occupy the strip: Fill = equal share, Left = natural width, Compress = shrink to fit.
+    void setTabEdge(JTabBarEdge e) { if (m_edge != e) { m_edge = e; m_graph.invalidateNode(m_nodeId, DirtySelf); } }
+    JTabBarEdge tabEdge() const { return m_edge; }
+    void setTabFill(JTabFill f)   { if (m_fill != f) { m_fill = f; m_graph.invalidateNode(m_nodeId, DirtySelf); } }
+    JTabFill tabFill() const { return m_fill; }
+    void  setStripThickness(float t) { m_thick = t; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    float stripThickness() const { return m_thick; }
+
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const JRect strip = _stripRect(b);
+        buf.pushRectangle(strip.x, strip.y, strip.width, strip.height, Colors::Surface1);   // strip backdrop
+        _layoutTabs(b);
+        const bool horiz = _horizontal();
+        for (int i = 0; i < (int)m_tabs.size(); ++i) {
+            const JRect& r = m_tabRect[i];
+            const bool active = (i == m_active);
+            buf.pushRectangle(r.x + 1.f, r.y + 1.f, r.width - 2.f, r.height - 2.f,
+                              active ? Colors::Surface3 : Colors::Surface1, 5.f);
+            _drawActiveEdge(buf, r, active);
+            if (JTextHelper::hasAtlas()) {
+                uint8_t lc[4]; const uint8_t* base = active ? Colors::TextPrimary : Colors::TextSecondary;
+                std::copy(base, base + 4, lc);
+                uint8_t cc[4]; const uint8_t* cb = (i == m_hotClose) ? Colors::Danger : Colors::TextSecondary;
+                std::copy(cb, cb + 4, cc);
+                const float lh = JTextHelper::lineHeight();
+                if (horiz) {
+                    JTextHelper::pushText(buf, r.x + kPadX, r.y + (r.height - lh) * 0.5f, tr(m_tabs[i].label), lc);
+                    if (m_tabs[i].closable)
+                        JTextHelper::pushText(buf, r.x + r.width - kCloseW + 3.f, r.y + (r.height - lh) * 0.5f, "\xC3\x97", cc);
+                } else {
+                    const float px = r.x + (r.width + lh) * 0.5f;   // centre the run across the strip thickness
+                    JTextHelper::pushTextVertical(buf, px, r.y + kPadX, tr(m_tabs[i].label), lc, 0.f, m_edge == JTabBarEdge::Right);
+                    if (m_tabs[i].closable)
+                        JTextHelper::pushTextVertical(buf, px, r.y + r.height - kCloseW + 3.f, "\xC3\x97", cc, 0.f, m_edge == JTabBarEdge::Right);
+                }
+            }
+        }
+        if (JWidget* c = activeContent()) {
+            c->setBounds(_contentRect(b));
+            c->populateRenderPrimitives(buf);
+        }
+    }
+
+    void handleMousePress(float mx, float my) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        if (_pointIn(_stripRect(b), mx, my)) {   // in the strip: close / select / begin a reorder drag
+            _layoutTabs(b);
+            for (int i = 0; i < (int)m_tabs.size(); ++i) {
+                if (!_pointIn(m_tabRect[i], mx, my)) continue;
+                if (m_tabs[i].closable && _inCloseBox(m_tabRect[i], mx, my)) { removeTab(i); return; }
+                setActiveTab(i);
+                if (m_tabs[i].draggable) { m_dragIdx = i; m_dragActive = false; m_dragPress = _along(mx, my); }
+                return;
+            }
+            return;
+        }
+        m_capContent = true;
+        if (JWidget* c = activeContent()) c->handleMousePress(mx, my);
+    }
+    void handleMouseMove(float mx, float my) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        if (m_dragIdx >= 0) {                     // reordering a draggable tab
+            const float a = _along(mx, my);
+            if (!m_dragActive && std::abs(a - m_dragPress) > kDragThresh) m_dragActive = true;
+            if (m_dragActive) {
+                const int target = _tabIndexAt(b, a);
+                if (target >= 0 && target != m_dragIdx) { _moveTab(m_dragIdx, target); m_dragIdx = target; }
+            }
+            return;
+        }
+        int hot = -1;
+        if (_pointIn(_stripRect(b), mx, my)) {
+            _layoutTabs(b);
+            for (int i = 0; i < (int)m_tabs.size(); ++i)
+                if (m_tabs[i].closable && _inCloseBox(m_tabRect[i], mx, my)) { hot = i; break; }
+        }
+        if (hot != m_hotClose) { m_hotClose = hot; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+        if (JWidget* c = activeContent()) c->handleMouseMove(mx, my);
+    }
+    void handleMouseRelease(float mx, float my) override {
+        if (m_dragIdx >= 0) { m_dragIdx = -1; m_dragActive = false; return; }
+        if (m_capContent) { if (JWidget* c = activeContent()) c->handleMouseRelease(mx, my); m_capContent = false; }
+    }
+    bool handleScroll(float mx, float my, float wheel) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        if (_pointIn(_contentRect(b), mx, my)) if (JWidget* c = activeContent()) return c->handleScroll(mx, my, wheel);
+        return false;
+    }
+    bool handleKeyEvent(const JKeyEvent& ke) override {
+        if (JWidget* c = activeContent()) return c->handleKeyEvent(ke);
+        return false;
+    }
+
+    JAISemanticNode getSemanticNode() const override {
+        return { "JTabWidget", "", std::to_string(m_active), true };
+    }
+    bool executeSemanticAction(const std::string& a) override {
+        if (a.rfind("select_tab:", 0) == 0) { try { setActiveTab(std::stoi(a.substr(11))); return true; } catch (...) {} }
+        if (a.rfind("close_tab:",  0) == 0) { try { removeTab(std::stoi(a.substr(10))); return true; } catch (...) {} }
+        return false;
+    }
+
+private:
+    struct Tab { std::string label; JWidget* content; bool closable; bool draggable; };
+
+    bool  _horizontal() const { return m_edge == JTabBarEdge::Top || m_edge == JTabBarEdge::Bottom; }
+    float _along(float mx, float my) const { return _horizontal() ? mx : my; }
+    static bool _pointIn(const JRect& r, float x, float y) {
+        return x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
+    }
+    JRect _stripRect(const JRect& b) const {
+        switch (m_edge) {
+            case JTabBarEdge::Bottom: return { b.x, b.y + b.height - m_thick, b.width, m_thick };
+            case JTabBarEdge::Left:   return { b.x, b.y, m_thick, b.height };
+            case JTabBarEdge::Right:  return { b.x + b.width - m_thick, b.y, m_thick, b.height };
+            default:                  return { b.x, b.y, b.width, m_thick };   // Top
+        }
+    }
+    JRect _contentRect(const JRect& b) const {
+        switch (m_edge) {
+            case JTabBarEdge::Bottom: return { b.x, b.y, b.width, b.height - m_thick };
+            case JTabBarEdge::Left:   return { b.x + m_thick, b.y, b.width - m_thick, b.height };
+            case JTabBarEdge::Right:  return { b.x, b.y, b.width - m_thick, b.height };
+            default:                  return { b.x, b.y + m_thick, b.width, b.height - m_thick };   // Top
+        }
+    }
+    // Close box sits at the far (trailing) end of a tab along the strip axis.
+    bool _inCloseBox(const JRect& r, float mx, float my) const {
+        return _horizontal() ? (mx >= r.x + r.width - kCloseW && _pointIn(r, mx, my))
+                             : (my >= r.y + r.height - kCloseW && _pointIn(r, mx, my));
+    }
+    void _layoutTabs(const JRect& b) {
+        m_tabRect.assign(m_tabs.size(), JRect{});
+        if (m_tabs.empty()) return;
+        const bool horiz = _horizontal();
+        const float L = (horiz ? b.width : b.height) - 8.f;   // usable strip length (4px pad each end)
+        std::vector<float> nat(m_tabs.size());
+        float sum = 0.f;
+        for (int i = 0; i < (int)m_tabs.size(); ++i) {
+            const float lw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(tr(m_tabs[i].label)) : 60.f;
+            nat[i] = kPadX * 2.f + lw + (m_tabs[i].closable ? kCloseW : 0.f);
+            sum += nat[i];
+        }
+        std::vector<float> sz(m_tabs.size());
+        if (m_fill == JTabFill::Fill) {
+            const float each = L / (float)m_tabs.size();
+            for (auto& s : sz) s = each;
+        } else if (m_fill == JTabFill::Compress) {
+            const float k = (sum > L && sum > 0.f) ? L / sum : 1.f;   // shrink to fit, never past natural
+            for (int i = 0; i < (int)m_tabs.size(); ++i) sz[i] = nat[i] * k;
+        } else {                                                     // Left: natural width
+            sz = nat;
+        }
+        float along = 4.f;
+        const float T = m_thick;
+        for (int i = 0; i < (int)m_tabs.size(); ++i) {
+            const float s = sz[i];
+            switch (m_edge) {
+                case JTabBarEdge::Bottom: m_tabRect[i] = { b.x + along, b.y + b.height - T, s, T }; break;
+                case JTabBarEdge::Left:   m_tabRect[i] = { b.x, b.y + along, T, s }; break;
+                case JTabBarEdge::Right:  m_tabRect[i] = { b.x + b.width - T, b.y + along, T, s }; break;
+                default:                  m_tabRect[i] = { b.x + along, b.y, s, T }; break;   // Top
+            }
+            along += s + 2.f;
+        }
+    }
+    int _tabIndexAt(const JRect& b, float along) {
+        _layoutTabs(b);
+        if (m_tabs.empty()) return -1;
+        const bool horiz = _horizontal();
+        for (int i = 0; i < (int)m_tabs.size(); ++i) {
+            const float lo = horiz ? m_tabRect[i].x : m_tabRect[i].y;
+            const float hi = lo + (horiz ? m_tabRect[i].width : m_tabRect[i].height);
+            if (along >= lo && along < hi) return i;
+        }
+        const float firstLo = horiz ? m_tabRect[0].x : m_tabRect[0].y;
+        return (along < firstLo) ? 0 : (int)m_tabs.size() - 1;
+    }
+    void _moveTab(int from, int to) {
+        if (from == to || from < 0 || to < 0 || from >= (int)m_tabs.size() || to >= (int)m_tabs.size()) return;
+        Tab t = m_tabs[from];
+        m_tabs.erase(m_tabs.begin() + from);
+        m_tabs.insert(m_tabs.begin() + to, t);
+        if (m_active == from)                 m_active = to;
+        else if (from < m_active && m_active <= to) --m_active;
+        else if (to <= m_active && m_active < from) ++m_active;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+    void _drawActiveEdge(JPrimitiveBuffer& buf, const JRect& r, bool active) const {
+        if (!active) return;
+        switch (m_edge) {   // an accent line on the content-facing edge of the active tab
+            case JTabBarEdge::Bottom: buf.pushRectangle(r.x + 4.f, r.y, r.width - 8.f, 2.f, Colors::Accent, 1.f); break;
+            case JTabBarEdge::Left:   buf.pushRectangle(r.x + r.width - 2.5f, r.y + 4.f, 2.f, r.height - 8.f, Colors::Accent, 1.f); break;
+            case JTabBarEdge::Right:  buf.pushRectangle(r.x, r.y + 4.f, 2.f, r.height - 8.f, Colors::Accent, 1.f); break;
+            default:                  buf.pushRectangle(r.x + 4.f, r.y + r.height - 2.5f, r.width - 8.f, 2.f, Colors::Accent, 1.f); break;
+        }
+    }
+
+    std::vector<Tab>   m_tabs;
+    std::vector<JRect> m_tabRect;
+    int         m_active   = -1;
+    int         m_hotClose = -1;
+    bool        m_capContent = false;
+    int         m_dragIdx  = -1;
+    bool        m_dragActive = false;
+    float       m_dragPress = 0.f;
+    JTabBarEdge m_edge = JTabBarEdge::Top;
+    JTabFill    m_fill = JTabFill::Left;
+    float       m_thick = 34.0f;
+    static constexpr float kPadX = 12.0f, kCloseW = 18.0f, kDragThresh = 6.0f;
 };
 
 // ============================================================================
@@ -2774,6 +3441,17 @@ class JTreeView : public JControl {
 public:
     jf::JSignal<JTreeViewNode*> onSelectionChanged;
     jf::JSignal<JTreeViewNode*> onNodeActivated;
+    jf::JSignal<JTreeViewNode*> onNodeRenamed;   // fired after an in-place label edit commits
+
+    // Begin an in-place rename of the selected node (context-menu "Rename"). Enter commits (fires
+    // onNodeRenamed), Escape cancels; the row draws an edit field with a caret while active.
+    void beginRename() {
+        if (!m_selectedNode) return;
+        m_editNode = m_selectedNode;
+        m_editBuf  = m_selectedNode->label;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+    bool isEditing() const { return m_editNode != nullptr; }
 
     JTreeView(JSceneGraph& graph, float w = 240.0f, float h = 300.0f)
         : JControl(graph, "JTreeView"), m_root{"Root", true, false, {}}
@@ -2796,6 +3474,13 @@ public:
 
     // Expand / collapse the whole tree. The (synthetic) root stays expanded so its top-level rows
     // remain visible; every descendant is set accordingly.
+    // Filter rows to those whose label — or a descendant's — contains `f` (case-insensitive). Empty
+    // clears the filter. Matching subtrees are auto-revealed. Drives the dock search boxes.
+    void setFilter(const std::string& f) {
+        std::string lo = f; for (char& c : lo) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (lo != m_filter) { m_filter = std::move(lo); m_scrollY = 0.f; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    }
+
     void expandAll()   { for (auto& c : m_root.children) _setExpandedRec(c, true);  m_root.expanded = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
     void collapseAll() { for (auto& c : m_root.children) _setExpandedRec(c, false); m_root.expanded = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
 
@@ -2891,6 +3576,17 @@ public:
 
     bool handleKeyEvent(const JKeyEvent& ke) override {
         if (!ke.pressed) return false;
+        using EK = JKeyEvent::JKey;
+
+        // In-place rename: the tree owns keyboard while editing a label.
+        if (m_editNode) {
+            if (ke.key == EK::Return) { m_editNode->label = m_editBuf; JTreeViewNode* n = m_editNode; m_editNode = nullptr; m_graph.invalidateNode(m_nodeId, DirtySelf); onNodeRenamed.emit(n); return true; }
+            if (ke.key == EK::Escape) { m_editNode = nullptr; m_graph.invalidateNode(m_nodeId, DirtySelf); return true; }
+            if (ke.key == EK::Backspace) { if (!m_editBuf.empty()) m_editBuf.pop_back(); m_graph.invalidateNode(m_nodeId, DirtySelf); return true; }
+            if (static_cast<unsigned char>(ke.utf8[0]) >= 32) { m_editBuf += ke.utf8; m_graph.invalidateNode(m_nodeId, DirtySelf); return true; }
+            return true;   // swallow other keys while editing
+        }
+
         auto flatNodes = getFlatNodes();
         if (flatNodes.empty()) return false;
 
@@ -3001,7 +3697,18 @@ public:
 
             float textX = b.x + indent + 16.0f;
             float ty = itemY + (itemH - (JTextHelper::hasAtlas() ? JTextHelper::lineHeight() : 8.0f)) * 0.5f;
-            drawNodeText(buf, flat.node, textX, ty, b.width - indent - 30.0f);
+            if (flat.node == m_editNode) {
+                // In-place edit field: boxed buffer + caret over the row.
+                const float ex = textX - 3.0f, ew = b.x + b.width - 16.0f - ex;
+                buf.pushRectangle(ex, itemY + 2.0f, ew, itemH - 4.0f, Colors::Surface0, 3.0f, 1.5f, Colors::Accent);
+                if (JTextHelper::hasAtlas()) {
+                    uint8_t tc[4] = {225, 225, 232, 230};
+                    JTextHelper::pushText(buf, textX, ty, m_editBuf, tc, ew - 10.0f);
+                    buf.pushRectangle(textX + JTextHelper::measureWidth(m_editBuf) + 1.0f, itemY + 4.0f, 1.5f, itemH - 8.0f, Colors::Accent);
+                }
+            } else {
+                drawNodeText(buf, flat.node, textX, ty, b.width - indent - 30.0f);
+            }
         }
 
         buf.popClip();
@@ -3067,12 +3774,21 @@ protected:
 
 private:
     void _flatten(JTreeViewNode& node, int depth, std::vector<JFlatNode>& result) {
+        if (!m_filter.empty() && !_nodeMatches(node)) return;   // filtered out (self + descendants)
         result.push_back({&node, depth, result.size()});
-        if (node.expanded) {
+        // While filtering, force subtrees open so matches deep in the tree are revealed.
+        if (node.expanded || !m_filter.empty()) {
             for (auto& child : node.children) {
                 _flatten(child, depth + 1, result);
             }
         }
+    }
+    // A node is shown when its label — or any descendant's — contains the (lower-cased) filter.
+    bool _nodeMatches(const JTreeViewNode& n) const {
+        std::string l = n.label; for (char& c : l) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (l.find(m_filter) != std::string::npos) return true;
+        for (const auto& c : n.children) if (_nodeMatches(c)) return true;
+        return false;
     }
 
     void _selectNode(JTreeViewNode* node) {
@@ -3113,6 +3829,9 @@ private:
 
     JTreeViewNode  m_root;
     JTreeViewNode* m_selectedNode{nullptr};
+    JTreeViewNode* m_editNode{nullptr};   // node whose label is being edited in place
+    std::string    m_editBuf;             // working text during an in-place rename
+    std::string    m_filter;              // lower-cased row filter ("" = show all)
     float         m_scrollY{0.0f};
     float         m_rowHeight{-1.0f};
     bool          m_draggingScroll{false};

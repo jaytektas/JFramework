@@ -78,6 +78,8 @@ public:
     virtual bool consumeWasResized() { return false; }
     virtual bool consumeWasUnsnapped() { return false; }
     virtual bool isAltDown() const { return false; }
+    virtual bool isCtrlDown() const { return false; }
+    virtual bool isShiftDown() const { return false; }
 
     virtual std::pair<int,int> globalCursorPos() const { return {0, 0}; }
     virtual bool isLeftButtonDown() const { return false; }

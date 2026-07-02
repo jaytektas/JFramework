@@ -1192,8 +1192,15 @@ private:
         if (n) n->handleRects = std::move(handles);
     }
 
+    // A single-dock leaf whose dock has its title bar turned off renders headerless: no host tab strip,
+    // the content fills the whole leaf. (The content supplies its own header — e.g. a surface tab strip.)
+    bool _leafHeaderless(const JDockNode& leaf) const {
+        return leaf.tabs.size() == 1 && leaf.tabs[0] && !leaf.tabs[0]->isTitleBarVisible();
+    }
+
     JRect _tabBarRect(const JDockNode& leaf) const {
         const JRect& r = leaf.rect;
+        if (_leafHeaderless(leaf)) return { r.x, r.y, 0.f, 0.f };
         switch (effectiveTabEdge()) {
             case JTabBarEdge::Top:    return { r.x, r.y, r.width, TAB_BAR_SZ };
             case JTabBarEdge::Bottom: return { r.x, r.y + r.height - TAB_BAR_SZ, r.width, TAB_BAR_SZ };
@@ -1212,7 +1219,7 @@ private:
         const JRect bar = _tabBarRect(leaf);
         const int n = static_cast<int>(leaf.tabs.size());
         std::vector<JRect> out;
-        if (n <= 0) return out;
+        if (n <= 0 || _leafHeaderless(leaf)) return out;
         const JTabBarEdge edge = effectiveTabEdge();
         const bool vert = (edge == JTabBarEdge::Left || edge == JTabBarEdge::Right);
         const float barLen = vert ? bar.height : bar.width;
@@ -1240,6 +1247,7 @@ private:
 
     JRect _leafContentRect(const JDockNode& leaf) const {
         const JRect& r = leaf.rect;
+        if (_leafHeaderless(leaf)) return r;   // headerless: content fills the leaf
         switch (effectiveTabEdge()) {
             case JTabBarEdge::Top:    return { r.x, r.y + TAB_BAR_SZ, r.width, r.height - TAB_BAR_SZ };
             case JTabBarEdge::Bottom: return { r.x, r.y, r.width, r.height - TAB_BAR_SZ };
@@ -1299,6 +1307,8 @@ private:
         if (int at = leaf.activeTab; at >= 0 && at < static_cast<int>(leaf.tabs.size()) && leaf.tabs[at])
             leaf.tabs[at]->renderContent(buf, content);
 
+        if (_leafHeaderless(leaf)) return;   // no host chrome — the content is the whole leaf
+
         // Tab / title bar.
         JRect bar = _tabBarRect(leaf);
         buf.pushRectangle(bar.x, bar.y, bar.width, bar.height, Colors::Surface1, 0.0f);
@@ -1307,14 +1317,29 @@ private:
         if (tabCount == 0) return;
 
         if (tabCount == 1) {
-            // Single dock — render a title bar like JDockWidget's.
+            // Single dock — render a title bar like JDockWidget's. On a vertical edge (Left/Right)
+            // the title strip is vertical, so the text must be rotated to run along it.
             buf.pushRectangle(bar.x + 1.f, bar.y + 1.f, bar.width - 2.f, bar.height - 2.f,
                               Colors::Surface2, 0.0f);
             if (JTextHelper::hasAtlas()) {
                 uint8_t tc[4] = {210, 210, 220, 220};
-                float ty = bar.y + (bar.height - JTextHelper::lineHeight()) * 0.5f;
-                JTextHelper::pushText(buf, bar.x + 10.f, ty,
-                                     leaf.tabs[0]->title(), tc, bar.width - BTN_SZ - 24.f);
+                const std::string& title = leaf.tabs[0]->title();
+                const JTabBarEdge edge = effectiveTabEdge();
+                const float lineH = JTextHelper::lineHeight();
+                if (edge == JTabBarEdge::Left || edge == JTabBarEdge::Right) {
+                    // Match the multi-tab vertical layout exactly (same end + direction).
+                    const bool  cw  = (edge == JTabBarEdge::Right);   // Left reads bottom→top, Right top→bottom
+                    const float lw  = JTextHelper::measureWidth(title);
+                    const float run = std::min(lw, bar.height - 12.f);
+                    const float px  = cw ? (bar.x + bar.width * 0.5f + lineH * 0.5f)
+                                         : (bar.x + bar.width * 0.5f - lineH * 0.5f);
+                    const float py  = cw ? (bar.y + (bar.height - run) * 0.5f)
+                                         : (bar.y + (bar.height + run) * 0.5f);
+                    JTextHelper::pushTextVertical(buf, px, py, title, tc, bar.height - 12.f, cw);
+                } else {
+                    float ty = bar.y + (bar.height - lineH) * 0.5f;
+                    JTextHelper::pushText(buf, bar.x + 10.f, ty, title, tc, bar.width - BTN_SZ - 24.f);
+                }
             }
         } else {
             const JTabBarEdge edge = effectiveTabEdge();

@@ -113,8 +113,9 @@ private:
         // floating, draggable, closeable window — reusing JPopupWindow's floating mode and the
         // m_floating servicing in updateAndRender (same mechanism a torn-out dock uses in spirit).
         if (menu->isTearOffEnabled() && JMenuManager::instance().isTearOffEnabled()) {
+            JPopupWindow* self = popup.get();
             popup->add<JTearOffHandle>()->onTornOff.connect(
-                [this]() { m_deferred.push_back([this]() { _tearOff(); }); });
+                [this, self]() { m_deferred.push_back([this, self]() { _tearOff(self); }); });
         }
 
         for (const auto& item : menu->items()) {
@@ -140,15 +141,15 @@ private:
                         m_deferred.push_back([this]() { closeAll(); });
                 });
 
-                if (mi->submenu()) {               // cascade: open the submenu on hover
+                // Only a SUBMENU-PARENT item drives the cascade on hover: it collapses any submenu
+                // already open at its level (so they can't pile up → the old surface-id overflow crash)
+                // then opens its own. Leaf items get NO hover handler, so navigating into an open
+                // submenu never closes it — its items and tear-off handle stay live.
+                if (mi->submenu()) {
                     JPopupWindow* parent = popup.get();
                     JMenuItem*    a      = added;
-                    added->onHoverEntered.connect([a, parent]() {
-                        const auto& l = parent->graph().getLayoutConst(a->getNodeId());
-                        int ssx = parent->window().screenX() + static_cast<int>(l.boundingBox.x + l.boundingBox.width);
-                        int ssy = parent->window().screenY() + static_cast<int>(l.boundingBox.y);
-                        JMenuManager::instance().onOpenMenu(a->submenu(), ssx, ssy, true);
-                    });
+                    JMenu*        sub    = mi->submenu();
+                    added->onHoverEntered.connect([this, a, parent, sub]() { hoverItem(parent, a, sub); });
                 }
             } else if (dynamic_cast<JMenuSeparator*>(item.get())) {
                 popup->add<JMenuSeparator>();
@@ -159,18 +160,40 @@ private:
         m_active.push_back(std::move(popup));
     }
 
-    // Promote the open menu's root popup to a floating menu. Submenus (if any) are dropped —
-    // only the torn menu survives, now with no grab, a close button, and drag-to-move (all
-    // provided by JPopupWindow's floating mode; serviced by the m_floating loop above).
-    void _tearOff() {
+    // Hover handling for a menu item: collapse the cascade back to `parent` (destroying any sibling /
+    // deeper submenu popups), then open this item's submenu if it has one. Deferred while polling so we
+    // never mutate m_active mid-iteration. This is what stops submenu popups piling up on every hover
+    // (which grew GPU surface IDs without bound until the text-vertex buffer overran → SIGSEGV).
+    void hoverItem(JPopupWindow* parent, JMenuItem* a, JMenu* sub) {
+        if (m_isPolling) { m_deferred.push_back([this, parent, a, sub]() { hoverItem(parent, a, sub); }); return; }
+        int pi = -1;
+        for (size_t i = 0; i < m_active.size(); ++i) if (m_active[i].get() == parent) { pi = static_cast<int>(i); break; }
+        if (pi < 0) return;                                  // parent already closed
+        // Nothing to do if this item's submenu is already the child directly under the parent.
+        const bool alreadyOpen = sub && pi + 1 < static_cast<int>(m_active.size());
+        if (m_hal) for (size_t i = pi + 1; i < m_active.size(); ++i) m_active[i]->destroySurface(*m_hal);
+        m_active.erase(m_active.begin() + pi + 1, m_active.end());
+        (void)alreadyOpen;
+        if (sub) {
+            const auto& l = parent->graph().getLayoutConst(a->getNodeId());
+            const int ssx = parent->window().screenX() + static_cast<int>(l.boundingBox.x + l.boundingBox.width);
+            const int ssy = parent->window().screenY() + static_cast<int>(l.boundingBox.y);
+            openMenu(sub, ssx, ssy, true);
+        }
+    }
+
+    // Promote a popup (the one whose tear-off handle was pressed — root OR a submenu) to a floating
+    // menu: it survives with no grab, a close button and drag-to-move; the rest of the cascade closes.
+    void _tearOff(JPopupWindow* which) {
         if (m_active.empty()) return;
-        auto root = std::move(m_active.front());
-        m_active.erase(m_active.begin());
-        if (m_hal) for (auto& p : m_active) p->destroySurface(*m_hal);
+        std::unique_ptr<JPopupWindow> torn;
+        for (auto& p : m_active) if (p.get() == which) { torn = std::move(p); break; }
+        if (!torn) torn = std::move(m_active.front());   // fallback: tear the root
+        if (m_hal) for (auto& p : m_active) if (p) p->destroySurface(*m_hal);
         m_active.clear();
-        root->releasePointerGrab();
-        root->enableCloseButton();
-        m_floating.push_back(std::move(root));
+        torn->releasePointerGrab();
+        torn->enableCloseButton();
+        m_floating.push_back(std::move(torn));
         if (m_bar) m_bar->closeMenu();
     }
 

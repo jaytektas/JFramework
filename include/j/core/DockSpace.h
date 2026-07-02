@@ -30,8 +30,14 @@ public:
     JDockHost& right()  { return m_host[Right]; }
     JDockHost& top()    { return m_host[Top]; }
     JDockHost& bottom() { return m_host[Bottom]; }
-    JDockHost& center() { return m_host[Center]; }
     JDockHost& host(Area a) { return m_host[a]; }
+
+    // The window's central content. The centre is NOT a dock host — it holds one widget directly, while
+    // the four edges are the dock hosts. If you actually want docks in the centre, opt in by making that
+    // widget a dock host. Layout/render/input for the centre rect route straight to this widget.
+    void         setCentralWidget(JWidget* w) { m_central = w; }
+    JWidget*     centralWidget() const { return m_central; }
+    const JRect& centerRect() const { return m_rect[Center]; }
 
     // An outer area is shown only when it has a reserved size; the centre is always present.
     void setLeftWidth(float w)    { m_size[Left] = w; }
@@ -54,7 +60,7 @@ public:
     // nullptr. Lets the runner route content input (clicks / wheel) to the dock's hook.
     JDockWidget* contentDockAt(float mx, float my) {
         for (int a = 0; a < AreaCount; ++a)
-            if (active(Area(a)))
+            if (a != Center && active(Area(a)))
                 if (JDockWidget* d = m_host[a].contentDockAt(mx, my)) return d;
         return nullptr;
     }
@@ -94,7 +100,8 @@ public:
             m_rect[Center] = {x + lw, cy, W - lw - rw, ch};
         }
         for (int a = 0; a < AreaCount; ++a)
-            if (active(Area(a))) m_host[a].computeLayout(m_rect[a]);
+            if (a != Center && active(Area(a))) m_host[a].computeLayout(m_rect[a]);
+        if (m_central) m_central->setBounds(m_rect[Center]);   // the centre is a widget, not a host
 
         // Collapsed-but-reserved areas get an invisible edge strip — a drop zone so a float
         // dragged to the window edge can restore that side (re-dock into its host). Must be
@@ -124,6 +131,7 @@ public:
     // but shares the window's coordinate origin, so its nodes stay in window space.
     void registerAll(int winSx, int winSy) {
         for (int a = 0; a < AreaCount; ++a) {
+            if (a == Center) continue;   // the centre is a plain widget — nothing docks into it
             // Active areas register their full rect; a collapsed-but-reserved area registers
             // its edge strip (so it can be restored); a truly-unused area unregisters.
             const JRect* r = active(Area(a)) ? &m_rect[a]
@@ -139,7 +147,8 @@ public:
     }
 
     void render(JPrimitiveBuffer& buf) {
-        for (int a = 0; a < AreaCount; ++a) if (active(Area(a))) m_host[a].populateRenderPrimitives(buf);
+        for (int a = 0; a < AreaCount; ++a) if (a != Center && active(Area(a))) m_host[a].populateRenderPrimitives(buf);
+        if (m_central) m_central->populateRenderPrimitives(buf);   // centre content (not a host)
 
         // Divider lines at the seams, following corner ownership: the corner owner's seam
         // runs the FULL content extent (its column/row spans the corners); the other runs
@@ -161,12 +170,16 @@ public:
         // Overlays (drop indicators) for active areas AND collapsed-but-reserved edge strips,
         // so the restore drop zone shows a preview while dragging toward the window edge.
         for (int a = 0; a < AreaCount; ++a)
-            if (active(Area(a)) || (a != Center && m_size[a] > 0.f))
+            if (a != Center && (active(Area(a)) || m_size[a] > 0.f))
                 m_host[a].populateOverlay(buf);
     }
 
     // Route the mouse: an inter-area splitter drag first, otherwise the area host under the
     // cursor. Returns the host that handled it plus any dock event (WantsFloat/CloseRequested).
+    // True while a dock-area splitter is being dragged — the app skips central-widget input so a
+    // resize-divider grab (which sits on the centre boundary) doesn't also start a surface marquee.
+    bool isResizing() const { return m_dragSplit >= 0; }
+
     struct Result { JDockHost* host{nullptr}; std::optional<JDockHost::JDockEvent> ev; };
     Result handleMouse(float mx, float my, bool pressed, bool released) {
         if (m_dragSplit >= 0) {
@@ -252,14 +265,15 @@ private:
 
     Area areaAt(float mx, float my) const {
         for (int a = 0; a < AreaCount; ++a) {
-            if (!active(Area(a))) continue;
+            if (a == Center || !active(Area(a))) continue;   // centre isn't a host — routed to the central widget
             const JRect& r = m_rect[a];
             if (mx >= r.x && mx < r.x + r.width && my >= r.y && my < r.y + r.height) return Area(a);
         }
         return AreaCount;
     }
 
-    std::array<JDockHost, AreaCount> m_host;
+    std::array<JDockHost, AreaCount> m_host;      // the Center slot is inert — the centre is a widget
+    JWidget*                         m_central{nullptr};   // the window's central content
     std::array<float, AreaCount>     m_size{};    // Left/Right = width, Top/Bottom = height
     std::array<JRect, AreaCount>     m_rect{};
     std::array<JRect, AreaCount>     m_strip{};   // edge drop-zone for a collapsed area

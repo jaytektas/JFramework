@@ -247,7 +247,9 @@ public:
                         m_mouseX = static_cast<float>(b->event_x);
                         m_mouseY = static_cast<float>(b->event_y);
                         m_pendingPress = true;
-                        m_altDown = (b->state & XCB_MOD_MASK_1) != 0;
+                        m_altDown   = (b->state & XCB_MOD_MASK_1) != 0;
+                        m_ctrlDown  = (b->state & XCB_MOD_MASK_CONTROL) != 0;
+                        m_shiftDown = (b->state & XCB_MOD_MASK_SHIFT) != 0;
                         if (m_style != JPlatformWindowStyle::Popup) {
                             // Grab pointer so we keep receiving MotionNotify and
                             // ButtonRelease even when the cursor leaves the window.
@@ -287,7 +289,9 @@ public:
                 case XCB_KEY_PRESS:
                 case XCB_KEY_RELEASE: {
                     auto* k = reinterpret_cast<xcb_key_press_event_t*>(ev);
-                    m_altDown = (k->state & XCB_MOD_MASK_1) != 0;
+                    m_altDown   = (k->state & XCB_MOD_MASK_1) != 0;
+                    m_ctrlDown  = (k->state & XCB_MOD_MASK_CONTROL) != 0;
+                    m_shiftDown = (k->state & XCB_MOD_MASK_SHIFT) != 0;
                     _handleKey(k, type == XCB_KEY_PRESS);
                     break;
                 }
@@ -452,6 +456,8 @@ public:
 
     jf::JPlatformWindowStyle windowStyle() const override { return m_style; }
     bool        isAltDown()   const override { return m_altDown; }
+    bool        isCtrlDown()  const override { return m_ctrlDown; }
+    bool        isShiftDown() const override { return m_shiftDown; }
     float       dpiScale()    const override { return m_dpiScale; }
 
     void setTransientParent(xcb_window_t parent) {
@@ -973,6 +979,8 @@ private:
     bool  m_focusLost{false};
     bool  m_mouseLeft{false};
     bool  m_altDown{false};
+    bool  m_ctrlDown{false};
+    bool  m_shiftDown{false};
 
     xcb_font_t   m_cursorFont{0};
     xcb_cursor_t m_cursorDefault{0};

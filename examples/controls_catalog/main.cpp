@@ -643,7 +643,7 @@ public:
         place(space.right(),  "Inspector");
         place(space.bottom(), "Console");
         place(space.bottom(), "Output");
-        place(space.center(), "New Features");
+        place(space.bottom(), "New Features");   // centre is a central-widget host now, not a dock area
 
         // --- Content-hosting + Form-layout verification -----------------------------------
         // A dock whose content is a REAL framework widget tree (a JContainer in Form mode: a

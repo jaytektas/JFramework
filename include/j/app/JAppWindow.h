@@ -34,6 +34,8 @@
 #include <j/core/Dialog.h>               // JDialogManager (native dialog request queue)
 #include <j/platforms/PlatformWindow.h>  // createPlatformWindow
 #include <j/platforms/PopupWindow.h>     // JPopupWindow (combo dropdown)
+#include <j/platforms/ColorPickerDialog.h> // JColorPickerDialog (colour-button modal dialog)
+#include <j/platforms/FontPickerDialog.h>  // JFontPickerDialog (font-button modal dialog)
 #include <j/platforms/NativeDialogWindow.h>  // JNativeDialogWindow
 #if defined(__linux__)
 #  include <j/platforms/linux/FloatingDockWindow.h>   // tear-out / floating docks
@@ -99,6 +101,10 @@ public:
 
     JPlatformWindow& window() { return *m_window; }
     JGpuHal&         hal()    { return *m_hal; }
+    void             requestClose() { m_window->requestClose(); }   // e.g. File▸Quit
+    int              windowX() const { return m_window->screenX(); }
+    int              windowY() const { return m_window->screenY(); }
+    void             setWindowPos(int x, int y) { m_window->setPosition(x, y); }
     uint32_t width()  const { return m_w; }
     uint32_t height() const { return m_h; }
     // Content y-origin: below the title bar + menu bar + toolbar.
@@ -110,6 +116,30 @@ public:
     // each a full dock host. Build the layout on the areas; the runner lays it out, renders
     // it, routes input, and handles tear-out / re-dock across areas.
     JDockSpace& dockSpace() { return m_space; }
+
+    // The window's central content — the widget that fills the protected centre (the four dock areas
+    // frame it). Any JWidget; opt into a dock host here only if you actually want docks in the centre.
+    void setCentralWidget(JWidget* w) { m_space.setCentralWidget(w); }
+
+    // Install a generic app-owned modal dialog: `poll` is pumped each frame (renders to its own
+    // surface) and returns false once the dialog has closed, at which point `destroy` is called.
+    // The app owns the dialog object/lifetime; this only drives it. Used for Preferences, etc.
+    void setModalDialog(std::function<bool(JGpuHal&, JPrimitiveBuffer&)> poll, std::function<void(JGpuHal&)> destroy) {
+        if (m_modalPoll && m_modalDestroy) m_modalDestroy(*m_hal);   // replace any open one
+        m_modalPoll = std::move(poll); m_modalDestroy = std::move(destroy);
+    }
+
+    // Construct an app modal dialog of type T (ctor: (JGpuHal&, screenX, screenY, T::NativeWinHandleType)),
+    // centred over this window, and drive it via the modal hook. T needs static kW/kH + pollAndRender +
+    // destroySurface. The dialog object lives for as long as it's open (shared into the poll closures).
+    template <typename T>
+    void openModal() {
+        const int cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(T::kW)) / 2;
+        const int cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(T::kH)) / 2;
+        auto dlg = std::make_shared<T>(*m_hal, cx, cy, static_cast<typename T::NativeWinHandleType>(m_window->rawWindowId()));
+        setModalDialog([dlg](JGpuHal& h, JPrimitiveBuffer& b) { return dlg->pollAndRender(h, b); },
+                       [dlg](JGpuHal& h) { dlg->destroySurface(h); });
+    }
 
     // The window's menu bar — built lazily on first call (reserves a 28px strip below the
     // title bar and wires the popup engine). Add JMenu* with addMenu(); the app owns the
@@ -172,6 +202,8 @@ public:
         layoutDocks();
         // The runner owns combo dropdowns: any Popup-mode combo opens/closes through us.
         JComboBox::onOpenPopupHook = [this](JComboBox* cb){ openComboDropdown(cb); };
+        JColorButton::onOpenPickerHook = [this](JColorButton* b){ openColorPicker(b); };
+        JFontButton::onOpenPickerHook  = [this](JFontButton* b){ openFontPicker(b); };
         int   redraw = 4;                  // frames left to render (armed by activity)
         float lastMx = -1.f, lastMy = -1.f;
         while (!m_window->shouldClose()) {
@@ -228,6 +260,8 @@ public:
             m_window->setCursor(c);
             const bool pressed  = m_window->consumePress();
             const bool released = m_window->consumeRelease();
+            JWidget::s_ctrlDown  = m_window->isCtrlDown();    // publish modifier state for handleMousePress
+            JWidget::s_shiftDown = m_window->isShiftDown();
             // App-tracked button state: more reliable than querying the server's button mask
             // (which some compositors / synthetic-input paths don't report). Drives the
             // poll-the-global-cursor branch above so drags track even while the pointer is
@@ -294,6 +328,7 @@ public:
                 for (auto it = JWidget::s_activeWidgets.rbegin(); it != JWidget::s_activeWidgets.rend(); ++it) {
                     JWidget* w = *it;
                     if (w && w->isVisible() && w->contextMenu() && w->hitTest(mx, my)) {
+                        w->prepareContextMenu(mx, my);   // let the widget select-the-hit / refresh item states
                         if (JMenuManager::instance().onOpenMenu)
                             JMenuManager::instance().onOpenMenu(
                                 w->contextMenu(),
@@ -327,6 +362,20 @@ public:
                 if (JDockWidget* cd = m_space.contentDockAt(mx, my))
                     cd->dispatchContentInput(mx, my, pressed, released, wheel);
 
+            // The centre is a plain widget (not a dock host), so route its input directly — but not
+            // while a dock splitter is being dragged (its grab sits on the centre boundary, and would
+            // otherwise also start a surface marquee/selection).
+            if (!chromeAte && !menuAte && !m_space.isResizing())
+                if (JWidget* cw = m_space.centralWidget()) {
+                    const JRect& cr = m_space.centerRect();
+                    if (mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height) {
+                        cw->handleMouseMove(mx, my);
+                        if (pressed)      cw->handleMousePress(mx, my);
+                        if (released)     cw->handleMouseRelease(mx, my);
+                        if (wheel != 0.f) cw->handleScroll(mx, my, wheel);
+                    }
+                }
+
             // Keyboard: the runner owns focus routing. Re-sync the tab order from the live
             // widget set (so newly created / destroyed widgets are tracked without app
             // registration), then for each pressed key: menu accelerators first, then the
@@ -339,6 +388,9 @@ public:
                 activity = true;
                 if (JMenuManager::instance().processAccelerator(ke)) continue;
                 if (JWidget* f = m_focus.focused(); f && f->handleKeyEvent(ke)) continue;
+                // The centre is a plain central widget (not in the focus order), so give it a shot at
+                // keys nothing else consumed — e.g. the surface editor's Delete / arrows / Ctrl+Z.
+                if (JWidget* cw = m_space.centralWidget(); cw && cw->handleKeyEvent(ke)) continue;
                 if (ke.key == JKeyEvent::JKey::Tab)     { m_focus.nextFocus(); continue; }
                 if (ke.key == JKeyEvent::JKey::BackTab) { m_focus.prevFocus(); continue; }
                 if (onKey) onKey(ke);
@@ -599,6 +651,43 @@ private:
         m_comboOwner = cb;
     }
 
+    // JColorButton picker: open a JColorPickerDialog — a proper modal dialog window (title bar,
+    // OK/Cancel, draggable), seeded with the button's current colour. The colour is applied to the
+    // button only on OK; Cancel/close/Escape discard the edit. Installed as JColorButton::onOpenPickerHook.
+    void openColorPicker(JColorButton* b) {
+        if (m_colorDialog) { m_colorDialog->destroySurface(*m_hal); m_colorDialog.reset(); }
+
+        const auto bb = b->getBoundingBox();
+        // The dialog opens on its palette page; anchor against that height (it grows for the editor).
+        const int pw = static_cast<int>(JColorPickerDialog::kW), ph = static_cast<int>(JColorPickerDialog::kPaletteH);
+        const auto [sw, sh] = m_window->virtualDesktopSize();
+        // Anchor below the button, flipping above if it would run off the bottom; clamp on-screen.
+        const int btnBot = m_window->screenY() + static_cast<int>(bb.y + bb.height);
+        const int btnTop = m_window->screenY() + static_cast<int>(bb.y);
+        int sx = m_window->screenX() + static_cast<int>(bb.x);
+        int sy = (btnBot + ph <= static_cast<int>(sh)) ? btnBot : btnTop - ph;
+        sx = std::clamp(sx, 0, std::max(0, static_cast<int>(sw) - pw));
+        sy = std::clamp(sy, 0, std::max(0, static_cast<int>(sh) - ph));
+
+        JColorButton* target = b;
+        m_colorDialog = std::make_unique<JColorPickerDialog>(b->colorHex(), *m_hal, sx, sy,
+            static_cast<JColorPickerDialog::NativeWinHandleType>(m_window->rawWindowId()),
+            [target](const std::string& hex) { target->pick(hex); });   // apply on OK only
+    }
+
+    // JFontButton picker: open a font dialog centred over the window, seeded with the button's spec;
+    // applies to the button only on OK. Driven via the generic modal hook (setModalDialog).
+    void openFontPicker(JFontButton* b) {
+        const int cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(JFontPickerDialog::kW)) / 2;
+        const int cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(JFontPickerDialog::kH)) / 2;
+        JFontButton* target = b;
+        auto dlg = std::make_shared<JFontPickerDialog>(b->fontSpec(), *m_hal, cx, cy,
+            static_cast<JFontPickerDialog::NativeWinHandleType>(m_window->rawWindowId()),
+            [target](std::string spec) { target->pick(spec); });
+        setModalDialog([dlg](JGpuHal& h, JPrimitiveBuffer& bf) { return dlg->pollAndRender(h, bf); },
+                       [dlg](JGpuHal& h) { dlg->destroySurface(h); });
+    }
+
     // Per-frame: poll/render the open combo dropdown, and drain the JDialogManager queue into
     // native dialog windows then poll/render them. Overlays own their surfaces (own beginFrame),
     // so this runs OUTSIDE the main window's frame. Returns true while any overlay is active.
@@ -611,6 +700,16 @@ private:
             m_comboCloseReq = nullptr;
             if (close) { m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); m_comboOwner = nullptr; }
             else if (m_comboPopup->isViewable()) m_comboPopup->render(*m_hal, scratch);
+        }
+
+        if (m_colorDialog) {
+            if (!m_colorDialog->pollAndRender(*m_hal, scratch)) { m_colorDialog->destroySurface(*m_hal); m_colorDialog.reset(); }
+        }
+
+        // Generic app modal (Preferences, etc.): the app owns the window; we just pump it each frame.
+        // poll() returns false when the dialog closed; then we run its destroy hook and clear.
+        if (m_modalPoll) {
+            if (!m_modalPoll(*m_hal, scratch)) { if (m_modalDestroy) m_modalDestroy(*m_hal); m_modalPoll = nullptr; m_modalDestroy = nullptr; }
         }
 
         while (JDialogManager::instance().hasPending()) {
@@ -643,7 +742,7 @@ private:
             if (!it->pollAndRender(*m_hal, scratch)) { it->destroySurface(*m_hal); it = m_dialogs.erase(it); }
             else ++it;
         }
-        return m_comboPopup != nullptr || !m_dialogs.empty();
+        return m_comboPopup != nullptr || m_colorDialog != nullptr || m_modalPoll != nullptr || !m_dialogs.empty();
     }
 
     static JPlatformCursor cursorForDir(int d) {
@@ -671,6 +770,11 @@ private:
             if (mx >= W - kBtnW)     { m_window->requestClose(); return true; }
             if (mx >= W - 2 * kBtnW) { m_window->setMaximized(!m_window->isMaximized()); return true; }
             if (mx >= W - 3 * kBtnW) { m_window->minimize(); return true; }
+            // Double-click the title bar → expand / restore (before starting a move-drag).
+            const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                      std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (nowMs - m_lastTitleMs < 400) { m_window->setMaximized(!m_window->isMaximized()); m_lastTitleMs = 0; return true; }
+            m_lastTitleMs = nowMs;
             m_window->startWindowMove();
             return true;
         }
@@ -751,6 +855,9 @@ private:
     // frame (like menu popups), so apps don't hand-roll JPopupWindow / JNativeDialogWindow.
     std::unique_ptr<JPopupWindow>    m_comboPopup;
     JComboBox*                       m_comboOwner{nullptr};
+    std::unique_ptr<JColorPickerDialog> m_colorDialog;          // open colour dialog (own surface)
+    std::function<bool(JGpuHal&, JPrimitiveBuffer&)> m_modalPoll;    // generic app modal (Preferences…)
+    std::function<void(JGpuHal&)>                    m_modalDestroy;
     JPopupWindow*                    m_comboCloseReq{nullptr};
     std::vector<JNativeDialogWindow> m_dialogs;
     std::unique_ptr<JToolBar> m_toolBar;     // lazily created on toolBar()
@@ -760,6 +867,7 @@ private:
     std::string                      m_title;
     uint32_t                         m_w{0}, m_h{0};
     float                            m_mx{-1.0f}, m_my{-1.0f};
+    int64_t                          m_lastTitleMs{0};   // last title-bar press (double-click → maximize)
     bool                             m_leftHeld{false};   // app-tracked button state (press→release)
     float                            m_titleH{28.0f};
     bool                             m_needRedraw{false};

@@ -159,7 +159,9 @@ public:
             out.activatedLabel  = clickedLabel;
         }
 
-        // Keyboard navigation — arrow keys, Enter, Escape
+        // Keyboard navigation — arrow keys, Enter, Escape. Non-nav keys (text, backspace) are
+        // forwarded to widgets' handleKeyEvent so editable popup content (e.g. a colour picker's
+        // hex field) works; the first widget that consumes the key wins.
         for (const auto& ke : m_window->consumeAllKeys()) {
             if (!ke.pressed) continue;
             using K = JKeyEvent::JKey;
@@ -167,8 +169,12 @@ public:
                 out.type = JPollResult::JType::Dismissed;
                 return out;
             }
-            if (ke.key == K::Up)   { _navStep(-1); }
-            if (ke.key == K::Down) { _navStep(1); }
+            if (ke.key == K::Up)   { _navStep(-1); continue; }
+            if (ke.key == K::Down) { _navStep(1);  continue; }
+            if (ke.key != K::Return && ke.key != K::Space) {
+                for (auto& w : m_widgets) { if (w->isVisible() && w->handleKeyEvent(ke)) break; }
+                continue;
+            }
             if (ke.key == K::Return || ke.key == K::Space) {
                 if (m_keyNavIdx >= 0 && m_keyNavIdx < static_cast<int>(m_widgets.size())) {
                     auto* w = m_widgets[m_keyNavIdx].get();

@@ -589,6 +589,12 @@ private:
         }
         if (sliceBytes == 0) return vertexCursor;
 
+        // Guard against a surface id beyond the 16-surface text buffer: never write past the mapped
+        // region (an OOB memcpy here was the segfault when popups piled up and surface ids climbed).
+        const VkDeviceSize totalTextBytes = (VkDeviceSize)16 * MAX_TEXT_VERTS * 4 * sizeof(float);
+        if (bufferOffset >= totalTextBytes) return vertexCursor;
+        if (bufferOffset + sliceBytes > totalTextBytes) sliceBytes = totalTextBytes - bufferOffset;
+
         std::memcpy(static_cast<char*>(m_textVertMapped) + bufferOffset,
                     verts.data(), sliceBytes);
 
