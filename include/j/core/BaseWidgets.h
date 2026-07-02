@@ -15,6 +15,7 @@
 #include "TranslationEngine.h"
 #include "AiBusHook.h"          // zero-dependency AI bus bridge
 #include "KeyEvent.h"
+#include "DragDrop.h"           // cross-widget drag payloads (JDragDrop) — drop-on-release routing
 #include "Style.h"              // JTabBarEdge / JTabFill (folded into JTheme)
 #include "../graphics/RenderPrimitive.h"
 #include "../platform/Clipboard.h"
@@ -2859,7 +2860,14 @@ public:
     }
     void handleMouseRelease(float mx, float my) override {
         if (m_dragIdx >= 0) { m_dragIdx = -1; m_dragActive = false; return; }
-        if (m_capContent) { if (JWidget* c = activeContent()) c->handleMouseRelease(mx, my); m_capContent = false; }
+        if (m_capContent) { if (JWidget* c = activeContent()) c->handleMouseRelease(mx, my); m_capContent = false; return; }
+        // A cross-widget drag (e.g. a Dictionary binding dropped onto the canvas) ends with a release that
+        // had no preceding press here — so nothing captured. Still deliver it to the active content when the
+        // cursor is over the content area, so the drop resolves on release instead of hanging until a click.
+        if (JDragDrop::isDragging()) {
+            const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+            if (_pointIn(_contentRect(b), mx, my)) if (JWidget* c = activeContent()) c->handleMouseRelease(mx, my);
+        }
     }
     bool handleScroll(float mx, float my, float wheel) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;

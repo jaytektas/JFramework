@@ -238,7 +238,7 @@ public:
             // XQueryPointer works under a grab — so the main window tracks drags reliably,
             // matching how floating windows already track. event_x is window-relative, and so
             // is (global - windowOrigin), so the two coordinate spaces agree.
-            if (m_leftHeld) {
+            if (m_leftHeld || JDragDrop::isDragging()) {   // also track a drag begun in a floating dock
                 auto [gx, gy] = m_window->globalCursorPos();
                 mx = static_cast<float>(gx - m_window->screenX());
                 my = static_cast<float>(gy - m_window->screenY());
@@ -261,6 +261,19 @@ public:
             m_window->setCursor(c);
             const bool pressed  = m_window->consumePress();
             const bool released = m_window->consumeRelease();
+            // Drop-on-release: a content drag (Dictionary binding / palette control) begun over a dock ends
+            // on the main window's (reliable) button-release. Resolve it on the surface over the centre —
+            // BEFORE the normal central routing, which the chrome/menu/hover gates below can suppress mid-
+            // drag, leaving the drag stuck to the cursor until a click. Off the centre → cancel.
+            if (released && JDragDrop::isDragging() && !m_space.isResizing()) {
+                bool dropped = false;
+                if (JWidget* cw = m_space.centralWidget()) {
+                    const JRect& cr = m_space.centerRect();
+                    if (mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height) { cw->handleMouseRelease(mx, my); dropped = true; }
+                }
+                if (!dropped && JDragDrop::isDragging()) JDragDrop::cancel();
+                m_needRedraw = true;
+            }
             JWidget::s_ctrlDown  = m_window->isCtrlDown();    // publish modifier state for handleMousePress
             JWidget::s_shiftDown = m_window->isShiftDown();
             // App-tracked button state: more reliable than querying the server's button mask
@@ -433,13 +446,30 @@ public:
             // Combo dropdown + native dialogs — their own surfaces, outside the main frame.
             if (serviceComboAndDialogs()) activity = true;
 
-            // Active drag: track the cursor for the ghost, keep the frame alive while held, and force one
-            // more frame when the drag ENDS so a drop's result (a new binding, a placed control) repaints
-            // immediately instead of waiting for the next interaction.
+            // Active drag: track the cursor for the ghost, keep the frame alive while held, and resolve the
+            // drop on button-release. A drag begun in a FLOATING dock grabs its release in the float, so the
+            // main window's press/release never fire — poll the real button state and, when it goes up with
+            // a drag still active, deliver the release to the surface (if the cursor is over the centre) or
+            // cancel (so the ghost can't stay stuck to the cursor until a click). Also force one more frame
+            // when the drag ends so the drop's result repaints immediately.
             const bool dragging = JDragDrop::isDragging();
-            if (dragging) { JDragDrop::update(mx, my); activity = true; }
-            if (m_wasDragging && !dragging) activity = true;
-            m_wasDragging = dragging;
+            if (dragging) {
+                JDragDrop::update(mx, my);
+                activity = true;
+                const bool btnDown = m_window->isLeftButtonDown() || m_leftHeld;
+                if (m_dragBtnWasDown && !btnDown) {
+                    bool dropped = false;
+                    if (!m_space.isResizing())
+                        if (JWidget* cw = m_space.centralWidget()) {
+                            const JRect& cr = m_space.centerRect();
+                            if (mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height) { cw->handleMouseRelease(mx, my); dropped = true; }
+                        }
+                    if (!dropped && JDragDrop::isDragging()) JDragDrop::cancel();
+                }
+                m_dragBtnWasDown = btnDown;
+            } else m_dragBtnWasDown = false;
+            if (m_wasDragging && !JDragDrop::isDragging()) activity = true;
+            m_wasDragging = JDragDrop::isDragging();
 
             if (m_needRedraw) { activity = true; m_needRedraw = false; }
             if (activity) redraw = 4;
@@ -568,9 +598,14 @@ private:
         {
             JDockHost* fhost = &m_floating.back().dockHost();
             m_floating.back().setContentInputHost(
-                [fhost](float x, float y, bool p, bool r, float w) {
+                [this, fhost](float x, float y, bool p, bool r, float w) {
                     if (JDockWidget* d = fhost->contentDockAt(x, y))
                         d->dispatchContentInput(x, y, p, r, w);
+                    // A content drag (Dictionary binding / palette control) whose button releases inside a
+                    // FLOATING dock: the main window never sees this gesture's release, so resolve the drop
+                    // on the main surface here — at the global cursor — instead of leaving it stuck to the
+                    // cursor until a click.
+                    if (r && JDragDrop::isDragging()) _resolveFloatDrop();
                 });
         }
         // The drag now lives in the floating window; the main window won't see this gesture's
@@ -602,6 +637,24 @@ private:
         }
         m_revert.active = false;
 #endif
+    }
+
+    // Resolve an active content-drag (Dictionary binding / palette control) when its button releases
+    // inside a floating dock: deliver the release to the main central widget at the global cursor (if the
+    // cursor is over the centre) so it drops there; else cancel so the ghost can't hang until a click.
+    void _resolveFloatDrop() {
+        if (!JDragDrop::isDragging()) return;
+        auto [gx, gy] = m_window->globalCursorPos();
+        const float mx = static_cast<float>(gx - m_window->screenX());
+        const float my = static_cast<float>(gy - m_window->screenY());
+        bool dropped = false;
+        if (!m_space.isResizing())
+            if (JWidget* cw = m_space.centralWidget()) {
+                const JRect& cr = m_space.centerRect();
+                if (mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height) { cw->handleMouseRelease(mx, my); dropped = true; }
+            }
+        if (!dropped && JDragDrop::isDragging()) JDragDrop::cancel();
+        m_needRedraw = true;
     }
 
     // Per-frame: drive each floating window — move/drag, re-dock to the host on drop,
@@ -882,6 +935,7 @@ private:
     float                            m_titleH{28.0f};
     bool                             m_needRedraw{false};
     bool                             m_wasDragging{false};   // drag active last frame (repaint on drop)
+    bool                             m_dragBtnWasDown{false};// button state last frame during a drag (release edge)
 
     // The floating "what you're holding" ghost during a JDragDrop: a small labelled chip trailing the
     // cursor, so a drag reads as a real object in hand rather than blind faith.
