@@ -1808,18 +1808,27 @@ public:
         if (ke.key == K::Up)   { _commitEdit(); setValue(m_value + 1); return true; }
         if (ke.key == K::Down) { _commitEdit(); setValue(m_value - 1); return true; }
         if (ke.key == K::Return) { _commitEdit(); return true; }
-        if (ke.key == K::Escape) { if (m_editing) { m_editing = false; invalidate(); return true; } return false; }
+        if (ke.key == K::Escape) { if (m_editing) { m_editing = false; m_selectAll = false; invalidate(); return true; } return false; }
         if (ke.key == K::Backspace) {
             if (!m_editing) return false;
-            if (!m_editBuf.empty()) { m_editBuf.pop_back(); invalidate(); }
+            if (m_selectAll) { m_editBuf.clear(); m_selectAll = false; }   // delete the selection
+            else if (!m_editBuf.empty()) m_editBuf.pop_back();
+            invalidate();
             return true;
         }
         const char c = ke.utf8[0];
-        if (c != '\0' && _acceptChar(c)) {
-            if (!m_editing) { m_editing = true; m_editBuf.clear(); }
-            m_editBuf += c;
-            invalidate();
-            return true;
+        if (c != '\0') {
+            if (m_editing && m_selectAll) {                 // click-then-type replaces the whole value
+                const std::string prev = m_editBuf; m_editBuf.clear();
+                if (_acceptChar(c)) { m_selectAll = false; m_editBuf += c; invalidate(); return true; }
+                m_editBuf = prev; return true;              // reject but consume (selection stays)
+            }
+            if (_acceptChar(c)) {
+                if (!m_editing) { m_editing = true; m_editBuf.clear(); }
+                m_editBuf += c;
+                invalidate();
+                return true;
+            }
         }
         return false;
     }
@@ -1840,8 +1849,13 @@ public:
         if (JTextHelper::hasAtlas()) {
             uint8_t vc[4] = {210, 210, 220, 220};
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
+            if (m_editing && m_selectAll && !txt.empty()) {   // selection highlight behind the value
+                uint8_t sel[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 90};
+                buf.pushRectangle(b.x + textPadding() - 1.0f, b.y + 4.0f,
+                                  std::min(fieldW - textPadding(), JTextHelper::measureWidth(txt) + 2.0f), b.height - 8.0f, sel, 2.0f);
+            }
             JTextHelper::pushText(buf, b.x + textPadding(), ty, txt, vc, fieldW - textPadding());
-            if (m_editing) {
+            if (m_editing && !m_selectAll) {
                 float cx = b.x + textPadding() + JTextHelper::measureWidth(txt) + 1.0f;
                 buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f, Colors::Accent);
             }
@@ -1872,10 +1886,12 @@ public:
     }
 
 private:
-    void _beginEdit() { m_editBuf = std::to_string(m_value); m_editing = true; invalidate(); }
+    // Click-to-edit pre-fills the current value AND selects it, so the first typed digit replaces it
+    // (standard entry-field behaviour); backspace/edit keys drop into in-place editing instead.
+    void _beginEdit() { m_editBuf = std::to_string(m_value); m_editing = true; m_selectAll = true; invalidate(); }
     void _commitEdit() {
         if (!m_editing) return;
-        m_editing = false;
+        m_editing = false; m_selectAll = false;
         try { setValue(std::stoi(m_editBuf)); } catch (...) {}
         invalidate();
     }
@@ -1887,6 +1903,7 @@ private:
 
     int m_min, m_max, m_value;
     bool m_editing{false};
+    bool m_selectAll{false};
     std::string m_editBuf;
 };
 
@@ -1952,19 +1969,28 @@ public:
         if (ke.key == K::Up)   { _commitEdit(); setValue(m_value + m_step); return true; }
         if (ke.key == K::Down) { _commitEdit(); setValue(m_value - m_step); return true; }
         if (ke.key == K::Return) { _commitEdit(); return true; }
-        if (ke.key == K::Escape) { if (m_editing) { m_editing = false; invalidate(); return true; } return false; }
+        if (ke.key == K::Escape) { if (m_editing) { m_editing = false; m_selectAll = false; invalidate(); return true; } return false; }
         if (ke.key == K::Backspace) {
             if (!m_editing) return false;
-            if (!m_editBuf.empty()) { m_editBuf.pop_back(); invalidate(); }
+            if (m_selectAll) { m_editBuf.clear(); m_selectAll = false; }   // delete the selection
+            else if (!m_editBuf.empty()) m_editBuf.pop_back();
+            invalidate();
             return true;
         }
         // Printable characters: accept only what can form a number.
         const char c = ke.utf8[0];
-        if (c != '\0' && _acceptChar(c)) {
-            if (!m_editing) { m_editing = true; m_editBuf.clear(); }
-            m_editBuf += c;
-            invalidate();
-            return true;
+        if (c != '\0') {
+            if (m_editing && m_selectAll) {                 // click-then-type replaces the whole value
+                const std::string prev = m_editBuf; m_editBuf.clear();
+                if (_acceptChar(c)) { m_selectAll = false; m_editBuf += c; invalidate(); return true; }
+                m_editBuf = prev; return true;              // reject but consume (selection stays)
+            }
+            if (_acceptChar(c)) {
+                if (!m_editing) { m_editing = true; m_editBuf.clear(); }
+                m_editBuf += c;
+                invalidate();
+                return true;
+            }
         }
         return false;
     }
@@ -1986,8 +2012,13 @@ public:
         if (JTextHelper::hasAtlas()) {
             uint8_t vc[4] = {210, 210, 220, 220};
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
+            if (m_editing && m_selectAll && !txt.empty()) {   // selection highlight behind the value
+                uint8_t sel[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 90};
+                buf.pushRectangle(b.x + textPadding() - 1.0f, b.y + 4.0f,
+                                  std::min(fieldW - textPadding(), JTextHelper::measureWidth(txt) + 2.0f), b.height - 8.0f, sel, 2.0f);
+            }
             JTextHelper::pushText(buf, b.x + textPadding(), ty, txt, vc, fieldW - textPadding());
-            if (m_editing) {   // caret at the end of the typed text
+            if (m_editing && !m_selectAll) {   // caret at the end of the typed text
                 float cx = b.x + textPadding() + JTextHelper::measureWidth(txt) + 1.0f;
                 buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f, Colors::Accent);
             }
@@ -2023,15 +2054,16 @@ private:
         std::snprintf(buf, sizeof(buf), "%.*f", m_decimals, m_value);
         return std::string(buf) + m_suffix;
     }
-    // Seed the edit buffer with the current numeric value (no suffix) so the user edits from it.
+    // Seed the edit buffer with the current numeric value (no suffix) AND select it, so the first typed
+    // digit replaces it (standard entry-field behaviour); backspace/edit keys edit in place instead.
     void _beginEdit() {
         char buf[64];
         std::snprintf(buf, sizeof(buf), "%.*f", m_decimals, m_value);
-        m_editBuf = buf; m_editing = true; invalidate();
+        m_editBuf = buf; m_editing = true; m_selectAll = true; invalidate();
     }
     void _commitEdit() {
         if (!m_editing) return;
-        m_editing = false;
+        m_editing = false; m_selectAll = false;
         try { setValue(std::stod(m_editBuf)); } catch (...) {}
         invalidate();
     }
@@ -2047,6 +2079,7 @@ private:
     int         m_decimals;
     std::string m_suffix;
     bool        m_editing{false};
+    bool        m_selectAll{false};
     std::string m_editBuf;
 };
 
