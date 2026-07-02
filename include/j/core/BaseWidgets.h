@@ -3523,6 +3523,7 @@ struct JTreeViewNode {
     bool expanded{false};
     bool selected{false};
     std::vector<JTreeViewNode> children;
+    std::string userData;   // opaque app payload (e.g. a binding path) carried by a node but not displayed
 };
 
 class JTreeView : public JControl {
