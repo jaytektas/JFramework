@@ -3524,6 +3524,7 @@ struct JTreeViewNode {
     bool selected{false};
     std::vector<JTreeViewNode> children;
     std::string userData;   // opaque app payload (e.g. a binding path) carried by a node but not displayed
+    int         icon{0};    // small type glyph drawn before the label (0 = none; app-defined kinds)
 };
 
 class JTreeView : public JControl {
@@ -3833,7 +3834,9 @@ public:
                     buf.pushRectangle(textX + JTextHelper::measureWidth(m_editBuf) + 1.0f, itemY + 4.0f, 1.5f, itemH - 8.0f, Colors::Accent);
                 }
             } else {
-                drawNodeText(buf, flat.node, textX, ty, b.width - indent - 30.0f);
+                float tx = textX;
+                if (flat.node->icon != 0) { _drawTreeIcon(buf, textX + 1.0f, itemY + itemH * 0.5f, flat.node->icon); tx += 15.0f; }
+                drawNodeText(buf, flat.node, tx, ty, b.width - (tx - b.x) - 14.0f);
             }
         }
 
@@ -3875,6 +3878,26 @@ protected:
     virtual void drawNodeBackground(JPrimitiveBuffer& buf, JTreeViewNode* node, const JRect& bounds) {
         uint8_t selBg[4] = {10, 132, 255, 60};
         buf.pushRectangle(bounds.x, bounds.y, bounds.width, bounds.height, selBg, 4.0f);
+    }
+
+    // A small ~10px type glyph before a leaf label (app-assigned JTreeViewNode::icon). Shapes/colours
+    // distinguish kinds without needing font symbol glyphs: 1 grid, 2 rounded, 3 bar, 4 pill, 5 filled,
+    // else a hollow outline. Kinds are app-defined; unknown ones fall through to the hollow default.
+    void _drawTreeIcon(JPrimitiveBuffer& buf, float x, float cy, int kind) {
+        const float s = 10.0f, y = cy - s * 0.5f, h = s * 0.45f;
+        static const uint8_t orange[4] = {220, 150, 60, 255}, blue[4] = {90, 150, 230, 255},
+                             green[4] = {90, 200, 130, 255}, purple[4] = {175, 130, 225, 255}, cyan[4] = {90, 200, 220, 255};
+        switch (kind) {
+            case 1:  // table — 2×2 grid
+                buf.pushRectangle(x, y, h, h, orange);           buf.pushRectangle(x + h + 1.f, y, h, h, orange);
+                buf.pushRectangle(x, y + h + 1.f, h, h, orange); buf.pushRectangle(x + h + 1.f, y + h + 1.f, h, h, orange);
+                break;
+            case 2:  buf.pushRectangle(x, y, s, s, cyan, 3.0f); break;                 // curve
+            case 3:  buf.pushRectangle(x, y + s * 0.28f, s, s * 0.44f, purple, 2.0f); break;   // enum — bar
+            case 4:  buf.pushRectangle(x, y + s * 0.15f, s, s * 0.7f, green, s * 0.35f); break; // toggle — pill
+            case 5:  buf.pushRectangle(x, y, s, s, blue, 2.0f); break;                 // config — filled
+            default: buf.pushRectangle(x, y, s, s, Colors::Transparent, 2.0f, 1.5f, green); break;   // value/channel — hollow
+        }
     }
 
     virtual void drawNodeChevron(JPrimitiveBuffer& buf, JTreeViewNode* node, float ax, float ay, float size, bool expanded) {
