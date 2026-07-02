@@ -50,18 +50,21 @@ public:
             bool pressed = false, released = false;
             if (!dismissed) {
                 auto gc = root->globalCursor(); gx = gc.first; gy = gc.second;
-                pressed  = root->takePress();
-                released = root->takeRelease();
                 for (const auto& ke : root->takeKeys()) {
                     if (!ke.pressed) continue;
                     if (ke.key == JKeyEvent::JKey::Escape) { dismissed = true; break; }
                     m_active.back()->handleKeyNav(ke);   // arrow nav on the topmost popup
                 }
+                // Pump every child popup so its native button events are read this frame, then aggregate
+                // press/release across ALL popups. With several override-redirect popup windows, X delivers
+                // the button event to whichever window is under the cursor (a submenu) rather than the
+                // grabbing root — so reading press from the root alone silently dropped every submenu click.
+                for (size_t i = 1; i < m_active.size(); ++i) m_active[i]->pumpManaged();
+                for (auto& p : m_active) { if (p->takePress()) pressed = true; if (p->takeRelease()) released = true; }
             }
             if (!dismissed) {
                 bool insideAny = false;
                 for (auto& p : m_active) {
-                    p->pumpManaged();
                     if (p->containsGlobal(gx, gy)) insideAny = true;
                     p->driveInput(static_cast<float>(gx - p->window().screenX()),
                                   static_cast<float>(gy - p->window().screenY()),
