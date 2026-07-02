@@ -908,6 +908,18 @@ private:
             case 0xFF54: ev.key = K::Down;      break;
             case 0xFF50: ev.key = K::Home;      break;
             case 0xFF57: ev.key = K::End;       break;
+            case 0xFFBE: ev.key = K::F1;  break;   // XK_F1..XK_F12 (consecutive)
+            case 0xFFBF: ev.key = K::F2;  break;
+            case 0xFFC0: ev.key = K::F3;  break;
+            case 0xFFC1: ev.key = K::F4;  break;
+            case 0xFFC2: ev.key = K::F5;  break;
+            case 0xFFC3: ev.key = K::F6;  break;
+            case 0xFFC4: ev.key = K::F7;  break;
+            case 0xFFC5: ev.key = K::F8;  break;
+            case 0xFFC6: ev.key = K::F9;  break;
+            case 0xFFC7: ev.key = K::F10; break;
+            case 0xFFC8: ev.key = K::F11; break;
+            case 0xFFC9: ev.key = K::F12; break;
             default: {
                 uint32_t cp = 0;
                 if ((ks >= 0x0020 && ks <= 0x007e) || (ks >= 0x00a0 && ks <= 0x00ff)) {

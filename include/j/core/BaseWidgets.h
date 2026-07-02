@@ -3541,6 +3541,11 @@ public:
     }
     bool isEditing() const { return m_editNode != nullptr; }
 
+    // Whether F2 / double-activate may start an in-place rename (default on). Apps with read-only
+    // trees (e.g. a fixed config navigator) can disable it.
+    void setEditable(bool e) { m_editable = e; }
+    bool isEditable() const { return m_editable; }
+
     JTreeView(JSceneGraph& graph, float w = 240.0f, float h = 300.0f)
         : JControl(graph, "JTreeView"), m_root{"Root", true, false, {}}
     {
@@ -3616,8 +3621,12 @@ public:
                         flat.node->expanded = !flat.node->expanded;
                         m_graph.invalidateNode(m_nodeId, DirtySelf);
                     } else {
+                        // Clicking an already-selected node starts an in-place rename (Explorer-style);
+                        // otherwise select + activate the node.
+                        const bool wasSelected = (m_selectedNode == flat.node);
                         _selectNode(flat.node);
-                        onNodeActivated.emit(flat.node);
+                        if (m_editable && wasSelected) beginRename();
+                        else onNodeActivated.emit(flat.node);
                     }
                 }
             }
@@ -3674,6 +3683,9 @@ public:
             if (static_cast<unsigned char>(ke.utf8[0]) >= 32) { m_editBuf += ke.utf8; m_graph.invalidateNode(m_nodeId, DirtySelf); return true; }
             return true;   // swallow other keys while editing
         }
+
+        // F2 begins an in-place rename of the selected node (standard rename shortcut).
+        if (m_editable && ke.key == EK::F2 && m_selectedNode) { beginRename(); return true; }
 
         auto flatNodes = getFlatNodes();
         if (flatNodes.empty()) return false;
@@ -3919,6 +3931,7 @@ private:
     JTreeViewNode* m_selectedNode{nullptr};
     JTreeViewNode* m_editNode{nullptr};   // node whose label is being edited in place
     std::string    m_editBuf;             // working text during an in-place rename
+    bool           m_editable{true};      // F2 / click-selected may start an in-place rename
     std::string    m_filter;              // lower-cased row filter ("" = show all)
     float         m_scrollY{0.0f};
     float         m_rowHeight{-1.0f};
