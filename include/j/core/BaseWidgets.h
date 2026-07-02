@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <optional>
 #include <vector>
@@ -3640,12 +3641,15 @@ public:
                         m_graph.invalidateNode(m_nodeId, DirtySelf);
                     } else {
                         m_pressNode = flat.node; m_pressX = mx; m_pressY = my;   // arm a potential drag
-                        // Clicking an already-selected node starts an in-place rename (Explorer-style);
-                        // otherwise select + activate the node.
-                        const bool wasSelected = (m_selectedNode == flat.node);
+                        // A DOUBLE-click (same node twice within 400 ms) begins an in-place rename;
+                        // a single click selects + activates.
+                        const auto nowT = std::chrono::steady_clock::now();
+                        const bool dbl = m_editable && !wasEditing && flat.node == m_lastClickNode &&
+                                         std::chrono::duration_cast<std::chrono::milliseconds>(nowT - m_lastClickTime).count() < 400;
+                        m_lastClickNode = flat.node; m_lastClickTime = nowT;
                         _selectNode(flat.node);
-                        if (m_editable && wasSelected && !wasEditing) beginRename();   // not right after a commit
-                        else onNodeActivated.emit(flat.node);
+                        if (dbl) beginRename();
+                        else     onNodeActivated.emit(flat.node);
                     }
                 }
             }
@@ -3989,6 +3993,8 @@ private:
     float         m_dragStartScrollY{0.0f};
     JTreeViewNode* m_pressNode{nullptr};   // node pressed (candidate for a drag), cleared once the drag fires/ends
     float          m_pressX{0.0f}, m_pressY{0.0f};
+    JTreeViewNode* m_lastClickNode{nullptr};                 // double-click-to-rename tracking
+    std::chrono::steady_clock::time_point m_lastClickTime{};
 };
 
 class JDataGrid : public JControl {

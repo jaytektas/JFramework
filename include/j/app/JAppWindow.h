@@ -22,6 +22,7 @@
 #include <j/core/ApplicationCore.h>      // JPlatformWindow
 #include <j/core/PlatformCommon.h>       // JPlatformWindowStyle
 #include <j/core/GenesisComponents.h>    // JGuiApplication, + JTextHelper/Colors via BaseWidgets
+#include <j/core/DragDrop.h>             // JDragDrop — drag ghost overlay + drop-end repaint
 #include <j/core/DockManager.h>          // JDockHost (auto-managed dock layout)
 #include <j/core/DockSpace.h>            // JDockSpace (centre + 4 dock areas)
 #include <j/core/DockRegistry.h>         // host registration for floating re-dock
@@ -432,6 +433,14 @@ public:
             // Combo dropdown + native dialogs — their own surfaces, outside the main frame.
             if (serviceComboAndDialogs()) activity = true;
 
+            // Active drag: track the cursor for the ghost, keep the frame alive while held, and force one
+            // more frame when the drag ENDS so a drop's result (a new binding, a placed control) repaints
+            // immediately instead of waiting for the next interaction.
+            const bool dragging = JDragDrop::isDragging();
+            if (dragging) { JDragDrop::update(mx, my); activity = true; }
+            if (m_wasDragging && !dragging) activity = true;
+            m_wasDragging = dragging;
+
             if (m_needRedraw) { activity = true; m_needRedraw = false; }
             if (activity) redraw = 4;
 
@@ -445,6 +454,7 @@ public:
                 drawChrome(buffer);
                 drawBars(buffer);                           // menu bar / toolbar / status bar
                 m_space.render(buffer);                     // all areas: content + overlays
+                if (dragging) _drawDragGhost(buffer);       // floating "what you're holding" label
                 if (onRender) onRender(buffer);
                 m_hal->drawPrimitives(buffer);
                 m_hal->submitAndPresentFrame(frame);
@@ -871,6 +881,20 @@ private:
     bool                             m_leftHeld{false};   // app-tracked button state (press→release)
     float                            m_titleH{28.0f};
     bool                             m_needRedraw{false};
+    bool                             m_wasDragging{false};   // drag active last frame (repaint on drop)
+
+    // The floating "what you're holding" ghost during a JDragDrop: a small labelled chip trailing the
+    // cursor, so a drag reads as a real object in hand rather than blind faith.
+    void _drawDragGhost(JPrimitiveBuffer& buf) {
+        const std::string lbl = JDragDrop::label();
+        const float cx = JDragDrop::cursorX() + 12.f, cy = JDragDrop::cursorY() + 6.f;
+        const float tw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(lbl) : lbl.size() * 7.f;
+        const float w = tw + 16.f, h = JTextHelper::lineHeight() + 8.f;
+        uint8_t bg[4] = {44, 48, 60, 235};
+        buf.pushRectangle(cx, cy, w, h, bg, 5.f, 1.5f, Colors::Accent);
+        if (JTextHelper::hasAtlas())
+            JTextHelper::pushText(buf, cx + 8.f, cy + 4.f, lbl, Colors::TextPrimary, w - 14.f);
+    }
 };
 
 }  // namespace jf
