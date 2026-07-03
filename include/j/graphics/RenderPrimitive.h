@@ -123,6 +123,27 @@ public:
         m_commands.push_back(std::move(cmd));
     }
 
+    // Draw a dashed rectangle OUTLINE (no fill) by emitting short filled segments along each edge. The solid
+    // primitive stroke can't dash, so this is how a caller gets a dashed border — selection rubber-band,
+    // viewport guides, dashed panel borders. dashLen/gapLen are in pixels (defaults give a 4-on 2-off dash for
+    // a 1px pen); thickness is the stroke width. Corners are covered by both edges (harmless overlap).
+    void pushDashedRect(float x, float y, float width, float height, const uint8_t color[4],
+                        float thickness = 1.0f, float dashLen = 4.0f, float gapLen = 2.0f)
+    {
+        const float period = dashLen + gapLen;
+        if (!color || period <= 0.0f || width <= 0.0f || height <= 0.0f) return;
+        for (float sx = x; sx < x + width; sx += period) {            // top + bottom edges
+            const float remain = x + width - sx, len = dashLen < remain ? dashLen : remain;
+            pushRectangle(sx, y, len, thickness, color);
+            pushRectangle(sx, y + height - thickness, len, thickness, color);
+        }
+        for (float sy = y; sy < y + height; sy += period) {          // left + right edges
+            const float remain = y + height - sy, len = dashLen < remain ? dashLen : remain;
+            pushRectangle(x, sy, thickness, len, color);
+            pushRectangle(x + width - thickness, sy, thickness, len, color);
+        }
+    }
+
     void pushTextCall(JTextCall call) {
         JDrawCommand cmd;
         cmd.kind = JDrawCommand::JKind::Text;
