@@ -126,8 +126,7 @@ public:
     // surface) and returns false once the dialog has closed, at which point `destroy` is called.
     // The app owns the dialog object/lifetime; this only drives it. Used for Preferences, etc.
     void setModalDialog(std::function<bool(JGpuHal&, JPrimitiveBuffer&)> poll, std::function<void(JGpuHal&)> destroy) {
-        if (m_modalPoll && m_modalDestroy) m_modalDestroy(*m_hal);   // replace any open one
-        m_modalPoll = std::move(poll); m_modalDestroy = std::move(destroy);
+        m_modalStack.push_back({ std::move(poll), std::move(destroy) });   // push: modals STACK, so a modal can open another (e.g. Axis Setup -> channel picker) without destroying its parent
     }
 
     // Construct an app modal dialog of type T, centred over this window, and drive it via the modal hook.
@@ -766,10 +765,17 @@ private:
             if (!m_colorDialog->pollAndRender(*m_hal, scratch)) { m_colorDialog->destroySurface(*m_hal); m_colorDialog.reset(); }
         }
 
-        // Generic app modal (Preferences, etc.): the app owns the window; we just pump it each frame.
-        // poll() returns false when the dialog closed; then we run its destroy hook and clear.
-        if (m_modalPoll) {
-            if (!m_modalPoll(*m_hal, scratch)) { if (m_modalDestroy) m_modalDestroy(*m_hal); m_modalPoll = nullptr; m_modalDestroy = nullptr; }
+        // Generic app modals (Preferences, pickers, Axis Setup…) form a STACK: only the TOP is pumped each
+        // frame. poll() returns false when it closed; then run its destroy hook and pop, resuming its parent.
+        // Copy the top's poll out first — the call may push a child modal (realloc), which would otherwise
+        // free the std::function mid-invocation; guard the pop on the stack not having grown during the poll.
+        if (!m_modalStack.empty()) {
+            auto poll = m_modalStack.back().first;
+            const size_t before = m_modalStack.size();
+            if (!poll(*m_hal, scratch) && m_modalStack.size() == before) {
+                if (m_modalStack.back().second) m_modalStack.back().second(*m_hal);
+                m_modalStack.pop_back();
+            }
         }
 
         while (JDialogManager::instance().hasPending()) {
@@ -802,7 +808,7 @@ private:
             if (!it->pollAndRender(*m_hal, scratch)) { it->destroySurface(*m_hal); it = m_dialogs.erase(it); }
             else ++it;
         }
-        return m_comboPopup != nullptr || m_colorDialog != nullptr || m_modalPoll != nullptr || !m_dialogs.empty();
+        return m_comboPopup != nullptr || m_colorDialog != nullptr || !m_modalStack.empty() || !m_dialogs.empty();
     }
 
     static JPlatformCursor cursorForDir(int d) {
@@ -916,8 +922,9 @@ private:
     std::unique_ptr<JPopupWindow>    m_comboPopup;
     JComboBox*                       m_comboOwner{nullptr};
     std::unique_ptr<JColorPickerDialog> m_colorDialog;          // open colour dialog (own surface)
-    std::function<bool(JGpuHal&, JPrimitiveBuffer&)> m_modalPoll;    // generic app modal (Preferences…)
-    std::function<void(JGpuHal&)>                    m_modalDestroy;
+    // Generic app-modal STACK (Preferences, pickers, Axis Setup…): {poll, destroy} pairs; only the top is
+    // pumped, so one modal can open another. Pushed by setModalDialog, popped when its poll returns false.
+    std::vector<std::pair<std::function<bool(JGpuHal&, JPrimitiveBuffer&)>, std::function<void(JGpuHal&)>>> m_modalStack;
     JPopupWindow*                    m_comboCloseReq{nullptr};
     std::vector<JNativeDialogWindow> m_dialogs;
     std::unique_ptr<JToolBar> m_toolBar;     // lazily created on toolBar()
