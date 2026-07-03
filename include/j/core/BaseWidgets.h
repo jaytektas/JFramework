@@ -757,6 +757,9 @@ public:
         l.minHeight = h;
     }
 
+    void setLabel(const std::string& label) { m_label = label; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    const std::string& label() const { return m_label; }
+
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         const uint8_t* fill = Colors::Surface2;

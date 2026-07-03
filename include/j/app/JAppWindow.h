@@ -130,14 +130,16 @@ public:
         m_modalPoll = std::move(poll); m_modalDestroy = std::move(destroy);
     }
 
-    // Construct an app modal dialog of type T (ctor: (JGpuHal&, screenX, screenY, T::NativeWinHandleType)),
-    // centred over this window, and drive it via the modal hook. T needs static kW/kH + pollAndRender +
-    // destroySurface. The dialog object lives for as long as it's open (shared into the poll closures).
-    template <typename T>
-    void openModal() {
+    // Construct an app modal dialog of type T, centred over this window, and drive it via the modal hook.
+    // T's ctor is (args..., JGpuHal&, screenX, screenY, T::NativeWinHandleType) — any leading args (a data
+    // list, a seed value, an on-accept callback) are forwarded before the fixed hal/pos/handle tail. T needs
+    // static kW/kH + pollAndRender + destroySurface. The dialog lives for as long as it's open.
+    template <typename T, typename... Args>
+    void openModal(Args&&... args) {
         const int cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(T::kW)) / 2;
         const int cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(T::kH)) / 2;
-        auto dlg = std::make_shared<T>(*m_hal, cx, cy, static_cast<typename T::NativeWinHandleType>(m_window->rawWindowId()));
+        auto dlg = std::make_shared<T>(std::forward<Args>(args)..., *m_hal, cx, cy,
+                                       static_cast<typename T::NativeWinHandleType>(m_window->rawWindowId()));
         setModalDialog([dlg](JGpuHal& h, JPrimitiveBuffer& b) { return dlg->pollAndRender(h, b); },
                        [dlg](JGpuHal& h) { dlg->destroySurface(h); });
     }
