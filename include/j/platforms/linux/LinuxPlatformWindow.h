@@ -236,6 +236,10 @@ public:
                     // hit-testing desyncs from rendering whenever scale != 1.0.
                     m_mouseX = static_cast<float>(m->event_x);
                     m_mouseY = static_cast<float>(m->event_y);
+                    if (m_resizable) {   // framework-managed resize cursor feedback near edges/corners
+                        const int rd = _resizeDirAt(m_mouseX, m_mouseY);
+                        if (rd != m_lastResizeDir) { setCursor(_resizeCursor(rd)); m_lastResizeDir = rd; }
+                    }
                     break;
                 }
                 case XCB_BUTTON_PRESS: {
@@ -246,6 +250,10 @@ public:
                     if (b->detail == XCB_BUTTON_INDEX_1) {
                         m_mouseX = static_cast<float>(b->event_x);
                         m_mouseY = static_cast<float>(b->event_y);
+                        if (const int rd = _resizeDirAt(m_mouseX, m_mouseY); rd >= 0) {
+                            startWindowResize(static_cast<uint32_t>(rd));   // framework-managed: WM drives the resize
+                            break;                                          // don't record a press or grab the pointer
+                        }
                         m_pendingPress = true;
                         m_altDown   = (b->state & XCB_MOD_MASK_1) != 0;
                         m_ctrlDown  = (b->state & XCB_MOD_MASK_CONTROL) != 0;
@@ -566,6 +574,33 @@ public:
         xcb_flush(m_connection);
     }
 
+    // Framework-managed edge resize (opt-in). When enabled, the window itself detects edge/corner grabs,
+    // shows the matching resize cursor, and hands the interactive resize to the WM (_NET_WM_MOVERESIZE). The
+    // application just flips this on + sets min size — identical behaviour for every window/dialog. `topInset`
+    // reserves the title-bar strip for drag/buttons (side edges only resize below it).
+    void setResizable(bool on)      { m_resizable = on; }
+    void setResizeTopInset(float t) { m_resizeTopInset = t; }
+
+    // Which resize direction (a _NET_WM_MOVERESIZE code) an edge/corner at (mx,my) grabs, or -1 for none.
+    int _resizeDirAt(float mx, float my) const {
+        if (!m_resizable || m_isMaximized) return -1;
+        const float W = static_cast<float>(m_width), H = static_cast<float>(m_height);
+        constexpr float kEdge = 6.f, kCorn = 14.f;
+        const bool onLeft = mx < kEdge && my >= m_resizeTopInset, onRight = mx >= W - kEdge && my >= m_resizeTopInset;
+        const bool onBottom = my >= H - kEdge, onBL = mx < kCorn && my >= H - kCorn, onBR = mx >= W - kCorn && my >= H - kCorn;
+        if (onBL) return 6; if (onBR) return 4; if (onBottom) return 5; if (onLeft) return 7; if (onRight) return 3;
+        return -1;
+    }
+    jf::JPlatformCursor _resizeCursor(int d) const {
+        switch (d) {
+            case 4:         return jf::JPlatformCursor::ResizeBottomRight;
+            case 6:         return jf::JPlatformCursor::ResizeBottomLeft;
+            case 5:         return jf::JPlatformCursor::ResizeUpDown;
+            case 3: case 7: return jf::JPlatformCursor::ResizeLeftRight;
+            default:        return jf::JPlatformCursor::Default;
+        }
+    }
+
     // Request fullscreen via _NET_WM_STATE_FULLSCREEN (WM-managed windows only).
     // The window fullscreens on whichever monitor it currently occupies — to
     // fullscreen on a secondary monitor, call setPosition() first to move it there.
@@ -881,6 +916,10 @@ private:
         if (!m_syms) m_syms = xcb_key_symbols_alloc(m_connection);
         bool shift = (k->state & XCB_MOD_MASK_SHIFT) != 0;
         xcb_keysym_t ks = xcb_key_symbols_get_keysym(m_syms, k->detail, shift ? 1 : 0);
+        // Non-character keys (arrows, F-keys, Home/End…) have no shifted keysym level, so a Shift-held
+        // lookup returns NoSymbol and the key would be dropped. Fall back to the base level so Shift+Arrow
+        // etc. still identify as the same key (with ev.shift set) — e.g. Shift+Arrow range-select in tables.
+        if (ks == 0) ks = xcb_key_symbols_get_keysym(m_syms, k->detail, 0);
 
         JKeyEvent ev;
         ev.pressed = pressed;
@@ -931,7 +970,11 @@ private:
                     if (cp < 0x80) {
                         ev.utf8[0] = static_cast<char>(cp);
                         ev.utf8[1] = '\0';
-                        ev.key = static_cast<K>(cp);
+                        // ke.key is the canonical KEY IDENTITY, not the typed glyph: fold ASCII letters to
+                        // uppercase so ke.key == K::Z holds for the 'z' key regardless of Shift/Caps (JKey has
+                        // A=65..Z=90). The actual character stays in ke.utf8. Without this, every letter
+                        // shortcut (Ctrl+Z/Y/C/V/G…) silently missed, since 'z' is 0x7a (122) != K::Z (90).
+                        ev.key = static_cast<K>((cp >= 'a' && cp <= 'z') ? cp - 32 : cp);
                     } else if (cp < 0x800) {
                         ev.utf8[0] = static_cast<char>((cp >> 6) | 0xc0);
                         ev.utf8[1] = static_cast<char>((cp & 0x3f) | 0x80);
@@ -979,6 +1022,9 @@ private:
     int      m_screenY{0};
     uint32_t m_width{0};
     uint32_t m_height{0};
+    bool  m_resizable{false};        // opt-in framework edge-resize
+    float m_resizeTopInset{0.0f};    // title-bar strip kept free from side-edge resize
+    int   m_lastResizeDir{-2};       // last resize cursor dir (avoid re-setting the cursor every motion)
     float m_mouseX{0.0f};
     float m_mouseY{0.0f};
     float m_wheelY{0.0f};
