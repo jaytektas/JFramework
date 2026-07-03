@@ -149,12 +149,24 @@ public:
                 }
 
                 if (penX + w + 1 >= atlasW) { penX = 1; penY += shelfH + 1; shelfH = 0; }
-                if (penY + h + 1 >= atlasH) { stbtt_FreeBitmap(bmp, nullptr); continue; }
+                // Skip anything that would not fit — re-checking BOTH axes after the shelf wrap. Without the
+                // horizontal re-check a glyph wider than the atlas blits past the row end and overflows the
+                // bitmap (SIGABRT under _FORTIFY_SOURCE, seen intermittently when a popup first rasterises a
+                // font size). Report an oversize glyph rather than hiding the drop behind the bounds check.
+                if (penX + w + 1 >= atlasW || penY + h + 1 >= atlasH) {
+                    if (static_cast<uint32_t>(w) + 2 >= atlasW || static_cast<uint32_t>(h) + 2 >= atlasH)
+                        std::fprintf(stderr, "[FontEngine] glyph cp=%u %dx%d exceeds atlas %ux%u @%.1fpx — skipped\n",
+                                     cp, w, h, atlasW, atlasH, pixelSize);
+                    stbtt_FreeBitmap(bmp, nullptr); continue;
+                }
 
-                // Blit into atlas
+                // Blit into atlas. Belt-and-braces: the loop above guarantees the row fits, but clamp the copy
+                // width to the physical row remainder so a blit can never cross into the next row / past the end.
+                const uint32_t rowRoom = atlasW - penX;                 // columns left on this row from penX
+                const size_t copyW = std::min(static_cast<size_t>(w), static_cast<size_t>(rowRoom));
                 for (int row = 0; row < h; ++row)
                     std::memcpy(&atlas.bitmap[(penY + row) * atlasW + penX],
-                                bmp + row * w, static_cast<size_t>(w));
+                                bmp + row * w, copyW);
 
                 JGlyphInfo gi{};
                 gi.u0 = static_cast<float>(penX)   / atlasW;
