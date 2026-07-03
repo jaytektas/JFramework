@@ -57,6 +57,8 @@ inline JTheme parseStyleSheet(const std::string& text) {
     struct FRef { const char* n; float* p; };
     FRef floats[] = {
         {"cornerradius", &t.cornerRadius}, {"menuitemheight", &t.menuItemHeight},
+        {"controlheight", &t.controlHeight}, {"buttonheight", &t.buttonHeight},
+        {"labelheight", &t.labelHeight}, {"checkheight", &t.checkHeight}, {"sliderheight", &t.sliderHeight},
         {"itempadding", &t.itemPadding}, {"spacing", &t.spacing}, {"borderwidth", &t.borderWidth},
         {"titlebarheight", &t.titleBarHeight}, {"focusringwidth", &t.focusRingWidth},
         {"animspeed", &t.animSpeed}, {"tabbarsize", &t.tabBarSize},

@@ -298,6 +298,14 @@ struct JTheme {
     // Dimensions
     float cornerRadius   = 6.f;
     float menuItemHeight = 28.f;
+    // Per-control-type default heights — each STANDARD control derives its OWN appropriate height from the
+    // scheme (not one squished value). The app passes no size; a local size arg is a per-instance override.
+    // Authorable in the stylesheet (controlHeight / buttonHeight / labelHeight / checkHeight / sliderHeight).
+    float controlHeight  = 30.f;   // interactive fields: combo / spin box / line edit / colour+font button
+    float buttonHeight   = 32.f;   // push buttons
+    float labelHeight    = 20.f;   // form labels (text)
+    float checkHeight    = 22.f;   // check box / radio
+    float sliderHeight   = 24.f;   // slider track + thumb
     float itemPadding    = 8.f;
     float fieldPadding   = 8.f;   // interior text padding for input fields (JLineEdit/JSpinBox/JComboBox…)
     float spacing        = 4.f;
@@ -717,11 +725,11 @@ private:
 
 class JLabel : public JWidget {
 public:
-    JLabel(JSceneGraph& graph, const std::string& text, float w = 240.0f, float h = 20.0f)
+    JLabel(JSceneGraph& graph, const std::string& text, float w = 240.0f, float h = 0.0f)
         : JWidget(graph, "JLabel: " + text), m_text(text)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().labelHeight;
         l.minWidth = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(m_text) : w;
         l.minHeight = h;
     }
@@ -753,11 +761,11 @@ private:
 class JButton : public JControl {
 public:
     JButton(JSceneGraph& graph, const std::string& label,
-           float w = 160.0f, float h = 36.0f)
+           float w = 160.0f, float h = 0.0f)
         : JControl(graph, "JButton"), m_label(label)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().buttonHeight;
         l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(m_label) + 24.f) : w;
         l.minHeight = h;
     }
@@ -820,11 +828,11 @@ public:
     jf::JSignal<bool> onToggled;
 
     JToggleButton(JSceneGraph& graph, const std::string& label,
-                 float w = 160.0f, float h = 36.0f)
+                 float w = 160.0f, float h = 0.0f)
         : JControl(graph, "JToggleButton"), m_label(label)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().buttonHeight;
         l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(m_label) + 24.f) : w;
         l.minHeight = h;
     }
@@ -903,11 +911,11 @@ class JCheckBox : public JControl {
 public:
     jf::JSignal<bool> onStateChanged;
 
-    JCheckBox(JSceneGraph& graph, const std::string& label, float w = 200.0f, float h = 22.0f)
+    JCheckBox(JSceneGraph& graph, const std::string& label, float w = 200.0f, float h = 0.0f)
         : JControl(graph, "JCheckBox"), m_label(label)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().checkHeight;
         l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(m_label) + 28.f) : w;
         l.minHeight = h;
     }
@@ -990,11 +998,11 @@ public:
     jf::JSignal<bool> onSelected;
 
     JRadioButton(JSceneGraph& graph, const std::string& label,
-                float w = 200.0f, float h = 22.0f)
+                float w = 200.0f, float h = 0.0f)
         : JControl(graph, "JRadioButton"), m_label(label)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().checkHeight;
         l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(m_label) + 28.f) : w;
         l.minHeight = h;
     }
@@ -1062,11 +1070,11 @@ class JSlider : public JControl {
 public:
     jf::JSignal<float> onValueChanged;
 
-    JSlider(JSceneGraph& graph, float w = 280.0f, float h = 24.0f)
+    JSlider(JSceneGraph& graph, float w = 280.0f, float h = 0.0f)
         : JControl(graph, "JSlider"), m_value(0.5f)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().sliderHeight;
         l.minWidth = 50.0f;
         l.minHeight = h;
     }
@@ -1150,7 +1158,7 @@ public:
         : JWidget(graph, "JProgressBar"), m_progress(0.0f)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().menuItemHeight;
         l.minWidth = 50.0f;
         l.minHeight = h;
     }
@@ -1200,7 +1208,7 @@ public:
         : JControl(graph, "JScrollBar"), m_thumbRatio(std::clamp(thumbRatio, 0.05f, 1.0f))
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().menuItemHeight;
         l.minWidth = 40.0f;
         l.minHeight = h;
     }
@@ -1262,11 +1270,11 @@ public:
     jf::JSignal<>            onReturnPressed;
 
     JLineEdit(JSceneGraph& graph, const std::string& placeholder = "",
-             float w = 280.0f, float h = 32.0f)
+             float w = 280.0f, float h = 0.0f)
         : JControl(graph, "JLineEdit"), m_placeholder(placeholder)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().controlHeight;
         l.minWidth = 60.0f;
         l.minHeight = h;
     }
@@ -1461,7 +1469,7 @@ public:
         : JControl(graph, "JTextArea"), m_placeholder(placeholder)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().controlHeight;
         l.minWidth = 100.0f;
         l.minHeight = 40.0f;
     }
@@ -1858,11 +1866,11 @@ public:
     jf::JSignal<int> onValueChanged;
 
     JSpinBox(JSceneGraph& graph, int minVal = 0, int maxVal = 100,
-            float w = 140.0f, float h = 32.0f)
+            float w = 140.0f, float h = 0.0f)
         : JControl(graph, "JSpinBox"), m_min(minVal), m_max(maxVal), m_value(minVal)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().controlHeight;
         l.minWidth = 60.0f;
         l.minHeight = h;
     }
@@ -2012,12 +2020,12 @@ public:
 
     JDoubleSpinBox(JSceneGraph& graph, double min, double max,
                    double step = 1.0, int decimals = 2,
-                   float w = 120.0f, float h = 32.0f)
+                   float w = 120.0f, float h = 0.0f)
         : JControl(graph, "JDoubleSpinBox"),
           m_value(min), m_min(min), m_max(max), m_step(step), m_decimals(decimals)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().controlHeight;
         l.minWidth = 60.0f;
         l.minHeight = h;
     }
@@ -2283,11 +2291,11 @@ public:
     static inline std::function<void(JComboBox*)> onOpenPopupHook;
 
     JComboBox(JSceneGraph& graph, std::vector<std::string> items = {},
-             float w = 200.0f, float h = 36.0f)
+             float w = 200.0f, float h = 0.0f)   // h <= 0 → theme control height, so every combo matches
         : JControl(graph, "JComboBox"), m_items(std::move(items))
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().controlHeight;
         _updateMinSize();
     }
 
@@ -2416,8 +2424,8 @@ public:
     static inline std::function<void(JColorButton*)> onOpenPickerHook;
     jf::JSignal<std::string> onColorChanged;
 
-    JColorButton(JSceneGraph& graph, float w = 200.0f, float h = 28.0f) : JControl(graph, "JColorButton") {
-        auto& l = m_graph.getLayout(m_nodeId); l.boundingBox.width = w; l.boundingBox.height = h;
+    JColorButton(JSceneGraph& graph, float w = 200.0f, float h = 0.0f) : JControl(graph, "JColorButton") {
+        auto& l = m_graph.getLayout(m_nodeId); l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().controlHeight;
     }
     void setInheritable(bool v) { m_inheritable = v; }
     bool inheritable() const    { return m_inheritable; }
@@ -2487,8 +2495,8 @@ public:
     static inline std::function<void(JFontButton*)> onOpenPickerHook;
     jf::JSignal<std::string> onFontChanged;
 
-    JFontButton(JSceneGraph& graph, float w = 200.0f, float h = 28.0f) : JControl(graph, "JFontButton") {
-        auto& l = m_graph.getLayout(m_nodeId); l.boundingBox.width = w; l.boundingBox.height = h;
+    JFontButton(JSceneGraph& graph, float w = 200.0f, float h = 0.0f) : JControl(graph, "JFontButton") {
+        auto& l = m_graph.getLayout(m_nodeId); l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().controlHeight;
     }
     void setInheritable(bool v) { m_inheritable = v; }
     void setFontSpec(const std::string& s) { if (m_spec != s) { m_spec = s; m_graph.invalidateNode(m_nodeId, DirtySelf); } }
@@ -2562,11 +2570,11 @@ public:
     jf::JSignal<int, NodeId>  onTabTorn;   // (tabIndex, contentNode) — app should create a JDockWidget
 
     JTabBar(JSceneGraph& graph, std::vector<std::string> tabs = {},
-           float w = 400.0f, float h = 36.0f)
+           float w = 400.0f, float h = 0.0f)
         : JControl(graph, "JTabBar"), m_tabs(std::move(tabs))
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().menuItemHeight;
         if (!m_tabs.empty()) m_activeIndex = 0;
         _updateMinSize();
     }
@@ -2830,7 +2838,7 @@ public:
         : JWidget(graph, "JTabWidget")
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().menuItemHeight;
     }
 
     // content is non-owning; caller keeps it alive while the tab exists. Returns the new tab index.
@@ -3396,7 +3404,7 @@ public:
         : JControl(graph, "JListView"), m_items(std::move(items))
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().menuItemHeight;
         l.minWidth = 80.0f;
         l.minHeight = 40.0f;
     }
@@ -3663,7 +3671,7 @@ public:
         : JControl(graph, "JTreeView"), m_root{"Root", true, false, {}}
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().menuItemHeight;
         l.minWidth = 80.0f;
         l.minHeight = 40.0f;
     }
@@ -4104,7 +4112,7 @@ public:
         : JControl(graph, "JDataGrid"), m_headers(std::move(headers))
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = h;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().menuItemHeight;
         l.minWidth = 100.0f;
         l.minHeight = 80.0f;
     }
