@@ -115,6 +115,13 @@ public:
     // app-wide spacing/alignment, then override any individual node locally via getLayout().
     JLayoutComponent& defaultLayout() { return m_defaultLayout; }
 
+    // Host window for popups anchored in THIS graph's coordinate space. A window that renders this graph
+    // declares its live screen origin + native handle here, so the framework can open combo dropdowns /
+    // popups relative to the correct window (not a hardcoded main window). Unset → the caller falls back.
+    struct JHostWindow { int screenX = 0, screenY = 0; std::uintptr_t nativeHandle = 0; bool set = false; };
+    void setHostWindow(int sx, int sy, std::uintptr_t handle) { m_host = { sx, sy, handle, true }; }
+    const JHostWindow& hostWindow() const { return m_host; }
+
     NodeId createNode(const std::string& debugName = "") {
         NodeId id = static_cast<NodeId>(m_layouts.size());
         m_layouts.emplace_back(m_defaultLayout);   // inherit global defaults; override locally
@@ -500,6 +507,7 @@ private:
         std::string name;
     };
 
+    JHostWindow                   m_host{};            // host window for popups anchored in this graph's space
     JLayoutComponent              m_defaultLayout{};   // global defaults for new nodes
     std::vector<JLayoutComponent> m_layouts;
     std::vector<JHierarchyComponent> m_hierarchy;

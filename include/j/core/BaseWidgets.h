@@ -117,6 +117,11 @@ public:
         return {b.x, b.y, b.width, b.height};
     }
 
+    // The scene graph this widget lives in. Lets the framework resolve the widget's host window (for popup
+    // anchoring) so a control in any window — main or modal dialog — opens its dropdown in the right place.
+    JSceneGraph&       sceneGraph()       { return m_graph; }
+    const JSceneGraph& sceneGraph() const { return m_graph; }
+
     void setVisible(bool v) { m_visible = v; }
 
     // Position/size this widget's layout box directly — for host-driven placement (e.g. a dock

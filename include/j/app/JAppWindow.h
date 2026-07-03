@@ -690,12 +690,18 @@ private:
         if (m_comboPopup) { m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); }
 
         const auto bb = cb->getBoundingBox();
-        const int sx = m_window->screenX() + static_cast<int>(bb.x);
-        const int sy = m_window->screenY() + static_cast<int>(bb.y + bb.height);
+        // Anchor to the combo's OWN window: a control in a modal dialog lives in that dialog's scene graph,
+        // which declares its live screen origin + native handle. Fall back to this (main) window when unset.
+        const auto& host = cb->sceneGraph().hostWindow();
+        const int wsx = host.set ? host.screenX : m_window->screenX();
+        const int wsy = host.set ? host.screenY : m_window->screenY();
+        const auto parent = host.set ? static_cast<JPopupWindow::NativeWinHandleType>(host.nativeHandle)
+                                     : static_cast<JPopupWindow::NativeWinHandleType>(m_window->rawWindowId());
+        const int sx = wsx + static_cast<int>(bb.x);
+        const int sy = wsy + static_cast<int>(bb.y + bb.height);
         const auto popupW = static_cast<uint32_t>(bb.width);
         auto popup = std::make_unique<JPopupWindow>(sx, sy, popupW, 8, *m_hal,
-                        JPopupWindow::JStyle::Borderless,
-                        static_cast<JPopupWindow::NativeWinHandleType>(m_window->rawWindowId()));
+                        JPopupWindow::JStyle::Borderless, parent);
         const auto& items = cb->items();
         for (int i = 0; i < static_cast<int>(items.size()); ++i) {
             auto* pi = popup->add<JPopupItem>(items[i], static_cast<float>(popupW), 28.f);
@@ -717,31 +723,47 @@ private:
         if (m_colorDialog) { m_colorDialog->destroySurface(*m_hal); m_colorDialog.reset(); }
 
         const auto bb = b->getBoundingBox();
+        // Anchor to the button's OWN window (a button in a modal dialog lives in that dialog's graph, which
+        // declares its screen origin + handle) — fall back to this window when unset.
+        const auto& host = b->sceneGraph().hostWindow();
+        const int wsx = host.set ? host.screenX : m_window->screenX();
+        const int wsy = host.set ? host.screenY : m_window->screenY();
+        const auto parent = host.set ? static_cast<JColorPickerDialog::NativeWinHandleType>(host.nativeHandle)
+                                     : static_cast<JColorPickerDialog::NativeWinHandleType>(m_window->rawWindowId());
         // The dialog opens on its palette page; anchor against that height (it grows for the editor).
         const int pw = static_cast<int>(JColorPickerDialog::kW), ph = static_cast<int>(JColorPickerDialog::kPaletteH);
         const auto [sw, sh] = m_window->virtualDesktopSize();
         // Anchor below the button, flipping above if it would run off the bottom; clamp on-screen.
-        const int btnBot = m_window->screenY() + static_cast<int>(bb.y + bb.height);
-        const int btnTop = m_window->screenY() + static_cast<int>(bb.y);
-        int sx = m_window->screenX() + static_cast<int>(bb.x);
+        const int btnBot = wsy + static_cast<int>(bb.y + bb.height);
+        const int btnTop = wsy + static_cast<int>(bb.y);
+        int sx = wsx + static_cast<int>(bb.x);
         int sy = (btnBot + ph <= static_cast<int>(sh)) ? btnBot : btnTop - ph;
         sx = std::clamp(sx, 0, std::max(0, static_cast<int>(sw) - pw));
         sy = std::clamp(sy, 0, std::max(0, static_cast<int>(sh) - ph));
 
         JColorButton* target = b;
-        m_colorDialog = std::make_unique<JColorPickerDialog>(b->colorHex(), *m_hal, sx, sy,
-            static_cast<JColorPickerDialog::NativeWinHandleType>(m_window->rawWindowId()),
+        m_colorDialog = std::make_unique<JColorPickerDialog>(b->colorHex(), *m_hal, sx, sy, parent,
             [target](const std::string& hex) { target->pick(hex); });   // apply on OK only
     }
 
     // JFontButton picker: open a font dialog centred over the window, seeded with the button's spec;
     // applies to the button only on OK. Driven via the generic modal hook (setModalDialog).
     void openFontPicker(JFontButton* b) {
-        const int cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(JFontPickerDialog::kW)) / 2;
-        const int cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(JFontPickerDialog::kH)) / 2;
+        // Position + parent against the button's OWN window (a button in a modal dialog declares its host in
+        // its scene graph); fall back to centring over this window.
+        const auto& host = b->sceneGraph().hostWindow();
+        int cx, cy;
+        typename JFontPickerDialog::NativeWinHandleType parent;
+        if (host.set) {
+            cx = host.screenX + 40; cy = host.screenY + 40;
+            parent = static_cast<JFontPickerDialog::NativeWinHandleType>(host.nativeHandle);
+        } else {
+            cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(JFontPickerDialog::kW)) / 2;
+            cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(JFontPickerDialog::kH)) / 2;
+            parent = static_cast<JFontPickerDialog::NativeWinHandleType>(m_window->rawWindowId());
+        }
         JFontButton* target = b;
-        auto dlg = std::make_shared<JFontPickerDialog>(b->fontSpec(), *m_hal, cx, cy,
-            static_cast<JFontPickerDialog::NativeWinHandleType>(m_window->rawWindowId()),
+        auto dlg = std::make_shared<JFontPickerDialog>(b->fontSpec(), *m_hal, cx, cy, parent,
             [target](std::string spec) { target->pick(spec); });
         setModalDialog([dlg](JGpuHal& h, JPrimitiveBuffer& bf) { return dlg->pollAndRender(h, bf); },
                        [dlg](JGpuHal& h) { dlg->destroySurface(h); });
