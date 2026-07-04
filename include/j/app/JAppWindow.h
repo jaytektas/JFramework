@@ -103,6 +103,17 @@ public:
     JPlatformWindow& window() { return *m_window; }
     JGpuHal&         hal()    { return *m_hal; }
     void             requestClose() { m_window->requestClose(); }   // e.g. File▸Quit
+
+    // Change the whole-UI (application) font at runtime: reload the font file, rebuild the glyph atlas at the
+    // given base size (scaled by DPI), repoint the text helper's metrics, and re-upload the atlas to the GPU.
+    // A single global font (not simultaneous mixed fonts), so the one atlas is simply rebuilt. false on failure.
+    bool setAppFont(const std::string& fontPath, float px = 14.0f) {
+        if (!m_hal || fontPath.empty() || !m_font.loadFromFile(fontPath)) return false;
+        auto atlas = m_font.buildAtlas(px * m_window->dpiScale());
+        JTextHelper::setAtlas(atlas);
+        m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
+        return true;
+    }
     int              windowX() const { return m_window->screenX(); }
     int              windowY() const { return m_window->screenY(); }
     void             setWindowPos(int x, int y) { m_window->setPosition(x, y); }
