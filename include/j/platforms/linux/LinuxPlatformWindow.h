@@ -516,6 +516,13 @@ public:
         xcb_flush(m_connection);
     }
 
+    // Runtime WM title (title-bar text). Mirrors the WM_NAME set at creation.
+    void setTitle(const std::string& title) override {
+        xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId, XCB_ATOM_WM_NAME,
+                            XCB_ATOM_STRING, 8, static_cast<uint32_t>(title.size()), title.c_str());
+        xcb_flush(m_connection);
+    }
+
     // Resize the window.
     void setSize(uint32_t w, uint32_t h) override {
         uint32_t vals[] = { w, h };

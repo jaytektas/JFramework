@@ -99,6 +99,8 @@ public:
     virtual float dpiScale() const { return 1.0f; }
     virtual void setResizeCallback(std::function<void(uint32_t, uint32_t)> cb) { (void)cb; }
     virtual void setMinSize(uint32_t minW, uint32_t minH) { (void)minW; (void)minH; }
+    // Appended LAST so it adds a new vtable slot without shifting existing ones (no lib rebuild needed).
+    virtual void setTitle(const std::string& title) { (void)title; }   // runtime WM title (no-op default)
 };
 
 /**
