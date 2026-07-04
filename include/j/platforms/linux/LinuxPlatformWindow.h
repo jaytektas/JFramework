@@ -947,6 +947,8 @@ private:
             case 0xFF54: ev.key = K::Down;      break;
             case 0xFF50: ev.key = K::Home;      break;
             case 0xFF57: ev.key = K::End;       break;
+            case 0xFF55: ev.key = K::PageUp;    break;   // XK_Page_Up   (table Z-plane +1)
+            case 0xFF56: ev.key = K::PageDown;  break;   // XK_Page_Down (table Z-plane -1)
             case 0xFFBE: ev.key = K::F1;  break;   // XK_F1..XK_F12 (consecutive)
             case 0xFFBF: ev.key = K::F2;  break;
             case 0xFFC0: ev.key = K::F3;  break;
