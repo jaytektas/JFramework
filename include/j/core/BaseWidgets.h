@@ -1790,6 +1790,34 @@ public:
             if (m_text.empty() && !m_placeholder.empty()) {
                 uint8_t pc[4] = {100, 100, 110, 160};
                 JTextHelper::pushText(buf, innerX, innerY, m_placeholder, pc, innerW);
+            } else if (m_highlighter) {
+                // Syntax-highlighted draw: the hook fills a per-character RGBA colour; each line is drawn as
+                // runs of equal colour. Only taken when a highlighter is set (default path below is unchanged).
+                std::vector<uint8_t> cols; m_highlighter(m_text, cols);
+                uint8_t tc[4] = {220, 220, 228, 220};
+                size_t off = 0;                                          // char offset of the line's start in m_text
+                for (size_t i = 0; i < lines.size(); ++i) {
+                    const std::string& ln = lines[i];
+                    const float lineY = innerY + i * lh - m_scrollOffset;
+                    if (lineY + lh >= innerY && lineY <= innerY + innerH) {
+                        auto colAt = [&](size_t c, uint8_t out[4]) {
+                            const size_t ci = (off + c) * 4;
+                            if (ci + 3 < cols.size()) { out[0]=cols[ci]; out[1]=cols[ci+1]; out[2]=cols[ci+2]; out[3]=cols[ci+3]; }
+                            else { out[0]=tc[0]; out[1]=tc[1]; out[2]=tc[2]; out[3]=tc[3]; }
+                        };
+                        float x = innerX;
+                        for (size_t j = 0; j < ln.size(); ) {
+                            uint8_t rc[4]; colAt(j, rc);
+                            size_t k = j + 1;
+                            for (; k < ln.size(); ++k) { uint8_t kc[4]; colAt(k, kc); if (kc[0]!=rc[0]||kc[1]!=rc[1]||kc[2]!=rc[2]||kc[3]!=rc[3]) break; }
+                            const std::string run = ln.substr(j, k - j);
+                            JTextHelper::pushText(buf, x, lineY, run, rc, innerW);
+                            x += JTextHelper::measureWidth(run);
+                            j = k;
+                        }
+                    }
+                    off += ln.size() + 1;                                // account for the split '\n'
+                }
             } else {
                 uint8_t tc[4] = {220, 220, 228, 220};
                 for (size_t i = 0; i < lines.size(); ++i) {
@@ -1835,7 +1863,13 @@ public:
         return false;
     }
 
+    // Optional syntax highlighter: fills `out` with 4 bytes (RGBA) per character of the text; the render then
+    // draws each line as runs of equal colour. Null (default) → the whole text draws in one colour (no change
+    // for any existing JTextArea). Used by the studio's Lua editor.
+    void setHighlighter(std::function<void(const std::string&, std::vector<uint8_t>&)> h) { m_highlighter = std::move(h); m_graph.invalidateNode(m_nodeId, DirtySelf); }
+
 private:
+    std::function<void(const std::string&, std::vector<uint8_t>&)> m_highlighter;   // null = plain single-colour text
     void _deleteSelection() {
         if (!m_selActive || m_selStart == m_selEnd) return;
         size_t lo = std::min(m_selStart, m_selEnd);
