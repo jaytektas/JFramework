@@ -133,17 +133,41 @@ public:
         // Simple shelf packer
         uint32_t penX = 1, penY = 1, shelfH = 0;
 
+        // Fallback font (DejaVu Sans) for codepoints the primary font lacks — Ubuntu / Ubuntu Sans have no
+        // arrows (↔ …), no ● etc.; freetype-based apps fall back the same way so ours must too, or those
+        // glyphs render as tofu. Loaded once; scaled independently to the same pixel size.
+        static std::vector<uint8_t> s_fbData;
+        static stbtt_fontinfo s_fbInfo;
+        static bool s_fbLoaded = false, s_fbTried = false;
+        if (!s_fbTried) {
+            s_fbTried = true;
+            std::ifstream ff("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", std::ios::binary | std::ios::ate);
+            if (ff) {
+                const auto n = static_cast<size_t>(ff.tellg()); ff.seekg(0);
+                s_fbData.resize(n); ff.read(reinterpret_cast<char*>(s_fbData.data()), n);
+                s_fbLoaded = stbtt_InitFont(&s_fbInfo, s_fbData.data(),
+                                            stbtt_GetFontOffsetForIndex(s_fbData.data(), 0)) != 0;
+            }
+        }
+        const float fbScale = s_fbLoaded ? stbtt_ScaleForPixelHeight(&s_fbInfo, pixelSize) : 0.0f;
+
         auto packRange = [&](uint32_t from, uint32_t to) {
             for (uint32_t cp = from; cp <= to; ++cp) {
+                // Primary font first; if it has no glyph for this codepoint, borrow it from the fallback.
+                const stbtt_fontinfo* fi = &m_info; float sc = scale;
+                if (stbtt_FindGlyphIndex(&m_info, static_cast<int>(cp)) == 0 &&
+                    s_fbLoaded && stbtt_FindGlyphIndex(&s_fbInfo, static_cast<int>(cp)) != 0) {
+                    fi = &s_fbInfo; sc = fbScale;
+                }
                 int w, h, xoff, yoff;
                 uint8_t* bmp = stbtt_GetCodepointBitmap(
-                    &m_info, 0.0f, scale, static_cast<int>(cp), &w, &h, &xoff, &yoff);
+                    fi, 0.0f, sc, static_cast<int>(cp), &w, &h, &xoff, &yoff);
                 if (!bmp) {
                     // Whitespace: no pixels, but we still need the advance width
                     int adv, lsb;
-                    stbtt_GetCodepointHMetrics(&m_info, static_cast<int>(cp), &adv, &lsb);
+                    stbtt_GetCodepointHMetrics(fi, static_cast<int>(cp), &adv, &lsb);
                     JGlyphInfo gi{};
-                    gi.advanceX = adv * scale;
+                    gi.advanceX = adv * sc;
                     atlas.glyphs[cp] = gi;
                     continue;
                 }
@@ -179,8 +203,8 @@ public:
                 gi.bearingY = static_cast<float>(yoff);
 
                 int adv, lsb;
-                stbtt_GetCodepointHMetrics(&m_info, static_cast<int>(cp), &adv, &lsb);
-                gi.advanceX = adv * scale;
+                stbtt_GetCodepointHMetrics(fi, static_cast<int>(cp), &adv, &lsb);
+                gi.advanceX = adv * sc;
 
                 atlas.glyphs[cp] = gi;
                 shelfH = std::max(shelfH, static_cast<uint32_t>(h));
@@ -193,6 +217,7 @@ public:
         packRange(160, 255);  // Latin-1 supplement
         packRange(0x2013, 0x2022); // dashes, typographic quotes, dagger, bullet (•)
         packRange(0x2026, 0x2026); // ellipsis (…)
+        packRange(0x2190, 0x2194); // arrows ← ↑ → ↓ ↔ (the toolbar's "Verify ↔ ECU" etc.)
         packRange(0x25CF, 0x25CF); // black circle (●) — present in DejaVu/Noto (absent in Ubuntu)
 
         atlas.valid = true;

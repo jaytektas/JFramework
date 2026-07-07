@@ -128,6 +128,7 @@ public:
     // laying its content widget into the leaf's content rect). Marks the node dirty so the
     // subtree re-lays-out; container widgets (JScrollArea/JGroupBox/…) arrange children from it.
     void setBounds(const JRect& r) { m_graph.getLayout(m_nodeId).boundingBox = r; }
+    JRect bounds() const { return m_graph.getLayoutConst(m_nodeId).boundingBox; }
 
     void setEnabled(bool e) {
         setState(e ? JWidgetState::Normal : JWidgetState::Disabled);
@@ -479,8 +480,13 @@ public:
             // Whitespace or zero-size glyphs: advance pen only, no geometry
             if (g.pixelW < 0.5f || g.pixelH < 0.5f) continue;
 
-            float gx = penX - g.advanceX + g.bearingX;
-            float gy = baseline + g.bearingY;
+            // Pixel-snap the glyph quad to the display grid. The atlas is packed and sampled 1:1, but a
+            // fractional pen position (fractional advances + fractional ascent) makes the LINEAR sampler
+            // smear each glyph across two texel columns/rows — the whole run looks soft/blurry. Snapping the
+            // quad's top-left to integers makes every glyph land on the pixel grid (crisp), while penX stays
+            // fractional above so letter spacing is unchanged.
+            float gx = std::floor(penX - g.advanceX + g.bearingX + 0.5f);
+            float gy = std::floor(baseline + g.bearingY + 0.5f);
             float gw = g.pixelW, gh = g.pixelH;
 
             call.verts.push_back({gx,      gy,      g.u0, g.v0});
@@ -802,11 +808,15 @@ protected:
     virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b) {
         if (JTextHelper::hasAtlas()) {
             std::string txt = tr(m_label);
-            float tw = JTextHelper::measureWidth(txt);
-            float tx = b.x + (b.width  - tw) * 0.5f;
-            float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
+            const float pad   = 6.f;
+            const float avail = b.width - 2.f * pad;                 // interior width for the label
+            const float tw    = JTextHelper::measureWidth(txt);
+            // Centre when it fits; left-align and clip (maxWidth) when the label is too long, so a long
+            // label is truncated inside the button instead of spilling past its edges.
+            const float tx = (tw <= avail) ? b.x + (b.width - tw) * 0.5f : b.x + pad;
+            const float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             uint8_t tc[4] = {220, 220, 228, 230};
-            JTextHelper::pushText(buf, tx, ty, txt, tc);
+            JTextHelper::pushText(buf, tx, ty, txt, tc, avail);
         } else {
             float tw = b.width * 0.5f;
             float tx = b.x + (b.width - tw) * 0.5f;
@@ -847,6 +857,8 @@ public:
         }
     }
     bool isToggled() const { return m_toggled; }
+    void setLabel(const std::string& l) { m_label = l; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    const std::string& label() const { return m_label; }
 
     void handleMousePress(float mx, float my) override {
         if (isPointInside(mx, my)) setState(JWidgetState::Pressed);
@@ -887,10 +899,12 @@ protected:
     virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b) {
         if (JTextHelper::hasAtlas()) {
             std::string txt = tr(m_label);
-            float tw = JTextHelper::measureWidth(txt);
+            const float pad   = 6.f;
+            const float avail = b.width - 2.f * pad;
+            const float tw    = JTextHelper::measureWidth(txt);
+            const float tx    = (tw <= avail) ? b.x + (b.width - tw) * 0.5f : b.x + pad;   // centre or left-align+clip
             uint8_t tc[4] = {220, 220, 228, 230};
-            JTextHelper::pushText(buf, b.x + (b.width-tw)*0.5f,
-                                 b.y + (b.height-JTextHelper::lineHeight())*0.5f, txt, tc);
+            JTextHelper::pushText(buf, tx, b.y + (b.height-JTextHelper::lineHeight())*0.5f, txt, tc, avail);
         } else {
             float tw = b.width * 0.5f;
             uint8_t tc[4] = {220, 220, 228, 200};
@@ -1282,6 +1296,7 @@ public:
     void setText(const std::string& t) {
         if (m_text != t) {
             m_text = t;
+            m_caret = m_text.size();                          // caret to end on programmatic set
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onTextChanged.emit(t);
             if (JAiBusHook::emit)
@@ -1292,34 +1307,55 @@ public:
     const std::string& placeholder() const { return m_placeholder; }
 
     void handleMousePress(float mx, float my) override {
-        if (isPointInside(mx, my)) { onClicked.emit(); }
+        if (!isPointInside(mx, my)) return;
+        onClicked.emit();
+        // Place the caret at the clicked column (nearest character boundary), so clicking positions the
+        // cursor where you point instead of always at the end.
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const float innerX = b.x + textPadding();
+        m_caret = m_text.size();
+        if (JTextHelper::hasAtlas() && !m_text.empty()) {
+            const float target = mx - innerX;
+            float prevW = 0.f;
+            for (size_t i = 0; i < m_text.size(); ) {
+                const size_t nxt = _nextCharStart(i);
+                const float w = JTextHelper::measureWidth(m_text.substr(0, nxt));
+                if (target < (prevW + w) * 0.5f) { m_caret = i; break; }
+                prevW = w; i = nxt;
+            }
+        }
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
     bool handleKeyEvent(const JKeyEvent& ke) override {
         if (!ke.pressed) return false;
         using K = JKeyEvent::JKey;
-        if (ke.key == K::Backspace) {
-            if (!m_text.empty()) {
-                m_text.pop_back();
-                m_graph.invalidateNode(m_nodeId, DirtySelf);
-                onTextChanged.emit(m_text);
-                if (JAiBusHook::emit)
-                    JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
-            }
-            return true;
-        } else if (ke.key == K::Return) {
-            onReturnPressed.emit();
-            return true;
-        } else if (ke.utf8[0] != '\0') {
-            // Append character if it's printable (not control characters)
-            if (static_cast<uint8_t>(ke.utf8[0]) >= 32) {
-                m_text += ke.utf8;
-                m_graph.invalidateNode(m_nodeId, DirtySelf);
-                onTextChanged.emit(m_text);
-                if (JAiBusHook::emit)
-                    JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
+        if (m_caret > m_text.size()) m_caret = m_text.size();
+        auto changed = [&]{
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            onTextChanged.emit(m_text);
+            if (JAiBusHook::emit) JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
+        };
+        switch (ke.key) {
+            case K::Backspace:
+                if (m_caret > 0) { const size_t p = _prevCharStart(m_caret); m_text.erase(p, m_caret - p); m_caret = p; changed(); }
                 return true;
-            }
+            case K::Delete:
+                if (m_caret < m_text.size()) { m_text.erase(m_caret, _nextCharStart(m_caret) - m_caret); changed(); }
+                return true;
+            case K::Left:  m_caret = _prevCharStart(m_caret); m_graph.invalidateNode(m_nodeId, DirtySelf); return true;
+            case K::Right: m_caret = _nextCharStart(m_caret); m_graph.invalidateNode(m_nodeId, DirtySelf); return true;
+            case K::Home:  m_caret = 0;              m_graph.invalidateNode(m_nodeId, DirtySelf); return true;
+            case K::End:   m_caret = m_text.size();  m_graph.invalidateNode(m_nodeId, DirtySelf); return true;
+            case K::Return: onReturnPressed.emit(); return true;
+            default: break;
+        }
+        if (ke.utf8[0] != '\0' && static_cast<uint8_t>(ke.utf8[0]) >= 32) {   // printable → insert at caret
+            const std::string ch = ke.utf8;
+            m_text.insert(m_caret, ch);
+            m_caret += ch.size();
+            changed();
+            return true;
         }
         return false;
     }
@@ -1357,9 +1393,14 @@ public:
             }
         }
 
-        // Blinking cursor when focused
+        // Caret at the actual insertion point (measured up to the caret index), not a fixed fraction.
         if (focused) {
-            float cx = m_text.empty() ? innerX : innerX + innerW * 0.65f + 2.0f;
+            const size_t caret = m_caret > m_text.size() ? m_text.size() : m_caret;
+            float cx = innerX;
+            if (caret > 0)
+                cx = innerX + (JTextHelper::hasAtlas() ? JTextHelper::measureWidth(m_text.substr(0, caret))
+                                                       : innerW * 0.65f * (float)caret / (float)std::max<size_t>(1, m_text.size()));
+            if (cx > innerX + innerW) cx = innerX + innerW;   // clamp inside the field
             buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f, Colors::Accent);
         }
     }
@@ -1371,8 +1412,23 @@ public:
     }
 
 private:
+    // UTF-8 char-boundary navigation: skip continuation bytes (0b10xxxxxx) so the caret lands on whole chars.
+    size_t _nextCharStart(size_t i) const {
+        if (i >= m_text.size()) return m_text.size();
+        ++i;
+        while (i < m_text.size() && (static_cast<uint8_t>(m_text[i]) & 0xC0) == 0x80) ++i;
+        return i;
+    }
+    size_t _prevCharStart(size_t i) const {
+        if (i == 0) return 0;
+        --i;
+        while (i > 0 && (static_cast<uint8_t>(m_text[i]) & 0xC0) == 0x80) --i;
+        return i;
+    }
+
     std::string m_text;
     std::string m_placeholder;
+    size_t      m_caret = 0;   // insertion index into m_text (bytes; on a UTF-8 char boundary)
 };
 
 // ============================================================================
@@ -1475,17 +1531,34 @@ public:
     }
 
     void setText(const std::string& t) {
-        if (m_text != t) {
-            m_text = t;
+        const std::string v = (m_maxLen && t.size() > m_maxLen) ? t.substr(0, m_maxLen) : t;
+        if (m_text != v) {
+            m_text = v;
             m_cursorPos = m_text.size();
+            m_ensureCaret = true;              // scroll to the caret on the next render (cursor moved)
+            m_layoutDirty = true;              // text changed → reflow the cached layout
             m_graph.invalidateNode(m_nodeId, DirtySelf);
-            onTextChanged.emit(t);
+            onTextChanged.emit(m_text);        // clamped value (not the raw argument)
             if (JAiBusHook::emit)
                 JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
         }
     }
     const std::string& text()        const { return m_text; }
     const std::string& placeholder() const { return m_placeholder; }
+
+    // Hard cap on the character count (0 = unlimited). Typing / Enter / paste that would exceed it are
+    // rejected (a paste is truncated to fit); setText clamps too. Use it to bind an editor to a fixed-size
+    // backing field so the user can't author more than the field holds.
+    void   setMaxLength(size_t n) {
+        m_maxLen = n;
+        if (m_maxLen && m_text.size() > m_maxLen) {          // clamp any existing over-length text
+            m_text.resize(m_maxLen);
+            if (m_cursorPos > m_maxLen) m_cursorPos = m_maxLen;
+            m_layoutDirty = true; m_graph.invalidateNode(m_nodeId, DirtySelf);
+        }
+    }
+    size_t maxLength() const { return m_maxLen; }
+    bool   _full() const { return m_maxLen && m_text.size() >= m_maxLen; }
 
     std::string selectedText() const {
         if (!m_selActive || m_selStart == m_selEnd) return {};
@@ -1497,6 +1570,13 @@ public:
     void handleMousePress(float mx, float my) override {
         if (!isPointInside(mx, my)) return;
         onClicked.emit();
+        // Scrollbar takes precedence over caret placement: grab the thumb, or page the view to a track click.
+        if (m_hasScrollBar && mx >= m_sbX && mx <= m_sbX + m_sbW) {
+            if (my >= m_sbThumbY && my <= m_sbThumbY + m_sbThumbH) { m_sbDragging = true; m_sbGrabDY = my - m_sbThumbY; }
+            else _scrollThumbTo(my - m_sbThumbH * 0.5f);
+            return;
+        }
+        m_ensureCaret = true;                  // a click positions the caret → keep it in view
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float innerX = b.x + 8.0f;
         float innerY = b.y + 8.0f;
@@ -1530,60 +1610,118 @@ public:
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
+    void handleMouseMove(float mx, float my) override {
+        JControl::handleMouseMove(mx, my);
+        if (m_sbDragging) _scrollThumbTo(my - m_sbGrabDY);
+    }
+    void handleMouseRelease(float mx, float my) override { m_sbDragging = false; JControl::handleMouseRelease(mx, my); }
+
+    // Position the view so the scroll thumb's top lands at `thumbTopY` (screen). Used by thumb-drag + track-click.
+    void _scrollThumbTo(float thumbTopY) {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const float lh = JTextHelper::hasAtlas() ? JTextHelper::lineHeight() : 12.0f;
+        const float innerH = b.height - 16.0f;
+        const float maxScroll = std::max(0.0f, static_cast<float>(getLines().size()) * lh - innerH);
+        const float range = m_sbTrackH - m_sbThumbH;
+        const float t = range > 0.0f ? std::clamp((thumbTopY - m_sbY) / range, 0.0f, 1.0f) : 0.0f;
+        m_scrollOffset = t * maxScroll;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+
+    // ---- Visual rows (soft word-wrap) --------------------------------------------------------------
+    // Every geometry op (render / cursor / click / scroll) works on VISUAL rows so long lines wrap inside
+    // the widget instead of spilling out. A row is a byte range [start, start+len) of m_text with NO '\n';
+    // rows come from splitting logical lines (on '\n') AND wrapping any line wider than the text area at a
+    // space boundary (falling back to mid-word for a single over-long token).
+    struct VRow { size_t start; size_t len; };
+
+    float _wrapWidth() const {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        return std::max(40.0f, b.width - 16.0f - 10.0f);   // inner width minus the scrollbar gutter
+    }
+    // Recompute the wrapped rows + syntax colours — ONLY when the text or width changed (marked by
+    // m_layoutDirty). Idle frames and cursor navigation reuse the cache; the render just draws + culls it.
+    // Wrapping uses a per-ASCII advance table (no per-char measure / substr), so a reflow is one cheap O(n)
+    // pass, not O(n) expensive calls per frame.
+    void _ensureLayout() const {
+        const float w = _wrapWidth();
+        if (!m_layoutDirty && w == m_layoutW) return;
+        m_layoutW = w; m_layoutDirty = false;
+
+        const bool atlas = JTextHelper::hasAtlas();
+        float adv[128];
+        if (atlas) { const auto& atl = JTextHelper::atlas();
+            for (int i = 0; i < 128; ++i) { auto it = atl.glyphs.find(static_cast<uint32_t>(i));
+                adv[i] = (it != atl.glyphs.end()) ? it->second.advanceX : atl.ascent * 0.35f; } }
+        auto cw = [&](unsigned char c) -> float { return atlas ? (c < 128 ? adv[c] : 8.0f) : 6.0f; };
+
+        m_rows.clear();
+        size_t lineStart = 0;
+        for (size_t i = 0; i <= m_text.size(); ++i) {
+            if (i != m_text.size() && m_text[i] != '\n') continue;
+            if (lineStart >= i) { m_rows.push_back({lineStart, 0}); }
+            else {
+                size_t rowStart = lineStart;
+                while (rowStart < i) {                                     // wrap the logical line [lineStart, i)
+                    float acc = 0.f; size_t j = rowStart, lastSpace = std::string::npos, brk = i;
+                    while (j < i) {
+                        const float a = cw(static_cast<unsigned char>(m_text[j]));
+                        if (acc + a > w && j > rowStart) {
+                            brk = (lastSpace != std::string::npos && lastSpace + 1 > rowStart) ? lastSpace + 1 : j;
+                            break;
+                        }
+                        if (m_text[j] == ' ' || m_text[j] == '\t') lastSpace = j;
+                        acc += a; ++j; brk = j;
+                    }
+                    m_rows.push_back({rowStart, brk - rowStart});
+                    rowStart = brk;
+                }
+            }
+            lineStart = i + 1;
+            if (i == m_text.size()) break;
+        }
+        if (m_rows.empty()) m_rows.push_back({0, 0});
+
+        m_hcols.clear();
+        if (m_highlighter && !m_text.empty()) m_highlighter(m_text, m_hcols);   // syntax colours: once per change
+    }
+    const std::vector<VRow>& visualRows() const { _ensureLayout(); return m_rows; }
+    std::string _rowText(const VRow& r) const { return m_text.substr(r.start, r.len); }
+
     std::vector<std::string> getLines() const {
         std::vector<std::string> lines;
-        std::string current;
-        for (char c : m_text) {
-            if (c == '\n') {
-                lines.push_back(current);
-                current.clear();
-            } else {
-                current.push_back(c);
-            }
-        }
-        lines.push_back(current);
+        for (const VRow& r : visualRows()) lines.push_back(_rowText(r));
         return lines;
     }
 
     void getCursorLineCol(size_t& outLine, size_t& outCol) const {
-        outLine = 0;
-        outCol = 0;
-        for (size_t i = 0; i < m_cursorPos && i < m_text.size(); ++i) {
-            if (m_text[i] == '\n') {
-                outLine++;
-                outCol = 0;
-            } else {
-                outCol++;
+        const auto& rows = visualRows();
+        outLine = 0; outCol = 0;
+        for (size_t r = 0; r < rows.size(); ++r) {
+            const size_t rowEnd = rows[r].start + rows[r].len;
+            const bool last = (r + 1 == rows.size());
+            if (m_cursorPos <= rowEnd || last) {                           // caret sits on this visual row
+                if (!last && m_cursorPos == rowEnd + 1) continue;          // exactly on the '\n' → next row
+                outLine = r;
+                outCol  = m_cursorPos >= rows[r].start ? m_cursorPos - rows[r].start : 0;
+                if (outCol > rows[r].len) outCol = rows[r].len;
+                return;
             }
         }
     }
 
     size_t getPosFromLineCol(size_t line, size_t col) const {
-        size_t curLine = 0;
-        size_t curCol = 0;
-        size_t i = 0;
-        for (; i < m_text.size(); ++i) {
-            if (curLine == line) {
-                if (curCol == col || m_text[i] == '\n') {
-                    return i;
-                }
-                curCol++;
-            } else {
-                if (m_text[i] == '\n') {
-                    curLine++;
-                    curCol = 0;
-                    if (curLine == line && col == 0) {
-                        return i + 1;
-                    }
-                }
-            }
-        }
-        return i;
+        const auto& rows = visualRows();
+        if (rows.empty()) return 0;
+        if (line >= rows.size()) line = rows.size() - 1;
+        if (col > rows[line].len) col = rows[line].len;
+        return rows[line].start + col;
     }
 
     bool handleKeyEvent(const JKeyEvent& ke) override {
         if (!ke.pressed) return false;
         using K = JKeyEvent::JKey;
+        m_ensureCaret = true;                  // typing / navigating moves the caret → keep it in view
 
         size_t line = 0, col = 0;
         getCursorLineCol(line, col);
@@ -1607,12 +1745,17 @@ public:
                 std::string clip = JClipboard::getText();
                 if (!clip.empty()) {
                     _deleteSelection();
+                    if (m_maxLen && m_text.size() + clip.size() > m_maxLen)      // truncate the paste to fit the cap
+                        clip.resize(m_maxLen > m_text.size() ? m_maxLen - m_text.size() : 0);
+                    if (!clip.empty()) {
                     m_text.insert(m_cursorPos, clip);
                     m_cursorPos += clip.size();
+                    m_layoutDirty = true;
                     m_graph.invalidateNode(m_nodeId, DirtySelf);
                     onTextChanged.emit(m_text);
                     if (JAiBusHook::emit)
                         JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
+                    }
                 }
                 return true;
             }
@@ -1644,6 +1787,7 @@ public:
             } else if (m_cursorPos > 0 && !m_text.empty()) {
                 m_text.erase(m_cursorPos - 1, 1);
                 m_cursorPos--;
+                m_layoutDirty = true;
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
                 onTextChanged.emit(m_text);
                 if (JAiBusHook::emit)
@@ -1655,6 +1799,7 @@ public:
                 _deleteSelection();
             } else if (m_cursorPos < m_text.size()) {
                 m_text.erase(m_cursorPos, 1);
+                m_layoutDirty = true;
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
                 onTextChanged.emit(m_text);
                 if (JAiBusHook::emit)
@@ -1663,8 +1808,10 @@ public:
             return true;
         } else if (ke.key == K::Return) {
             _deleteSelection();
+            if (_full()) return true;                          // at the cap → reject
             m_text.insert(m_cursorPos, "\n");
             m_cursorPos++;
+            m_layoutDirty = true;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onTextChanged.emit(m_text);
             if (JAiBusHook::emit)
@@ -1705,8 +1852,10 @@ public:
         } else if (ke.utf8[0] != '\0' && !ke.ctrl) {
             if (static_cast<uint8_t>(ke.utf8[0]) >= 32 || ke.utf8[0] == '\t') {
                 _deleteSelection();
+                if (m_maxLen && m_text.size() + std::strlen(ke.utf8) > m_maxLen) return true;   // at the cap → reject
                 m_text.insert(m_cursorPos, ke.utf8);
                 m_cursorPos += std::strlen(ke.utf8);
+                m_layoutDirty = true;
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
                 onTextChanged.emit(m_text);
                 if (JAiBusHook::emit)
@@ -1736,94 +1885,70 @@ public:
         size_t cursorLine = 0, cursorCol = 0;
         getCursorLineCol(cursorLine, cursorCol);
 
-        // Keep cursor visible with scroll offset
-        float cursorYRel = cursorLine * lh;
-        if (cursorYRel < m_scrollOffset) {
-            m_scrollOffset = cursorYRel;
-        } else if (cursorYRel + lh > m_scrollOffset + innerH) {
-            m_scrollOffset = cursorYRel + lh - innerH;
+        const auto& rows = visualRows();
+
+        // Scroll to keep the caret visible — ONLY when the caret just moved (typing / arrows / click), so the
+        // mouse wheel can freely scroll elsewhere without the view snapping back to the caret every frame.
+        if (m_ensureCaret) {
+            float cursorYRel = cursorLine * lh;
+            if (cursorYRel < m_scrollOffset)                 m_scrollOffset = cursorYRel;
+            else if (cursorYRel + lh > m_scrollOffset + innerH) m_scrollOffset = cursorYRel + lh - innerH;
+            m_ensureCaret = false;
         }
-        m_scrollOffset = std::max(0.0f, m_scrollOffset);
+        // Always clamp to the content extent (handles text shrinking / resize).
+        const float maxScroll = std::max(0.0f, static_cast<float>(rows.size()) * lh - innerH);
+        m_scrollOffset = std::clamp(m_scrollOffset, 0.0f, maxScroll);
 
-        auto lines = getLines();
+        buf.pushClip(innerX, innerY, innerW, innerH);   // wrapped rows fit, but clip so nothing ever spills out
 
-        // Draw selection highlights before text
+        auto rowX = [&](const std::string& t, size_t nchars) -> float {
+            return innerX + (JTextHelper::hasAtlas() ? JTextHelper::measureWidth(t.substr(0, nchars))
+                                                     : static_cast<float>(nchars) * 6.0f);
+        };
+
+        // Selection highlight — per visual row, the intersection of the row's byte range with [selLo, selHi).
         if (m_selActive && m_selStart != m_selEnd) {
-            size_t selLo = std::min(m_selStart, m_selEnd);
-            size_t selHi = std::max(m_selStart, m_selEnd);
-            size_t loLine = 0, loCol = 0, hiLine = 0, hiCol = 0;
-            // Walk text to find line/col of selLo and selHi
-            size_t l = 0, c = 0;
-            for (size_t i = 0; i <= m_text.size(); ++i) {
-                if (i == selLo) { loLine = l; loCol = c; }
-                if (i == selHi) { hiLine = l; hiCol = c; break; }
-                if (i < m_text.size()) {
-                    if (m_text[i] == '\n') { ++l; c = 0; } else { ++c; }
-                }
-            }
-            uint8_t selColor[4] = {65, 105, 225, 100}; // semi-transparent blue
-            for (size_t sl = loLine; sl <= hiLine && sl < lines.size(); ++sl) {
-                float lineY = innerY + sl * lh - m_scrollOffset;
+            const size_t selLo = std::min(m_selStart, m_selEnd), selHi = std::max(m_selStart, m_selEnd);
+            const uint8_t selColor[4] = {65, 105, 225, 100};
+            for (size_t r = 0; r < rows.size(); ++r) {
+                const float lineY = innerY + r * lh - m_scrollOffset;
                 if (lineY + lh < innerY || lineY > innerY + innerH) continue;
-                float startX = innerX;
-                float endX   = innerX + (JTextHelper::hasAtlas()
-                    ? JTextHelper::measureWidth(lines[sl])
-                    : static_cast<float>(lines[sl].size() * 6));
-                if (sl == loLine) {
-                    std::string prefix = lines[sl].substr(0, loCol);
-                    startX = innerX + (JTextHelper::hasAtlas()
-                        ? JTextHelper::measureWidth(prefix)
-                        : static_cast<float>(loCol * 6));
-                }
-                if (sl == hiLine) {
-                    std::string prefix = lines[sl].substr(0, hiCol);
-                    endX = innerX + (JTextHelper::hasAtlas()
-                        ? JTextHelper::measureWidth(prefix)
-                        : static_cast<float>(hiCol * 6));
-                }
-                float rw = endX - startX;
-                if (rw > 0) buf.pushRectangle(startX, lineY, rw, lh, selColor);
+                const size_t rs = rows[r].start, re = rs + rows[r].len;
+                const size_t a = std::max(selLo, rs), bb = std::min(selHi, re);
+                if (bb <= a) continue;
+                const std::string rowT = _rowText(rows[r]);
+                const float sx = rowX(rowT, a - rs), ex = rowX(rowT, bb - rs);
+                if (ex > sx) buf.pushRectangle(sx, lineY, ex - sx, lh, selColor);
             }
         }
 
         if (JTextHelper::hasAtlas()) {
+            const std::vector<uint8_t>& cols = m_hcols;   // syntax colours from the cached layout (not per frame)
+            const uint8_t tc[4] = {220, 220, 228, 220};
             if (m_text.empty() && !m_placeholder.empty()) {
                 uint8_t pc[4] = {100, 100, 110, 160};
                 JTextHelper::pushText(buf, innerX, innerY, m_placeholder, pc, innerW);
-            } else if (m_highlighter) {
-                // Syntax-highlighted draw: the hook fills a per-character RGBA colour; each line is drawn as
-                // runs of equal colour. Only taken when a highlighter is set (default path below is unchanged).
-                std::vector<uint8_t> cols; m_highlighter(m_text, cols);
-                uint8_t tc[4] = {220, 220, 228, 220};
-                size_t off = 0;                                          // char offset of the line's start in m_text
-                for (size_t i = 0; i < lines.size(); ++i) {
-                    const std::string& ln = lines[i];
-                    const float lineY = innerY + i * lh - m_scrollOffset;
-                    if (lineY + lh >= innerY && lineY <= innerY + innerH) {
-                        auto colAt = [&](size_t c, uint8_t out[4]) {
-                            const size_t ci = (off + c) * 4;
-                            if (ci + 3 < cols.size()) { out[0]=cols[ci]; out[1]=cols[ci+1]; out[2]=cols[ci+2]; out[3]=cols[ci+3]; }
-                            else { out[0]=tc[0]; out[1]=tc[1]; out[2]=tc[2]; out[3]=tc[3]; }
-                        };
-                        float x = innerX;
-                        for (size_t j = 0; j < ln.size(); ) {
-                            uint8_t rc[4]; colAt(j, rc);
-                            size_t k = j + 1;
-                            for (; k < ln.size(); ++k) { uint8_t kc[4]; colAt(k, kc); if (kc[0]!=rc[0]||kc[1]!=rc[1]||kc[2]!=rc[2]||kc[3]!=rc[3]) break; }
-                            const std::string run = ln.substr(j, k - j);
-                            JTextHelper::pushText(buf, x, lineY, run, rc, innerW);
-                            x += JTextHelper::measureWidth(run);
-                            j = k;
-                        }
-                    }
-                    off += ln.size() + 1;                                // account for the split '\n'
-                }
             } else {
-                uint8_t tc[4] = {220, 220, 228, 220};
-                for (size_t i = 0; i < lines.size(); ++i) {
-                    float lineY = innerY + i * lh - m_scrollOffset;
-                    if (lineY + lh >= innerY && lineY <= innerY + innerH) {
-                        JTextHelper::pushText(buf, innerX, lineY, lines[i], tc, innerW);
+                for (size_t i = 0; i < rows.size(); ++i) {
+                    const float lineY = innerY + i * lh - m_scrollOffset;
+                    if (lineY + lh < innerY || lineY > innerY + innerH) continue;
+                    const std::string ln = _rowText(rows[i]);
+                    if (cols.empty()) { JTextHelper::pushText(buf, innerX, lineY, ln, tc, innerW); continue; }
+                    const size_t off = rows[i].start;                    // ABSOLUTE byte offset of this row's start
+                    auto colAt = [&](size_t c, uint8_t out[4]) {
+                        const size_t ci = (off + c) * 4;
+                        if (ci + 3 < cols.size()) { out[0]=cols[ci]; out[1]=cols[ci+1]; out[2]=cols[ci+2]; out[3]=cols[ci+3]; }
+                        else { out[0]=tc[0]; out[1]=tc[1]; out[2]=tc[2]; out[3]=tc[3]; }
+                    };
+                    float x = innerX;
+                    for (size_t j = 0; j < ln.size(); ) {
+                        uint8_t rc[4]; colAt(j, rc);
+                        size_t k = j + 1;
+                        for (; k < ln.size(); ++k) { uint8_t kc[4]; colAt(k, kc); if (kc[0]!=rc[0]||kc[1]!=rc[1]||kc[2]!=rc[2]||kc[3]!=rc[3]) break; }
+                        const std::string run = ln.substr(j, k - j);
+                        JTextHelper::pushText(buf, x, lineY, run, rc, innerW);
+                        x += JTextHelper::measureWidth(run);
+                        j = k;
                     }
                 }
             }
@@ -1833,28 +1958,54 @@ public:
                 buf.pushRectangle(innerX, innerY + (lh - 7.0f) * 0.5f, innerW * 0.55f, 7.0f, pc, 2.0f);
             } else {
                 uint8_t tc[4] = {220, 220, 228, 200};
-                for (size_t i = 0; i < lines.size(); ++i) {
+                for (size_t i = 0; i < rows.size(); ++i) {
                     float lineY = innerY + i * lh - m_scrollOffset;
-                    if (lineY + lh >= innerY && lineY <= innerY + innerH) {
-                        float lw = std::min(innerW, 20.0f + static_cast<float>(lines[i].size() * 6));
-                        buf.pushRectangle(innerX, lineY + (lh - 7.0f) * 0.5f, lw, 7.0f, tc, 2.0f);
-                    }
+                    if (lineY + lh < innerY || lineY > innerY + innerH) continue;
+                    float lw = std::min(innerW, 20.0f + static_cast<float>(rows[i].len * 6));
+                    buf.pushRectangle(innerX, lineY + (lh - 7.0f) * 0.5f, lw, 7.0f, tc, 2.0f);
                 }
             }
         }
 
-        // Render Cursor
+        // Caret at the cursor's visual row/column.
         if (focused) {
             float cx = innerX;
-            if (!m_text.empty() && cursorLine < lines.size()) {
-                std::string currentLineText = lines[cursorLine].substr(0, cursorCol);
-                cx = innerX + (JTextHelper::hasAtlas() ? JTextHelper::measureWidth(currentLineText) : cursorCol * 6.0f);
-            }
+            if (!m_text.empty() && cursorLine < rows.size())
+                cx = rowX(_rowText(rows[cursorLine]), std::min(cursorCol, rows[cursorLine].len));
             float cy = innerY + cursorLine * lh - m_scrollOffset;
-            if (cy + lh >= innerY && cy <= innerY + innerH) {
+            if (cy + lh >= innerY && cy <= innerY + innerH)
                 buf.pushRectangle(cx, cy + 2.0f, 1.5f, lh - 4.0f, Colors::Accent);
-            }
         }
+
+        buf.popClip();
+
+        // Vertical scrollbar — shown only when the content overflows. Track down the right inner edge, thumb
+        // sized/positioned by the visible fraction. Drag it with dragScrollThumb via handleMousePress/Move.
+        const float contentH = static_cast<float>(rows.size()) * lh;
+        m_hasScrollBar = contentH > innerH + 1.0f;
+        if (m_hasScrollBar) {
+            const float sbW = 8.0f;
+            m_sbX = b.x + b.width - sbW - 3.0f; m_sbY = b.y + 4.0f; m_sbW = sbW; m_sbTrackH = b.height - 8.0f;
+            buf.pushRectangle(m_sbX, m_sbY, sbW, m_sbTrackH, Colors::Surface0, sbW * 0.5f);
+            const float maxScroll = contentH - innerH;
+            m_sbThumbH = std::max(24.0f, m_sbTrackH * (innerH / contentH));
+            const float frac = maxScroll > 0.0f ? (m_scrollOffset / maxScroll) : 0.0f;
+            m_sbThumbY = m_sbY + frac * (m_sbTrackH - m_sbThumbH);
+            buf.pushRectangle(m_sbX, m_sbThumbY, sbW, m_sbThumbH, Colors::Surface3, sbW * 0.5f);
+        }
+    }
+
+    // Mouse wheel scrolls the view (independently of the caret).
+    bool handleScroll(float mx, float my, float wheel) override {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        if (mx < b.x || mx > b.x + b.width || my < b.y || my > b.y + b.height) return false;
+        const float lh = JTextHelper::hasAtlas() ? JTextHelper::lineHeight() : 12.0f;
+        const float innerH = b.height - 16.0f;
+        const float maxScroll = std::max(0.0f, static_cast<float>(getLines().size()) * lh - innerH);
+        if (maxScroll <= 0.0f) return false;
+        m_scrollOffset = std::clamp(m_scrollOffset - wheel * lh * 3.0f, 0.0f, maxScroll);
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+        return true;
     }
 
     JAISemanticNode getSemanticNode() const override { return {"JTextArea", m_placeholder, m_text, true}; }
@@ -1877,6 +2028,7 @@ private:
         m_text.erase(lo, hi - lo);
         m_cursorPos = lo;
         m_selActive = false;
+        m_layoutDirty = true;
         onTextChanged.emit(m_text);
         if (JAiBusHook::emit)
             JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
@@ -1889,6 +2041,20 @@ private:
     size_t      m_selStart{0};
     size_t      m_selEnd{0};
     bool        m_selActive{false};
+    bool        m_ensureCaret{true};   // scroll to the caret next render (set on caret-moving actions)
+    // Vertical scrollbar geometry, recomputed each render; used for wheel + thumb-drag hit-testing.
+    bool        m_hasScrollBar{false};
+    float       m_sbX{0}, m_sbY{0}, m_sbW{0}, m_sbTrackH{0}, m_sbThumbY{0}, m_sbThumbH{0};
+    bool        m_sbDragging{false};
+    float       m_sbGrabDY{0};
+    // Cached line layout (wrapped rows + syntax colours) — see _ensureLayout(). Recomputed only on a text or
+    // width change (m_layoutDirtY); the render/cursor/click just read it. `mutable` so const geometry ops
+    // (called from the const render) can lazily refresh it.
+    mutable std::vector<VRow>   m_rows;
+    mutable std::vector<uint8_t> m_hcols;         // per-char RGBA syntax colours (empty = no highlighter)
+    mutable bool                m_layoutDirty{true};
+    mutable float               m_layoutW{-1.0f};
+    size_t                      m_maxLen{0};          // hard character cap (0 = unlimited)
 };
 
 // ============================================================================
@@ -3666,6 +3832,7 @@ struct JTreeViewNode {
     std::vector<JTreeViewNode> children;
     std::string userData;   // opaque app payload (e.g. a binding path) carried by a node but not displayed
     int         icon{0};    // small type glyph drawn before the label (0 = none; app-defined kinds)
+    bool        hidden{false};   // transient: run-mode visibility filter hides the row + its subtree (not persisted)
 };
 
 class JTreeView : public JControl {
@@ -3674,6 +3841,12 @@ public:
     jf::JSignal<JTreeViewNode*> onNodeActivated;
     jf::JSignal<JTreeViewNode*> onNodeRenamed;    // fired after an in-place label edit commits
     jf::JSignal<JTreeViewNode*> onNodeDragStarted; // press-and-drag on a node past a threshold (app starts a JDragDrop)
+    jf::JSignal<> onDeleteKey;   // Delete/Backspace pressed with a node selected (app removes it)
+    jf::JSignal<> onEnterKey;    // Return pressed with a node selected and not renaming (app adds a sibling)
+    // Internal drag-reorder: fires on drop with (moved node, new parent, insert index). Enable with
+    // setInternalReorder(true); then a node drag reorders IN the tree instead of firing onNodeDragStarted.
+    jf::JSignal<JTreeViewNode*, JTreeViewNode*, int> onNodeMoved;
+    void setInternalReorder(bool on) { m_internalReorder = on; }
 
     // Begin an in-place rename of the selected node (context-menu "Rename"). Enter commits (fires
     // onNodeRenamed), Escape cancels; the row draws an edit field with a caret while active.
@@ -3731,6 +3904,20 @@ public:
 
     void expandAll()   { for (auto& c : m_root.children) _setExpandedRec(c, true);  m_root.expanded = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
     void collapseAll() { for (auto& c : m_root.children) _setExpandedRec(c, false); m_root.expanded = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+
+    // Run-mode condition filtering (mirrors the original EditTree::applyConditions): hide every node whose
+    // predicate returns false — and its whole subtree — in place, so selection + scroll survive. Re-run each
+    // telemetry frame; only invalidates when the visible set actually changes (no per-frame flicker/rebuild).
+    void applyVisibility(const std::function<bool(const JTreeViewNode&)>& visible) {
+        bool changed = false;
+        for (auto& c : m_root.children) _applyVis(c, visible, changed);
+        if (changed) { if (m_selectedNode && _isHidden(m_root, m_selectedNode)) _selectNode(nullptr); m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    }
+    void clearVisibility() {
+        bool changed = false;
+        for (auto& c : m_root.children) _clearVis(c, changed);
+        if (changed) m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
 
     float rowHeight() const { return m_rowHeight; }
     void setRowHeight(float h) { m_rowHeight = h; m_graph.invalidateNode(m_nodeId, DirtySelf); }
@@ -3798,6 +3985,30 @@ public:
 
     void handleMouseRelease(float mx, float my) override {
         m_draggingScroll = false;
+        if (m_dragging) {
+            JTreeViewNode* moved = m_pressNode;
+            _computeDrop(mx, my);
+            JTreeViewNode* target = m_dropTarget; int mode = m_dropMode;
+            m_dragging = false; m_dropTarget = nullptr; m_pressNode = nullptr;
+            bool didMove = false;
+            if (moved && target && moved != target && !_isAncestor(moved, target)) {
+                std::vector<int> srcPath = _pathOf(moved);
+                std::vector<int> destParentPath; int destIdx = 0;
+                if (mode == 1) {                       // drop as last child of target
+                    destParentPath = _pathOf(target);
+                    destIdx = (int)target->children.size();
+                } else {                               // insert before/after target (as its sibling)
+                    std::vector<int> tp = _pathOf(target);
+                    if (!tp.empty()) { destIdx = tp.back() + (mode == 2 ? 1 : 0); tp.pop_back(); destParentPath = tp; }
+                }
+                didMove = _moveNode(srcPath, destParentPath, destIdx);
+            }
+            m_selectedNode = nullptr;   // vector reallocation invalidated node pointers
+            m_lastClickNode = nullptr;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            if (didMove) onNodeMoved.emit(nullptr, nullptr, 0);   // app re-reads root() + persists
+            return;
+        }
         m_pressNode = nullptr;
         JControl::handleMouseRelease(mx, my);
     }
@@ -3818,11 +4029,32 @@ public:
             }
             return;
         }
-        // Press-and-drag on a node past a small threshold starts a drag; the app turns it into a
+        // An internal-reorder drag in progress: track the drop target under the cursor each move.
+        if (m_dragging) {
+            // If the drag leaves the tree's bounds, hand the node off to the app as a drag payload
+            // (onNodeDragStarted) so a drop target elsewhere — e.g. a surface placing the node as a
+            // viewport — can accept it. The internal reorder is cancelled. Mirrors the original studio
+            // tree, whose drag carried BOTH an internal-move payload and a node-path mime at once.
+            const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+            const bool outside = mx < b.x || mx > b.x + b.width || my < b.y || my > b.y + b.height;
+            if (outside && m_pressNode) {
+                JTreeViewNode* n = m_pressNode;
+                m_dragging = false; m_dropTarget = nullptr; m_pressNode = nullptr;
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+                onNodeDragStarted.emit(n);
+                return;
+            }
+            _computeDrop(mx, my); m_graph.invalidateNode(m_nodeId, DirtySelf); return;
+        }
+        // Press-and-drag on a node past a small threshold starts a drag. With internal reorder enabled
+        // it becomes an in-tree move (drop indicator + onNodeMoved); otherwise the app turns it into a
         // JDragDrop of the node payload (one-shot: clear the armed node so it fires once).
         if (m_pressNode && !m_editNode) {
             const float ddx = mx - m_pressX, ddy = my - m_pressY;
-            if (ddx * ddx + ddy * ddy > 25.0f) { JTreeViewNode* n = m_pressNode; m_pressNode = nullptr; onNodeDragStarted.emit(n); }
+            if (ddx * ddx + ddy * ddy > 25.0f) {
+                if (m_internalReorder) { m_dragging = true; _computeDrop(mx, my); m_graph.invalidateNode(m_nodeId, DirtySelf); }
+                else { JTreeViewNode* n = m_pressNode; m_pressNode = nullptr; onNodeDragStarted.emit(n); }
+            }
         }
         JControl::handleMouseMove(mx, my);
     }
@@ -3856,6 +4088,11 @@ public:
 
         // F2 begins an in-place rename of the selected node (standard rename shortcut).
         if (m_editable && ke.key == EK::F2 && m_selectedNode) { beginRename(); return true; }
+
+        // Structural shortcuts (mirror the original studio's EditTree): Delete/Backspace remove the
+        // selected node, Return adds a sibling. The app connects these and applies its own edit-mode gate.
+        if ((ke.key == EK::Delete || ke.key == EK::Backspace) && m_selectedNode) { onDeleteKey.emit(); return true; }
+        if (ke.key == EK::Return && m_selectedNode) { onEnterKey.emit(); return true; }
 
         auto flatNodes = getFlatNodes();
         if (flatNodes.empty()) return false;
@@ -3984,6 +4221,23 @@ public:
             }
         }
 
+        // Drop indicator during an internal-reorder drag: a boxed row for "into", else a caret line
+        // at the top (before) or bottom (after) of the hovered row.
+        if (m_dragging && m_dropTarget) {
+            int di = -1;
+            for (int i = 0; i < (int)flatNodes.size(); ++i) if (flatNodes[i].node == m_dropTarget) { di = i; break; }
+            if (di >= 0) {
+                float ry = b.y + 4.0f + di * itemH - m_scrollY;
+                uint8_t ind[4] = {10, 132, 255, 255};
+                if (m_dropMode == 1) {
+                    buf.pushRectangle(b.x + 3.0f, ry, b.width - 16.0f, itemH, Colors::Transparent, 4.0f, 2.0f, ind);
+                } else {
+                    float ly = (m_dropMode == 2) ? ry + itemH - 1.0f : ry - 1.0f;
+                    buf.pushRectangle(b.x + 6.0f, ly, b.width - 20.0f, 2.5f, ind, 1.0f);
+                }
+            }
+        }
+
         buf.popClip();
 
         if (totalH > b.height) {
@@ -4067,6 +4321,7 @@ protected:
 
 private:
     void _flatten(JTreeViewNode& node, int depth, std::vector<JFlatNode>& result) {
+        if (node.hidden) return;                                // run-mode condition filter (self + descendants)
         if (!m_filter.empty() && !_nodeMatches(node)) return;   // filtered out (self + descendants)
         result.push_back({&node, depth, result.size()});
         // While filtering, force subtrees open so matches deep in the tree are revealed.
@@ -4120,6 +4375,100 @@ private:
 
     static void _setExpandedRec(JTreeViewNode& n, bool e) { n.expanded = e; for (auto& c : n.children) _setExpandedRec(c, e); }
 
+    // Run-mode condition filter helpers (applyVisibility / clearVisibility). A node is hidden when its own
+    // predicate is false; a hidden node hides its whole subtree (children not evaluated). `changed` tracks
+    // whether the visible set moved, so the caller only invalidates on a real transition.
+    static void _applyVis(JTreeViewNode& n, const std::function<bool(const JTreeViewNode&)>& visible, bool& changed) {
+        const bool hide = !visible(n);
+        if (n.hidden != hide) { n.hidden = hide; changed = true; }
+        if (hide) { _clearVis(n, changed, /*childrenOnly*/ true); return; }   // subtree follows a hidden ancestor
+        for (auto& c : n.children) _applyVis(c, visible, changed);
+    }
+    static void _clearVis(JTreeViewNode& n, bool& changed, bool childrenOnly = false) {
+        if (!childrenOnly && n.hidden) { n.hidden = false; changed = true; }
+        for (auto& c : n.children) _clearVis(c, changed);
+    }
+    // True if `target` lies anywhere in `node`'s subtree AND that path passes through a hidden node — i.e. the
+    // node is currently filtered out. Used to drop a selection that a filter just hid.
+    static bool _isHidden(JTreeViewNode& node, JTreeViewNode* target) {
+        for (auto& c : node.children) {
+            if (&c == target) return c.hidden;
+            if (c.hidden) { if (_contains(c, target)) return true; }   // hidden ancestor hides the target
+            else if (_isHidden(c, target)) return true;
+        }
+        return false;
+    }
+    static bool _contains(JTreeViewNode& node, JTreeViewNode* target) {
+        for (auto& c : node.children) { if (&c == target) return true; if (_contains(c, target)) return true; }
+        return false;
+    }
+
+    // --- internal drag-reorder ---
+    // Decide the drop target + mode (0 before / 1 into / 2 after) for the cursor at (mx,my).
+    void _computeDrop(float mx, float my) {
+        (void)mx;
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        auto flat = getFlatNodes();
+        m_dropTarget = nullptr; m_dropMode = 0;
+        if (flat.empty()) return;
+        float itemH = getItemHeight();
+        float rel = my - b.y + m_scrollY - 4.0f;
+        int idx = std::clamp((int)(rel / itemH), 0, (int)flat.size() - 1);
+        m_dropTarget = flat[idx].node;
+        float frac = (rel - idx * itemH) / itemH;
+        m_dropMode = (frac < 0.25f) ? 0 : (frac > 0.75f) ? 2 : 1;
+    }
+    bool _isAncestor(JTreeViewNode* a, JTreeViewNode* b) {
+        if (a == b) return true;
+        for (auto& c : a->children) if (_isAncestor(&c, b)) return true;
+        return false;
+    }
+    std::vector<int> _pathOf(JTreeViewNode* target) {
+        std::vector<int> path;
+        std::function<bool(JTreeViewNode&)> rec = [&](JTreeViewNode& n) -> bool {
+            for (int i = 0; i < (int)n.children.size(); ++i) {
+                path.push_back(i);
+                if (&n.children[i] == target) return true;
+                if (rec(n.children[i])) return true;
+                path.pop_back();
+            }
+            return false;
+        };
+        if (rec(m_root)) return path;
+        return {};
+    }
+    JTreeViewNode* _atPath(const std::vector<int>& p) {
+        JTreeViewNode* n = &m_root;
+        for (int i : p) { if (i < 0 || i >= (int)n->children.size()) return nullptr; n = &n->children[i]; }
+        return n;
+    }
+    // Move the node at srcPath to be child #destIdx of the node at destParentPath, correcting for the
+    // index shifts that removing the source introduces (same parent, or a dest branch past the source).
+    bool _moveNode(std::vector<int> srcPath, std::vector<int> destParentPath, int destIdx) {
+        if (srcPath.empty()) return false;
+        int srcIdx = srcPath.back();
+        std::vector<int> srcParentPath(srcPath.begin(), srcPath.end() - 1);
+        JTreeViewNode* srcParent = _atPath(srcParentPath);
+        if (!srcParent || srcIdx < 0 || srcIdx >= (int)srcParent->children.size()) return false;
+        JTreeViewNode moved = std::move(srcParent->children[srcIdx]);
+        srcParent->children.erase(srcParent->children.begin() + srcIdx);
+        // If the destination path descends through srcParent past the removed index, shift it down one.
+        if (destParentPath.size() > srcParentPath.size() &&
+            std::equal(srcParentPath.begin(), srcParentPath.end(), destParentPath.begin())) {
+            int& branch = destParentPath[srcParentPath.size()];
+            if (branch > srcIdx) branch -= 1;
+        }
+        JTreeViewNode* destParent = _atPath(destParentPath);
+        if (!destParent) {   // shouldn't happen; put it back where it came from
+            srcParent->children.insert(srcParent->children.begin() + std::min(srcIdx, (int)srcParent->children.size()), std::move(moved));
+            return false;
+        }
+        if (destParent == srcParent && destIdx > srcIdx) destIdx -= 1;
+        destIdx = std::clamp(destIdx, 0, (int)destParent->children.size());
+        destParent->children.insert(destParent->children.begin() + destIdx, std::move(moved));
+        return true;
+    }
+
     JTreeViewNode  m_root;
     JTreeViewNode* m_selectedNode{nullptr};
     JTreeViewNode* m_editNode{nullptr};   // node whose label is being edited in place
@@ -4133,6 +4482,10 @@ private:
     float         m_dragStartScrollY{0.0f};
     JTreeViewNode* m_pressNode{nullptr};   // node pressed (candidate for a drag), cleared once the drag fires/ends
     float          m_pressX{0.0f}, m_pressY{0.0f};
+    bool           m_internalReorder{false};   // drag = in-tree move (vs. onNodeDragStarted external DnD)
+    bool           m_dragging{false};          // an internal-reorder drag is live
+    JTreeViewNode* m_dropTarget{nullptr};      // row under the cursor during a drag
+    int            m_dropMode{0};              // 0 = insert before, 1 = drop as child, 2 = insert after
     JTreeViewNode* m_lastClickNode{nullptr};                 // double-click-to-rename tracking
     std::chrono::steady_clock::time_point m_lastClickTime{};
 };

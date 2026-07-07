@@ -276,6 +276,21 @@ public:
 
     // ---- Font atlas upload ----
     bool uploadFontAtlas(const uint8_t* pixels, uint32_t w, uint32_t h) override {
+        // Re-upload safe (runtime font/size change). A prior call created the image/view/sampler and
+        // pointed m_textDescSet at them; recreating without tearing those down leaks them AND rewrites a
+        // descriptor the GPU may still be sampling -> driver crash. Wait for the GPU to go idle, destroy
+        // the old image resources, and REUSE the descriptor set (its pool has no free bit) by re-pointing
+        // it below. First call: these handles are all VK_NULL, so this block is a no-op.
+        if (m_atlasUploaded) {
+            vkDeviceWaitIdle(m_device);
+            vkDestroyImageView(m_device, m_atlasView, nullptr);
+            vkDestroyImage(m_device, m_atlasImage, nullptr);
+            vkFreeMemory(m_device, m_atlasMemory, nullptr);
+            vkDestroySampler(m_device, m_atlasSampler, nullptr);
+            m_atlasView = VK_NULL_HANDLE; m_atlasImage = VK_NULL_HANDLE;
+            m_atlasMemory = VK_NULL_HANDLE; m_atlasSampler = VK_NULL_HANDLE;
+            m_atlasUploaded = false;   // m_textDescSet is kept and re-pointed below
+        }
         VkDeviceSize sz = static_cast<VkDeviceSize>(w) * h;
 
         VkBuffer stagBuf; VkDeviceMemory stagMem;
@@ -347,11 +362,13 @@ public:
             VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         vkCreateSampler(m_device, &sci, nullptr, &m_atlasSampler);
 
-        VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-        dsai.descriptorPool     = m_textDescPool;
-        dsai.descriptorSetCount = 1;
-        dsai.pSetLayouts        = &m_textDescSetLayout;
-        vkAllocateDescriptorSets(m_device, &dsai, &m_textDescSet);
+        if (m_textDescSet == VK_NULL_HANDLE) {                 // allocate once; on re-upload we reuse + re-point it
+            VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+            dsai.descriptorPool     = m_textDescPool;
+            dsai.descriptorSetCount = 1;
+            dsai.pSetLayouts        = &m_textDescSetLayout;
+            vkAllocateDescriptorSets(m_device, &dsai, &m_textDescSet);
+        }
 
         VkDescriptorImageInfo dii{};
         dii.sampler     = m_atlasSampler;

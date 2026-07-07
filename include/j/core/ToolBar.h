@@ -24,7 +24,7 @@ public:
     // lays it into a slot `width` wide (default = a square the bar's height), renders it via its
     // own populateRenderPrimitives, and routes input to it. The widget is non-owning.
     void addWidget(JWidget* w, float width = 0.f) {
-        Item it{}; it.widget = w; it.w = width;
+        Item it{}; it.widget = w; it.w = width; it.h = w ? w->bounds().height : 0.f;  // capture natural height
         m_items.push_back(std::move(it));
     }
     bool empty() const { return m_items.empty(); }
@@ -67,24 +67,26 @@ public:
                 buf.pushRectangle(it.x + kSep * 0.5f, m_rect.y + 8.f, 1.f, h - 16.f, s, 0.f);
                 continue;
             }
-            if (it.widget) {                                   // hosted widget draws itself in its slot
-                const float pad = 4.f;
-                it.widget->setBounds({ it.x, m_rect.y + pad, it.w, h - 2.f * pad });
+            if (it.widget) {                                   // hosted widget: centred at its natural height
+                const float wh = it.h > 0.f ? it.h : (h - 8.f);
+                it.widget->setBounds({ it.x, m_rect.y + (h - wh) * 0.5f, it.w, wh });
                 it.widget->populateRenderPrimitives(buf);
                 continue;
             }
-            if (static_cast<int>(i) == m_pressed && static_cast<int>(i) == m_hover) {
-                uint8_t c[4] = {Colors::AccentPress[0], Colors::AccentPress[1], Colors::AccentPress[2], 255};
-                buf.pushRectangle(it.x + 3.f, m_rect.y + 5.f, it.w - 6.f, h - 10.f, c, 6.f);
-            } else if (static_cast<int>(i) == m_hover) {
-                uint8_t c[4] = {Colors::Surface2[0], Colors::Surface2[1], Colors::Surface2[2], 255};
-                buf.pushRectangle(it.x + 3.f, m_rect.y + 5.f, it.w - 6.f, h - 10.f, c, 6.f);
-            }
+            // Text button: a persistent bordered chip at the scheme button height, centred vertically —
+            // matches the original studio's QToolButton (panel fill + 1px border + rounded corners).
+            const float bh = JTheme::current().buttonHeight;
+            const float by = m_rect.y + (h - bh) * 0.5f;
+            const float br = JTheme::current().cornerRadius;
+            const bool  press = static_cast<int>(i) == m_pressed && static_cast<int>(i) == m_hover;
+            const bool  hover = static_cast<int>(i) == m_hover;
+            const uint8_t* fill = press ? Colors::AccentPress : hover ? Colors::Surface3 : Colors::Surface2;
+            buf.pushRectangle(it.x, by, it.w, bh, fill, br, JTheme::current().borderWidth, Colors::Border);
             if (JTextHelper::hasAtlas()) {
                 uint8_t tc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, tc);
                 float tw = JTextHelper::measureWidth(it.label);
                 JTextHelper::pushText(buf, it.x + (it.w - tw) * 0.5f,
-                                      m_rect.y + (h - JTextHelper::lineHeight()) * 0.5f, it.label, tc);
+                                      by + (bh - JTextHelper::lineHeight()) * 0.5f, it.label, tc);
             }
         }
     }
@@ -106,7 +108,7 @@ private:
         }
     }
 
-    struct Item { std::string label; std::function<void()> onClick; bool sep{false}; float x{0}, w{0}; JWidget* widget{nullptr}; };
+    struct Item { std::string label; std::function<void()> onClick; bool sep{false}; float x{0}, w{0}, h{0}; JWidget* widget{nullptr}; };
     std::vector<Item> m_items;
     JRect m_rect{};
     int   m_hover{-1}, m_pressed{-1};

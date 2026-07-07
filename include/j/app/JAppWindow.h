@@ -114,6 +114,16 @@ public:
         m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
         return true;
     }
+    // Rebuild the atlas from the ALREADY-loaded font at a new base size (px, DPI-scaled) — set the global
+    // text scale without swapping the font file (the ctor's loadSystemFont() font stays). Avoids reloading
+    // a file the loader might choke on; use when only the size should change. false if the HAL isn't ready.
+    bool setAppFontSize(float px) {
+        if (!m_hal) return false;
+        auto atlas = m_font.buildAtlas(px * m_window->dpiScale());
+        JTextHelper::setAtlas(atlas);
+        m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
+        return true;
+    }
     int              windowX() const { return m_window->screenX(); }
     int              windowY() const { return m_window->screenY(); }
     void             setWindowPos(int x, int y) { m_window->setPosition(x, y); }
@@ -168,7 +178,7 @@ public:
             m_menuRuntime.wire(m_hal.get(),
                                static_cast<JPopupWindow::NativeWinHandleType>(m_window->rawWindowId()),
                                m_menuBar.get());
-            m_menuH = 28.f;
+            m_menuH = JTheme::current().menuItemHeight + 4.f;   // menu bar scales with the scheme row height
             layoutDocks();
         }
         return *m_menuBar;
@@ -191,9 +201,11 @@ public:
     // buttons with addButton(label, onClick); the framework lays it out, renders it, and
     // routes input. Returns the bar so the app just declares buttons.
     JToolBar& toolBar() {
-        if (!m_toolBar) { m_toolBar = std::make_unique<JToolBar>(); m_toolbarH = 40.f; layoutDocks(); }
+        if (!m_toolBar) { m_toolBar = std::make_unique<JToolBar>(); m_toolbarH = JTheme::current().buttonHeight + 8.f; layoutDocks(); }   // toolbar scales with the scheme button height
         return *m_toolBar;
     }
+    // Override the toolbar height (e.g. to host a tall icon widget). Call after toolBar().
+    void setToolbarHeight(float h) { if (m_toolBar) { m_toolbarH = h; layoutDocks(); } }
 
     // The window's keyboard-focus manager. The runner owns focus: it rebuilds the tab order
     // from the live widget set each frame, focuses the widget under a click, cycles focus on
@@ -280,13 +292,15 @@ public:
             // One choke point, so no chrome element can steal the drop; replaces the per-consumer patches.
             const bool dragActive = JDragDrop::isDragging();
             if (releasedRaw && dragActive) {
-                bool dropped = false;
                 if (!m_space.isResizing())
                     if (JWidget* cw = m_space.centralWidget()) {
                         const JRect& cr = m_space.centerRect();
-                        if (mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height) { cw->handleMouseRelease(mx, my); dropped = true; }
+                        if (mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height) cw->handleMouseRelease(mx, my);
                     }
-                if (!dropped && JDragDrop::isDragging()) JDragDrop::cancel();
+                // Cancel unless a drop target actually CONSUMED the payload (accept() clears the session).
+                // Being merely over the centre is not enough — a release on the tab strip, in the wrong
+                // mode, or in the abyss must never leave the drag ghost stuck to the cursor.
+                if (JDragDrop::isDragging()) JDragDrop::cancel();
                 m_needRedraw = true;
             }
             // Downstream widget routing never sees a release that a drag has claimed (physical-state
@@ -654,13 +668,12 @@ private:
         auto [gx, gy] = m_window->globalCursorPos();
         const float mx = static_cast<float>(gx - m_window->screenX());
         const float my = static_cast<float>(gy - m_window->screenY());
-        bool dropped = false;
         if (!m_space.isResizing())
             if (JWidget* cw = m_space.centralWidget()) {
                 const JRect& cr = m_space.centerRect();
-                if (mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height) { cw->handleMouseRelease(mx, my); dropped = true; }
+                if (mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height) cw->handleMouseRelease(mx, my);
             }
-        if (!dropped && JDragDrop::isDragging()) JDragDrop::cancel();
+        if (JDragDrop::isDragging()) JDragDrop::cancel();   // consumed → session cleared; else never leave it stuck
         m_needRedraw = true;
     }
 
