@@ -51,6 +51,7 @@
 #include <chrono>
 #include <thread>
 #include <functional>
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -112,6 +113,17 @@ public:
         auto atlas = m_font.buildAtlas(px * m_window->dpiScale());
         JTextHelper::setAtlas(atlas);
         m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
+        m_appFontPx = px;
+        return true;
+    }
+    // Reload the framework's built-in system face at px and rebuild the atlas — the "Default" choice in the
+    // font picker. Same atlas-rebuild path as setAppFont, just from loadSystemFont() rather than a chosen file.
+    bool setAppFontDefault(float px) {
+        if (!m_hal || !m_font.loadSystemFont()) return false;
+        auto atlas = m_font.buildAtlas(px * m_window->dpiScale());
+        JTextHelper::setAtlas(atlas);
+        m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
+        m_appFontPx = px;
         return true;
     }
     // Rebuild the atlas from the ALREADY-loaded font at a new base size (px, DPI-scaled) — set the global
@@ -122,7 +134,31 @@ public:
         auto atlas = m_font.buildAtlas(px * m_window->dpiScale());
         JTextHelper::setAtlas(atlas);
         m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
+        m_appFontPx = px;
         return true;
+    }
+
+    // Open the in-app font picker for the WHOLE-APP font (no external chooser). Lists the real installed
+    // fonts; selecting one live-applies it (whole app re-renders); Cancel reverts to the font in effect when
+    // it opened; Select commits and calls onCommit(path) so the caller can persist it (empty path = built-in
+    // "Default"). Applies at the current app-font px, so the calibrated size is preserved.
+    void openAppFontPicker(std::function<void(std::string)> onCommit = {}) {
+        const std::string orig = m_font.path();          // revert target on Cancel
+        const float px = m_appFontPx;
+        const std::string startFam = jReadFontFamilyName(orig);   // seed the list to the active family (best-effort)
+        const int cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(JFontPickerDialog::kW)) / 2;
+        const int cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(JFontPickerDialog::kH)) / 2;
+        const auto parent = static_cast<JFontPickerDialog::NativeWinHandleType>(m_window->rawWindowId());
+        auto dlg = std::make_shared<JFontPickerDialog>(
+            startFam.empty() ? std::string() : (startFam + "|12|0|0"), *m_hal, cx, cy, parent,
+            std::function<void(std::string)>{});          // spec-accept unused in app-font mode
+        auto apply = [this, px](const std::string& p) { if (p.empty()) setAppFontDefault(px); else setAppFont(p, px); };
+        dlg->setAppFontMode(
+            [apply](std::string p)             { apply(p); },                          // live preview
+            [onCommit](std::string p)          { if (onCommit) onCommit(p); },         // commit (already applied) + persist
+            [apply, orig]()                    { apply(orig); });                      // cancel → revert
+        setModalDialog([dlg](JGpuHal& h, JPrimitiveBuffer& bf) { return dlg->pollAndRender(h, bf); },
+                       [dlg](JGpuHal& h) { dlg->destroySurface(h); });
     }
     int              windowX() const { return m_window->screenX(); }
     int              windowY() const { return m_window->screenY(); }
@@ -221,6 +257,11 @@ public:
 
     void requestRedraw() { m_needRedraw = true; }   // app asks for a frame (e.g. animation)
 
+    // Off-screen capture: a tool (e.g. a SIGUSR1 handler) sets s_captureRequest; the run loop grabs the next
+    // frame's swapchain to s_capturePath (a PPM). Lets the Vulkan-rendered UI be inspected headlessly.
+    static inline std::atomic<bool> s_captureRequest{false};
+    static inline const char*       s_capturePath = "/tmp/studio_shot";   // prefix → <prefix>_<surfaceId>.ppm per surface
+
     int run() {
         if (!valid()) return -1;
         m_window->setVSync(true);
@@ -234,6 +275,10 @@ public:
         while (!m_window->shouldClose()) {
             m_window->pollNativeEvents();
             bool activity = false;
+
+            // Off-screen capture request (set by a signal handler / tool): grab THIS frame's swapchain to a
+            // PPM so the rendered output can be inspected even though the Vulkan surface isn't X-readable.
+            if (s_captureRequest.exchange(false)) { m_hal->captureAllNextFrame(s_capturePath); activity = true; m_needRedraw = true; }
 
             // Drain callbacks posted to the UI thread (JTimer ticks, JSerialPort data, async
             // posts) so framework primitives that marshal to the main thread actually fire under
@@ -816,11 +861,18 @@ private:
         // Copy the top's poll out first — the call may push a child modal (realloc), which would otherwise
         // free the std::function mid-invocation; guard the pop on the stack not having grown during the poll.
         if (!m_modalStack.empty()) {
-            auto poll = m_modalStack.back().first;
-            const size_t before = m_modalStack.size();
-            if (!poll(*m_hal, scratch) && m_modalStack.size() == before) {
-                if (m_modalStack.back().second) m_modalStack.back().second(*m_hal);
-                m_modalStack.pop_back();
+            const size_t idx = m_modalStack.size() - 1;   // the top being pumped
+            auto poll = m_modalStack[idx].first;          // copy: poll() may push a child (realloc) and would
+                                                          // otherwise free this std::function mid-invocation
+            if (!poll(*m_hal, scratch)) {
+                // This modal is done — remove IT (idx), even if its poll opened a CHILD (sequential modals like
+                // Open-ECU → Choose-a-tune: the parent returns false AND pushes; the child now sits above at
+                // idx+1). Popping back() here would wrongly drop the child and leave the DONE parent lingering,
+                // re-polled next frame against a torn-down state (the intermittent Open-ECU crash).
+                if (idx < m_modalStack.size()) {
+                    if (m_modalStack[idx].second) m_modalStack[idx].second(*m_hal);
+                    m_modalStack.erase(m_modalStack.begin() + idx);
+                }
             }
         }
 
@@ -977,6 +1029,7 @@ private:
     float                     m_menuH{0.f}, m_toolbarH{0.f}, m_statusH{0.f};
     JStatusBar                m_statusBar;
     JFontEngine                      m_font;
+    float                            m_appFontPx{14.0f};   // current app-font size — preview/revert reuse it
     std::string                      m_title;
     uint32_t                         m_w{0}, m_h{0};
     float                            m_mx{-1.0f}, m_my{-1.0f};

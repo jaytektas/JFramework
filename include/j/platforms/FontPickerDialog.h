@@ -10,6 +10,7 @@
 #include <j/core/BaseWidgets.h>
 #include <j/graphics/GpuHal.h>
 #include <j/graphics/RenderPrimitive.h>
+#include <j/graphics/FontEngine.h>       // jListSystemFonts() — REAL installed fonts, no external toolkit
 
 #if defined(_WIN32)
   #include <j/platforms/windows/WindowsPlatformWindow.h>
@@ -49,8 +50,12 @@ public:
             const std::string t = startSpec.substr(p, c == std::string::npos ? std::string::npos : c - p);
             if (f == 0 && !t.empty()) fam = t; else if (f == 1 && !t.empty()) sz = t; else if (f == 2) m_bold = (t == "1"); else if (f == 3) m_ital = (t == "1");
             ++f; if (c == std::string::npos) break; p = c + 1; } }
-        m_allFamilies = { "Default", "Sans", "Sans Bold", "Serif", "Serif Bold", "Mono", "Mono Bold",
-                          "Ubuntu", "Ubuntu Light", "Ubuntu Medium", "DejaVu Sans", "DejaVu Sans Mono", "DejaVu Serif" };
+        // REAL installed fonts (family name + file path), enumerated in-process — never a hardcoded stub
+        // and never an external chooser. "Default" heads the list to mean "the framework's built-in face".
+        m_systemFonts = jListSystemFonts();
+        m_allFamilies.clear();
+        m_allFamilies.push_back("Default");
+        for (const auto& sf : m_systemFonts) m_allFamilies.push_back(sf.name);
 
         m_search = std::make_unique<JLineEdit>(m_graph, "Search fonts…");
         m_list   = std::make_unique<JListView>(m_graph, m_allFamilies);
@@ -70,10 +75,23 @@ public:
 
     void destroySurface(JGpuHal& hal) { hal.destroySurface(m_surface); }
 
+    // Enable APP-FONT mode: the picker drives the whole-app atlas live. onPreview fires as the selection
+    // changes (apply that font file now, so the entire app — and this dialog, sharing the atlas — re-renders
+    // in it); onCancel reverts to the original; Select commits the chosen FILE PATH (empty = built-in
+    // "Default"). Seed the list to the current family via startSpec so it opens on the active font.
+    void setAppFontMode(std::function<void(std::string)> onPreview,
+                        std::function<void(std::string)> onAcceptPath,
+                        std::function<void()>            onCancel) {
+        m_onPreview    = std::move(onPreview);
+        m_onAcceptPath = std::move(onAcceptPath);
+        m_onCancelCb   = std::move(onCancel);
+        m_previewed    = _selectedFamily();          // don't re-apply the already-active font on open
+    }
+
     bool pollAndRender(JGpuHal& hal, JPrimitiveBuffer& buf) {
         if (m_done) return false;
         m_window->pollNativeEvents();
-        if (m_window->shouldClose()) return false;
+        if (m_window->shouldClose()) { _cancel(); return false; }
         const float mx = m_window->mouseX(), my = m_window->mouseY();
         const bool pressed = m_window->consumePress(), released = m_window->consumeRelease(), held = m_window->isLeftButtonDown();
 
@@ -86,7 +104,7 @@ public:
 
         for (const auto& ke : m_window->consumeAllKeys()) {
             if (!ke.pressed) continue;
-            if (ke.key == JKeyEvent::JKey::Escape) return false;
+            if (ke.key == JKeyEvent::JKey::Escape) { _cancel(); return false; }
             if (ke.key == JKeyEvent::JKey::Return) { _accept(); return false; }
             m_search->handleKeyEvent(ke);   // typing filters the list
         }
@@ -102,10 +120,17 @@ public:
         if (pressed)  { m_search->handleMousePress(mx, my);   m_list->handleMousePress(mx, my);   m_size->handleMousePress(mx, my);   m_sizeSlider->handleMousePress(mx, my); }
         if (released) { m_search->handleMouseRelease(mx, my); m_list->handleMouseRelease(mx, my); m_size->handleMouseRelease(mx, my); m_sizeSlider->handleMouseRelease(mx, my); }
 
+        // App-font mode: live-preview the selection by applying it now — the whole app (and this dialog,
+        // which shares the atlas) instantly re-renders in the chosen face. Only on an actual change.
+        if (m_onPreview) {
+            const std::string sel = _selectedFamily();
+            if (sel != m_previewed) { m_previewed = sel; m_onPreview(_pathForFamily(sel)); }
+        }
+
         // Header buttons.
         if (pressed && my >= 8.f && my < 8.f + kBtnH) {
             if (mx >= okX && mx < okX + kBtnW)         { _accept(); return false; }
-            if (mx >= cancelX && mx < cancelX + kBtnW) return false;
+            if (mx >= cancelX && mx < cancelX + kBtnW) { _cancel(); return false; }
         }
 
         _render(buf, mx, my, okX, cancelX, prevY);
@@ -131,12 +156,19 @@ private:
     }
     static float _sizeToNorm(int px) { return (std::clamp(px, 6, 96) - 6) / 90.f; }   // 6..96 px -> 0..1
     static int   _normToSize(float v) { return 6 + static_cast<int>(std::clamp(v, 0.f, 1.f) * 90.f + 0.5f); }
+    std::string _pathForFamily(const std::string& fam) const {
+        if (fam == "Default") return {};                       // "" = the framework's built-in face
+        for (const auto& sf : m_systemFonts) if (sf.name == fam) return sf.path;
+        return {};
+    }
     void _accept() {
+        if (m_onAcceptPath) { m_onAcceptPath(_pathForFamily(_selectedFamily())); return; }   // app-font mode: return the FILE PATH
         const std::string fam = _selectedFamily();
         const std::string famSpec = (fam == "Default") ? std::string() : fam;   // Default = ""
         std::string spec = famSpec + "|" + std::to_string(m_size->value()) + "|" + (m_bold ? "1" : "0") + "|" + (m_ital ? "1" : "0");
         if (m_onAccept) m_onAccept(spec);
     }
+    void _cancel() { if (m_onCancelCb) m_onCancelCb(); }        // app-font mode: revert the live preview
     void _render(JPrimitiveBuffer& buf, float mx, float my, float okX, float cancelX, float prevY) {
         buf.clear();
         const float W = static_cast<float>(kW), H = static_cast<float>(kH), lh = JTextHelper::lineHeight();
@@ -171,6 +203,11 @@ private:
     }
 
     std::function<void(std::string)> m_onAccept;
+    // App-font mode (empty unless setAppFontMode() was called): live preview + path-returning accept + revert.
+    std::function<void(std::string)> m_onPreview, m_onAcceptPath;
+    std::function<void()>            m_onCancelCb;
+    std::string                      m_previewed;                 // last family we live-applied (dedupe)
+    std::vector<JSystemFont>         m_systemFonts;               // real installed fonts (name -> path)
     std::unique_ptr<PlatformWinType> m_window;
     GpuSurfaceId m_surface{0};
     JSceneGraph  m_graph;

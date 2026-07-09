@@ -495,6 +495,12 @@ public:
             m_surfaces[sid].screenshotPath = path;
     }
 
+    void captureAllNextFrame(const char* prefix) override {
+        for (GpuSurfaceId sid = 0; sid < m_surfaces.size(); ++sid)
+            if (m_surfaces[sid].alive)
+                m_surfaces[sid].screenshotPath = std::string(prefix) + "_" + std::to_string(sid) + ".ppm";
+    }
+
     void submitAndPresentFrame(const JGpuFrameContext& ctx) override {
         VulkanSurface& s = m_surfaces[ctx.surfaceId];
         vkCmdEndRenderPass(s.cmdBuf);

@@ -3,8 +3,12 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <map>
 #include <fstream>
+#include <filesystem>
 #include <cstring>
+#include <cstdlib>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <j/core/muted_logging_mock.h>
@@ -245,5 +249,87 @@ private:
     std::vector<uint8_t> m_fontData;
     stbtt_fontinfo m_info{};
 };
+
+// ============================================================================
+// System font enumeration — self-contained. NO external toolkit (fontconfig,
+// zenity, etc.): std::filesystem walks the font dirs, stb_truetype reads each
+// font's real family name from its name table. Feeds the in-app font picker.
+// ============================================================================
+
+struct JSystemFont { std::string name; std::string path; };
+
+/** Read the human family name (name-table id 1) from a TTF/OTF; empty on failure. */
+inline std::string jReadFontFamilyName(const std::string& path) {
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f.is_open()) return {};
+    const auto sz = static_cast<size_t>(f.tellg());
+    if (sz < 4) return {};
+    f.seekg(0);
+    std::vector<uint8_t> data(sz);
+    f.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(sz));
+    stbtt_fontinfo info;
+    if (!stbtt_InitFont(&info, data.data(), stbtt_GetFontOffsetForIndex(data.data(), 0))) return {};
+    int len = 0;
+    // Windows platform (3), Unicode BMP (1), English-US (0x409), nameID 1 = family — UTF-16BE.
+    if (const char* s = stbtt_GetFontNameString(&info, &len, 3, 1, 0x409, 1); s && len >= 2) {
+        std::string out;
+        for (int i = 0; i + 1 < len; i += 2) {
+            const uint16_t u = static_cast<uint16_t>((static_cast<uint8_t>(s[i]) << 8) | static_cast<uint8_t>(s[i + 1]));
+            out += (u >= 0x20 && u < 0x7f) ? static_cast<char>(u) : '?';   // ASCII display; rare non-ASCII names → '?'
+        }
+        while (!out.empty() && out.back() == ' ') out.pop_back();
+        if (!out.empty()) return out;
+    }
+    // Mac platform (1), nameID 1 — usually ASCII.
+    if (const char* s = stbtt_GetFontNameString(&info, &len, 1, 0, 0, 1); s && len > 0)
+        return std::string(s, static_cast<size_t>(len));
+    return {};
+}
+
+/** Enumerate installed .ttf/.otf/.ttc fonts, one representative face per family, sorted by name. */
+inline std::vector<JSystemFont> jListSystemFonts() {
+    namespace fs = std::filesystem;
+    std::vector<std::string> roots;
+#if defined(_WIN32)
+    if (const char* w = std::getenv("WINDIR")) roots.push_back(std::string(w) + "\\Fonts");
+    else roots.emplace_back("C:\\Windows\\Fonts");
+#else
+    roots = { "/usr/share/fonts", "/usr/local/share/fonts" };
+    if (const char* home = std::getenv("HOME")) {
+        roots.push_back(std::string(home) + "/.fonts");
+        roots.push_back(std::string(home) + "/.local/share/fonts");
+    }
+#endif
+    auto isPlain = [](const std::string& stem) {
+        std::string l; for (char c : stem) l += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        for (const char* w : { "bold", "italic", "oblique", "light", "thin", "black", "medium", "semibold", "condensed" })
+            if (l.find(w) != std::string::npos) return false;
+        return true;
+    };
+    std::map<std::string, std::string> byName;   // family -> representative path (prefer a Regular face)
+    for (const auto& root : roots) {
+        std::error_code ec;
+        if (!fs::exists(root, ec)) continue;
+        fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
+        for (; !ec && it != end; it.increment(ec)) {
+            std::error_code fec;
+            if (!it->is_regular_file(fec)) continue;
+            std::string ext = it->path().extension().string();
+            for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (ext != ".ttf" && ext != ".otf" && ext != ".ttc") continue;
+            const std::string path = it->path().string();
+            std::string name = jReadFontFamilyName(path);
+            if (name.empty()) name = it->path().stem().string();
+            const auto ex = byName.find(name);
+            if (ex == byName.end()) { byName.emplace(name, path); continue; }
+            if (isPlain(it->path().stem().string()) && !isPlain(fs::path(ex->second).stem().string()))
+                ex->second = path;                                     // upgrade to the plainer face
+        }
+    }
+    std::vector<JSystemFont> out;
+    out.reserve(byName.size());
+    for (auto& [n, p] : byName) out.push_back({ n, p });
+    return out;                                                        // sorted by family (std::map order)
+}
 
 } // inline namespace jf

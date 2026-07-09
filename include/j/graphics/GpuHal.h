@@ -109,6 +109,10 @@ public:
     // Writes a raw PPM file to `path`.  sid defaults to the primary surface.
     virtual void captureNextFrame(const char* /*path*/, GpuSurfaceId /*sid*/ = kPrimarySurface) {}
 
+    // Schedule a readback of EVERY live surface on its next present, to "<prefix>_<sid>.ppm". Lets a tool
+    // capture modal dialogs (which render to their own surfaces) — the topmost modal is the highest sid.
+    virtual void captureAllNextFrame(const char* /*prefix*/) {}
+
     // Create a new rendering surface for a native window. Returns a GpuSurfaceId.
     // w/h are the initial pixel dimensions of the window.
     virtual GpuSurfaceId createSurface(const JNativeWindowHandle& window, uint32_t w, uint32_t h) = 0;
