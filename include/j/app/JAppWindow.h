@@ -30,6 +30,7 @@
 #include <j/core/MenuRuntime.h>          // JMenuRuntime (popup menu engine)
 #include <j/core/FocusManager.h>         // JFocusManager (keyboard focus + Tab cycling)
 #include <j/core/MainThreadDispatcher.h> // drain UI-thread callbacks (JTimer / JSerialPort / posts)
+#include <j/core/Animation.h>            // jAnimator() — per-frame tween/transition registry
 #include <j/core/ToolBar.h>              // JToolBar
 #include <j/core/StatusBar.h>            // JStatusBar (text + transient messages + widgets)
 #include <j/core/Dialog.h>               // JDialogManager (native dialog request queue)
@@ -249,6 +250,7 @@ public:
         JFontButton::onOpenPickerHook  = [this](JFontButton* b){ openFontPicker(b); };
         int   redraw = 4;                  // frames left to render (armed by activity)
         float lastMx = -1.f, lastMy = -1.f;
+        auto  lastFrameTime = std::chrono::steady_clock::now();   // for per-frame animation delta
         while (!m_window->shouldClose()) {
             m_window->pollNativeEvents();
             bool activity = false;
@@ -261,6 +263,18 @@ public:
             // posts) so framework primitives that marshal to the main thread actually fire under
             // the runner. Any work done arms a redraw so the UI reflects it this frame.
             if (JMainThreadDispatcher::instance().drain() > 0) activity = true;
+
+            // Animation tick: advance every registered tween by the real wall-clock delta
+            // since the previous frame, then reap finished ones. While anything is active we
+            // arm a redraw so the animation keeps producing frames (event-driven presenter).
+            {
+                const auto now = std::chrono::steady_clock::now();
+                float dtMs = std::chrono::duration<float, std::milli>(now - lastFrameTime).count();
+                lastFrameTime = now;
+                if (dtMs > 100.0f) dtMs = 100.0f;   // clamp long idles so tweens don't jump
+                jAnimator().tick(dtMs);
+                if (jAnimator().hasActive()) activity = true;
+            }
 
             // Sync the swapchain to the window's CURRENT size every iteration, by direct
             // comparison rather than the resize flag (which can lag/coalesce). If the
