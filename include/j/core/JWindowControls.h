@@ -47,15 +47,12 @@ inline void JWidget::renderTooltips(JPrimitiveBuffer& buf, float mouseX, float m
         float x = mouseX + 12.0f;
         float y = mouseY + 12.0f;
 
-        uint8_t shadow[4] = {0, 0, 0, 80};
+        uint8_t shadow[4] = {Colors::DialogShadow[0], Colors::DialogShadow[1], Colors::DialogShadow[2], 80};
         buf.pushRectangle(x + 2.f, y + 2.f, tooltipW, tooltipH, shadow, 4.0f);
 
-        uint8_t fill[4] = {30, 30, 34, 250};
-        uint8_t border[4] = {80, 80, 85, 255};
-        buf.pushRectangle(x, y, tooltipW, tooltipH, fill, 4.0f, 1.0f, border);
+        buf.pushRectangle(x, y, tooltipW, tooltipH, Colors::ToolTipFill, 4.0f, 1.0f, Colors::ToolTipBorder);
 
-        uint8_t textColor[4] = {240, 240, 245, 255};
-        JTextHelper::pushText(buf, x + padX, y + padY, text, textColor);
+        JTextHelper::pushText(buf, x + padX, y + padY, text, Colors::TextPrimary);
     }
 }
 

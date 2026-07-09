@@ -96,6 +96,8 @@ struct JStyle {
     uint8_t DialogCloseHover[4]= {180, 50,  50,  200};   // dialog close-× hover fill
     uint8_t PopupBg[4]         = {22,  22,  26,  255};   // bordered popup / popup-list body fill
     uint8_t PopupInnerBg[4]    = {18,  18,  22,  250};   // borderless popup body fill
+    uint8_t ToolTipFill[4]     = {30,  30,  34,  250};   // tooltip body fill
+    uint8_t ToolTipBorder[4]   = {80,  80,  85,  255};   // tooltip outline
     uint8_t PopupItemText[4]   = {220, 220, 228, 255};   // popup-list item text
     uint8_t PreviewBg[4]       = {20,  20,  26,  255};   // font-picker preview panel fill
 
@@ -246,6 +248,8 @@ inline JStyle JStyle::light() {
     s(t.DialogCloseHover, 220,  90,  90, 200);
     s(t.PopupBg,          248, 248, 250, 255);
     s(t.PopupInnerBg,     248, 248, 250, 250);
+    s(t.ToolTipFill,      250, 250, 252, 250);
+    s(t.ToolTipBorder,    200, 200, 208, 255);
     s(t.PopupItemText,     30,  30,  36, 255);
     s(t.PreviewBg,        242, 242, 246, 255);
     // Chart surface — light-theme values (provisional).
@@ -440,6 +444,8 @@ namespace Colors {
     inline const uint8_t* const DialogCloseHover  = JStyle::current().DialogCloseHover;
     inline const uint8_t* const PopupBg           = JStyle::current().PopupBg;
     inline const uint8_t* const PopupInnerBg      = JStyle::current().PopupInnerBg;
+    inline const uint8_t* const ToolTipFill       = JStyle::current().ToolTipFill;
+    inline const uint8_t* const ToolTipBorder     = JStyle::current().ToolTipBorder;
     inline const uint8_t* const PopupItemText     = JStyle::current().PopupItemText;
     inline const uint8_t* const PreviewBg         = JStyle::current().PreviewBg;
     inline const uint8_t* const ChartBg           = JStyle::current().ChartBg;

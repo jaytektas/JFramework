@@ -63,6 +63,7 @@ inline JStyle parseStyleSheet(const std::string& text) {
         {"cancelbtnbg", t.CancelBtnBg}, {"cancelbtnborder", t.CancelBtnBorder},
         {"dialogclosehover", t.DialogCloseHover},
         {"popupbg", t.PopupBg}, {"popupinnerbg", t.PopupInnerBg}, {"popupitemtext", t.PopupItemText},
+        {"tooltipfill", t.ToolTipFill}, {"tooltipborder", t.ToolTipBorder},
         {"previewbg", t.PreviewBg},
         {"chartbg", t.ChartBg}, {"charttitletext", t.ChartTitleText}, {"chartaxistext", t.ChartAxisText},
         {"chartaxis2text", t.ChartAxis2Text}, {"chartlegendtext", t.ChartLegendText},
