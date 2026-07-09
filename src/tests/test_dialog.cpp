@@ -2,7 +2,6 @@
 // Tests queue logic, renderAndHandle in headless mode, and AI signal emission.
 
 #include <j/core/Dialog.h>
-#include <j/core/AiBusHook.h>
 #include <cassert>
 #include <string>
 #include <iostream>
@@ -111,23 +110,6 @@ static void test_render_ok_click_dismisses() {
     std::cout << "  [OK] renderAndHandle dismisses on OK click\n";
 }
 
-static void test_ai_signals_on_dialog() {
-    _clearDialogs();
-    std::vector<std::string> sigs;
-    JAiBusHook::install([&](uint32_t, const char* sig, const char*) {
-        sigs.push_back(sig);
-    });
-    JDialog::message("Sig", "Test");
-    assert(!sigs.empty() && sigs.back() == "dialog.message");
-    JDialog::confirm("Sig2", "Q", []{});
-    assert(sigs.back() == "dialog.confirm");
-    JDialog::input("Sig3", "Q", [](std::string){});
-    assert(sigs.back() == "dialog.input");
-    JAiBusHook::install(nullptr);
-    _clearDialogs();
-    std::cout << "  [OK] AI bus signals emitted on dialog.message/confirm/input\n";
-}
-
 static void test_execute_action() {
     _clearDialogs();
     bool okFired = false;
@@ -148,7 +130,6 @@ int main() {
     test_render_no_dialog_returns_false();
     test_render_message_dialog_draws_overlay();
     test_render_ok_click_dismisses();
-    test_ai_signals_on_dialog();
     test_execute_action();
     std::cout << "All JDialog tests passed.\n";
     return 0;

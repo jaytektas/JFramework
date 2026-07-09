@@ -1,7 +1,6 @@
 #pragma once
 
 #include <j/core/BaseWidgets.h>
-#include <j/core/AiBusHook.h>
 #include <j/graphics/GpuHal.h>
 
 #if defined(_WIN32)
@@ -58,11 +57,9 @@ public:
         m_root = m_graph.createNode("PopupRoot");
         auto& l = m_graph.getLayout(m_root);
         l.boundingBox = { 0.f, 0.f, static_cast<float>(width), static_cast<float>(height) };
-        if (JAiBusHook::emit) JAiBusHook::emit(0, "popup.open", "");
     }
 
     ~JPopupWindow() {
-        if (JAiBusHook::emit) JAiBusHook::emit(0, "popup.close", "");
 #if defined(_WIN32)
         ReleaseCapture();
 #else

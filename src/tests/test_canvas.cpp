@@ -122,22 +122,12 @@ void test_invalidate() {
     std::cout << "test_invalidate passed\n";
 }
 
-void test_semantic_node() {
-    JSceneGraph graph;
-    CircleWidget w(graph);
-    auto node = w.getSemanticNode();
-    assert(node.role == "JCanvasWidget");
-    assert(node.label == "CircleWidget");
-    std::cout << "test_semantic_node passed\n";
-}
-
 int main() {
     test_draw_called();
     test_arc_emits_primitives();
     test_multi_primitive_widget();
     test_canvas_offset();
     test_invalidate();
-    test_semantic_node();
     std::cout << "All JCanvasWidget tests passed!\n";
     return 0;
 }

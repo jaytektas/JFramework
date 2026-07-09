@@ -70,9 +70,6 @@ public:
                       m_u0, m_v0, m_u1, m_v1);
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        return {"JImageWidget", m_debugName, "", false};
-    }
 
 private:
     TextureHandle m_tex{kNullTexture};

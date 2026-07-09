@@ -1,7 +1,6 @@
 #include <j/core/ApplicationCore.h>
 #include <j/core/SceneGraph.h>
 #include <j/core/BaseWidgets.h>
-#include <j/core/AiControlBus.h>
 #include <j/graphics/RenderPrimitive.h>
 #include <j/graphics/GpuHal.h>
 #include <iostream>
@@ -36,8 +35,8 @@ private:
  */
 class PerformancePanel {
 public:
-    PerformancePanel(JSceneGraph& graph, JAiControlBus& aiBus) 
-        : m_graph(graph), m_aiBus(aiBus) 
+    explicit PerformancePanel(JSceneGraph& graph)
+        : m_graph(graph)
     {
         setupUI();
     }
@@ -83,9 +82,6 @@ public:
         // Update layout tree
         JConstraints constraints{1920, 1920, 1080, 1080};
         m_graph.computeLayout(m_rootId, constraints);
-
-        // Sync to AI JControl Bus
-        m_aiBus.updateTelemetry(m_graph);
     }
 
     void render(JPrimitiveBuffer& buffer) {
@@ -96,7 +92,7 @@ public:
         m_resetBtn->populateRenderPrimitives(buffer);
         
         // Print status to console (Headless feedback)
-        std::cout << "\r[GENESIS RUNTIME] Frame Sync | AI Nodes: " << std::setw(2) << m_graph.totalNodes() 
+        std::cout << "\r[GENESIS RUNTIME] Frame Sync | Nodes: " << std::setw(2) << m_graph.totalNodes()
                   << " | Load: " << std::fixed << std::setprecision(1) << (m_currentMetrics * 100.0f) << "%   " << std::flush;
     }
 
@@ -107,8 +103,7 @@ public:
 
 private:
     JSceneGraph& m_graph;
-    JAiControlBus& m_aiBus;
-    
+
     NodeId m_rootId;
     NodeId m_metricsRowId;
     
@@ -124,13 +119,8 @@ int main() {
 
     jf::JApplication app;
     JSceneGraph graph;
-    JAiControlBus aiBus;
-    
-    // Setup Shared Memory for AI Bus (Simulated for this demo)
-    JSharedBusMemory sharedMem;
-    aiBus.attach(&sharedMem);
 
-    PerformancePanel panel(graph, aiBus);
+    PerformancePanel panel(graph);
     JPrimitiveBuffer renderBuffer;
 
     // Run the app with a headless window

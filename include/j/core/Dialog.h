@@ -20,7 +20,6 @@
 
 #include "Signal.h"
 #include "MainThreadDispatcher.h"
-#include "AiBusHook.h"
 #include "BaseWidgets.h"
 #include "KeyEvent.h"
 #include <string>
@@ -162,11 +161,9 @@ public:
                 } else if (ke.key == kb.accept) {
                     std::string txt = dm.m_inputText;
                     if (req->onInput) req->onInput(txt);
-                    if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "input.accepted");
                     dm.pop(); return true;
                 } else if (ke.key == kb.cancel) {
                     if (req->onCancel) req->onCancel();
-                    if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "cancelled");
                     dm.pop(); return true;
                 } else if (ke.utf8[0] >= 0x20) {
                     dm.m_inputText += ke.utf8;
@@ -181,15 +178,12 @@ public:
                 } else if (ke.key == kb.accept || ke.key == K::Space) {
                     if (dm.m_focusedBtn == 0) {
                         if (req->onOk) req->onOk();
-                        if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "ok");
                     } else {
                         if (req->onCancel) req->onCancel();
-                        if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "cancel");
                     }
                     dm.pop(); return true;
                 } else if (ke.key == kb.cancel) {
                     if (req->onCancel) req->onCancel();
-                    if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "cancel");
                     dm.pop(); return true;
                 }
             }
@@ -273,7 +267,6 @@ public:
         buf.pushRectangle(cx + 3.5f, cy - 3.5f, 2.f, 9.f, xc, 1.f); // |
         if (mousePressed && hovClose) {
             if (req->onCancel) req->onCancel();
-            if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "close");
             dm.pop();
             return true;
         }
@@ -339,7 +332,6 @@ public:
         if (mousePressed && hovOk) {
             if (needsInput) { if (req->onInput) req->onInput(dm.m_inputText); }
             else             { if (req->onOk)   req->onOk(); }
-            if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "ok");
             dm.pop(); return true;
         }
 
@@ -361,7 +353,6 @@ public:
 
             if (mousePressed && hovCancel) {
                 if (req->onCancel) req->onCancel();
-                if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", "cancel");
                 dm.pop(); return true;
             }
         }
@@ -369,7 +360,7 @@ public:
         return true;
     }
 
-    // AI agent action support
+    // Programmatic action support — dispatch a named action to the front dialog.
     static bool executeAction(const std::string& action) {
         auto& dm = instance();
         if (!dm.front()) return false;
@@ -425,7 +416,6 @@ public:
     static void message(const std::string& title, const std::string& body,
                         std::function<void()> onDismiss = {},
                         JDialogOptions opts = {}) {
-        if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.message", title.c_str());
         JDialogRequest req;
         req.kind = JDialogRequest::JKind::Message;
         req.title = title; req.body = body;
@@ -439,7 +429,6 @@ public:
                         std::function<void()> onConfirm,
                         std::function<void()> onCancel = {},
                         JDialogOptions opts = {}) {
-        if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.confirm", title.c_str());
         JDialogRequest req;
         req.kind = JDialogRequest::JKind::Confirm;
         req.title = title; req.body = body;
@@ -455,7 +444,6 @@ public:
                       std::function<void()>            onCancel    = {},
                       const std::string&               placeholder = "",
                       JDialogOptions                    opts        = {}) {
-        if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.input", title.c_str());
         JDialogRequest req;
         req.kind = JDialogRequest::JKind::Input;
         req.title = title; req.body = prompt; req.placeholder = placeholder;

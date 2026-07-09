@@ -128,8 +128,7 @@ private:
         return static_cast<uint32_t>((opts.showTitleBar ? kTitleH : 0.f) + contentH);
     }
 
-    void _dismiss(const char* sig) {
-        if (JAiBusHook::emit) JAiBusHook::emit(0, "dialog.dismissed", sig);
+    void _dismiss(const char* /*sig*/) {
         m_done = true;
     }
 

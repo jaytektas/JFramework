@@ -73,29 +73,6 @@ public:
             JTextHelper::setAtlas(atlas);
             m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
         }
-
-        // Publish the dock-space areas on the AI bus so the layout is externally monitorable
-        // (the hosts aren't JWidgets, so they wouldn't otherwise appear).
-        if (auto* app = JGuiApplication::instance())
-            app->addSnapshotContributor([this](std::vector<JAiNodeDescriptor>& out) {
-                static const char* nm[] = {"Left", "Right", "Top", "Bottom", "Center"};
-                for (int a = 0; a < JDockSpace::AreaCount; ++a) {
-                    const auto area = JDockSpace::Area(a);
-                    const JRect& r  = m_space.rect(area);
-                    JAiNodeDescriptor d{};
-                    d.id = 0xDA000000u | static_cast<uint32_t>(a);
-                    d.x = r.x; d.y = r.y; d.width = r.width; d.height = r.height;
-                    d.stateFlags = AiVisible | (m_space.active(area) ? AiEnabled : 0u);
-                    aiSetField(d.role, sizeof(d.role), "DockArea");
-                    aiSetField(d.name, sizeof(d.name), nm[a]);
-                    char val[24];
-                    std::snprintf(val, sizeof(val), "%s n=%zu",
-                                  m_space.active(area) ? "active" : "collapsed",
-                                  m_space.host(area).dockCount());
-                    aiSetField(d.value, sizeof(d.value), val);
-                    out.push_back(d);
-                }
-            });
     }
 
     bool valid() const { return m_window && m_hal; }

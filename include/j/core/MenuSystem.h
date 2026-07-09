@@ -82,21 +82,7 @@ public:
         l.minWidth = 160.f;
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        return {"JMenuItem", m_label, m_checkable ? (m_checked ? "checked" : "unchecked") : "", true};
-    }
 
-    bool executeSemanticAction(const std::string& action) override {
-        if (action == "click" || action == "trigger") {
-            if (m_checkable) {
-                m_checked = !m_checked;
-            }
-            onTriggered.emit();
-            onClicked.emit();
-            return true;
-        }
-        return JControl::executeSemanticAction(action);
-    }
 
     const std::string& label() const noexcept { return m_label; }
     const JMenuShortcut& shortcut() const noexcept { return m_shortcut; }
@@ -232,8 +218,6 @@ public:
         buf.pushRectangle(bb.x + 6.0f, bb.y + 2.0f, bb.width - 12.0f, 1.0f, lineC);
     }
 
-    JAISemanticNode getSemanticNode() const override { return {"JMenuSeparator", "", "", false}; }
-    bool executeSemanticAction(const std::string&) override { return false; }
 };
 
 // ============================================================================
@@ -258,16 +242,10 @@ public:
 
     void handleMousePress(float mx, float my) override {
         if (isPointInside(mx, my)) {
-            if (JAiBusHook::emit) JAiBusHook::emit(m_nodeId, "tearoff", "");
             onTornOff.emit();
         }
     }
 
-    JAISemanticNode getSemanticNode() const override { return {"JTearOffHandle", "Tear Off", "", true}; }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a == "tearoff" || a == "click") { onTornOff.emit(); return true; }
-        return false;
-    }
 };
 
 // ============================================================================
@@ -369,30 +347,7 @@ public:
         l.flexGrow = 0.0f;
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        std::string titles;
-        for (size_t i = 0; i < m_entries.size(); ++i) {
-            if (i) titles += '|';
-            titles += m_entries[i].title;
-        }
-        return {"JMenuBar", m_debugName, titles, true};
-    }
 
-    bool executeSemanticAction(const std::string& a) override {
-        // "open:File"  — open the named menu
-        if (a.rfind("open:", 0) == 0) {
-            std::string target = a.substr(5);
-            for (size_t i = 0; i < m_entries.size(); ++i) {
-                if (m_entries[i].title == target) {
-                    openMenu(static_cast<int>(i));
-                    return true;
-                }
-            }
-        }
-        // "close" — dismiss any open menu
-        if (a == "close") { closeMenu(); return true; }
-        return false;
-    }
 
     struct JMenuEntry {
         std::string title;

@@ -165,10 +165,6 @@ public:
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        return {"JCanvasWidget", m_debugName, "", false};
-    }
-    bool executeSemanticAction(const std::string&) override { return false; }
 };
 
 } // inline namespace jf

@@ -51,33 +51,9 @@ void test_slider_interaction() {
     std::cout << "test_slider_interaction passed" << std::endl;
 }
 
-void test_ai_semantics() {
-    JSceneGraph graph;
-    JButton btn(graph, "AI JButton");
-    
-    auto semantic = btn.getSemanticNode();
-    assert(semantic.role == "JButton");
-    assert(semantic.label == "AI JButton");
-    
-    bool clicked = false;
-    btn.onClicked.connect([&clicked]() { clicked = true; });
-    
-    bool result = btn.executeSemanticAction("click");
-    assert(result == true);
-    assert(clicked == true);
-    
-    JSlider slider(graph);
-    result = slider.executeSemanticAction("set_value:0.75");
-    assert(result == true);
-    assert(slider.getSemanticNode().value == std::to_string(0.750000f));
-    
-    std::cout << "test_ai_semantics passed" << std::endl;
-}
-
 int main() {
     test_button_interaction();
     test_slider_interaction();
-    test_ai_semantics();
     std::cout << "All Controls Foundation tests passed!" << std::endl;
     return 0;
 }

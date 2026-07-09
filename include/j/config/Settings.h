@@ -10,7 +10,6 @@
 #include <functional>
 #include <j/core/Signal.h>
 #include <j/core/MainThreadDispatcher.h>
-#include <j/core/AiBusHook.h>
 #include <j/core/Variant.h>
 #include <j/core/VariantJson.h>
 
@@ -71,7 +70,6 @@ public:
             std::lock_guard<std::mutex> lk(m_mutex);
             m_data[key] = value;
         }
-        if (JAiBusHook::emit) JAiBusHook::emit(0, ("settings:" + key).c_str(), value.toString().c_str());
         JMainThreadDispatcher::instance().post([this, key, value]() mutable {
             onChange.emit(key, value);
         });

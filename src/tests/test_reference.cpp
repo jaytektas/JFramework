@@ -69,7 +69,6 @@ class FakeTable : public JWidget {
 public:
     explicit FakeTable(JSceneGraph& g) : JWidget(g, "FakeTable") {}
     void populateRenderPrimitives(JPrimitiveBuffer&) override {}
-    JAISemanticNode getSemanticNode() const override { return {"Table", "fuel", "", false}; }
 
     int cursorRow = 3;
     JVariant getRef(const std::string& key) const override {

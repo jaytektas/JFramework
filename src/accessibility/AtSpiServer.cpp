@@ -115,7 +115,7 @@ void JAccessibilityBridge::stop() {
     }
 }
 
-void JAccessibilityBridge::update(const std::vector<JAiNodeDescriptor>& nodes) {
+void JAccessibilityBridge::update(const std::vector<JA11yNode>& nodes) {
     std::lock_guard<std::mutex> lk(m_nodesMutex);
     m_nodes = nodes;
     m_dirty = true;

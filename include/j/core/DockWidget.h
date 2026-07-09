@@ -26,10 +26,9 @@ inline namespace jf {
 // then offsets by contentArea().
 // ============================================================================
 
-class JDockWidget : public JIAIState {
+class JDockWidget {
 public:
-    // All live DockWidgets register here so JGuiApplication::publishSemanticSnapshot()
-    // can include floating panels in the AI bus alongside regular widgets.
+    // All live DockWidgets register here so the owner can enumerate floating panels.
     inline static std::vector<JDockWidget*> s_activeDocks;
 
     static constexpr float TITLE_H     = 30.0f;
@@ -252,12 +251,10 @@ public:
         if (pressed) {
             if (m_hoverClose)  {
                 m_closeRequested = true;
-                if (JAiBusHook::emit) JAiBusHook::emit(0, "dock.close", m_title.c_str());
                 return;
             }
             if (m_hoverPin) {
                 m_pinned = !m_pinned;
-                if (JAiBusHook::emit) JAiBusHook::emit(0, m_pinned ? "dock.pin" : "dock.unpin", m_title.c_str());
                 return;
             }
             if (m_hoverResize) {
@@ -287,42 +284,6 @@ public:
             m_dragging = false;
             m_resizing = false;
         }
-    }
-
-    // --- AI bus interface ---
-
-    JAISemanticNode getSemanticNode() const override {
-        std::string state = m_pinned ? "pinned" : "floating";
-        return {"JDockWidget", m_title, state, true};
-    }
-
-    bool executeSemanticAction(const std::string& a) override {
-        if (a == "close")  { m_closeRequested = true;  return true; }
-        if (a == "pin")    { m_pinned = true;           return true; }
-        if (a == "unpin")  { m_pinned = false;          return true; }
-        if (a.rfind("move:", 0) == 0) {
-            // "move:x,y"
-            auto comma = a.find(',', 5);
-            if (comma != std::string::npos) {
-                try {
-                    m_x = std::stof(a.substr(5, comma - 5));
-                    m_y = std::stof(a.substr(comma + 1));
-                    return true;
-                } catch (...) {}
-            }
-        }
-        if (a.rfind("resize:", 0) == 0) {
-            // "resize:w,h"
-            auto comma = a.find(',', 7);
-            if (comma != std::string::npos) {
-                try {
-                    m_w = std::max(m_minW, std::stof(a.substr(7, comma - 7)));
-                    m_h = std::max(m_minH, std::stof(a.substr(comma + 1)));
-                    return true;
-                } catch (...) {}
-            }
-        }
-        return false;
     }
 
     // --- Rendering ---

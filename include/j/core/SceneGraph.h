@@ -175,7 +175,7 @@ public:
     size_t totalNodes() const { return m_layouts.size(); }
 
     // A layout accessor was handed a node id past the end of m_layouts — a stale/removed node (most often
-    // a widget that outlived its node, surfaced by the every-frame AI semantic snapshot). Report it loudly
+    // a widget that outlived its node, surfaced by an every-frame tree walk). Report it loudly
     // (throttled) rather than overrunning the vector and aborting the whole app; callers get a default box.
     static void _reportStaleNode(const char* who, NodeId id) {
         static int warned = 0;
