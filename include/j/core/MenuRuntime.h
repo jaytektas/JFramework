@@ -144,14 +144,16 @@ private:
                         m_deferred.push_back([this]() { closeAll(); });
                 });
 
-                // Only a SUBMENU-PARENT item drives the cascade on hover: it collapses any submenu
-                // already open at its level (so they can't pile up → the old surface-id overflow crash)
-                // then opens its own. Leaf items get NO hover handler, so navigating into an open
-                // submenu never closes it — its items and tear-off handle stay live.
-                if (mi->submenu()) {
+                // EVERY item drives the cascade on hover: collapse anything open deeper than THIS
+                // item's popup (so sibling submenus can't pile up → the old surface-id overflow
+                // crash), then — submenu parents only — open this item's own submenu. Passing a
+                // leaf's null submenu makes hovering a plain item CLOSE a sibling's open submenu,
+                // while a leaf INSIDE a submenu only closes things deeper than itself, so navigating
+                // into an open submenu keeps it (and its tear-off handle) live.
+                {
                     JPopupWindow* parent = popup.get();
                     JMenuItem*    a      = added;
-                    JMenu*        sub    = mi->submenu();
+                    JMenu*        sub    = mi->submenu();   // nullptr for leaf items
                     added->onHoverEntered.connect([this, a, parent, sub]() { hoverItem(parent, a, sub); });
                 }
             } else if (dynamic_cast<JMenuSeparator*>(item.get())) {
