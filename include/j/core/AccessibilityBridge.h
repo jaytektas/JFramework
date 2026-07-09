@@ -6,8 +6,9 @@
 #include <atomic>
 #include <mutex>
 #include <functional>
+#include <cstdint>
+#include <cstring>
 #include "muted_logging_mock.h"
-#include "AiControlBus.h"   // AISemanticNode + SceneGraph
 
 // Forward-declare dbus types so consumers don't pull in dbus headers
 struct DBusConnection;
@@ -16,7 +17,23 @@ struct DBusMessage;
 inline namespace jf {
 
 /**
- * @brief Maps Genesis JAISemanticNode roles to AT-SPI role constants.
+ * @brief Blit-safe, POD accessibility node — the semantic snapshot the bridge
+ *        exposes to AT-SPI (role/label/value/state + geometry).
+ */
+struct alignas(16) JA11yNode {
+    uint32_t id{0xFFFFFFFF};
+    uint32_t stateFlags{0};
+    float    x{0.0f};
+    float    y{0.0f};
+    float    width{0.0f};
+    float    height{0.0f};
+    char     role[24]{0};   // "JButton", "JSlider", "JCheckBox", ...
+    char     name[32]{0};   // label / accessible name
+    char     value[24]{0};  // current value ("0.50", "checked", text, ...)
+};
+
+/**
+ * @brief Maps Genesis semantic roles to AT-SPI role constants.
  *
  * These match org.a11y.atspi.ROLE_* values from the AT-SPI2 spec.
  * Screen readers (Orca) use these to describe widgets to the user.
@@ -112,7 +129,7 @@ public:
      * tree changes (new widget added, state change, etc.).
      * The bridge diffs against the previous snapshot and sends minimal events.
      */
-    void update(const std::vector<JAiNodeDescriptor>& nodes);
+    void update(const std::vector<JA11yNode>& nodes);
 
     /** Emit object:state-changed:focused for the given node index. */
     void notifyFocus(uint32_t nodeIndex);
@@ -137,7 +154,7 @@ private:
     std::string                 m_busName;
     std::string                 m_appPath{"/org/a11y/atspi/accessible/root"};
 
-    std::vector<JAiNodeDescriptor> m_nodes;
+    std::vector<JA11yNode> m_nodes;
     std::mutex                  m_nodesMutex;
     std::thread                 m_thread;
     std::atomic<bool>           m_running{false};

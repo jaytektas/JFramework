@@ -2,7 +2,6 @@
 
 #include <j/core/Signal.h>
 #include <j/core/MainThreadDispatcher.h>
-#include <j/core/AiBusHook.h>
 #include <string>
 #include <vector>
 #include <thread>
@@ -160,14 +159,11 @@ public:
         m_port    = port;
         m_running = true;
         m_thread  = std::thread([this]{ _readLoop(); });
-        if (JAiBusHook::emit) JAiBusHook::emit(0, "serial.open", port.c_str());
         return true;
     }
 
     void close() {
         if (!m_running.exchange(false)) return;
-        if (JAiBusHook::emit && !m_port.empty())
-            JAiBusHook::emit(0, "serial.close", m_port.c_str());
         m_port.clear();
         _wakeReadThread();
         if (m_thread.joinable()) m_thread.join();
@@ -361,10 +357,6 @@ private:
     }
 
     void _dispatch(std::vector<uint8_t> data) {
-        if (JAiBusHook::emit) {
-            std::string len = std::to_string(data.size()) + "B";
-            JAiBusHook::emit(0, "serial.data", len.c_str());
-        }
         JMainThreadDispatcher::instance().post([this, d = std::move(data)]() mutable {
             onData.emit(std::move(d));
         });

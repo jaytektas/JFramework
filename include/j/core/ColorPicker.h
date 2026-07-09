@@ -109,11 +109,6 @@ public:
         _handleDot(buf, r.alpha.x + m_a * r.alpha.w, r.alpha.y + r.alpha.h * 0.5f);
     }
 
-    JAISemanticNode getSemanticNode() const override { return {"JColorPicker", "", m_hex, true}; }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a.rfind("set:", 0) == 0) { setColorHex(a.substr(4)); onColorChanged.emit(m_hex); return true; }
-        return false;
-    }
 
     static constexpr float kW = 328.f, kH = 356.f;
 

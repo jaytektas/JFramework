@@ -10,7 +10,6 @@
 #include "Signal.h"
 #include "BaseWidgets.h"
 #include "SceneGraph.h"
-#include "AiBusHook.h"
 
 inline namespace jf {
 
@@ -47,10 +46,6 @@ public:
             if (it != m_doubleSubs.end()) subs = it->second;
         }
         for (auto& [id, cb] : subs) cb(value);
-        if (JAiBusHook::emit) {
-            std::string v = std::to_string(value);
-            JAiBusHook::emit(0, ("databus:" + channel).c_str(), v.c_str());
-        }
     }
 
     void publish(const std::string& channel, const std::string& value) {
@@ -62,8 +57,6 @@ public:
             if (it != m_stringSubs.end()) subs = it->second;
         }
         for (auto& [id, cb] : subs) cb(value);
-        if (JAiBusHook::emit)
-            JAiBusHook::emit(0, ("databus:" + channel).c_str(), value.c_str());
     }
 
     // ---- Subscribe ---------------------------------------------------------

@@ -12,7 +12,7 @@ void JAccessibilityBridge::stop() {
     m_running = false;
 }
 
-void JAccessibilityBridge::update(const std::vector<JAiNodeDescriptor>& nodes) {
+void JAccessibilityBridge::update(const std::vector<JA11yNode>& nodes) {
     (void)nodes;
 }
 

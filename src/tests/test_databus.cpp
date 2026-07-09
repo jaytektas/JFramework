@@ -16,8 +16,6 @@ public:
 
     TestWidget(JSceneGraph& g) : JWidget(g, "TestWidget") {}
     void populateRenderPrimitives(JPrimitiveBuffer&) override {}
-    JAISemanticNode getSemanticNode() const override { return {"TestWidget","","",false}; }
-    bool executeSemanticAction(const std::string&) override { return false; }
 };
 
 void test_publish_subscribe_double() {

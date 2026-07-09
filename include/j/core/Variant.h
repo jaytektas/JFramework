@@ -5,7 +5,7 @@
 //
 // A small, dependency-free tagged union (the modern-C++ answer to QVariant).
 // It is the lingua franca that lets generic code — model/view, settings,
-// serialization, property binding, the AI bus — move typed data around without
+// serialization, property binding — move typed data around without
 // knowing the concrete type at compile time.
 //
 //   JVariant v = 42;             // Int

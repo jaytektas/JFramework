@@ -13,7 +13,6 @@
 #include "Variant.h"
 #include "SceneGraph.h"
 #include "TranslationEngine.h"
-#include "AiBusHook.h"          // zero-dependency AI bus bridge
 #include "KeyEvent.h"
 #include "DragDrop.h"           // cross-widget drag payloads (JDragDrop) — drop-on-release routing
 #include "Style.h"              // JTabBarEdge / JTabFill (folded into JTheme)
@@ -37,7 +36,7 @@ enum class JWidgetState : uint32_t {
 };
 
 // ============================================================================
-// JFocusPolicy — how a widget can acquire keyboard focus (bit flags, Qt-style)
+// JFocusPolicy — how a widget can acquire keyboard focus (bit flags)
 // ============================================================================
 // Tab   → reachable by Tab/Shift+Tab traversal (drives isFocusable()).
 // Click → takes focus on a mouse press (drives acceptsClickFocus()).
@@ -57,37 +56,12 @@ inline JFocusPolicy operator|(JFocusPolicy a, JFocusPolicy b) {
 }
 
 // ============================================================================
-// AI semantic layer
-// ============================================================================
-
-struct JAISemanticNode {
-    std::string role;
-    std::string label;
-    std::string value;
-    bool interactable{true};
-};
-
-class JIAIState {
-public:
-    virtual ~JIAIState() = default;
-    virtual JAISemanticNode getSemanticNode() const = 0;
-    virtual bool executeSemanticAction(const std::string& action) = 0;
-
-    // Typed, named read access to a control's own state — the reference-resolution
-    // seam (e.g. "value", "checked", "cursorRow"). Returns a Null JVariant for an
-    // unknown key. Keys are the element's NATIVE member names: no translation layer,
-    // so a renamed member renames its reference. A Map/List return lets a resolver
-    // descend further (uid.axis.sigid, uid.bins[3]) — see ReferenceResolver.h.
-    virtual JVariant getRef(const std::string& key) const { return JVariant{}; }
-};
-
-// ============================================================================
 // JWidget — base for every element in the UI tree
 // ============================================================================
 
 class JMenu;
 
-class JWidget : public jf::JSlotTracker, public JIAIState {
+class JWidget : public jf::JSlotTracker {
 public:
     inline static std::vector<JWidget*> s_activeWidgets;
     // Live keyboard-modifier state, refreshed by the runner each frame so handleMousePress (which
@@ -317,21 +291,18 @@ public:
     virtual bool handleKeyEvent(const JKeyEvent&) { return false; }
     virtual bool handleScroll(float /*mx*/, float /*my*/, float /*wheel*/) { return false; }
 
-    // AI interface
-    JAISemanticNode getSemanticNode() const override {
-        return {"JWidget", m_debugName, "", true};
-    }
-    bool executeSemanticAction(const std::string&) override { return false; }
-
+    // Typed, named read access to a control's own state — the reference-resolution
+    // seam (e.g. "value", "checked", "cursorRow"). Returns a Null JVariant for an
+    // unknown key. Keys are the element's NATIVE member names: no translation layer,
+    // so a renamed member renames its reference. A Map/List return lets a resolver
+    // descend further (uid.axis.sigid, uid.bins[3]) — see ReferenceResolver.h.
+    //
     // Common native keys every widget exposes. Typed widgets override to add their
-    // own members (and to return a real number for "value" instead of the semantic
-    // string). Geometry mirrors the layout box; identity/role/label/value mirror the
-    // semantic node, so the reference scheme and the AI bus read one model.
-    JVariant getRef(const std::string& key) const override {
+    // own members (and to return a real number for "value"). Geometry mirrors the
+    // layout box.
+    virtual JVariant getRef(const std::string& key) const {
         if (key == "id")      return static_cast<int64_t>(m_nodeId);
-        if (key == "role")    return getSemanticNode().role;
-        if (key == "label" || key == "name") return getSemanticNode().label;
-        if (key == "value")   return getSemanticNode().value;
+        if (key == "label" || key == "name") return m_debugName;
         if (key == "enabled") return isEnabled();
         if (key == "visible") return isVisible();
         if (key == "focused") return isFocused();
@@ -411,14 +382,6 @@ public:
             setState(isPointInside(mx, my) ? JWidgetState::Hovered : JWidgetState::Normal);
     }
 
-    bool executeSemanticAction(const std::string& a) override {
-        if (m_state == JWidgetState::Disabled) return false;
-        if (a == "click" || a == "activate") {
-            onClicked.emit();
-            return true;
-        }
-        return false;
-    }
 
     // Interior text padding for input controls (JLineEdit/JSpinBox/JComboBox…). Falls back to the
     // scheme's JTheme::fieldPadding; set per-instance for granular control (a negative value restores
@@ -883,8 +846,6 @@ public:
         buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Border);
     }
 
-    JAISemanticNode getSemanticNode() const override { return {"JSeparator", "", "", false}; }
-    bool executeSemanticAction(const std::string&) override { return false; }
 
 private:
     JOrientation m_orient;
@@ -921,8 +882,6 @@ public:
         }
     }
 
-    JAISemanticNode getSemanticNode() const override { return {"JLabel", m_text, "", false}; }
-    bool executeSemanticAction(const std::string&) override { return false; }
 
 private:
     std::string m_text;
@@ -954,15 +913,6 @@ public:
         drawLabel(buf, b);
     }
 
-    JAISemanticNode getSemanticNode() const override { return {"JButton", m_label, "", true}; }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a == "click") {
-            onClicked.emit();
-            if (JAiBusHook::emit) JAiBusHook::emit(m_nodeId, JAiBusHook::kClick, m_label.c_str());
-            return true;
-        }
-        return false;
-    }
 
 protected:
     virtual void drawBackground(JPrimitiveBuffer& buf, const JRect& b, const uint8_t* fill, bool focused) {
@@ -1017,8 +967,6 @@ public:
             m_toggled = v;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onToggled.emit(v);
-            if (JAiBusHook::emit)
-                JAiBusHook::emit(m_nodeId, JAiBusHook::kToggled, m_toggled ? "true" : "false");
         }
     }
     bool isToggled() const { return m_toggled; }
@@ -1047,13 +995,6 @@ public:
         drawLabel(buf, b);
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        return {"JToggleButton", m_label, m_toggled ? "true" : "false", true};
-    }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a == "toggle") { setToggled(!m_toggled); return true; }
-        return false;
-    }
 
 protected:
     virtual void drawBackground(JPrimitiveBuffer& buf, const JRect& b, const uint8_t* fill, bool focused) {
@@ -1104,10 +1045,6 @@ public:
             m_checked = v;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onStateChanged.emit(v);
-            if (JAiBusHook::emit)
-                JAiBusHook::emit(m_nodeId,
-                                m_checked ? JAiBusHook::kChecked : JAiBusHook::kUnchecked,
-                                m_checked ? "true" : "false");
         }
     }
     bool isChecked() const { return m_checked; }
@@ -1130,14 +1067,6 @@ public:
         drawLabel(buf, b, boxSz);
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        return {"JCheckBox", m_label, m_checked ? "checked" : "unchecked", true};
-    }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a == "check")   { setChecked(true);  return true; }
-        if (a == "uncheck") { setChecked(false); return true; }
-        return false;
-    }
 
 protected:
     virtual void drawBox(JPrimitiveBuffer& buf, const JRect& b, float boxSz, const uint8_t* fill, bool focused) {
@@ -1204,13 +1133,6 @@ public:
         drawLabel(buf, b, r);
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        return {"JRadioButton", m_label, m_selected ? "selected" : "unselected", true};
-    }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a == "select") { setSelected(true); return true; }
-        return false;
-    }
 
 protected:
     virtual void drawCircle(JPrimitiveBuffer& buf, const JRect& b, float r, const uint8_t* ring, bool focused) {
@@ -1301,15 +1223,6 @@ public:
         drawThumb(buf, b, thumbX, thumbW, thumbH, tc, focused);
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        return {"JSlider", "JSlider", std::to_string(m_value), true};
-    }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a.rfind("set_value:", 0) == 0) {
-            try { setValue(std::stof(a.substr(10))); return true; } catch (...) {}
-        }
-        return false;
-    }
 
 protected:
     virtual void drawTrack(JPrimitiveBuffer& buf, const JRect& b, float trackY, float trackH, float fillW) {
@@ -1351,15 +1264,6 @@ public:
         drawProgressFill(buf, b, m_progress);
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        return {"JProgressBar", "", std::to_string(int(m_progress * 100)) + "%", false};
-    }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a.rfind("set_value:", 0) == 0) {
-            try { setProgress(std::stof(a.substr(10))); return true; } catch (...) {}
-        }
-        return false;
-    }
 
 protected:
     virtual void drawTrack(JPrimitiveBuffer& buf, const JRect& b) {
@@ -1423,16 +1327,6 @@ public:
         buf.pushRectangle(tx, b.y + 1.0f, tw, b.height - 2.0f, tc, 6.0f);
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        return {"JScrollBar", "", std::to_string(m_position), true};
-    }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a.rfind("set_value:", 0) == 0 || a.rfind("scroll_to:", 0) == 0) {
-            size_t colon = a.find(':');
-            try { setScrollPosition(std::stof(a.substr(colon + 1))); return true; } catch (...) {}
-        }
-        return false;
-    }
 
 private:
     float m_position{0.0f};
@@ -1464,8 +1358,6 @@ public:
             m_caret = m_anchor = m_text.size();               // caret to end + collapse selection on set
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onTextChanged.emit(t);
-            if (JAiBusHook::emit)
-                JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
         }
     }
     const std::string& text()        const { return m_text; }
@@ -1526,7 +1418,6 @@ public:
         auto changed = [&]{
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onTextChanged.emit(m_text);
-            if (JAiBusHook::emit) JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
         };
         auto moved = [&]{ m_graph.invalidateNode(m_nodeId, DirtySelf); };
 
@@ -1648,11 +1539,6 @@ public:
         }
     }
 
-    JAISemanticNode getSemanticNode() const override { return {"JLineEdit", m_placeholder, m_text, true}; }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a.rfind("set_text:", 0) == 0) { setText(a.substr(9)); return true; }
-        return false;
-    }
 
 private:
     // UTF-8 char-boundary navigation: skip continuation bytes (0b10xxxxxx) so the caret lands on whole chars.
@@ -1805,7 +1691,6 @@ public:
         }
     }
 
-    JAISemanticNode getSemanticNode() const override { return {"JKeySequenceEdit", "", m_text, true}; }
 
 private:
     std::string m_text;
@@ -1839,8 +1724,6 @@ public:
             m_layoutDirty = true;              // text changed → reflow the cached layout
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onTextChanged.emit(m_text);        // clamped value (not the raw argument)
-            if (JAiBusHook::emit)
-                JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
         }
     }
     const std::string& text()        const { return m_text; }
@@ -2053,8 +1936,6 @@ public:
                     m_layoutDirty = true;
                     m_graph.invalidateNode(m_nodeId, DirtySelf);
                     onTextChanged.emit(m_text);
-                    if (JAiBusHook::emit)
-                        JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
                     }
                 }
                 return true;
@@ -2092,7 +1973,6 @@ public:
                     m_layoutDirty = true;
                     m_graph.invalidateNode(m_nodeId, DirtySelf);
                     onTextChanged.emit(m_text);
-                    if (JAiBusHook::emit) JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
                 }
             } else if (m_cursorPos > 0 && !m_text.empty()) {
                 m_text.erase(m_cursorPos - 1, 1);
@@ -2100,8 +1980,6 @@ public:
                 m_layoutDirty = true;
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
                 onTextChanged.emit(m_text);
-                if (JAiBusHook::emit)
-                    JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
             }
             return true;
         } else if (ke.key == K::Delete) {
@@ -2114,15 +1992,12 @@ public:
                     m_layoutDirty = true;
                     m_graph.invalidateNode(m_nodeId, DirtySelf);
                     onTextChanged.emit(m_text);
-                    if (JAiBusHook::emit) JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
                 }
             } else if (m_cursorPos < m_text.size()) {
                 m_text.erase(m_cursorPos, 1);
                 m_layoutDirty = true;
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
                 onTextChanged.emit(m_text);
-                if (JAiBusHook::emit)
-                    JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
             }
             return true;
         } else if (ke.key == K::Return) {
@@ -2133,8 +2008,6 @@ public:
             m_layoutDirty = true;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onTextChanged.emit(m_text);
-            if (JAiBusHook::emit)
-                JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
             return true;
         } else if (ke.key == K::Left) {
             if (ke.ctrl) {                                     // Ctrl(+Shift)+Left → move/select by word
@@ -2181,8 +2054,6 @@ public:
                 m_layoutDirty = true;
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
                 onTextChanged.emit(m_text);
-                if (JAiBusHook::emit)
-                    JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
                 return true;
             }
         }
@@ -2331,11 +2202,6 @@ public:
         return true;
     }
 
-    JAISemanticNode getSemanticNode() const override { return {"JTextArea", m_placeholder, m_text, true}; }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a.rfind("set_text:", 0) == 0) { setText(a.substr(9)); return true; }
-        return false;
-    }
 
     // Optional syntax highlighter: fills `out` with 4 bytes (RGBA) per character of the text; the render then
     // draws each line as runs of equal colour. Null (default) → the whole text draws in one colour (no change
@@ -2371,8 +2237,6 @@ private:
         m_selActive = false;
         m_layoutDirty = true;
         onTextChanged.emit(m_text);
-        if (JAiBusHook::emit)
-            JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
     }
 
     std::string m_text;
@@ -2516,15 +2380,6 @@ public:
         buf.pushRectangle(ax, b.y + halfH + halfH * 0.55f, aw, 2.0f, ac); // down mark
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        return {"JSpinBox", "", std::to_string(m_value), true};
-    }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a.rfind("set_value:", 0) == 0) { try { setValue(std::stoi(a.substr(10))); return true; } catch (...) {} }
-        if (a == "increment") { setValue(m_value + 1); return true; }
-        if (a == "decrement") { setValue(m_value - 1); return true; }
-        return false;
-    }
 
 private:
     // Click-to-edit pre-fills the current value AND selects it, so the first typed digit replaces it
@@ -2680,15 +2535,6 @@ public:
         buf.pushRectangle(ax, b.y + halfH + halfH * 0.55f, aw, 2.0f, ac); // down mark
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        return {"JDoubleSpinBox", "", _formatValue(), true};
-    }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a.rfind("set_value:", 0) == 0) { try { setValue(std::stod(a.substr(10))); return true; } catch (...) {} }
-        if (a == "increment") { setValue(m_value + m_step); return true; }
-        if (a == "decrement") { setValue(m_value - m_step); return true; }
-        return false;
-    }
 
 private:
     std::string _formatValue() const {
@@ -2797,17 +2643,6 @@ public:
         }
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        return {"JPopupItem", m_label, "", true};
-    }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a == "click" || a == "activate") {
-            onClicked.emit();
-            onActivated.emit();
-            return true;
-        }
-        return false;
-    }
 
 private:
     std::string m_label;
@@ -2917,24 +2752,6 @@ public:
         }
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        return {"JComboBox", "", currentText(), true};
-    }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a.rfind("select:", 0) == 0) {
-            auto needle = a.substr(7);
-            for (int i = 0; i < (int)m_items.size(); ++i)
-                if (m_items[i] == needle) { setCurrentIndex(i); return true; }
-        }
-        if (a == "click" || a == "activate") {
-            onClicked.emit();
-            if (!m_items.empty() && m_mode == JComboBoxMode::Popup) {
-                onPopupRequested.emit(this);
-            }
-            return true;
-        }
-        return JControl::executeSemanticAction(a);
-    }
 
 private:
     void _updateMinSize() {
@@ -3012,8 +2829,6 @@ public:
             JTextHelper::pushText(buf, b.x + b.width - b.height + 6.0f, b.y + (b.height - JTextHelper::lineHeight()) * 0.5f, "x", xc, b.height);
         }
     }
-    JAISemanticNode getSemanticNode() const override { return {"JColorButton", "", m_hex, true}; }
-    bool executeSemanticAction(const std::string& a) override { if (a.rfind("set:", 0) == 0) { pick(a.substr(4)); return true; } return false; }
 
 private:
     static bool _parse(const std::string& s, uint8_t o[4]) {
@@ -3079,8 +2894,6 @@ public:
             }
         }
     }
-    JAISemanticNode getSemanticNode() const override { return {"JFontButton", "", m_spec, true}; }
-    bool executeSemanticAction(const std::string& a) override { if (a.rfind("set:", 0) == 0) { pick(a.substr(4)); return true; } return false; }
 
 private:
     std::string m_spec;
@@ -3302,13 +3115,6 @@ public:
         }
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        return {"JTabBar", "", std::to_string(m_activeIndex), true};
-    }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a.rfind("select_tab:", 0) == 0) { try { setActiveTab(std::stoi(a.substr(11))); return true; } catch (...) {} }
-        return false;
-    }
 
 private:
     void _updateMinSize() {
@@ -3519,14 +3325,6 @@ public:
         return false;
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        return { "JTabWidget", "", std::to_string(m_active), true };
-    }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a.rfind("select_tab:", 0) == 0) { try { setActiveTab(std::stoi(a.substr(11))); return true; } catch (...) {} }
-        if (a.rfind("close_tab:",  0) == 0) { try { removeTab(std::stoi(a.substr(10))); return true; } catch (...) {} }
-        return false;
-    }
 
 private:
     struct Tab { std::string label; JWidget* content; bool closable; bool draggable; };
@@ -3675,8 +3473,6 @@ public:
         }
     }
 
-    JAISemanticNode getSemanticNode() const override { return {"JGroupBox", m_title, "", false}; }
-    bool executeSemanticAction(const std::string&) override { return false; }
 
 private:
     std::string m_title;
@@ -3740,7 +3536,6 @@ public:
         return consumed;
     }
 
-    JAISemanticNode getSemanticNode() const override { return {"JContainer", m_debugName, "", false}; }
 
 private:
     std::vector<JWidget*> m_children;   // non-owning
@@ -3912,17 +3707,6 @@ public:
         }
     }
 
-    JAISemanticNode getSemanticNode() const override { return {"JScrollArea", "", "", true}; }
-    bool executeSemanticAction(const std::string& a) override {
-        if (a.rfind("scroll_to:", 0) == 0) {
-            try {
-                m_scrollY = std::max(0.0f, std::stof(a.substr(10)));
-                m_graph.invalidateNode(m_nodeId, DirtySelf);
-                return true;
-            } catch (...) {}
-        }
-        return false;
-    }
 
 private:
     std::vector<JWidget*> m_children;
@@ -4118,32 +3902,7 @@ public:
         }
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        std::string selectedText = (m_selectedIndex >= 0 && m_selectedIndex < (int)m_items.size()) ? m_items[m_selectedIndex] : "";
-        return {"JListView", std::to_string(m_items.size()) + " items", selectedText, true};
-    }
 
-    bool executeSemanticAction(const std::string& a) override {
-        if (a.rfind("select_index:", 0) == 0) {
-            try {
-                int idx = std::stoi(a.substr(13));
-                setSelectedIndex(idx);
-                _ensureIndexVisible(idx);
-                return true;
-            } catch (...) {}
-        }
-        if (a.rfind("select:", 0) == 0) {
-            std::string text = a.substr(7);
-            for (int i = 0; i < (int)m_items.size(); ++i) {
-                if (m_items[i] == text) {
-                    setSelectedIndex(i);
-                    _ensureIndexVisible(i);
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
 
 private:
     void _ensureIndexVisible(int index) {
@@ -4595,24 +4354,7 @@ public:
         }
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        std::string val = m_selectedNode ? m_selectedNode->label : "";
-        return {"JTreeView", "", val, true};
-    }
 
-    bool executeSemanticAction(const std::string& a) override {
-        if (a.rfind("select:", 0) == 0) {
-            std::string label = a.substr(7);
-            auto flatNodes = getFlatNodes();
-            for (auto& flat : flatNodes) {
-                if (flat.node->label == label) {
-                    _selectNode(flat.node);
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
 
     JTreeViewNode* selectedNode() const { return m_selectedNode; }
 
@@ -5143,28 +4885,7 @@ public:
         }
     }
 
-    JAISemanticNode getSemanticNode() const override {
-        std::string val = "";
-        if (m_selectedIndex >= 0 && m_selectedIndex < (int)m_rows.size()) {
-            for (const auto& cell : m_rows[m_selectedIndex]) {
-                if (!val.empty()) val += " | ";
-                val += cell;
-            }
-        }
-        return {"JDataGrid", "", val, true};
-    }
 
-    bool executeSemanticAction(const std::string& a) override {
-        if (a.rfind("select_row:", 0) == 0) {
-            try {
-                int row = std::stoi(a.substr(11));
-                setSelectedIndex(row);
-                _ensureRowVisible(row);
-                return true;
-            } catch (...) {}
-        }
-        return false;
-    }
 
 protected:
     virtual void drawHeaderCell(JPrimitiveBuffer& buf, int colIdx, const JRect& bounds, const std::string& title) {

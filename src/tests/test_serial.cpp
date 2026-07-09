@@ -2,7 +2,6 @@
 // Tests that don't require real hardware: API surface, availablePorts, AI signals.
 
 #include <j/io/SerialPort.h>
-#include <j/core/AiBusHook.h>
 #include <cassert>
 #include <string>
 #include <vector>
@@ -40,25 +39,6 @@ static void test_write_when_closed_returns_false() {
     std::cout << "  [OK] write() on closed port returns false\n";
 }
 
-static void test_ai_open_close_signals() {
-    std::vector<std::string> signals;
-    JAiBusHook::install([&](uint32_t, const char* sig, const char* val) {
-        signals.push_back(std::string(sig) + ":" + val);
-    });
-
-    {
-        JSerialPort sp;
-        // Attempting to open a nonexistent port — still emits open signal on success
-        // (this port will fail, so no open signal expected)
-        sp.open("/dev/genesis_test_nonexistent_xyz");
-        // close() only emits if previously opened successfully (m_port not empty)
-    }
-
-    // No signals expected since open() failed
-    JAiBusHook::install(nullptr);
-    std::cout << "  [OK] no spurious AI signals on failed open\n";
-}
-
 static void test_close_is_idempotent() {
     JSerialPort sp;
     // Calling close() multiple times on a closed port is safe
@@ -74,7 +54,6 @@ int main() {
     test_available_ports_returns_vector();
     test_open_nonexistent_fails();
     test_write_when_closed_returns_false();
-    test_ai_open_close_signals();
     test_close_is_idempotent();
     std::cout << "All JSerialPort tests passed.\n";
     return 0;
