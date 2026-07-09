@@ -37,6 +37,26 @@ enum class JWidgetState : uint32_t {
 };
 
 // ============================================================================
+// JFocusPolicy — how a widget can acquire keyboard focus (bit flags, Qt-style)
+// ============================================================================
+// Tab   → reachable by Tab/Shift+Tab traversal (drives isFocusable()).
+// Click → takes focus on a mouse press (drives acceptsClickFocus()).
+// Strong = Click | Tab (the usual interactive default).
+enum class JFocusPolicy : uint32_t {
+    NoFocus    = 0,
+    ClickFocus = 1,
+    TabFocus   = 2,
+    StrongFocus = ClickFocus | TabFocus
+};
+
+inline bool operator&(JFocusPolicy a, JFocusPolicy b) {
+    return (static_cast<uint32_t>(a) & static_cast<uint32_t>(b)) != 0;
+}
+inline JFocusPolicy operator|(JFocusPolicy a, JFocusPolicy b) {
+    return static_cast<JFocusPolicy>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+}
+
+// ============================================================================
 // AI semantic layer
 // ============================================================================
 
@@ -82,6 +102,11 @@ public:
     // Focusing a clicked control is the framework's job — an app never wires this.
     inline static std::function<void(JWidget*)> s_focusHook;
     void requestFocus() { if (s_focusHook) s_focusHook(this); }
+
+    // Screen-origin hook — the framework installs a callback returning the top-left of this UI's
+    // host window in global (desktop) coordinates, so mapToGlobal/mapFromGlobal can translate a
+    // widget-local screen-space point to/from the desktop. Unset → identity ({0,0}).
+    inline static std::function<std::pair<float,float>()> s_screenOrigin;
 
     JWidget(JSceneGraph& graph, const std::string& debugName = "")
         : m_graph(graph), m_state(JWidgetState::Normal), m_debugName(debugName)
@@ -136,8 +161,119 @@ public:
     // Position/size this widget's layout box directly — for host-driven placement (e.g. a dock
     // laying its content widget into the leaf's content rect). Marks the node dirty so the
     // subtree re-lays-out; container widgets (JScrollArea/JGroupBox/…) arrange children from it.
-    void setBounds(const JRect& r) { m_graph.getLayout(m_nodeId).boundingBox = r; }
+    void setBounds(const JRect& r) {
+        JRect c = r;
+        c.width  = _clampW(c.width);
+        c.height = _clampH(c.height);
+        m_graph.getLayout(m_nodeId).boundingBox = c;
+    }
     JRect bounds() const { return m_graph.getLayoutConst(m_nodeId).boundingBox; }
+
+    // ------------------------------------------------------------------
+    // Geometry — screen-space float coords, JRect {x,y,width,height}.
+    // setGeometry/geometry are Qt-familiar aliases over setBounds/bounds and
+    // therefore honour the size constraints below.
+    // ------------------------------------------------------------------
+    void  setGeometry(const JRect& r) { setBounds(r); }
+    JRect geometry() const            { return bounds(); }
+
+    void setPos(float x, float y) {
+        auto& bb = m_graph.getLayout(m_nodeId).boundingBox;
+        bb.x = x; bb.y = y;
+    }
+    void setSize(float w, float h) {
+        auto& bb = m_graph.getLayout(m_nodeId).boundingBox;
+        bb.width  = _clampW(w);
+        bb.height = _clampH(h);
+    }
+
+    // Alias of hitTest(): true when the screen-space point falls inside this widget's box.
+    bool contains(float x, float y) const { return isPointInside(x, y); }
+
+    // Map a widget-local screen-space point to/from global (desktop) coordinates, offsetting
+    // by the framework's screen-origin hook (identity when unset).
+    std::pair<float,float> mapToGlobal(float x, float y) const {
+        auto [ox, oy] = s_screenOrigin ? s_screenOrigin() : std::pair<float,float>{0.f, 0.f};
+        return { x + ox, y + oy };
+    }
+    std::pair<float,float> mapFromGlobal(float x, float y) const {
+        auto [ox, oy] = s_screenOrigin ? s_screenOrigin() : std::pair<float,float>{0.f, 0.f};
+        return { x - ox, y - oy };
+    }
+
+    // ------------------------------------------------------------------
+    // Size constraints — clamp every future setSize/setBounds/setGeometry.
+    // The minimums also feed the layout engine (mirrored into the layout's
+    // minWidth/minHeight); maximums are enforced here on assignment.
+    // ------------------------------------------------------------------
+    void setMinimumSize(float w, float h) {
+        m_minW = w; m_minH = h;
+        auto& l = m_graph.getLayout(m_nodeId);
+        l.minWidth = w; l.minHeight = h;
+        setSize(l.boundingBox.width, l.boundingBox.height);   // re-clamp current box
+    }
+    void setMaximumSize(float w, float h) {
+        m_maxW = w; m_maxH = h;
+        const auto& bb = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        setSize(bb.width, bb.height);
+    }
+    std::pair<float,float> minimumSize() const { return { m_minW, m_minH }; }
+    std::pair<float,float> maximumSize() const { return { m_maxW, m_maxH }; }
+
+    // Pin the widget to an exact size: min == max == the given size, and clamp now.
+    void setFixedSize(float w, float h) {
+        m_minW = m_maxW = w;
+        m_minH = m_maxH = h;
+        auto& l = m_graph.getLayout(m_nodeId);
+        l.minWidth = w; l.minHeight = h;
+        setSize(w, h);
+    }
+
+    // Preferred/natural size — defaults to the current box. Override in a subclass
+    // that can compute a content-driven hint (e.g. text extent). sizeHint() is an alias.
+    virtual JRect preferredSize() const { return bounds(); }
+    JRect sizeHint() const { return preferredSize(); }
+
+    // ------------------------------------------------------------------
+    // Focus policy — governs Tab traversal and click-to-focus.
+    // ------------------------------------------------------------------
+    void         setFocusPolicy(JFocusPolicy p) { m_focusPolicy = p; }
+    JFocusPolicy focusPolicy() const noexcept   { return m_focusPolicy; }
+    // Tab-reachable — this is what the FocusManager's tab ring honours.
+    virtual bool isFocusable() const { return m_focusPolicy & JFocusPolicy::TabFocus; }
+    // Takes focus on a mouse press.
+    bool acceptsClickFocus() const { return m_focusPolicy & JFocusPolicy::ClickFocus; }
+
+    // ------------------------------------------------------------------
+    // Visibility nuance + opacity.
+    // ------------------------------------------------------------------
+    // setHidden(true) == setVisible(false); provided for Qt API familiarity.
+    void setHidden(bool h) { setVisible(!h); }
+    bool isHidden() const noexcept { return !m_visible; }
+
+    // Opacity in [0,1]. Stored on the widget; the render layer may honour it when
+    // compositing (base widgets paint opaque — this is advisory for renderers/subclasses).
+    void  setOpacity(float o) { m_opacity = std::clamp(o, 0.f, 1.f); m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    float opacity() const noexcept { return m_opacity; }
+
+    // ------------------------------------------------------------------
+    // Z-order within s_activeWidgets (paint order: later = on top).
+    // raise() → move to the back of the vector (painted last = topmost).
+    // lower() → move to the front (painted first = bottommost).
+    // O(n), safe no-op if this widget is not currently registered.
+    // ------------------------------------------------------------------
+    void raise() {
+        auto it = std::find(s_activeWidgets.begin(), s_activeWidgets.end(), this);
+        if (it == s_activeWidgets.end()) return;
+        s_activeWidgets.erase(it);
+        s_activeWidgets.push_back(this);
+    }
+    void lower() {
+        auto it = std::find(s_activeWidgets.begin(), s_activeWidgets.end(), this);
+        if (it == s_activeWidgets.end()) return;
+        s_activeWidgets.erase(it);
+        s_activeWidgets.insert(s_activeWidgets.begin(), this);
+    }
 
     void setEnabled(bool e) {
         setState(e ? JWidgetState::Normal : JWidgetState::Disabled);
@@ -159,7 +295,6 @@ public:
         }
     }
 
-    virtual bool isFocusable() const { return false; }
     bool hitTest(float mx, float my) const { return isPointInside(mx, my); }
 
     // Render primitive emission — subclasses paint into the shared buffer
@@ -206,6 +341,10 @@ protected:
         return mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height;
     }
 
+    // Clamp a requested width/height into [min,max].
+    float _clampW(float w) const { return std::clamp(w, m_minW, m_maxW); }
+    float _clampH(float h) const { return std::clamp(h, m_minH, m_maxH); }
+
     // Call at the end of populateRenderPrimitives to draw a keyboard-focus ring.
     // Defined out-of-line (after JTheme) — see below.
     void drawFocusRing(JPrimitiveBuffer& buf) const;
@@ -216,6 +355,12 @@ protected:
     std::string m_debugName;
     bool        m_visible{true};
     bool        m_focused{false};
+
+    // Core-API state added for Qt/GTK-class completeness.
+    JFocusPolicy m_focusPolicy{JFocusPolicy::NoFocus};  // plain JWidget: not focusable
+    float        m_opacity{1.0f};                       // [0,1]; advisory to the render layer
+    float        m_minW{0.0f},   m_minH{0.0f};          // size constraints (mirror layout minW/minH)
+    float        m_maxW{1.0e6f}, m_maxH{1.0e6f};
 };
 
 // ============================================================================
@@ -233,9 +378,10 @@ public:
     jf::JSignal<>     onClicked;
     jf::JSignal<bool> onFocusChanged;
 
-    JControl(JSceneGraph& graph, const std::string& name) : JWidget(graph, name) {}
-
-    bool isFocusable() const override { return true; }
+    JControl(JSceneGraph& graph, const std::string& name) : JWidget(graph, name) {
+        // Interactive controls are click- and tab-focusable by default (Qt StrongFocus).
+        m_focusPolicy = JFocusPolicy::StrongFocus;
+    }
 
     void handleMouseMove(float mx, float my) override {
         if (m_state == JWidgetState::Disabled) return;
