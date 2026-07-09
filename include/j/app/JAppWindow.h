@@ -25,6 +25,8 @@
 #include <j/core/JComboBox.h>            // JComboBox (managed combo-dropdown popup)
 #include <j/core/JColorButton.h>         // JColorButton (opens the colour picker dialog)
 #include <j/core/JFontButton.h>          // JFontButton (opens the font picker dialog)
+#include <j/core/JTitleBar.h>            // JTitleBar::draw (window title bar)
+#include <j/core/JCloseButton.h>         // JCloseButton::draw/rectFor (window close control)
 #include <j/core/DragDrop.h>             // JDragDrop — drag ghost overlay + drop-end repaint
 #include <j/core/DockManager.h>          // JDockHost (auto-managed dock layout)
 #include <j/core/DockSpace.h>            // JDockSpace (centre + 4 dock areas)
@@ -968,7 +970,7 @@ private:
         buf.pushRectangle(0.f, 0.f, W, H, bg, 0.f);
 
         // Title bar — the ONE shared primitive (square top for the app frame), reserving the 3 window buttons.
-        jDrawTitleBar(buf, 0.f, 0.f, W, m_titleH, m_title, 0.f, 0, 10.f, kBtnW * 3.f + 20.f);
+        JTitleBar::draw(buf, 0.f, 0.f, W, m_titleH, m_title, 0.f, 0, 10.f, kBtnW * 3.f + 20.f);
 
         uint8_t sep[4] = {Colors::Border[0], Colors::Border[1], Colors::Border[2], Colors::Border[3]};
         buf.pushRectangle(0.f, m_titleH - 1.f, W, 1.f, sep, 0.f);
@@ -999,8 +1001,8 @@ private:
         }
         // Close  × — the framework close-button primitive (rect derived from the title bar, no magic size)
         {
-            const JRect cr = jTitleCloseRect(0.f, 0.f, W, m_titleH);
-            jDrawCloseButton(buf, cr.x, cr.y, cr.width, hov(closeX));
+            const JRect cr = JCloseButton::rectFor({0.f, 0.f, W, m_titleH});
+            JCloseButton::draw(buf, cr, hov(closeX));
         }
     }
 

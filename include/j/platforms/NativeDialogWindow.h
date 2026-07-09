@@ -17,6 +17,7 @@
 
 #include <j/core/Dialog.h>
 #include <j/core/JWindowControls.h>
+#include <j/core/JCloseButton.h>
 #include <j/graphics/GpuHal.h>
 #include <j/graphics/RenderPrimitive.h>
 
@@ -216,8 +217,8 @@ private:
             // Close × button
             if (opts.showCloseButton) {
                 bool hovClose = (m_mx >= W - kCloseW && m_mx < W && m_my >= 0.f && m_my < kTitleH);
-                const JRect cr = jTitleCloseRect(0.f, 0.f, W, kTitleH);
-                jDrawCloseButton(buf, cr.x, cr.y, cr.width, hovClose);
+                const JRect cr = JCloseButton::rectFor({0.f, 0.f, W, kTitleH});
+                JCloseButton::draw(buf, cr, hovClose);
                 if (m_pressed && hovClose) { if (m_req.onCancel) m_req.onCancel(); _dismiss("close"); return; }
             }
 

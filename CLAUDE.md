@@ -20,6 +20,30 @@ resolves through `JTheme` / `JStyle`. There are no exceptions to this.
 
 Magic numbers are a bug, even when they look right.
 
+## No hacks. Fix the real thing.
+
+There is no backwards compatibility to preserve and nothing to be gentle with.
+Fix the actual code, at the actual call sites, completely.
+
+Banned — every one of these is a rejected change, no exceptions:
+
+- **Shims / forwarders / compatibility wrappers.** If a function moved into a
+  class, delete the old function and change every caller. Do not leave a
+  thin wrapper "so nothing breaks." Things are *supposed* to break; then you
+  fix them.
+- **Wedges / band-aids / "temporary" fixes.** Temporary means permanent. There
+  is no later.
+- **Stubs / TODO placeholders / empty implementations** left in shipping code.
+  If it isn't implemented, it isn't done.
+- **Dead code kept "just in case"**, deprecated aliases, `#if 0`, commented-out
+  blocks, "legacy" paths.
+- **Silencing over solving** — suppressing a warning, `try/catch`-and-ignore,
+  casting away a type error, widening a signature to dodge a real fix.
+
+When something moves or changes, it moves or changes *everywhere it is used*,
+in the same change. A half-migration hidden behind a wrapper is worse than not
+starting, because it reads as done.
+
 ## Composition, not duplication
 
 Widgets are built from other widgets. If two things render the same visual

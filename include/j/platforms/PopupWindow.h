@@ -1,6 +1,7 @@
 #pragma once
 
 #include <j/core/JWindowControls.h>
+#include <j/core/JCloseButton.h>
 #include <j/core/JPopupItem.h>
 #include <j/graphics/GpuHal.h>
 
@@ -366,9 +367,9 @@ public:
 
         // Close button — same style as JDockWidget title-bar close button.
         if (m_showCloseButton) {
-            const JRect cr = jTitleCloseRect(0.f, 0.f, static_cast<float>(m_winW), kFloatHandleH);
-            const bool hov = jCloseButtonHit(cr.x, cr.y, cr.width, m_window->mouseX(), m_window->mouseY());
-            jDrawCloseButton(buf, cr.x, cr.y, cr.width, hov);
+            const JRect cr = JCloseButton::rectFor({0.f, 0.f, static_cast<float>(m_winW), kFloatHandleH});
+            const bool hov = JCloseButton::hit(cr, m_window->mouseX(), m_window->mouseY());
+            JCloseButton::draw(buf, cr, hov);
         }
 
         auto frame = hal.beginFrame(m_surface);

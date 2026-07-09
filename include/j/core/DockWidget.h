@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include "JWindowControls.h"
+#include "JCloseButton.h"
 #include "JTabBar.h"
 
 inline namespace jf {
@@ -334,8 +335,8 @@ public:
 
             // 6. Close button (only if closeable)
             if (m_closeable) {
-                const JRect cr = jTitleCloseRect(m_x, m_y, m_w, TITLE_H);
-                jDrawCloseButton(buf, cr.x, cr.y, cr.width, m_hoverClose);
+                const JRect cr = JCloseButton::rectFor({m_x, m_y, m_w, TITLE_H});
+                JCloseButton::draw(buf, cr, m_hoverClose);
             }
         } // end m_titleVisible
 
