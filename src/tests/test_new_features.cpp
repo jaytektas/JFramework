@@ -3,7 +3,6 @@
 #include <j/core/Splitter.h>
 #include <j/core/ImageWidget.h>
 #include <j/platform/Clipboard.h>
-#include <j/platform/FileDialog.h>
 #include <j/graphics/RenderPrimitive.h>
 #include <j/graphics/GpuHal.h>
 #include <cassert>

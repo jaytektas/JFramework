@@ -46,6 +46,7 @@
 #include <j/platforms/ColorPickerDialog.h> // JColorPickerDialog (colour-button modal dialog)
 #include <j/platforms/FontPickerDialog.h>  // JFontPickerDialog (font-button modal dialog)
 #include <j/platforms/NativeDialogWindow.h>  // JNativeDialogWindow
+#include <j/platforms/FileDialogWindow.h>    // JFileDialogWindow (in-app file/folder picker)
 #if defined(__linux__)
 #  include <j/platforms/linux/FloatingDockWindow.h>   // tear-out / floating docks
 #endif
@@ -893,8 +894,12 @@ private:
         while (JDialogManager::instance().hasPending()) {
             const auto* req  = JDialogManager::instance().front();
             const auto& opts = req->options;
-            const int dlgW = static_cast<int>(JNativeDialogWindow::kW);
-            const int dlgH = static_cast<int>(JNativeDialogWindow::calcHeight(req->kind, opts));
+            const bool isFile = (req->kind == JDialogRequest::JKind::OpenFile ||
+                                 req->kind == JDialogRequest::JKind::SaveFile ||
+                                 req->kind == JDialogRequest::JKind::OpenFolder);
+            const int dlgW = static_cast<int>(isFile ? JFileDialogWindow::kW : JNativeDialogWindow::kW);
+            const int dlgH = static_cast<int>(isFile ? JFileDialogWindow::calcHeight()
+                                                     : JNativeDialogWindow::calcHeight(req->kind, opts));
             const int cW = static_cast<int>(m_w), cH = static_cast<int>(m_h);
             const int wx = m_window->screenX(), wy = m_window->screenY();
             int dlgX, dlgY;
@@ -912,15 +917,24 @@ private:
             case Pos::CenterOnParent:
             default:                  dlgX = wx + (cW - dlgW) / 2;    dlgY = wy + (cH - dlgH) / 2; break;
             }
-            m_dialogs.emplace_back(*req, *m_hal, dlgX, dlgY,
-                static_cast<JNativeDialogWindow::NativeWinHandleType>(m_window->rawWindowId()));
+            if (isFile)
+                m_fileDialogs.emplace_back(*req, *m_hal, dlgX, dlgY,
+                    static_cast<JFileDialogWindow::NativeWinHandleType>(m_window->rawWindowId()));
+            else
+                m_dialogs.emplace_back(*req, *m_hal, dlgX, dlgY,
+                    static_cast<JNativeDialogWindow::NativeWinHandleType>(m_window->rawWindowId()));
             JDialogManager::instance().pop();
         }
         for (auto it = m_dialogs.begin(); it != m_dialogs.end();) {
             if (!it->pollAndRender(*m_hal, scratch)) { it->destroySurface(*m_hal); it = m_dialogs.erase(it); }
             else ++it;
         }
-        return m_comboPopup != nullptr || m_colorDialog != nullptr || !m_modalStack.empty() || !m_dialogs.empty();
+        for (auto it = m_fileDialogs.begin(); it != m_fileDialogs.end();) {
+            if (!it->pollAndRender(*m_hal, scratch)) { it->destroySurface(*m_hal); it = m_fileDialogs.erase(it); }
+            else ++it;
+        }
+        return m_comboPopup != nullptr || m_colorDialog != nullptr || !m_modalStack.empty()
+            || !m_dialogs.empty() || !m_fileDialogs.empty();
     }
 
     static JPlatformCursor cursorForDir(int d) {
@@ -1030,6 +1044,7 @@ private:
     std::vector<std::pair<std::function<bool(JGpuHal&, JPrimitiveBuffer&)>, std::function<void(JGpuHal&)>>> m_modalStack;
     JPopupWindow*                    m_comboCloseReq{nullptr};
     std::vector<JNativeDialogWindow> m_dialogs;
+    std::vector<JFileDialogWindow>   m_fileDialogs;
     std::unique_ptr<JToolBar> m_toolBar;     // lazily created on toolBar()
     float                     m_menuH{0.f}, m_toolbarH{0.f}, m_statusH{0.f};
     JStatusBar                m_statusBar;

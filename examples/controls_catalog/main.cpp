@@ -39,7 +39,6 @@
 #include <j/core/Splitter.h>
 #include <j/core/ImageWidget.h>
 #include <j/platform/Clipboard.h>
-#include <j/platform/FileDialog.h>
 
 #if defined(_WIN32)
 using PlatformWindowImpl = jf::JWindowsPlatformWindow;
@@ -474,17 +473,16 @@ private:
             auto* openBtn = add<JButton>(m_graph, "Open File...", 150.0f, 32.0f);
             auto* saveBtn = add<JButton>(m_graph, "Save File...", 150.0f, 32.0f);
             auto* dirBtn  = add<JButton>(m_graph, "Open Folder...", 160.0f, 32.0f);
-            openBtn->onClicked.connect([lbl] {
-                std::string f = JFileDialog::openFile("Select a File");
-                lbl->setText(f.empty() ? "(cancelled)" : f);
+            auto show = [lbl](std::string f){ lbl->setText(f.empty() ? "(cancelled)" : f); };
+            auto cancelled = [lbl]{ lbl->setText("(cancelled)"); };
+            openBtn->onClicked.connect([show, cancelled] {
+                JDialog::openFile("Select a File", {}, show, cancelled);
             });
-            saveBtn->onClicked.connect([lbl] {
-                std::string f = JFileDialog::saveFile("Save As", "output.txt");
-                lbl->setText(f.empty() ? "(cancelled)" : f);
+            saveBtn->onClicked.connect([show, cancelled] {
+                JDialog::saveFile("Save As", {"txt"}, show, cancelled);
             });
-            dirBtn->onClicked.connect([lbl] {
-                std::string f = JFileDialog::openDirectory("Select Folder");
-                lbl->setText(f.empty() ? "(cancelled)" : f);
+            dirBtn->onClicked.connect([show, cancelled] {
+                JDialog::openFolder("Select Folder", show, cancelled);
             });
         }
 
