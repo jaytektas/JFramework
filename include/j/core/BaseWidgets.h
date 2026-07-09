@@ -83,6 +83,16 @@ public:
     inline static std::function<void(JWidget*)> s_focusHook;
     void requestFocus() { if (s_focusHook) s_focusHook(this); }
 
+    // Framework-level text clipboard hook. The platform layer installs s_clipboardSet/Get to bridge the OS
+    // clipboard (e.g. JClipboard); when unset (headless / unit tests) both fall back to ONE in-process static
+    // string, so copy/cut/paste work with no platform present. Text widgets call clipboardGet()/clipboardSet()
+    // — never the OS directly — so a headless test drives the exact same paths as the real app.
+    inline static std::function<std::string()>            s_clipboardGet;
+    inline static std::function<void(const std::string&)> s_clipboardSet;
+    static std::string  clipboardGet()                     { return s_clipboardGet ? s_clipboardGet() : _clipboardFallback(); }
+    static void         clipboardSet(const std::string& s) { if (s_clipboardSet) s_clipboardSet(s); else _clipboardFallback() = s; }
+    static std::string& _clipboardFallback()               { static std::string s; return s; }
+
     JWidget(JSceneGraph& graph, const std::string& debugName = "")
         : m_graph(graph), m_state(JWidgetState::Normal), m_debugName(debugName)
     {
@@ -1305,7 +1315,7 @@ public:
     void setText(const std::string& t) {
         if (m_text != t) {
             m_text = t;
-            m_caret = m_text.size();                          // caret to end on programmatic set
+            m_caret = m_anchor = m_text.size();               // caret to end + collapse selection on set
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onTextChanged.emit(t);
             if (JAiBusHook::emit)
@@ -1315,55 +1325,122 @@ public:
     const std::string& text()        const { return m_text; }
     const std::string& placeholder() const { return m_placeholder; }
 
+    // ---- Selection model -------------------------------------------------------------------------------
+    // A selection is the byte range [anchor, caret) (either end may be the larger). anchor==caret ⇒ none.
+    bool        hasSelection() const { return m_anchor != m_caret; }
+    size_t      selectionStart() const { return std::min(m_anchor, m_caret); }
+    size_t      selectionEnd()   const { return std::max(m_anchor, m_caret); }
+    std::string selectedText()   const {
+        return hasSelection() ? m_text.substr(selectionStart(), selectionEnd() - selectionStart()) : std::string();
+    }
+    void selectAll() { m_anchor = 0; m_caret = m_text.size(); m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    void clearSelection() { m_anchor = m_caret; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    size_t caret() const { return m_caret; }
+
     void handleMousePress(float mx, float my) override {
         if (!isPointInside(mx, my)) return;
         requestFocus();   // clicking the field focuses it, so typed characters route here (framework focus)
         onClicked.emit();
-        // Place the caret at the clicked column (nearest character boundary), so clicking positions the
-        // cursor where you point instead of always at the end.
-        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        const float innerX = b.x + textPadding();
-        m_caret = m_text.size();
-        if (JTextHelper::hasAtlas() && !m_text.empty()) {
-            const float target = mx - innerX;
-            float prevW = 0.f;
-            for (size_t i = 0; i < m_text.size(); ) {
-                const size_t nxt = _nextCharStart(i);
-                const float w = JTextHelper::measureWidth(m_text.substr(0, nxt));
-                if (target < (prevW + w) * 0.5f) { m_caret = i; break; }
-                prevW = w; i = nxt;
-            }
+        // Multi-click detection (single → caret + drag-select, double → word, triple → all). Two presses count
+        // as a double-click when they land close together in space and within 400 ms — the same test path the
+        // platform's real click stream drives.
+        const auto now  = std::chrono::steady_clock::now();
+        const bool near = std::abs(mx - m_lastClickX) < 4.0f;
+        const bool quick = m_clickCount > 0 &&
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastClick).count() < 400;
+        m_clickCount = (quick && near) ? m_clickCount + 1 : 1;
+        m_lastClick  = now;
+        m_lastClickX = mx;
+
+        const size_t idx = _caretFromX(mx);
+        if (m_clickCount >= 3) {            // triple-click → select the whole field
+            m_anchor = 0; m_caret = m_text.size(); m_selecting = false;
+        } else if (m_clickCount == 2) {     // double-click → select the word (or whitespace run) under the cursor
+            _selectWordAt(idx); m_selecting = false;
+        } else {                            // single-click → place caret, begin a drag-select
+            m_caret = idx; m_anchor = idx; m_selecting = true;
         }
         m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+
+    void handleMouseMove(float mx, float my) override {
+        JControl::handleMouseMove(mx, my);
+        if (m_selecting) { m_caret = _caretFromX(mx); m_graph.invalidateNode(m_nodeId, DirtySelf); }   // extend, keep anchor
+    }
+    void handleMouseRelease(float mx, float my) override {
+        m_selecting = false;
+        JControl::handleMouseRelease(mx, my);
     }
 
     bool handleKeyEvent(const JKeyEvent& ke) override {
         if (!ke.pressed) return false;
         using K = JKeyEvent::JKey;
-        if (m_caret > m_text.size()) m_caret = m_text.size();
+        if (m_caret  > m_text.size()) m_caret  = m_text.size();
+        if (m_anchor > m_text.size()) m_anchor = m_text.size();
         auto changed = [&]{
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onTextChanged.emit(m_text);
             if (JAiBusHook::emit) JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
         };
+        auto moved = [&]{ m_graph.invalidateNode(m_nodeId, DirtySelf); };
+
+        // ---- Clipboard + select-all (Ctrl). Match on both the JKey and the folded printable, since a
+        //      Ctrl-chord may arrive as a named key or as a control-code utf8 byte depending on platform. ----
+        if (ke.ctrl && !ke.alt) {
+            const char lc = static_cast<char>(ke.utf8[0] | 0x20);   // case-fold the printable, if any
+            if (ke.key == K::A || lc == 'a') { selectAll(); return true; }
+            if (ke.key == K::C || lc == 'c') { if (hasSelection()) clipboardSet(selectedText()); return true; }
+            if (ke.key == K::X || lc == 'x') {
+                if (hasSelection()) { clipboardSet(selectedText()); _deleteSelection(); changed(); }
+                return true;
+            }
+            if (ke.key == K::V || lc == 'v') {
+                std::string clip = clipboardGet();
+                clip.erase(std::remove(clip.begin(), clip.end(), '\n'), clip.end());   // single-line field: drop newlines
+                clip.erase(std::remove(clip.begin(), clip.end(), '\r'), clip.end());
+                if (!clip.empty()) {
+                    _deleteSelection();                              // paste replaces the active selection
+                    m_text.insert(m_caret, clip);
+                    m_caret += clip.size();
+                    m_anchor = m_caret;
+                    changed();
+                }
+                return true;
+            }
+        }
+
         switch (ke.key) {
             case K::Backspace:
-                if (m_caret > 0) { const size_t p = _prevCharStart(m_caret); m_text.erase(p, m_caret - p); m_caret = p; changed(); }
+                if (hasSelection())      { _deleteSelection(); changed(); }
+                else if (ke.ctrl)        { const size_t p = _prevWord(m_caret); if (p < m_caret) { m_text.erase(p, m_caret - p); m_caret = m_anchor = p; changed(); } }
+                else if (m_caret > 0)    { const size_t p = _prevCharStart(m_caret); m_text.erase(p, m_caret - p); m_caret = m_anchor = p; changed(); }
                 return true;
             case K::Delete:
-                if (m_caret < m_text.size()) { m_text.erase(m_caret, _nextCharStart(m_caret) - m_caret); changed(); }
+                if (hasSelection())              { _deleteSelection(); changed(); }
+                else if (ke.ctrl)                { const size_t e = _nextWord(m_caret); if (e > m_caret) { m_text.erase(m_caret, e - m_caret); m_anchor = m_caret; changed(); } }
+                else if (m_caret < m_text.size()){ m_text.erase(m_caret, _nextCharStart(m_caret) - m_caret); m_anchor = m_caret; changed(); }
                 return true;
-            case K::Left:  m_caret = _prevCharStart(m_caret); m_graph.invalidateNode(m_nodeId, DirtySelf); return true;
-            case K::Right: m_caret = _nextCharStart(m_caret); m_graph.invalidateNode(m_nodeId, DirtySelf); return true;
-            case K::Home:  m_caret = 0;              m_graph.invalidateNode(m_nodeId, DirtySelf); return true;
-            case K::End:   m_caret = m_text.size();  m_graph.invalidateNode(m_nodeId, DirtySelf); return true;
+            case K::Left: {
+                size_t pos = ke.ctrl ? _prevWord(m_caret) : _prevCharStart(m_caret);
+                if (!ke.shift && !ke.ctrl && hasSelection()) pos = selectionStart();   // plain arrow collapses to edge
+                m_caret = pos; if (!ke.shift) m_anchor = pos; moved(); return true;
+            }
+            case K::Right: {
+                size_t pos = ke.ctrl ? _nextWord(m_caret) : _nextCharStart(m_caret);
+                if (!ke.shift && !ke.ctrl && hasSelection()) pos = selectionEnd();
+                m_caret = pos; if (!ke.shift) m_anchor = pos; moved(); return true;
+            }
+            case K::Home: m_caret = 0;             if (!ke.shift) m_anchor = m_caret; moved(); return true;
+            case K::End:  m_caret = m_text.size(); if (!ke.shift) m_anchor = m_caret; moved(); return true;
             case K::Return: onReturnPressed.emit(); return true;
             default: break;
         }
-        if (ke.utf8[0] != '\0' && static_cast<uint8_t>(ke.utf8[0]) >= 32) {   // printable → insert at caret
+        if (!ke.ctrl && !ke.alt && ke.utf8[0] != '\0' && static_cast<uint8_t>(ke.utf8[0]) >= 32) {   // printable → replace selection + insert
             const std::string ch = ke.utf8;
+            _deleteSelection();
             m_text.insert(m_caret, ch);
             m_caret += ch.size();
+            m_anchor = m_caret;
             changed();
             return true;
         }
@@ -1383,6 +1460,16 @@ public:
         float innerX = b.x + pad;
         float innerW = b.width - 2.0f * pad;
         float midY   = b.y + (b.height - 7.0f) * 0.5f;
+
+        // Selection highlight — a translucent rectangle behind the selected glyph run (drawn before the text).
+        if (hasSelection() && JTextHelper::hasAtlas() && !m_text.empty()) {
+            float xLo = innerX + JTextHelper::measureWidth(m_text.substr(0, selectionStart()));
+            float xHi = innerX + JTextHelper::measureWidth(m_text.substr(0, selectionEnd()));
+            if (xHi > innerX + innerW) xHi = innerX + innerW;
+            if (xLo < innerX) xLo = innerX;
+            uint8_t sc[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 90};
+            buf.pushRectangle(xLo, b.y + 4.0f, std::max(1.0f, xHi - xLo), b.height - 8.0f, sc, 2.0f);
+        }
 
         if (JTextHelper::hasAtlas()) {
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
@@ -1436,9 +1523,66 @@ private:
         return i;
     }
 
+    // A "word" character for navigation: ASCII alphanumerics, '_' and any UTF-8 lead/continuation byte
+    // (so multibyte glyphs count as word content). Everything else (space, punctuation) is a separator.
+    static bool _isWordChar(unsigned char c) {
+        return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || c >= 0x80;
+    }
+    // Start of the next word: skip the current word run, then the following separators (Qt/GTK semantics).
+    size_t _nextWord(size_t i) const {
+        const size_t n = m_text.size();
+        while (i < n &&  _isWordChar(static_cast<unsigned char>(m_text[i]))) ++i;
+        while (i < n && !_isWordChar(static_cast<unsigned char>(m_text[i]))) ++i;
+        return i;
+    }
+    // Start of the current/previous word: skip separators to the left, then the word run.
+    size_t _prevWord(size_t i) const {
+        while (i > 0 && !_isWordChar(static_cast<unsigned char>(m_text[i - 1]))) --i;
+        while (i > 0 &&  _isWordChar(static_cast<unsigned char>(m_text[i - 1]))) --i;
+        return i;
+    }
+    // Select the contiguous run (word OR whitespace/punct) of the same class as the char at/under `i`.
+    void _selectWordAt(size_t i) {
+        const size_t n = m_text.size();
+        if (n == 0) { m_anchor = m_caret = 0; return; }
+        if (i >= n) i = n - 1;
+        const bool w = _isWordChar(static_cast<unsigned char>(m_text[i]));
+        size_t s = i, e = i;
+        while (s > 0 && _isWordChar(static_cast<unsigned char>(m_text[s - 1])) == w) --s;
+        while (e < n && _isWordChar(static_cast<unsigned char>(m_text[e]))     == w) ++e;
+        m_anchor = s; m_caret = e;
+    }
+    // Nearest character boundary to a screen x — used by click and drag-select.
+    size_t _caretFromX(float mx) const {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const float innerX = b.x + textPadding();
+        if (!JTextHelper::hasAtlas() || m_text.empty()) return m_text.size();
+        const float target = mx - innerX;
+        if (target <= 0.f) return 0;
+        float prevW = 0.f;
+        for (size_t i = 0; i < m_text.size(); ) {
+            const size_t nxt = _nextCharStart(i);
+            const float w = JTextHelper::measureWidth(m_text.substr(0, nxt));
+            if (target < (prevW + w) * 0.5f) return i;
+            prevW = w; i = nxt;
+        }
+        return m_text.size();
+    }
+    void _deleteSelection() {
+        if (!hasSelection()) return;
+        const size_t lo = selectionStart(), hi = selectionEnd();
+        m_text.erase(lo, hi - lo);
+        m_caret = m_anchor = lo;
+    }
+
     std::string m_text;
     std::string m_placeholder;
-    size_t      m_caret = 0;   // insertion index into m_text (bytes; on a UTF-8 char boundary)
+    size_t      m_caret  = 0;   // insertion index into m_text (bytes; on a UTF-8 char boundary)
+    size_t      m_anchor = 0;   // selection anchor (== m_caret ⇒ no selection)
+    bool        m_selecting = false;                                 // mouse drag-select in progress
+    int         m_clickCount = 0;                                    // 1/2/3 = single/double/triple within the window
+    std::chrono::steady_clock::time_point m_lastClick{};
+    float       m_lastClickX = 0.f;
 };
 
 // ============================================================================
@@ -1740,19 +1884,19 @@ public:
         if (ke.ctrl) {
             if (ke.key == K::C || (ke.utf8[0]=='c'||ke.utf8[0]=='C')) {
                 std::string sel = selectedText();
-                if (!sel.empty()) JClipboard::setText(sel);
+                if (!sel.empty()) clipboardSet(sel);
                 return true;
             }
             if (ke.key == K::X || (ke.utf8[0]=='x'||ke.utf8[0]=='X')) {
                 std::string sel = selectedText();
                 if (!sel.empty()) {
-                    JClipboard::setText(sel);
+                    clipboardSet(sel);
                     _deleteSelection();
                 }
                 return true;
             }
             if (ke.key == K::V || (ke.utf8[0]=='v'||ke.utf8[0]=='V')) {
-                std::string clip = JClipboard::getText();
+                std::string clip = clipboardGet();
                 if (!clip.empty()) {
                     _deleteSelection();
                     if (m_maxLen && m_text.size() + clip.size() > m_maxLen)      // truncate the paste to fit the cap
@@ -1794,6 +1938,16 @@ public:
         if (ke.key == K::Backspace) {
             if (m_selActive && m_selStart != m_selEnd) {
                 _deleteSelection();
+            } else if (ke.ctrl && m_cursorPos > 0) {           // Ctrl+Backspace → delete the word to the left
+                const size_t p = _prevWord(m_cursorPos);
+                if (p < m_cursorPos) {
+                    m_text.erase(p, m_cursorPos - p);
+                    m_cursorPos = p;
+                    m_layoutDirty = true;
+                    m_graph.invalidateNode(m_nodeId, DirtySelf);
+                    onTextChanged.emit(m_text);
+                    if (JAiBusHook::emit) JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
+                }
             } else if (m_cursorPos > 0 && !m_text.empty()) {
                 m_text.erase(m_cursorPos - 1, 1);
                 m_cursorPos--;
@@ -1807,6 +1961,15 @@ public:
         } else if (ke.key == K::Delete) {
             if (m_selActive && m_selStart != m_selEnd) {
                 _deleteSelection();
+            } else if (ke.ctrl && m_cursorPos < m_text.size()) {   // Ctrl+Delete → delete the word to the right
+                const size_t e = _nextWord(m_cursorPos);
+                if (e > m_cursorPos) {
+                    m_text.erase(m_cursorPos, e - m_cursorPos);
+                    m_layoutDirty = true;
+                    m_graph.invalidateNode(m_nodeId, DirtySelf);
+                    onTextChanged.emit(m_text);
+                    if (JAiBusHook::emit) JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
+                }
             } else if (m_cursorPos < m_text.size()) {
                 m_text.erase(m_cursorPos, 1);
                 m_layoutDirty = true;
@@ -1828,7 +1991,9 @@ public:
                 JAiBusHook::emit(m_nodeId, JAiBusHook::kTextChanged, m_text.c_str());
             return true;
         } else if (ke.key == K::Left) {
-            if (!ke.shift && m_selActive && m_selStart != m_selEnd) {
+            if (ke.ctrl) {                                     // Ctrl(+Shift)+Left → move/select by word
+                moveCursor(_prevWord(m_cursorPos));
+            } else if (!ke.shift && m_selActive && m_selStart != m_selEnd) {
                 m_cursorPos = std::min(m_selStart, m_selEnd);
                 m_selActive = false;
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
@@ -1837,7 +2002,9 @@ public:
             }
             return true;
         } else if (ke.key == K::Right) {
-            if (!ke.shift && m_selActive && m_selStart != m_selEnd) {
+            if (ke.ctrl) {                                     // Ctrl(+Shift)+Right → move/select by word
+                moveCursor(_nextWord(m_cursorPos));
+            } else if (!ke.shift && m_selActive && m_selStart != m_selEnd) {
                 m_cursorPos = std::max(m_selStart, m_selEnd);
                 m_selActive = false;
                 m_graph.invalidateNode(m_nodeId, DirtySelf);
@@ -2031,6 +2198,24 @@ public:
 
 private:
     std::function<void(const std::string&, std::vector<uint8_t>&)> m_highlighter;   // null = plain single-colour text
+
+    // Word-boundary navigation (Ctrl+Left/Right, Ctrl+Backspace/Delete). A word char is ASCII alnum, '_' or
+    // any UTF-8 byte ≥0x80; everything else is a separator. Semantics match JLineEdit / Qt / GTK.
+    static bool _isWordChar(unsigned char c) {
+        return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || c >= 0x80;
+    }
+    size_t _nextWord(size_t i) const {
+        const size_t n = m_text.size();
+        while (i < n &&  _isWordChar(static_cast<unsigned char>(m_text[i]))) ++i;
+        while (i < n && !_isWordChar(static_cast<unsigned char>(m_text[i]))) ++i;
+        return i;
+    }
+    size_t _prevWord(size_t i) const {
+        while (i > 0 && !_isWordChar(static_cast<unsigned char>(m_text[i - 1]))) --i;
+        while (i > 0 &&  _isWordChar(static_cast<unsigned char>(m_text[i - 1]))) --i;
+        return i;
+    }
+
     void _deleteSelection() {
         if (!m_selActive || m_selStart == m_selEnd) return;
         size_t lo = std::min(m_selStart, m_selEnd);
