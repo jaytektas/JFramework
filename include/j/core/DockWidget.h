@@ -301,7 +301,7 @@ public:
 
         if (m_titleVisible) {
             // 3. Title bar
-            const uint8_t* titleFill = m_pinned ? Colors::AccentPress : Colors::Surface2;
+            const uint8_t* titleFill = m_pinned ? Colors::AccentPress : Colors::TitleBar;
             buf.pushRectangle(m_x + 1.0f, m_y + 1.0f, m_w - 2.0f, TITLE_H - 1.0f,
                               titleFill, BORDER_R - 1.0f);
 

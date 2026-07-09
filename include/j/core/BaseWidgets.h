@@ -511,6 +511,8 @@ struct JTheme {
     uint8_t CloseBtn[4]      = {60,  40,  44,  160};
     uint8_t CloseBtnHover[4] = {220, 50,  50,  255};
     uint8_t CloseBtnMark[4]  = {255, 255, 255, 200};
+    uint8_t TitleBar[4]      = {40,  40,  42,  255};   // window/dialog title-bar fill (semantic role)
+    uint8_t TitleBarText[4]  = {240, 240, 245, 255};   // title-bar caption
 
     // Dimensions
     float cornerRadius   = 6.f;
@@ -570,6 +572,8 @@ inline JTheme JTheme::light() {
     s(t.TextPrimary,    15,  15,  22, 255);
     s(t.TextSecondary,  90,  90, 100, 255);
     s(t.CloseBtn,      200, 188, 188, 160);
+    s(t.TitleBar,      222, 222, 228, 255);
+    s(t.TitleBarText,   15,  15,  22, 255);
     return t;
 }
 inline JTheme& JTheme::current() { static JTheme inst; return inst; }
@@ -698,6 +702,8 @@ namespace Colors {
     inline const uint8_t* const CloseBtn      = JTheme::current().CloseBtn;
     inline const uint8_t* const CloseBtnHover = JTheme::current().CloseBtnHover;
     inline const uint8_t* const CloseBtnMark  = JTheme::current().CloseBtnMark;
+    inline const uint8_t* const TitleBar      = JTheme::current().TitleBar;
+    inline const uint8_t* const TitleBarText  = JTheme::current().TitleBarText;
     inline constexpr uint8_t    Transparent[4] = {0, 0, 0, 0};  // truly constant, not themed
 }
 
@@ -1020,6 +1026,27 @@ inline void jDrawCloseButton(JPrimitiveBuffer& buf, float x, float y, float sz, 
 }
 inline bool jCloseButtonHit(float x, float y, float sz, float mx, float my) {
     return mx >= x && mx < x + sz && my >= y && my < y + sz;
+}
+
+// ---- Window title bar — the framework's ONE canonical title strip -----------
+// A header fill across (x,y,w,h) with rounded TOP corners (Colors::Surface2, the same fill JDockWidget
+// uses) plus the title text (Colors::TextPrimary). Every window/dialog/popup shares it so the title bar
+// is styled in one place. Callers overlay controls (jDrawCloseButton) and own the drag interaction.
+// align: 0 = left (leftPad), 1 = centred. rightReserve leaves clearance for right-edge controls.
+inline void jDrawTitleBar(JPrimitiveBuffer& buf, float x, float y, float w, float h,
+                          const std::string& title, float cornerRadius = 8.0f,
+                          int align = 0, float leftPad = 10.0f, float rightReserve = 0.0f) {
+    uint8_t bg[4] = {Colors::TitleBar[0], Colors::TitleBar[1], Colors::TitleBar[2], 255};
+    buf.pushRectangle(x, y, w, h, bg, cornerRadius);                                  // rounded top
+    if (cornerRadius > 0.0f) buf.pushRectangle(x, y + cornerRadius, w, h - cornerRadius, bg, 0.0f);  // flatten bottom
+    if (JTextHelper::hasAtlas() && !title.empty()) {
+        uint8_t tc[4] = {Colors::TitleBarText[0], Colors::TitleBarText[1], Colors::TitleBarText[2], Colors::TitleBarText[3]};
+        const float lh = JTextHelper::lineHeight(), ty = y + (h - lh) * 0.5f;
+        const float maxW = std::max(0.0f, w - leftPad - rightReserve - 6.0f);
+        float tx = x + leftPad;
+        if (align == 1) tx = x + std::max(leftPad, (w - JTextHelper::measureWidth(title)) * 0.5f);
+        JTextHelper::pushText(buf, tx, ty, title, tc, maxW);
+    }
 }
 
 // ---- Drag & drop driver (declared in DragDrop.h; defined here where JWidget is

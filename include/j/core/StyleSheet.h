@@ -53,6 +53,7 @@ inline JTheme parseStyleSheet(const std::string& text) {
         {"accent", t.Accent}, {"accenthover", t.AccentHover}, {"accentpress", t.AccentPress},
         {"success", t.Success}, {"warning", t.Warning}, {"danger", t.Danger},
         {"closebtn", t.CloseBtn}, {"closebtnhover", t.CloseBtnHover}, {"closebtnmark", t.CloseBtnMark},
+        {"titlebar", t.TitleBar}, {"titlebartext", t.TitleBarText},
     };
     struct FRef { const char* n; float* p; };
     FRef floats[] = {

@@ -1320,9 +1320,9 @@ private:
             // Single dock — render a title bar like JDockWidget's. On a vertical edge (Left/Right)
             // the title strip is vertical, so the text must be rotated to run along it.
             buf.pushRectangle(bar.x + 1.f, bar.y + 1.f, bar.width - 2.f, bar.height - 2.f,
-                              Colors::Surface2, 0.0f);
+                              Colors::TitleBar, 0.0f);
             if (JTextHelper::hasAtlas()) {
-                uint8_t tc[4] = {210, 210, 220, 220};
+                uint8_t tc[4] = {Colors::TitleBarText[0], Colors::TitleBarText[1], Colors::TitleBarText[2], Colors::TitleBarText[3]};
                 const std::string& title = leaf.tabs[0]->title();
                 const JTabBarEdge edge = effectiveTabEdge();
                 const float lineH = JTextHelper::lineHeight();
