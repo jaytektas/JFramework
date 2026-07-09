@@ -11,7 +11,8 @@
 #include <utility>
 
 #include "Style.h"          // JTabBarEdge / JTabFill
-#include "JStyleEngine.h"    // JPalette / JColorRole / JColorGroup / JStyleOption / JStyle / JStyleHint / State_* / palette_detail
+#include "JPalette.h"        // JPalette / JColorRole / JColorGroup / palette_detail
+#include "JStyleOption.h"    // JStyleOption / JStyleHint / State_* flags
 #include "../graphics/VectorGraphics.h"   // canonical JColor
 
 inline namespace jf {

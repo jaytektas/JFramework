@@ -1,5 +1,6 @@
 #include <j/core/JStyleEngine.h>
 #include <j/core/SceneGraph.h>
+#include <j/graphics/VectorGraphics.h>   // JColor (used by the test's JStyleKey<JColor>)
 #include <cassert>
 #include <iostream>
 
