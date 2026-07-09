@@ -659,27 +659,8 @@ namespace Colors {
     inline constexpr uint8_t    Transparent[4] = {0, 0, 0, 0};  // truly constant, not themed
 }
 
-// ============================================================================
-// JAction — shareable command object. JBind to menu items, toolbar buttons,
-// and shortcuts. Changing enabled/checked propagates to all bound UI.
-// ============================================================================
-struct JAction {
-    std::string label;
-    std::string shortcutText;   // display string e.g. "Ctrl+S" (informational)
-    bool enabled  {true};
-    bool checkable{false};
-    bool checked  {false};
-
-    jf::JSignal<>     onTriggered;
-    jf::JSignal<bool> onEnabledChanged;
-    jf::JSignal<bool> onCheckedChanged;
-
-    void trigger()          { if (!enabled) return;
-                              if (checkable) setChecked(!checked);
-                              onTriggered.emit(); }
-    void setEnabled(bool e) { enabled = e;  onEnabledChanged.emit(e); }
-    void setChecked(bool c) { checked = c;  onCheckedChanged.emit(c); }
-};
+// (Legacy JAction stub removed — superseded by the full JAction in j/core/Action.h,
+//  which carries a JKeySequence shortcut and integrates with the JShortcutRegistry.)
 
 // ============================================================================
 // JTextHelper — global font atlas + text layout for widgets
