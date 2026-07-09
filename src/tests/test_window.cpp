@@ -1,6 +1,6 @@
 #include <j/core/Window.h>
 #include <j/core/SceneGraph.h>
-#include <j/core/StyleEngine.h>
+#include <j/core/JStyleEngine.h>
 #include <j/graphics/RenderPrimitive.h>
 #include <j/platforms/linux/LinuxPlatformWindow.h>
 #include <cassert>

@@ -3,7 +3,7 @@
 #include <string>
 #include <memory>
 #include "BaseWidgets.h"
-#include "StyleEngine.h"
+#include "JStyleEngine.h"
 
 inline namespace jf {
 

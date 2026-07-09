@@ -18,7 +18,7 @@
 #include "Validator.h"          // JValidator / JIntValidator / JDoubleValidator / JRegexValidator
 #include "DragDrop.h"           // cross-widget drag payloads (JDragDrop) — drop-on-release routing
 #include "Style.h"              // JTabBarEdge / JTabFill (folded into JTheme)
-#include "StyleEngine.h"        // JPalette / JColorRole / JStyleOption / JStyle / JStyleHint
+#include "JStyleEngine.h"        // JPalette / JColorRole / JStyleOption / JStyle / JStyleHint
 #include "JTheme.h"             // JWidgetState / JFocusPolicy / JTheme / jstyle / Colors (the stylesheet)
 #include "../graphics/RenderPrimitive.h"
 #include "../graphics/VectorGraphics.h"   // JVectorCanvas — anti-aliased triangle for the tree expand arrow

@@ -1,4 +1,4 @@
-#include <j/core/StyleEngine.h>
+#include <j/core/JStyleEngine.h>
 #include <j/core/SceneGraph.h>
 #include <cassert>
 #include <iostream>
