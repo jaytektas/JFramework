@@ -218,11 +218,8 @@ private:
             // Close × button
             if (opts.showCloseButton) {
                 bool hovClose = (m_mx >= W - kCloseW && m_mx < W && m_my >= 0.f && m_my < kTitleH);
-                if (hovClose) { uint8_t ch[4]={180,50,50,200}; buf.pushRectangle(W-kCloseW, 0.f, kCloseW, kTitleH, ch, 0.f); }
-                uint8_t xc[4] = {200, 200, 210, 220};
-                float cx = W - kCloseW + kCloseW * 0.5f - 4.f, cy = kTitleH * 0.5f - 1.f;
-                buf.pushRectangle(cx, cy, 9.f, 2.f, xc, 1.f);
-                buf.pushRectangle(cx + 3.5f, cy - 3.5f, 2.f, 9.f, xc, 1.f);
+                const float sz = 18.f, cbx = W - kCloseW + (kCloseW - sz) * 0.5f, cby = (kTitleH - sz) * 0.5f;
+                jDrawCloseButton(buf, cbx, cby, sz, hovClose);
                 if (m_pressed && hovClose) { if (m_req.onCancel) m_req.onCancel(); _dismiss("close"); return; }
             }
 

@@ -333,16 +333,8 @@ public:
             }
 
             // 6. Close button (only if closeable)
-            if (m_closeable) {
-                float closeX = m_x + m_w - BTN_SZ - 6.0f;
-                const auto& closeSrc = m_hoverClose ? Colors::CloseBtnHover : Colors::CloseBtn;
-                uint8_t closeFill[4] = {closeSrc[0], closeSrc[1], closeSrc[2], closeSrc[3]};
-                buf.pushRectangle(closeX, btnY, BTN_SZ, BTN_SZ, closeFill, 3.0f);
-                uint8_t xc[4] = {Colors::CloseBtnMark[0], Colors::CloseBtnMark[1],
-                                  Colors::CloseBtnMark[2], Colors::CloseBtnMark[3]};
-                buf.pushRectangle(closeX + 3.0f, btnY + BTN_SZ * 0.42f, BTN_SZ - 6.0f, 2.5f, xc, 1.0f);
-                buf.pushRectangle(closeX + BTN_SZ * 0.42f, btnY + 3.0f, 2.5f, BTN_SZ - 6.0f, xc, 1.0f);
-            }
+            if (m_closeable)
+                jDrawCloseButton(buf, m_x + m_w - BTN_SZ - 6.0f, btnY, BTN_SZ, m_hoverClose);
         } // end m_titleVisible
 
         // 7. Content area background

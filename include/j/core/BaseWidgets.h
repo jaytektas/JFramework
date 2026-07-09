@@ -1005,6 +1005,23 @@ inline void JWidget::drawFocusRing(JPrimitiveBuffer& buf) const {
                       none, th.cornerRadius + 1.f, th.focusRingWidth, ring);
 }
 
+// ---- Window close button — the framework's ONE canonical close control ------
+// A rounded square in `sz`×`sz` at (x,y) that highlights on hover (Colors::CloseBtn / CloseBtnHover)
+// with the theme's cross mark (Colors::CloseBtnMark). Every window type shares it — JDockWidget title
+// bars, JPopupWindow, native/app dialogs, and app popups — so the close button is styled in exactly
+// one place. Pair with jCloseButtonHit() for the matching hit box.
+inline void jDrawCloseButton(JPrimitiveBuffer& buf, float x, float y, float sz, bool hovered) {
+    const uint8_t* s = hovered ? Colors::CloseBtnHover : Colors::CloseBtn;
+    uint8_t fill[4] = {s[0], s[1], s[2], s[3]};
+    buf.pushRectangle(x, y, sz, sz, fill, 3.0f);
+    uint8_t m[4] = {Colors::CloseBtnMark[0], Colors::CloseBtnMark[1], Colors::CloseBtnMark[2], Colors::CloseBtnMark[3]};
+    buf.pushRectangle(x + 3.0f,       y + sz * 0.42f, sz - 6.0f, 2.5f,      m, 1.0f);   // horizontal bar
+    buf.pushRectangle(x + sz * 0.42f, y + 3.0f,       2.5f,      sz - 6.0f, m, 1.0f);   // vertical bar
+}
+inline bool jCloseButtonHit(float x, float y, float sz, float mx, float my) {
+    return mx >= x && mx < x + sz && my >= y && my < y + sz;
+}
+
 // ---- Drag & drop driver (declared in DragDrop.h; defined here where JWidget is
 // complete and its hooks + s_activeWidgets are visible). Routes the active drag
 // session to the top-most visible widget that canDrop() the payload. ----------

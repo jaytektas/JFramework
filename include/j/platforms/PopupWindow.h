@@ -367,21 +367,9 @@ public:
 
         // Close button — same style as JDockWidget title-bar close button.
         if (m_showCloseButton) {
-            float cw  = static_cast<float>(m_winW);
-            float cx  = cw - kFloatHandleH - 1.f;
-            float cy  = (kFloatHandleH - kFloatHandleH) * 0.5f;  // centred in strip
-            float hmx = m_window->mouseX(), hmy = m_window->mouseY();
-            bool hov  = (hmx >= cx && hmx < cx + kFloatHandleH &&
-                         hmy >= 0.f  && hmy < kFloatHandleH);
-            const auto& src = hov ? Colors::CloseBtnHover : Colors::CloseBtn;
-            uint8_t cbg[4] = {src[0], src[1], src[2], src[3]};
-            buf.pushRectangle(cx, cy, kFloatHandleH, kFloatHandleH, cbg, 3.f);
-            uint8_t xc[4] = {Colors::CloseBtnMark[0], Colors::CloseBtnMark[1],
-                              Colors::CloseBtnMark[2], Colors::CloseBtnMark[3]};
-            buf.pushRectangle(cx + 3.f,                    cy + kFloatHandleH * 0.42f,
-                              kFloatHandleH - 6.f, 2.5f,   xc, 1.f);
-            buf.pushRectangle(cx + kFloatHandleH * 0.42f, cy + 3.f,
-                              2.5f, kFloatHandleH - 6.f,   xc, 1.f);
+            const float cx = static_cast<float>(m_winW) - kFloatHandleH - 1.f;
+            const bool  hov = jCloseButtonHit(cx, 0.f, kFloatHandleH, m_window->mouseX(), m_window->mouseY());
+            jDrawCloseButton(buf, cx, 0.f, kFloatHandleH, hov);
         }
 
         auto frame = hal.beginFrame(m_surface);
