@@ -18,6 +18,7 @@
 #include "DragDrop.h"           // cross-widget drag payloads (JDragDrop) — drop-on-release routing
 #include "Style.h"              // JTabBarEdge / JTabFill (folded into JTheme)
 #include "../graphics/RenderPrimitive.h"
+#include "../graphics/VectorGraphics.h"   // JVectorCanvas — anti-aliased triangle for the tree expand arrow
 #include "../platform/Clipboard.h"
 #include "../graphics/FontEngine.h"
 
@@ -73,6 +74,14 @@ public:
     // carries no modifier args) can honour Ctrl/Shift — e.g. additive/toggle multi-select.
     inline static bool s_ctrlDown = false;
     inline static bool s_shiftDown = false;
+
+    // Focus-request hook — installed by the framework's JFocusManager. A control claims keyboard
+    // focus by calling requestFocus() from its own handleMousePress: because the press is only
+    // routed to the control it actually landed on, this is authoritative where the runner's global
+    // hit-test (focusAt) can be fooled by an occluded/tabbed-behind widget still flagged visible.
+    // Focusing a clicked control is the framework's job — an app never wires this.
+    inline static std::function<void(JWidget*)> s_focusHook;
+    void requestFocus() { if (s_focusHook) s_focusHook(this); }
 
     JWidget(JSceneGraph& graph, const std::string& debugName = "")
         : m_graph(graph), m_state(JWidgetState::Normal), m_debugName(debugName)
@@ -1308,6 +1317,7 @@ public:
 
     void handleMousePress(float mx, float my) override {
         if (!isPointInside(mx, my)) return;
+        requestFocus();   // clicking the field focuses it, so typed characters route here (framework focus)
         onClicked.emit();
         // Place the caret at the clicked column (nearest character boundary), so clicking positions the
         // cursor where you point instead of always at the end.
@@ -2083,6 +2093,7 @@ public:
 
     void handleMousePress(float mx, float my) override {
         if (!isPointInside(mx, my)) { _commitEdit(); return; }
+        requestFocus();   // clicking the box focuses it, so typed digits route here (framework focus)
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float btnW = b.height * 0.7f;
         if (mx >= b.x + b.width - btnW) {
@@ -2244,6 +2255,7 @@ public:
 
     void handleMousePress(float mx, float my) override {
         if (!isPointInside(mx, my)) { _commitEdit(); return; }
+        requestFocus();   // clicking the box focuses it, so typed digits route here (framework focus)
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float btnW = b.height * 0.7f;
         if (mx >= b.x + b.width - btnW) {   // an arrow — commit any edit, then step
@@ -4200,7 +4212,8 @@ public:
             if (!flat.node->children.empty()) {
                 float ax = b.x + indent + 8.0f;
                 float ay = itemY + itemH * 0.5f;
-                drawNodeChevron(buf, flat.node, ax, ay, 10.0f, flat.node->expanded);
+                // While filtering, subtrees are force-opened (_flatten), so show ▼ then too — not a stale ▶.
+                drawNodeChevron(buf, flat.node, ax, ay, 10.0f, flat.node->expanded || !m_filter.empty());
             }
 
             float textX = b.x + indent + 16.0f;
@@ -4298,15 +4311,15 @@ protected:
         }
     }
 
-    virtual void drawNodeChevron(JPrimitiveBuffer& buf, JTreeViewNode* node, float ax, float ay, float size, bool expanded) {
-        uint8_t arrowColor[4] = {180, 180, 190, 220};
-        if (expanded) {
-            buf.pushRectangle(ax - 4.0f, ay - 2.0f, 5.0f, 2.0f, arrowColor, 1.0f);
-            buf.pushRectangle(ax + 1.0f, ay - 2.0f, 5.0f, 2.0f, arrowColor, 1.0f);
-        } else {
-            buf.pushRectangle(ax - 2.0f, ay - 4.0f, 2.0f, 5.0f, arrowColor, 1.0f);
-            buf.pushRectangle(ax - 2.0f, ay + 1.0f, 2.0f, 5.0f, arrowColor, 1.0f);
-        }
+    virtual void drawNodeChevron(JPrimitiveBuffer& buf, JTreeViewNode* /*node*/, float ax, float ay, float /*size*/, bool expanded) {
+        // A filled triangle disclosure arrow (▶ collapsed / ▼ expanded), matching the original studio's tree
+        // branch indicators — not the old crude split-bar (which read as vertical dots).
+        const JColor col = jf::rgba(180, 180, 190, 230);
+        const float s = 4.0f;
+        JVectorCanvas vg; vg.setAntiAlias(1.2f);
+        if (expanded) vg.fillConvex({ {ax - s, ay - s * 0.55f}, {ax + s, ay - s * 0.55f}, {ax, ay + s * 0.85f} }, JPaint::solid(col));   // ▼
+        else          vg.fillConvex({ {ax - s * 0.55f, ay - s}, {ax + s * 0.85f, ay}, {ax - s * 0.55f, ay + s} }, JPaint::solid(col));   // ▶
+        vg.flush(buf);
     }
 
     virtual void drawNodeText(JPrimitiveBuffer& buf, JTreeViewNode* node, float tx, float ty, float maxW) {

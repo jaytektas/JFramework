@@ -26,7 +26,19 @@ inline namespace jf {
  */
 class JFocusManager {
 public:
-    JFocusManager() = default;
+    // The most-recently-constructed manager is the active focus target for widget-initiated focus
+    // requests (JWidget::requestFocus). The main window owns one for the app's lifetime.
+    inline static JFocusManager* s_active = nullptr;
+
+    JFocusManager() {
+        s_active = this;
+        // Install the framework focus hook so a clicked control can claim focus authoritatively —
+        // focusing a clicked widget is the framework's job, wired here once, not by any app.
+        JWidget::s_focusHook = [](JWidget* w) { if (s_active) s_active->setFocus(w); };
+    }
+    ~JFocusManager() {
+        if (s_active == this) { s_active = nullptr; JWidget::s_focusHook = nullptr; }
+    }
 
     jf::JSignal<JWidget*> onFocusChanged; // nullptr = focus cleared
 
@@ -65,14 +77,27 @@ public:
     void prevFocus() { _shift(-1); }
 
     // Rebuild the tab order from a live widget set (e.g. JWidget::s_activeWidgets), keeping
-    // only focusable entries and preserving the current focus. Lets a runner own focus
-    // without the app registering widgets by hand; a focused widget that has since been
-    // removed / destroyed is dropped safely (no dangling pointer in the order).
+    // only focusable, visible, enabled entries and preserving the current focus. Lets a runner
+    // own focus without the app registering widgets by hand; a focused widget that has since been
+    // removed / destroyed / hidden is dropped safely (no dangling pointer in the order).
+    //
+    // Tab traverses in READING ORDER — top-to-bottom, then left-to-right by on-screen geometry —
+    // not the order widgets happened to be constructed in. Widgets whose top edges fall within one
+    // row band (kRowBand px) are treated as the same row and ordered left-to-right, so a horizontal
+    // row of fields tabs across before dropping to the next row, matching every commercial toolkit.
     void syncOrder(const std::vector<JWidget*>& widgets) {
         m_order.clear();
         for (auto* w : widgets)
-            if (w && w->isFocusable())
+            if (w && w->isFocusable() && w->isVisible() && w->isEnabled())
                 m_order.push_back(w);
+        constexpr float kRowBand = 6.0f;
+        std::stable_sort(m_order.begin(), m_order.end(), [](JWidget* a, JWidget* b) {
+            const auto ba = a->getBoundingBox(), bb = b->getBoundingBox();
+            const float dy = ba.y - bb.y;
+            if (dy < -kRowBand) return true;    // a clearly above b
+            if (dy >  kRowBand) return false;   // a clearly below b
+            return ba.x < bb.x;                 // same row band → left-to-right
+        });
         if (m_focused && std::find(m_order.begin(), m_order.end(), m_focused) == m_order.end())
             m_focused = nullptr;
     }
