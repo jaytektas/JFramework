@@ -112,10 +112,9 @@ public:
     }
 
     void render(JGpuHal& hal, JPrimitiveBuffer& buf) {
-        uint8_t bg[4] = {22, 22, 26, 255};
         buf.pushRectangle(0.f, 0.f,
                           static_cast<float>(m_winW), static_cast<float>(m_winH),
-                          bg, 6.0f, 1.0f, Colors::Border);
+                          Colors::PopupBg, 6.0f, 1.0f, Colors::Border);
 
         constexpr float itemH   = 28.0f;
         constexpr float padding = 4.0f;
@@ -130,7 +129,7 @@ public:
             }
 
             if (JTextHelper::hasAtlas()) {
-                uint8_t tc[4] = {220, 220, 228, 255};
+                const uint8_t* tc = Colors::PopupItemText;
                 float ty = iy + (itemH - JTextHelper::lineHeight()) * 0.5f;
                 JTextHelper::pushText(buf, padding + 8.0f, ty, m_items[i], tc,
                                      static_cast<float>(m_winW) - padding * 2.f - 16.f);

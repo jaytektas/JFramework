@@ -74,6 +74,31 @@ struct JTheme {
     uint8_t TitleBar[4]      = {22,  22,  28,  255};   // window/dialog/popup title-bar fill (semantic role)
     uint8_t TitleBarText[4]  = {200, 200, 210, 230};   // title-bar caption
 
+    // Dialog / popup chrome (de-hardcoded from Dialog/StandardDialogs/Native/Colour/Font pickers + popups).
+    uint8_t DialogBg[4]        = {26,  26,  32,  255};   // dialog / native-dialog body fill (shared)
+    uint8_t DialogTitleBg[4]   = {38,  38,  48,  255};   // dialog title-bar strip (shared)
+    uint8_t OverlayScrim[4]    = {0,   0,   0,   160};   // modal backdrop dim
+    uint8_t DialogShadow[4]    = {0,   0,   0,   60};    // dialog drop-shadow halo
+    uint8_t InputFieldBg[4]    = {18,  18,  28,  255};   // dialog text-input field fill
+    uint8_t CancelBtnBg[4]     = {55,  55,  65,  255};   // secondary/cancel button fill (alpha varies at site)
+    uint8_t CancelBtnBorder[4] = {100, 100, 110, 255};   // secondary/cancel button outline
+    uint8_t DialogCloseHover[4]= {180, 50,  50,  200};   // dialog close-× hover fill
+    uint8_t PopupBg[4]         = {22,  22,  26,  255};   // bordered popup / popup-list body fill
+    uint8_t PopupInnerBg[4]    = {18,  18,  22,  250};   // borderless popup body fill
+    uint8_t PopupItemText[4]   = {220, 220, 228, 255};   // popup-list item text
+    uint8_t PreviewBg[4]       = {20,  20,  26,  255};   // font-picker preview panel fill
+
+    // Chart / data-viz surface (self-contained palette in graphics/Chart.h).
+    uint8_t ChartBg[4]          = {22,  24,  31,  255};
+    uint8_t ChartTitleText[4]   = {220, 222, 230, 235};
+    uint8_t ChartAxisText[4]    = {150, 154, 165, 220};
+    uint8_t ChartAxis2Text[4]   = {160, 150, 140, 220};
+    uint8_t ChartLegendText[4]  = {200, 204, 214, 230};
+    uint8_t ChartTooltipText[4] = {210, 214, 224, 235};
+    uint8_t ChartTooltipBg[4]   = {20,  22,  30,  235};
+    uint8_t ChartTooltipBorder[4]={90,  96,  110, 255};
+    uint8_t ChartCrosshair[4]   = {255, 255, 255, 70};
+
     // Dimensions
     float cornerRadius   = 6.f;
     float menuItemHeight = 28.f;
@@ -134,6 +159,29 @@ inline JTheme JTheme::light() {
     s(t.CloseBtn,      200, 188, 188, 160);
     s(t.TitleBar,      222, 222, 228, 255);
     s(t.TitleBarText,   15,  15,  22, 255);
+    // Dialog / popup chrome — light-theme values (provisional; reconciled at merge).
+    s(t.DialogBg,         238, 238, 242, 255);
+    s(t.DialogTitleBg,    222, 222, 228, 255);
+    s(t.OverlayScrim,       0,   0,   0,  80);
+    s(t.DialogShadow,       0,   0,   0,  40);
+    s(t.InputFieldBg,     255, 255, 255, 255);
+    s(t.CancelBtnBg,      224, 224, 230, 255);
+    s(t.CancelBtnBorder,  168, 168, 178, 255);
+    s(t.DialogCloseHover, 220,  90,  90, 200);
+    s(t.PopupBg,          248, 248, 250, 255);
+    s(t.PopupInnerBg,     248, 248, 250, 250);
+    s(t.PopupItemText,     30,  30,  36, 255);
+    s(t.PreviewBg,        242, 242, 246, 255);
+    // Chart surface — light-theme values (provisional).
+    s(t.ChartBg,          248, 248, 250, 255);
+    s(t.ChartTitleText,    30,  30,  40, 235);
+    s(t.ChartAxisText,     90,  94, 105, 220);
+    s(t.ChartAxis2Text,   110,  95,  80, 220);
+    s(t.ChartLegendText,   50,  54,  64, 230);
+    s(t.ChartTooltipText,  30,  34,  44, 235);
+    s(t.ChartTooltipBg,   245, 246, 250, 235);
+    s(t.ChartTooltipBorder,160,166, 178, 255);
+    s(t.ChartCrosshair,     0,   0,   0,  70);
     return t;
 }
 inline JTheme& JTheme::current() { static JTheme inst; return inst; }
@@ -264,6 +312,27 @@ namespace Colors {
     inline const uint8_t* const CloseBtnMark  = JTheme::current().CloseBtnMark;
     inline const uint8_t* const TitleBar      = JTheme::current().TitleBar;
     inline const uint8_t* const TitleBarText  = JTheme::current().TitleBarText;
+    inline const uint8_t* const DialogBg          = JTheme::current().DialogBg;
+    inline const uint8_t* const DialogTitleBg     = JTheme::current().DialogTitleBg;
+    inline const uint8_t* const OverlayScrim      = JTheme::current().OverlayScrim;
+    inline const uint8_t* const DialogShadow      = JTheme::current().DialogShadow;
+    inline const uint8_t* const InputFieldBg      = JTheme::current().InputFieldBg;
+    inline const uint8_t* const CancelBtnBg       = JTheme::current().CancelBtnBg;
+    inline const uint8_t* const CancelBtnBorder   = JTheme::current().CancelBtnBorder;
+    inline const uint8_t* const DialogCloseHover  = JTheme::current().DialogCloseHover;
+    inline const uint8_t* const PopupBg           = JTheme::current().PopupBg;
+    inline const uint8_t* const PopupInnerBg      = JTheme::current().PopupInnerBg;
+    inline const uint8_t* const PopupItemText     = JTheme::current().PopupItemText;
+    inline const uint8_t* const PreviewBg         = JTheme::current().PreviewBg;
+    inline const uint8_t* const ChartBg           = JTheme::current().ChartBg;
+    inline const uint8_t* const ChartTitleText    = JTheme::current().ChartTitleText;
+    inline const uint8_t* const ChartAxisText     = JTheme::current().ChartAxisText;
+    inline const uint8_t* const ChartAxis2Text    = JTheme::current().ChartAxis2Text;
+    inline const uint8_t* const ChartLegendText   = JTheme::current().ChartLegendText;
+    inline const uint8_t* const ChartTooltipText  = JTheme::current().ChartTooltipText;
+    inline const uint8_t* const ChartTooltipBg    = JTheme::current().ChartTooltipBg;
+    inline const uint8_t* const ChartTooltipBorder= JTheme::current().ChartTooltipBorder;
+    inline const uint8_t* const ChartCrosshair    = JTheme::current().ChartCrosshair;
     inline constexpr uint8_t    Transparent[4] = {0, 0, 0, 0};  // truly constant, not themed
 }
 

@@ -90,23 +90,23 @@ public:
         const float segH = r.hue.h / 6.f;
         for (int i = 0; i < 6; ++i)
             _quad(buf, {r.hue.x, r.hue.y + i * segH, r.hue.w, segH}, stops[i], stops[i + 1], stops[i + 1], stops[i]);
-        buf.pushRectangle(r.hue.x, r.hue.y, r.hue.w, r.hue.h, kNoFill, 3.f, 1.f, Colors::Border);
+        buf.pushRectangle(r.hue.x, r.hue.y, r.hue.w, r.hue.h, Colors::Transparent, 3.f, 1.f, Colors::Border);
         _handleMark(buf, r.hue.x - 2.f, r.hue.y + m_h * r.hue.h, r.hue.w + 4.f);
 
         // ---- SV square: one bilinear quad, white/hue across → black down ----
         uint8_t hue[4]; _hsvToRgb(m_h, 1.f, 1.f, hue);
         uint8_t white[4] = {255, 255, 255, 255}, black[4] = {0, 0, 0, 255};
         _quad(buf, r.sv, white, hue, black, black);
-        buf.pushRectangle(r.sv.x, r.sv.y, r.sv.w, r.sv.h, kNoFill, 3.f, 1.f, Colors::Border);
+        buf.pushRectangle(r.sv.x, r.sv.y, r.sv.w, r.sv.h, Colors::Transparent, 3.f, 1.f, Colors::Border);
         const float cxp = r.sv.x + m_s * r.sv.w, cyp = r.sv.y + (1.f - m_v) * r.sv.h;
         uint8_t ring[4] = {255, 255, 255, 255};
-        buf.pushRectangle(cxp - 6.f, cyp - 6.f, 12.f, 12.f, kNoFill, 6.f, 2.f, ring);
+        buf.pushRectangle(cxp - 6.f, cyp - 6.f, 12.f, 12.f, Colors::Transparent, 6.f, 2.f, ring);
 
         // ---- Alpha slider: checkerboard, then transparent→opaque gradient, then handle ----
         _checker(buf, r.alpha);
         uint8_t a0[4] = {cur[0], cur[1], cur[2], 0}, a1[4] = {cur[0], cur[1], cur[2], 255};
         _quad(buf, r.alpha, a0, a1, a1, a0);
-        buf.pushRectangle(r.alpha.x, r.alpha.y, r.alpha.w, r.alpha.h, kNoFill, 4.f, 1.f, Colors::Border);
+        buf.pushRectangle(r.alpha.x, r.alpha.y, r.alpha.w, r.alpha.h, Colors::Transparent, 4.f, 1.f, Colors::Border);
         _handleDot(buf, r.alpha.x + m_a * r.alpha.w, r.alpha.y + r.alpha.h * 0.5f);
     }
 
@@ -232,8 +232,6 @@ private:
         else              h = (r - g) / d + 4.f;
         m_h = h / 6.f;
     }
-
-    static inline const uint8_t kNoFill[4] = {0, 0, 0, 0};
 
     float m_h{0.f}, m_s{0.f}, m_v{1.f}, m_a{1.f};
     std::string m_hex;

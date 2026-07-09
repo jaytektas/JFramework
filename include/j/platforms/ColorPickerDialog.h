@@ -196,21 +196,18 @@ private:
         const float W = static_cast<float>(kW), H = static_cast<float>(m_curH);
         const float lh = JTextHelper::lineHeight();
 
-        uint8_t bg[4] = {26, 26, 32, 255};
-        buf.pushRectangle(0.f, 0.f, W, H, bg, 8.f, 1.f, Colors::Border);
+        buf.pushRectangle(0.f, 0.f, W, H, Colors::DialogBg, 8.f, 1.f, Colors::Border);
 
         // ---- Header: Cancel | Colour | Select ----
-        uint8_t tbg[4] = {38, 38, 48, 255};
-        buf.pushRectangle(0.f, 0.f, W, kHeader, tbg, 8.f);
-        buf.pushRectangle(0.f, 8.f, W, kHeader - 8.f, tbg, 0.f);
+        buf.pushRectangle(0.f, 0.f, W, kHeader, Colors::DialogTitleBg, 8.f);
+        buf.pushRectangle(0.f, 8.f, W, kHeader - 8.f, Colors::DialogTitleBg, 0.f);
         const float btnY = (kHeader - kBtnH) * 0.5f;
         uint8_t btnTc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, btnTc);
 
         const float cancelX = 12.f;
         const bool hovCancel = (mx >= cancelX && mx < cancelX + kBtnW && my >= btnY && my < btnY + kBtnH);
-        uint8_t cBg[4] = {55, 55, 65, static_cast<uint8_t>(hovCancel ? 255 : 220)};
-        uint8_t cBorder[4] = {100, 100, 110, 255};
-        buf.pushRectangle(cancelX, btnY, kBtnW, kBtnH, cBg, 5.f, 1.f, cBorder);
+        uint8_t cBg[4] = {Colors::CancelBtnBg[0], Colors::CancelBtnBg[1], Colors::CancelBtnBg[2], static_cast<uint8_t>(hovCancel ? 255 : 220)};
+        buf.pushRectangle(cancelX, btnY, kBtnW, kBtnH, cBg, 5.f, 1.f, Colors::CancelBtnBorder);
         const char* cancelLbl = (m_page == Page::Editor) ? "Cancel" : "Cancel";
         JTextHelper::pushText(buf, cancelX + (kBtnW - JTextHelper::measureWidth(cancelLbl)) * 0.5f, btnY + (kBtnH - lh) * 0.5f, cancelLbl, btnTc);
 

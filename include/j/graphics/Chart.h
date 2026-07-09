@@ -24,6 +24,7 @@
 #include <j/graphics/VectorGraphics.h>
 #include <j/graphics/RenderPrimitive.h>
 #include <j/core/JTextHelper.h>
+#include <j/core/JTheme.h>   // Colors:: — chart palette roles
 #include <string>
 #include <vector>
 #include <cmath>
@@ -224,11 +225,11 @@ public:
         if (!JTextHelper::hasAtlas()) return;
         float lh = JTextHelper::lineHeight();
         if (!m_title.empty()) {
-            uint8_t tc[4]{220, 222, 230, 235};
+            const uint8_t* tc = Colors::ChartTitleText;
             JTextHelper::pushText(buf, m_x + 10.f, m_y + (mt - lh) * 0.5f, m_title, tc, m_w - 20.f);
         }
         if (m_axes) {
-            uint8_t ac[4]{150, 154, 165, 220};
+            const uint8_t* ac = Colors::ChartAxisText;
             for (double tv : yticks) {
                 std::string l = _fmt(tv); float tw = JTextHelper::measureWidth(l);
                 JTextHelper::pushText(buf, px - 6.f - tw, mapY(tv) - lh * 0.5f, l, ac);
@@ -238,7 +239,7 @@ public:
                 JTextHelper::pushText(buf, mapX(tv) - tw * 0.5f, py + ph + 4.f, l, ac);
             }
             if (hasSecondary) {
-                uint8_t a2[4]{160, 150, 140, 220};
+                const uint8_t* a2 = Colors::ChartAxis2Text;
                 for (double tv : y2ticks)
                     JTextHelper::pushText(buf, px + pw + 6.f, mapY2(tv) - lh * 0.5f, _fmt(tv), a2);
             }
@@ -259,7 +260,7 @@ public:
             JVectorCanvas lg;
             for (auto& s : m_series) {
                 lg.fillRect(lx, ly + lh * 0.5f - 2.f, 14.f, 4.f, JPaint::solid(s.color));
-                uint8_t lc[4]{200, 204, 214, 230};
+                const uint8_t* lc = Colors::ChartLegendText;
                 JTextHelper::pushText(buf, lx + 20.f, ly, s.label, lc);
                 ly += lh + 4.f;
             }
@@ -270,7 +271,7 @@ public:
 private:
     float m_x{0}, m_y{0}, m_w{200}, m_h{120};
     std::string m_title, m_xLabel, m_yLabel, m_y2Label;
-    JColor m_bg{rgb(22, 24, 31)};
+    JColor m_bg{JColor::fromArray(Colors::ChartBg)};
     bool  m_hasBg{true}, m_grid{true}, m_legend{true}, m_axes{true};
     bool  m_autoX{true}, m_autoY{true}, m_autoY2{true};
     bool  m_xLog{false}, m_yLog{false};
@@ -362,7 +363,7 @@ private:
         double hx = pixelToDataX(m_hoverPx);
         JVectorCanvas hv;
         // vertical crosshair
-        hv.drawLine(m_hoverPx, py, m_hoverPx, py + ph, 1.f, JPaint::solid(rgba(255, 255, 255, 70)));
+        hv.drawLine(m_hoverPx, py, m_hoverPx, py + ph, 1.f, JPaint::solid(JColor::fromArray(Colors::ChartCrosshair)));
         struct JHit { JColor c; std::string label; double y; float sx, sy; };
         std::vector<JHit> hits;
         for (auto& s : m_series) {
@@ -390,11 +391,11 @@ private:
             float boxH = lines.size() * (lh + 2.f) + 8.f;
             float bx = m_hoverPx + 12.f, by = py + 8.f;
             if (bx + boxW > px + pw) bx = m_hoverPx - boxW - 12.f;
-            hv.fillRoundedRect(bx, by, boxW, boxH, 5.f, JPaint::solid(rgba(20, 22, 30, 235)));
-            hv.strokeRoundedRect(bx, by, boxW, boxH, 5.f, 1.f, JPaint::solid(rgba(90, 96, 110, 255)));
+            hv.fillRoundedRect(bx, by, boxW, boxH, 5.f, JPaint::solid(JColor::fromArray(Colors::ChartTooltipBg)));
+            hv.strokeRoundedRect(bx, by, boxW, boxH, 5.f, 1.f, JPaint::solid(JColor::fromArray(Colors::ChartTooltipBorder)));
             hv.flush(buf);
             float ty = by + 5.f;
-            uint8_t hc[4]{210, 214, 224, 235};
+            const uint8_t* hc = Colors::ChartTooltipText;
             JTextHelper::pushText(buf, bx + 8.f, ty, lines[0], hc);
             ty += lh + 2.f;
             JVectorCanvas sw;

@@ -337,15 +337,13 @@ public:
         buf.clear();  // each popup renders to its own surface — start with a clean buffer
 
         if (m_style == JStyle::Bordered) {
-            uint8_t bg[4] = {22, 22, 26, 255};
             buf.pushRectangle(0.f, 0.f,
                               static_cast<float>(m_winW), static_cast<float>(m_winH),
-                              bg, 6.0f, 1.0f, Colors::Border);
+                              Colors::PopupBg, 6.0f, 1.0f, Colors::Border);
         } else {
-            uint8_t bg[4] = {18, 18, 22, 250};
             buf.pushRectangle(0.f, 0.f,
                               static_cast<float>(m_winW), static_cast<float>(m_winH),
-                              bg, 0.0f);
+                              Colors::PopupInnerBg, 0.0f);
         }
 
         for (auto& w : m_widgets) {

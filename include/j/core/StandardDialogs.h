@@ -220,14 +220,11 @@ public:
         const float boxY = (screenH - boxH) * 0.5f;
         const float lh   = JTextHelper::lineHeight();
 
-        uint8_t backdrop[4] = {0, 0, 0, 160};
-        buf.pushRectangle(0.f, 0.f, screenW, screenH, backdrop, 0.f);
+        buf.pushRectangle(0.f, 0.f, screenW, screenH, Colors::OverlayScrim, 0.f);
 
-        uint8_t boxBg[4] = {26, 26, 32, 255};
-        buf.pushRectangle(boxX, boxY, boxW, boxH, boxBg, kRadius, 1.f, Colors::Border);
-        uint8_t titleBg[4] = {38, 38, 48, 255};
-        buf.pushRectangle(boxX, boxY, boxW, kTitleH, titleBg, kRadius);
-        buf.pushRectangle(boxX, boxY + kRadius, boxW, kTitleH - kRadius, titleBg, 0.f);
+        buf.pushRectangle(boxX, boxY, boxW, boxH, Colors::DialogBg, kRadius, 1.f, Colors::Border);
+        buf.pushRectangle(boxX, boxY, boxW, kTitleH, Colors::DialogTitleBg, kRadius);
+        buf.pushRectangle(boxX, boxY + kRadius, boxW, kTitleH - kRadius, Colors::DialogTitleBg, 0.f);
 
         if (JTextHelper::hasAtlas()) {
             uint8_t tc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, tc);
@@ -251,9 +248,8 @@ public:
                                  static_cast<uint8_t>(hov ? 255 : 220)};
                 buf.pushRectangle(r.x, r.y, r.width, r.height, bg, 4.f);
             } else {
-                uint8_t bg[4] = {55, 55, 65, static_cast<uint8_t>(hov ? 255 : 220)};
-                uint8_t bd[4] = {100, 100, 110, 255};
-                buf.pushRectangle(r.x, r.y, r.width, r.height, bg, 4.f, 1.f, bd);
+                uint8_t bg[4] = {Colors::CancelBtnBg[0], Colors::CancelBtnBg[1], Colors::CancelBtnBg[2], static_cast<uint8_t>(hov ? 255 : 220)};
+                buf.pushRectangle(r.x, r.y, r.width, r.height, bg, 4.f, 1.f, Colors::CancelBtnBorder);
             }
             if (JTextHelper::hasAtlas()) {
                 uint8_t tc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, tc);
