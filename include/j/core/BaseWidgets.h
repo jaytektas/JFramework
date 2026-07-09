@@ -291,6 +291,20 @@ public:
     virtual bool handleKeyEvent(const JKeyEvent&) { return false; }
     virtual bool handleScroll(float /*mx*/, float /*my*/, float /*wheel*/) { return false; }
 
+    // --- General drag & drop hooks (DragDrop.h; jDragTick routes to these) ---
+    // Default: accept nothing / no-op. A drop target overrides canDrop() to vet
+    // the payload's formats and onDrop() to consume it. Only entered when
+    // canDrop()==true, so a plain widget never sees onDragEnter/onDrop.
+    virtual bool canDrop(const JMimeData&) const { return false; }
+    virtual void onDragEnter(JDragSession&) {}
+    virtual void onDragMove (JDragSession&) {}
+    virtual void onDragLeave(JDragSession&) {}
+    virtual bool onDrop     (JDragSession&) { return false; }
+    // Begin dragging FROM this widget with the given payload and permitted action.
+    virtual void startDrag(JMimeData mime, JDropAction supported) {
+        jf::jBeginDrag(this, std::move(mime), supported);
+    }
+
     // Typed, named read access to a control's own state — the reference-resolution
     // seam (e.g. "value", "checked", "cursorRow"). Returns a Null JVariant for an
     // unknown key. Keys are the element's NATIVE member names: no translation layer,
@@ -822,6 +836,47 @@ inline void JWidget::drawFocusRing(JPrimitiveBuffer& buf) const {
     uint8_t none[4] = {0, 0, 0, 0};
     buf.pushRectangle(bb.x - p, bb.y - p, bb.width + p * 2.f, bb.height + p * 2.f,
                       none, th.cornerRadius + 1.f, th.focusRingWidth, ring);
+}
+
+// ---- Drag & drop driver (declared in DragDrop.h; defined here where JWidget is
+// complete and its hooks + s_activeWidgets are visible). Routes the active drag
+// session to the top-most visible widget that canDrop() the payload. ----------
+inline bool jDragTick(float mx, float my, bool pressed, bool released) {
+    JDragSession& s = jCurrentDrag();
+    if (!s.active) return false;
+    s.x = mx; s.y = my;
+    (void)pressed;   // cursor already tracked; kept for host-runner symmetry
+
+    // Top-most accepting target under the cursor. Paint order in s_activeWidgets
+    // is back-to-front, so scan in reverse for the front-most hit. The drag
+    // source itself is skipped (a widget cannot drop onto its own drag).
+    JWidget* target = nullptr;
+    for (auto it = JWidget::s_activeWidgets.rbegin();
+         it != JWidget::s_activeWidgets.rend(); ++it) {
+        JWidget* w = *it;
+        if (!w || w == s.source || !w->isVisible()) continue;
+        if (w->hitTest(mx, my) && w->canDrop(s.mime)) { target = w; break; }
+    }
+
+    // Enter/leave transitions.
+    if (target != s.over) {
+        if (s.over) s.over->onDragLeave(s);
+        s.over = target;
+        if (target) { s.proposed = s.supported; target->onDragEnter(s); }
+        else          s.proposed = JDropAction::Ignore;
+    } else if (target) {
+        target->onDragMove(s);
+    }
+
+    if (released) {
+        bool dropped = false;
+        if (target && target->onDrop(s)) dropped = true;
+        if (!dropped) s.proposed = JDropAction::Ignore;
+        s.active = false;
+        s.over   = nullptr;
+        return dropped;
+    }
+    return false;
 }
 
 // ============================================================================
