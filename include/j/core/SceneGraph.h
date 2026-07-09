@@ -29,6 +29,63 @@ enum class JAlignItems { Start, Center, End, Stretch };
 enum class JLayoutMode : uint8_t { Flex, Grid, Form };
 
 /**
+ * @brief How a child negotiates for space along ONE axis when the box/flex pass has leftover
+ *        or deficit space to hand out.  Set per axis (see JSizePolicy) via setHSizePolicy /
+ *        setVSizePolicy on a widget.  The default is Preferred with stretch 0, which reproduces
+ *        the framework's original behaviour (children keep their size hint; only legacy flexGrow
+ *        and the Expanding family claim leftover space).
+ *
+ *   Fixed             — locked to the size hint; never grows, never shrinks.
+ *   Minimum           — the hint is a floor; may grow (only via flexGrow), never shrinks below it.
+ *   Maximum           — the hint is a ceiling; may shrink toward min, never grows past the hint.
+ *   Preferred         — the default; sits at its hint, may shrink under pressure, does not claim leftover.
+ *   Expanding         — actively claims leftover space, split by stretch factor; may also shrink.
+ *   MinimumExpanding  — claims leftover like Expanding, but the hint is also a hard floor.
+ *   Ignored           — the hint carries no weight; grabs whatever space is going.
+ */
+enum class JSizePolicyMode : uint8_t {
+    Fixed, Minimum, Maximum, Preferred, Expanding, MinimumExpanding, Ignored
+};
+
+/**
+ * @brief A single axis' space-negotiation policy: a mode plus an integer stretch factor.
+ *        Stretch weights how a child splits leftover space against its expanding siblings
+ *        (an Expanding child with stretch 2 next to one with stretch 1 takes twice the slack).
+ *        A stretch of 0 on an expanding child is treated as weight 1.
+ */
+struct JSizePolicy {
+    JSizePolicyMode mode{JSizePolicyMode::Preferred};
+    int             stretch{0};
+
+    JSizePolicy() = default;
+    JSizePolicy(JSizePolicyMode m, int s = 0) : mode(m), stretch(s) {}
+
+    // Does this policy actively claim leftover main-axis space?
+    bool expands() const {
+        return mode == JSizePolicyMode::Expanding
+            || mode == JSizePolicyMode::MinimumExpanding
+            || mode == JSizePolicyMode::Ignored;
+    }
+    // May the child shrink below its size hint (down to its minimum)?
+    bool canShrink() const {
+        return mode == JSizePolicyMode::Maximum
+            || mode == JSizePolicyMode::Preferred
+            || mode == JSizePolicyMode::Expanding
+            || mode == JSizePolicyMode::Ignored;
+    }
+    bool isDefault() const { return mode == JSizePolicyMode::Preferred && stretch == 0; }
+    // Effective grow weight for the leftover-space split (expanding families only).
+    float growWeight() const { return expands() ? float(stretch > 0 ? stretch : 1) : 0.0f; }
+};
+
+/**
+ * @brief Where a child sits inside a cell that is larger than the child (grid columns, or a
+ *        box child that opts out of filling).  Fill (the default) stretches the child to the
+ *        cell; Start/Center/End place the child at its size hint against the named edge.
+ */
+enum class JCellAlign : uint8_t { Fill, Start, Center, End };
+
+/**
  * @brief Per-side edge values (padding / margin).  Implicitly constructs/assigns from a
  *        single float so `layout.padding = 12.0f` still means "12 on all sides".
  */
@@ -92,6 +149,24 @@ struct JLayoutComponent {
     float          gap{0.0f};        // space inserted between consecutive children
     float          minWidth{0.0f};
     float          minHeight{0.0f};
+    float          maxWidth{100000.0f};   // upper clamp honoured by the space-distribution pass
+    float          maxHeight{100000.0f};
+
+    // Per-axis space-negotiation policy (default = Preferred/0 == original behaviour).
+    JSizePolicy    hPolicy{};
+    JSizePolicy    vPolicy{};
+    // Placement inside an over-sized cell (grid column / opted-out box child).
+    JCellAlign     cellAlign{JCellAlign::Fill};
+    // True for a layout-only spacer node inserted by addStretch/addSpacing (no widget paints it).
+    bool           isSpacer{false};
+    // For a rigid (addSpacing) spacer: px reserved along the PARENT's main axis. Resolved to the
+    // correct axis at measure time, since the parent's flow direction may be set after the spacer.
+    float          spacing{-1.0f};   // <0 == not a rigid spacer
+
+    // Resolve the policy for the container's MAIN axis given a flow direction.
+    const JSizePolicy& mainPolicy(JFlexDirection d) const {
+        return d == JFlexDirection::JRow ? hPolicy : vPolicy;
+    }
 
     // Calculated output geometry bounds
     JRect boundingBox;
@@ -141,6 +216,38 @@ public:
         m_hierarchy[childId].parentId = parentId;
         m_hierarchy[parentId].childrenIds.push_back(childId);
         invalidateNode(parentId, DirtyChildren);
+    }
+
+    // ------------------------------------------------------------------
+    // Flexible layout items (spacers). These are widget-less nodes that exist purely to occupy
+    // space in a flex/box container — the toolbox trick of pushing widgets apart or to an edge.
+    // ------------------------------------------------------------------
+
+    // Insert a stretchable gap into `parent`: an expanding spacer that soaks up leftover main-axis
+    // space (split against other expanding items by `factor`). Put one before a widget to shove it
+    // to the trailing edge, or between two to spread them apart. Returns the spacer's node id.
+    NodeId addStretch(NodeId parent, int factor = 1) {
+        NodeId s = createNode("<stretch>");
+        auto& L = m_layouts[s];
+        L.isSpacer = true;
+        L.boundingBox.width = L.boundingBox.height = 0.0f;
+        L.hPolicy = JSizePolicy{JSizePolicyMode::Expanding, factor};
+        L.vPolicy = JSizePolicy{JSizePolicyMode::Expanding, factor};
+        addChild(parent, s);
+        return s;
+    }
+
+    // Insert a fixed-size gap of `px` along `parent`'s main axis (a rigid spacer). Returns its id.
+    NodeId addSpacing(NodeId parent, float px) {
+        NodeId s = createNode("<spacing>");
+        auto& L = m_layouts[s];
+        L.isSpacer = true;
+        L.spacing  = px;                       // resolved to the parent's main axis at measure time
+        L.hPolicy = JSizePolicy{JSizePolicyMode::Fixed, 0};
+        L.vPolicy = JSizePolicy{JSizePolicyMode::Fixed, 0};
+        L.boundingBox.width = L.boundingBox.height = 0.0f;
+        addChild(parent, s);
+        return s;
     }
 
     /**
@@ -240,6 +347,11 @@ public:
         float usedMain = 0.0f, maxCross = 0.0f, totalGrow = 0.0f;
         for (size_t i = 0; i < n; ++i) {
             auto& cl = m_layouts[kids[i]];
+            // Rigid spacer: reserve its px along THIS container's main axis (0 on the cross axis).
+            if (cl.isSpacer && cl.spacing >= 0.0f) {
+                if (row) { cl.boundingBox.width = cl.minWidth = cl.maxWidth = cl.spacing; cl.boundingBox.height = 0.0f; }
+                else     { cl.boundingBox.height = cl.minHeight = cl.maxHeight = cl.spacing; cl.boundingBox.width = 0.0f; }
+            }
             float availW = std::max(0.0f, c.maxWidth  - pad.horizontal() - cl.margin.horizontal());
             float availH = std::max(0.0f, c.maxHeight - pad.vertical()   - cl.margin.vertical());
             // A child wants its intrinsic size but must fit the available space — clamp the
@@ -264,20 +376,88 @@ public:
         if (row) { L.boundingBox.width = selfMain; L.boundingBox.height = selfCross; }
         else     { L.boundingBox.height = selfMain; L.boundingBox.width = selfCross; }
 
-        // flexGrow — distribute leftover main-axis space; re-measure grown containers.
+        // Distribute leftover / deficit main-axis space by size policy + stretch, then re-measure
+        // any child container whose main-axis size actually changed.
+        (void)totalGrow;
         float innerMain = selfMain - pad.mainSum(d);
         float freeMain  = innerMain - usedMain;
-        if (freeMain > 0.5f && totalGrow > 0.0f) {
+
+        // Main-axis min / max clamps for a child, resolved against the flow direction.
+        auto mainMaxOf = [&](const JLayoutComponent& cl){ return row ? cl.maxWidth : cl.maxHeight; };
+        auto mainMinOf = [&](const JLayoutComponent& cl){ return row ? cl.minWidth : cl.minHeight; };
+        auto setMain   = [&](JLayoutComponent& cl, float v){ if (row) cl.boundingBox.width = v; else cl.boundingBox.height = v; };
+
+        bool policiesEngaged = false;
+        for (NodeId k : kids) if (!m_layouts[k].mainPolicy(d).isDefault()) { policiesEngaged = true; break; }
+
+        // --- GROW: hand leftover space to expanding children (+ legacy flexGrow), water-filling so a
+        //     child that hits its maximum passes the surplus on to the rest. Respects each child's max. ---
+        if (freeMain > 0.5f) {
+            std::vector<NodeId> growable;
             for (NodeId k : kids) {
                 auto& cl = m_layouts[k];
-                if (cl.flexGrow <= 0.0f) continue;
-                float nm = mainOf(cl.boundingBox) + freeMain * (cl.flexGrow / totalGrow);
-                if (row) cl.boundingBox.width = nm; else cl.boundingBox.height = nm;
-                if (!m_hierarchy[k].childrenIds.empty()) {
-                    float w = cl.boundingBox.width, h = cl.boundingBox.height;
-                    _measure(k, JConstraints{w, w, h, h});
-                }
+                float w = cl.flexGrow + cl.mainPolicy(d).growWeight();
+                if (w > 0.0f && mainOf(cl.boundingBox) < mainMaxOf(cl) - 0.5f) growable.push_back(k);
             }
+            float pool = freeMain;
+            // Iterate: each round splits the pool by weight; children that cap are frozen and their
+            // leftover recirculates. Bounded by child count so a pathological case can't spin.
+            for (size_t guard = 0; guard <= growable.size() && pool > 0.5f && !growable.empty(); ++guard) {
+                float totW = 0.0f;
+                for (NodeId k : growable) { auto& cl = m_layouts[k]; totW += cl.flexGrow + cl.mainPolicy(d).growWeight(); }
+                if (totW <= 0.0f) break;
+                float distributed = 0.0f;
+                std::vector<NodeId> still;
+                for (NodeId k : growable) {
+                    auto& cl = m_layouts[k];
+                    float w = cl.flexGrow + cl.mainPolicy(d).growWeight();
+                    float want = mainOf(cl.boundingBox) + pool * (w / totW);
+                    float capped = std::min(want, mainMaxOf(cl));
+                    distributed += capped - mainOf(cl.boundingBox);
+                    setMain(cl, capped);
+                    if (capped < mainMaxOf(cl) - 0.5f) still.push_back(k);
+                }
+                pool -= distributed;
+                if (still.size() == growable.size() && distributed < 0.5f) break;   // fully settled
+                growable.swap(still);
+            }
+        }
+        // --- SHRINK: only when policies are engaged (preserves the historical overflow behaviour for
+        //     callers that never set a policy). Pull space back from shrinkable children down to min. ---
+        else if (freeMain < -0.5f && policiesEngaged) {
+            std::vector<NodeId> shrinkable;
+            for (NodeId k : kids) {
+                auto& cl = m_layouts[k];
+                if (cl.mainPolicy(d).canShrink() && mainOf(cl.boundingBox) > mainMinOf(cl) + 0.5f)
+                    shrinkable.push_back(k);
+            }
+            float deficit = -freeMain;
+            for (size_t guard = 0; guard <= shrinkable.size() && deficit > 0.5f && !shrinkable.empty(); ++guard) {
+                float totHead = 0.0f;   // room available above each child's minimum
+                for (NodeId k : shrinkable) { auto& cl = m_layouts[k]; totHead += mainOf(cl.boundingBox) - mainMinOf(cl); }
+                if (totHead <= 0.0f) break;
+                float removed = 0.0f;
+                std::vector<NodeId> still;
+                for (NodeId k : shrinkable) {
+                    auto& cl = m_layouts[k];
+                    float head = mainOf(cl.boundingBox) - mainMinOf(cl);
+                    float take = std::min(head, deficit * (head / totHead));
+                    setMain(cl, mainOf(cl.boundingBox) - take);
+                    removed += take;
+                    if (mainOf(cl.boundingBox) > mainMinOf(cl) + 0.5f) still.push_back(k);
+                }
+                deficit -= removed;
+                if (removed < 0.5f) break;
+                shrinkable.swap(still);
+            }
+        }
+
+        // Re-measure any child container whose main-axis extent changed above.
+        for (NodeId k : kids) {
+            if (m_hierarchy[k].childrenIds.empty()) continue;
+            auto& cl = m_layouts[k];
+            float w = cl.boundingBox.width, h = cl.boundingBox.height;
+            _measure(k, JConstraints{w, w, h, h});
         }
 
         // cross-axis Stretch — fill the container's inner cross extent.
@@ -373,6 +553,8 @@ public:
             NodeId kid = kids[i];
             _computeMinSize(kid);
             auto& cl = m_layouts[kid];
+            // A rigid spacer contributes its reserved px along this container's main axis.
+            if (cl.isSpacer && cl.spacing >= 0.0f) { if (row) cl.minWidth = cl.spacing; else cl.minHeight = cl.spacing; }
 
             float clMinMain = row ? cl.minWidth : cl.minHeight;
             float clMinCross = row ? cl.minHeight : cl.minWidth;
@@ -430,8 +612,15 @@ public:
         for (int i = 0; i < n; ++i) {
             const int col = i % cols, row = i / cols;
             auto& cl = m_layouts[kids[i]];
-            _measure(kids[i], JConstraints{colW[col], colW[col], 0.0f, c.maxHeight});
-            cl.boundingBox.width = colW[col];                       // stretch to the column
+            // Fill (default) stretches the child to the whole column; any other cellAlign lets the
+            // child keep its own width (capped to the column) so it can sit left/centre/right in the cell.
+            if (cl.cellAlign == JCellAlign::Fill) {
+                _measure(kids[i], JConstraints{colW[col], colW[col], 0.0f, c.maxHeight});
+                cl.boundingBox.width = colW[col];                   // stretch to the column
+            } else {
+                _measure(kids[i], JConstraints{0.0f, colW[col], 0.0f, c.maxHeight});
+                cl.boundingBox.width = std::min(cl.boundingBox.width, colW[col]);
+            }
             rowH[row] = std::max(rowH[row], cl.boundingBox.height + cl.margin.vertical());
         }
 
@@ -471,7 +660,13 @@ public:
                 const int i = r * cols + col;
                 if (i >= n) break;
                 auto& cl = m_layouts[kids[i]];
-                _arrange(kids[i], cx + cl.margin.left, cy + cl.margin.top);
+                // Place a narrower-than-column child by its cell alignment (Fill children already
+                // span the column, so their offset is 0 either way).
+                float slack = std::max(0.0f, colW[col] - cl.margin.horizontal() - cl.boundingBox.width);
+                float ax = 0.0f;
+                if      (cl.cellAlign == JCellAlign::Center) ax = slack * 0.5f;
+                else if (cl.cellAlign == JCellAlign::End)    ax = slack;
+                _arrange(kids[i], cx + cl.margin.left + ax, cy + cl.margin.top);
                 cx += colW[col] + gap;
             }
             cy += rowH[r] + gap;
