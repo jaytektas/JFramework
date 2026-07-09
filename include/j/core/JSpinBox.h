@@ -91,9 +91,12 @@ public:
         return false;
     }
 
+    // Commit a typed value the instant focus leaves (Tab / click-away), before any repaint or
+    // properties-panel rebuild can discard the edit buffer.
+    void onFocusEvent(bool focused) override { if (!focused) _commitEdit(); }
+
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        if (m_editing && !isFocused()) _commitEdit();
         float btnW = b.height * 0.7f;
         float fieldW = b.width - btnW;
 

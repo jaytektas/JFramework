@@ -275,8 +275,15 @@ public:
             m_focused = f;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             notifyAccessibility();
+            onFocusEvent(f);   // deterministic blur/focus hook — e.g. spin boxes commit their edit here
         }
     }
+
+    // Called the instant focus is gained (true) or lost (false), synchronously from setFocused —
+    // before any repaint or panel rebuild. Widgets that buffer edits (spin boxes, line edits)
+    // override this to commit on blur so a value typed then Tab/click-away is never dropped.
+    // (Named onFocusEvent, not onFocusChanged, to avoid clashing with JControl's onFocusChanged signal.)
+    virtual void onFocusEvent(bool focused) { (void)focused; }
 
     // Schedule a repaint for this widget.
     void invalidate() { m_graph.invalidateNode(m_nodeId, DirtySelf); }
