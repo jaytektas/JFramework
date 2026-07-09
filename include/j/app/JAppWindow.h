@@ -958,21 +958,15 @@ private:
     // Colors palette, a 1px separator, and vector-drawn min/max/close with hover).
     void drawChrome(JPrimitiveBuffer& buf) {
         const float W  = static_cast<float>(m_w), H = static_cast<float>(m_h);
-        const float lh = JTextHelper::hasAtlas() ? JTextHelper::lineHeight() : 14.0f;
 
         // Opaque full-window background FIRST — every pixel is written each frame, so the
         // swapchain's images can't cycle stale content (that was the resize flicker).
         uint8_t bg[4] = {Colors::Surface0[0], Colors::Surface0[1], Colors::Surface0[2], 255};
         buf.pushRectangle(0.f, 0.f, W, H, bg, 0.f);
 
-        uint8_t tbg[4] = {22, 22, 28, 255};
-        buf.pushRectangle(0.f, 0.f, W, m_titleH, tbg, 0.f);
+        // Title bar — the ONE shared primitive (square top for the app frame), reserving the 3 window buttons.
+        jDrawTitleBar(buf, 0.f, 0.f, W, m_titleH, m_title, 0.f, 0, 10.f, kBtnW * 3.f + 20.f);
 
-        if (JTextHelper::hasAtlas()) {
-            uint8_t tc[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, tc);
-            JTextHelper::pushText(buf, 10.f, (m_titleH - lh) * 0.5f, m_title, tc,
-                                  W - kBtnW * 3.f - 20.f);
-        }
         uint8_t sep[4] = {Colors::Border[0], Colors::Border[1], Colors::Border[2], Colors::Border[3]};
         buf.pushRectangle(0.f, m_titleH - 1.f, W, 1.f, sep, 0.f);
 
@@ -1000,13 +994,10 @@ private:
                 buf.pushRectangle(cx,     cy+2.f,  7.f, 7.f, wbg, 0.f, 1.f, ic);
             }
         }
-        // Close  ×
+        // Close  × — the framework close-button primitive (rect derived from the title bar, no magic size)
         {
-            if (hov(closeX)) { uint8_t hb[4]={180,40,40,220}; buf.pushRectangle(closeX,0.f,kBtnW,m_titleH,hb,0.f); }
-            float cx = closeX + kBtnW*0.5f - 4.f, cy = m_titleH*0.5f - 1.f;
-            uint8_t ic[4] = {210,210,220,230};
-            buf.pushRectangle(cx,        cy,       9.f, 2.f, ic, 1.f);
-            buf.pushRectangle(cx + 3.5f, cy - 3.5f, 2.f, 9.f, ic, 1.f);
+            const JRect cr = jTitleCloseRect(0.f, 0.f, W, m_titleH);
+            jDrawCloseButton(buf, cr.x, cr.y, cr.width, hov(closeX));
         }
     }
 
@@ -1044,7 +1035,7 @@ private:
     float                            m_mx{-1.0f}, m_my{-1.0f};
     int64_t                          m_lastTitleMs{0};   // last title-bar press (double-click → maximize)
     bool                             m_leftHeld{false};   // app-tracked button state (press→release)
-    float                            m_titleH{28.0f};
+    float                            m_titleH{JTheme::current().titleBarHeight};   // one canonical title-bar height
     bool                             m_needRedraw{false};
     bool                             m_wasDragging{false};   // drag active last frame (repaint on drop)
     bool                             m_dragBtnWasDown{false};// button state last frame during a drag (release edge)

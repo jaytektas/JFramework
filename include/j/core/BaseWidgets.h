@@ -511,8 +511,8 @@ struct JTheme {
     uint8_t CloseBtn[4]      = {60,  40,  44,  160};
     uint8_t CloseBtnHover[4] = {220, 50,  50,  255};
     uint8_t CloseBtnMark[4]  = {255, 255, 255, 200};
-    uint8_t TitleBar[4]      = {40,  40,  42,  255};   // window/dialog title-bar fill (semantic role)
-    uint8_t TitleBarText[4]  = {240, 240, 245, 255};   // title-bar caption
+    uint8_t TitleBar[4]      = {22,  22,  28,  255};   // window/dialog/popup title-bar fill (semantic role)
+    uint8_t TitleBarText[4]  = {200, 200, 210, 230};   // title-bar caption
 
     // Dimensions
     float cornerRadius   = 6.f;
@@ -1026,6 +1026,14 @@ inline void jDrawCloseButton(JPrimitiveBuffer& buf, float x, float y, float sz, 
 }
 inline bool jCloseButtonHit(float x, float y, float sz, float mx, float my) {
     return mx >= x && mx < x + sz && my >= y && my < y + sz;
+}
+
+// The standard close-button rect for a title bar occupying (x,y,w,h): a square inset from the bar's top
+// and bottom (so its size scales with the bar height) and nudged in from the right edge. ONE place decides
+// the close button's size + position — callers pass the bar, never a magic number.
+inline JRect jTitleCloseRect(float x, float y, float w, float h) {
+    const float sz = h - 12.0f;
+    return { x + w - sz - 6.0f, y + (h - sz) * 0.5f, sz, sz };
 }
 
 // ---- Window title bar — the framework's ONE canonical title strip -----------

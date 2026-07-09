@@ -333,8 +333,10 @@ public:
             }
 
             // 6. Close button (only if closeable)
-            if (m_closeable)
-                jDrawCloseButton(buf, m_x + m_w - BTN_SZ - 6.0f, btnY, BTN_SZ, m_hoverClose);
+            if (m_closeable) {
+                const JRect cr = jTitleCloseRect(m_x, m_y, m_w, TITLE_H);
+                jDrawCloseButton(buf, cr.x, cr.y, cr.width, m_hoverClose);
+            }
         } // end m_titleVisible
 
         // 7. Content area background

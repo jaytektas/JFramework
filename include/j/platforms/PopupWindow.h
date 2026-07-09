@@ -367,9 +367,9 @@ public:
 
         // Close button — same style as JDockWidget title-bar close button.
         if (m_showCloseButton) {
-            const float cx = static_cast<float>(m_winW) - kFloatHandleH - 1.f;
-            const bool  hov = jCloseButtonHit(cx, 0.f, kFloatHandleH, m_window->mouseX(), m_window->mouseY());
-            jDrawCloseButton(buf, cx, 0.f, kFloatHandleH, hov);
+            const JRect cr = jTitleCloseRect(0.f, 0.f, static_cast<float>(m_winW), kFloatHandleH);
+            const bool hov = jCloseButtonHit(cr.x, cr.y, cr.width, m_window->mouseX(), m_window->mouseY());
+            jDrawCloseButton(buf, cr.x, cr.y, cr.width, hov);
         }
 
         auto frame = hal.beginFrame(m_surface);
