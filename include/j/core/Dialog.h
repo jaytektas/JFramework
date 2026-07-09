@@ -192,8 +192,7 @@ public:
 
         // --- Backdrop ---
         if (req->options.modal) {
-            uint8_t backdrop[4] = {0, 0, 0, 160};
-            buf.pushRectangle(0.f, 0.f, screenW, screenH, backdrop, 0.f);
+            buf.pushRectangle(0.f, 0.f, screenW, screenH, Colors::OverlayScrim, 0.f);
         }
 
         // --- Box geometry (position may be offset by drag) ---
@@ -234,18 +233,15 @@ public:
         if (!mouseHeld) dm.m_dragging = false;
 
         // --- Shadow (slight dark halo) ---
-        uint8_t shadow[4] = {0, 0, 0, 60};
-        buf.pushRectangle(boxX + 4.f, boxY + 6.f, boxW, boxH, shadow, kRadius + 2.f);
+        buf.pushRectangle(boxX + 4.f, boxY + 6.f, boxW, boxH, Colors::DialogShadow, kRadius + 2.f);
 
         // --- Box body ---
-        uint8_t boxBg[4] = {26, 26, 32, 255};
-        buf.pushRectangle(boxX, boxY, boxW, boxH, boxBg, kRadius, 1.f, Colors::Border);
+        buf.pushRectangle(boxX, boxY, boxW, boxH, Colors::DialogBg, kRadius, 1.f, Colors::Border);
 
         // --- Title bar strip ---
-        uint8_t titleBg[4] = {38, 38, 48, 255};
-        buf.pushRectangle(boxX, boxY, boxW, kTitleH, titleBg, kRadius);
+        buf.pushRectangle(boxX, boxY, boxW, kTitleH, Colors::DialogTitleBg, kRadius);
         // Cover bottom corners of title so it blends into body
-        buf.pushRectangle(boxX, boxY + kRadius, boxW, kTitleH - kRadius, titleBg, 0.f);
+        buf.pushRectangle(boxX, boxY + kRadius, boxW, kTitleH - kRadius, Colors::DialogTitleBg, 0.f);
 
         float lh = JTextHelper::lineHeight();
         uint8_t tc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, tc);
@@ -258,10 +254,9 @@ public:
         bool  hovClose = (mx >= cBtnX && mx < cBtnX + kCloseW &&
                           my >= cBtnY && my < cBtnY + kTitleH);
         if (hovClose) {
-            uint8_t cHov[4] = {180, 50, 50, 200};
-            buf.pushRectangle(cBtnX, cBtnY, kCloseW, kTitleH, cHov, 0.f);
+            buf.pushRectangle(cBtnX, cBtnY, kCloseW, kTitleH, Colors::DialogCloseHover, 0.f);
         }
-        uint8_t xc[4] = {200, 200, 210, 220};
+        uint8_t xc[4] = {Colors::TitleBarText[0], Colors::TitleBarText[1], Colors::TitleBarText[2], 220};
         float cx = cBtnX + kCloseW * 0.5f - 4.f;
         float cy = cBtnY + kTitleH  * 0.5f - 1.f;
         buf.pushRectangle(cx,        cy,        9.f, 2.f, xc, 1.f);  // —
@@ -284,9 +279,8 @@ public:
             float fieldW = boxW - 32.f;
             float fieldH = 32.f;
 
-            uint8_t fBg[4] = {18, 18, 28, 255};
             uint8_t fBorder[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 255};
-            buf.pushRectangle(fieldX, ty, fieldW, fieldH, fBg, 4.f, 2.f, fBorder);
+            buf.pushRectangle(fieldX, ty, fieldW, fieldH, Colors::InputFieldBg, 4.f, 2.f, fBorder);
 
             float textY = ty + (fieldH - lh) * 0.5f;
             if (dm.m_inputText.empty()) {
@@ -323,9 +317,7 @@ public:
                             static_cast<uint8_t>(hovOk ? 255 : 220)};
         buf.pushRectangle(okX, btnY, btnW, btnH, okBg, 4.f);
         if (kbOk) { // outline-only focus ring — does not cover button fill
-            uint8_t noFill[4] = {0, 0, 0, 0};
-            uint8_t ringCol[4] = {255, 255, 255, 200};
-            buf.pushRectangle(okX - 2.f, btnY - 2.f, btnW + 4.f, btnH + 4.f, noFill, 5.f, 2.f, ringCol);
+            buf.pushRectangle(okX - 2.f, btnY - 2.f, btnW + 4.f, btnH + 4.f, Colors::Transparent, 5.f, 2.f, Colors::CloseBtnMark);
         }
         JTextHelper::pushText(buf, okX + (btnW - JTextHelper::measureWidth("OK")) * 0.5f,
                              btnY + (btnH - lh) * 0.5f, "OK", btnTc);
@@ -341,13 +333,10 @@ public:
             bool hovCancel = (mx >= cancelX && mx < cancelX + btnW &&
                               my >= btnY    && my < btnY + btnH);
             bool kbCancel  = !needsInput && (dm.m_focusedBtn == 1);
-            uint8_t cBg[4] = {55, 55, 65, static_cast<uint8_t>(hovCancel ? 255 : 220)};
-            uint8_t cBorder[4] = {100, 100, 110, 255};
-            buf.pushRectangle(cancelX, btnY, btnW, btnH, cBg, 4.f, 1.f, cBorder);
+            uint8_t cBg[4] = {Colors::CancelBtnBg[0], Colors::CancelBtnBg[1], Colors::CancelBtnBg[2], static_cast<uint8_t>(hovCancel ? 255 : 220)};
+            buf.pushRectangle(cancelX, btnY, btnW, btnH, cBg, 4.f, 1.f, Colors::CancelBtnBorder);
             if (kbCancel) {
-                uint8_t noFill[4] = {0, 0, 0, 0};
-                uint8_t ringCol[4] = {255, 255, 255, 200};
-                buf.pushRectangle(cancelX - 2.f, btnY - 2.f, btnW + 4.f, btnH + 4.f, noFill, 5.f, 2.f, ringCol);
+                buf.pushRectangle(cancelX - 2.f, btnY - 2.f, btnW + 4.f, btnH + 4.f, Colors::Transparent, 5.f, 2.f, Colors::CloseBtnMark);
             }
             JTextHelper::pushText(buf, cancelX + (btnW - JTextHelper::measureWidth("Cancel")) * 0.5f,
                                  btnY + (btnH - lh) * 0.5f, "Cancel", btnTc);

@@ -58,6 +58,16 @@ inline JTheme parseStyleSheet(const std::string& text) {
         {"mutedtext", t.MutedText}, {"fieldplaceholder", t.FieldPlaceholder},
         {"capturehint", t.CaptureHint}, {"selectionfill", t.SelectionFill},
         {"highlightedtext", t.HighlightedText},
+        {"dialogbg", t.DialogBg}, {"dialogtitlebg", t.DialogTitleBg}, {"overlayscrim", t.OverlayScrim},
+        {"dialogshadow", t.DialogShadow}, {"inputfieldbg", t.InputFieldBg},
+        {"cancelbtnbg", t.CancelBtnBg}, {"cancelbtnborder", t.CancelBtnBorder},
+        {"dialogclosehover", t.DialogCloseHover},
+        {"popupbg", t.PopupBg}, {"popupinnerbg", t.PopupInnerBg}, {"popupitemtext", t.PopupItemText},
+        {"previewbg", t.PreviewBg},
+        {"chartbg", t.ChartBg}, {"charttitletext", t.ChartTitleText}, {"chartaxistext", t.ChartAxisText},
+        {"chartaxis2text", t.ChartAxis2Text}, {"chartlegendtext", t.ChartLegendText},
+        {"charttooltiptext", t.ChartTooltipText}, {"charttooltipbg", t.ChartTooltipBg},
+        {"charttooltipborder", t.ChartTooltipBorder}, {"chartcrosshair", t.ChartCrosshair},
     };
     struct FRef { const char* n; float* p; };
     FRef floats[] = {

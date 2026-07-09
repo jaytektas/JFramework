@@ -175,13 +175,13 @@ private:
     void _render(JPrimitiveBuffer& buf, float mx, float my, float okX, float cancelX, float prevY) {
         buf.clear();
         const float W = static_cast<float>(kW), H = static_cast<float>(kH), lh = JTextHelper::lineHeight();
-        uint8_t bg[4] = {26, 26, 32, 255}; buf.pushRectangle(0.f, 0.f, W, H, bg, 8.f, 1.f, Colors::Border);
-        uint8_t tbg[4] = {38, 38, 48, 255}; buf.pushRectangle(0.f, 0.f, W, kHeader, tbg, 8.f); buf.pushRectangle(0.f, 8.f, W, kHeader - 8.f, tbg, 0.f);
+        buf.pushRectangle(0.f, 0.f, W, H, Colors::DialogBg, 8.f, 1.f, Colors::Border);
+        buf.pushRectangle(0.f, 0.f, W, kHeader, Colors::DialogTitleBg, 8.f); buf.pushRectangle(0.f, 8.f, W, kHeader - 8.f, Colors::DialogTitleBg, 0.f);
         uint8_t tc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, tc);
 
         // Cancel (left) + Select (right, green) in the header, title centred between.
-        uint8_t cBg[4] = {55, 55, 65, 230}, cBorder[4] = {100, 100, 110, 255};
-        buf.pushRectangle(cancelX, 8.f, kBtnW, kBtnH, cBg, 5.f, 1.f, cBorder);
+        uint8_t cBg[4] = {Colors::CancelBtnBg[0], Colors::CancelBtnBg[1], Colors::CancelBtnBg[2], 230};
+        buf.pushRectangle(cancelX, 8.f, kBtnW, kBtnH, cBg, 5.f, 1.f, Colors::CancelBtnBorder);
         const bool hovOk = (mx >= okX && mx < okX + kBtnW && my >= 8.f && my < 8.f + kBtnH);
         uint8_t okBg[4] = {Colors::Success[0], Colors::Success[1], Colors::Success[2], static_cast<uint8_t>(hovOk ? 255 : 230)};
         buf.pushRectangle(okX, 8.f, kBtnW, kBtnH, okBg, 5.f);
@@ -195,7 +195,7 @@ private:
         m_list->populateRenderPrimitives(buf);
 
         // Preview line + size row.
-        uint8_t pbg[4] = {20, 20, 26, 255}; buf.pushRectangle(kPad, prevY, W - 2.f * kPad, kRowH, pbg, 5.f, 1.f, Colors::Border);
+        buf.pushRectangle(kPad, prevY, W - 2.f * kPad, kRowH, Colors::PreviewBg, 5.f, 1.f, Colors::Border);
         if (JTextHelper::hasAtlas()) {
             uint8_t sub[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, sub);
             JTextHelper::pushText(buf, kPad + 8.f, prevY + (kRowH - lh) * 0.5f, "The quick brown fox jumps over the lazy dog.", sub, W - 2.f * kPad - 16.f);

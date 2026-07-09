@@ -26,22 +26,19 @@ public:
 
     void fillRect(float x, float y, float w, float h,
                   const uint8_t color[4], float radius = 0.f) {
-        static const uint8_t none[4] = {0, 0, 0, 0};
-        m_buf.pushRectangle(m_ox + x, m_oy + y, w, h, color, radius, 0.f, none);
+        m_buf.pushRectangle(m_ox + x, m_oy + y, w, h, color, radius, 0.f, Colors::Transparent);
     }
 
     void strokeRect(float x, float y, float w, float h,
                     const uint8_t color[4], float lineWidth = 1.f, float radius = 0.f) {
-        static const uint8_t none[4] = {0, 0, 0, 0};
-        m_buf.pushRectangle(m_ox + x, m_oy + y, w, h, none, radius, lineWidth, color);
+        m_buf.pushRectangle(m_ox + x, m_oy + y, w, h, Colors::Transparent, radius, lineWidth, color);
     }
 
     void rect(float x, float y, float w, float h,
               const uint8_t fill[4], float radius = 0.f,
               float borderWidth = 0.f, const uint8_t border[4] = nullptr) {
-        static const uint8_t none[4] = {0, 0, 0, 0};
         m_buf.pushRectangle(m_ox + x, m_oy + y, w, h,
-                            fill, radius, borderWidth, border ? border : none);
+                            fill, radius, borderWidth, border ? border : Colors::Transparent);
     }
 
     // --- Circles ---
