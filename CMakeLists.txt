@@ -125,6 +125,8 @@ target_link_libraries(j_platform PUBLIC j_core Vulkan::Vulkan)
 add_dependencies(j_platform j_shaders)
 # Native-window factory (jf::createPlatformWindow) — keeps app code free of xcb/win32.
 target_sources(j_platform PRIVATE src/platforms/PlatformFactory.cpp)
+# Serial backend (JSerialPort) — POSIX/Win32 impl behind the pimpl; header stays platform-free.
+target_sources(j_platform PRIVATE src/io/SerialPort.cpp)
 
 if(UNIX AND NOT APPLE)
     target_sources(j_platform PRIVATE
