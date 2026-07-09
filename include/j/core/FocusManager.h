@@ -7,7 +7,7 @@
 #include <algorithm>
 #include "Signal.h"
 
-#include "BaseWidgets.h"
+#include "JWidget.h"
 
 inline namespace jf {
 

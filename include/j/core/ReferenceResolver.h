@@ -20,7 +20,7 @@
 // layer's job (the picker); this resolver speaks ids.
 // ============================================================================
 
-#include "BaseWidgets.h"
+#include "JWidget.h"
 #include "Variant.h"
 
 #include <string>

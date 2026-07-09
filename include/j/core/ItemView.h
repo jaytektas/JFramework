@@ -20,7 +20,8 @@
 // JScrollBar / JTextHelper conventions the rest of BaseWidgets.h uses.
 // ============================================================================
 
-#include "j/core/BaseWidgets.h"
+#include "j/core/JTextHelper.h"
+#include "j/core/JControl.h"
 #include "j/model/AbstractItemView.h"
 
 inline namespace jf {

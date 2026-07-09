@@ -1,6 +1,6 @@
 #include <j/core/DataBus.h>
 #include <j/core/SceneGraph.h>
-#include <j/core/BaseWidgets.h>
+#include <j/core/JWidget.h>
 #include <cassert>
 #include <iostream>
 

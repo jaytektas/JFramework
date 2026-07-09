@@ -1,4 +1,4 @@
-#include <j/core/BaseWidgets.h>
+#include <j/core/JButton.h>
 #include <j/core/Animator.h>
 #include <j/core/Splitter.h>
 #include <j/core/ImageWidget.h>

@@ -7,7 +7,8 @@
 #include <functional>
 #include <algorithm>
 #include <cmath>
-#include "BaseWidgets.h"         // TornTabState, Colors, PrimitiveBuffer
+#include "JWindowControls.h"
+#include "JTabBar.h"
 
 inline namespace jf {
 

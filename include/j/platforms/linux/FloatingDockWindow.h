@@ -1,6 +1,5 @@
 #pragma once
 
-#include <j/core/BaseWidgets.h>
 #include <j/core/DockWidget.h>
 #include <j/core/DockManager.h>
 #include <j/core/DockRegistry.h>

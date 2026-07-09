@@ -20,7 +20,8 @@
 
 #include "Signal.h"
 #include "MainThreadDispatcher.h"
-#include "BaseWidgets.h"
+#include "JTextHelper.h"
+#include "JTheme.h"
 #include "KeyEvent.h"
 #include <string>
 #include <vector>

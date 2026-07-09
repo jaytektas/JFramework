@@ -14,7 +14,6 @@
 // Modelled on JNativeDialogWindow's window/surface/drag machinery.
 // ============================================================================
 
-#include <j/core/BaseWidgets.h>
 #include <j/core/ColorPicker.h>
 #include <j/config/Settings.h>          // JSettings — persist the custom-colour row
 #include <j/graphics/GpuHal.h>

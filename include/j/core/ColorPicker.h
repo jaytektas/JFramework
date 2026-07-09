@@ -8,7 +8,8 @@
 //
 // Note: values serialise as "#rrggbb" (alpha is edited for preview but not encoded into the hex).
 
-#include <j/core/BaseWidgets.h>          // JWidget, JControl, Colors, JTextHelper, JKeyEvent
+#include <j/core/JTextHelper.h>
+#include <j/core/JWidget.h>
 #include <j/graphics/RenderPrimitive.h>  // JPrimitiveBuffer, JRenderVertex, pushGeometry
 #include <j/graphics/VectorGraphics.h>   // JVectorCanvas (eyedropper glyph)
 

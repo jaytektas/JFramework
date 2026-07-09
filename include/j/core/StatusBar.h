@@ -5,7 +5,8 @@
 // timeout. It can also host widgets, right-aligned (a live indicator, a progress control, …).
 // JAppWindow owns one and drives its layout/render/input.
 
-#include <j/core/BaseWidgets.h>          // JWidget, JTextHelper, Colors, JRect
+#include <j/core/JTextHelper.h>
+#include <j/core/JWidget.h>
 #include <j/core/Timer.h>                // transient-message auto-revert
 #include <j/graphics/RenderPrimitive.h>
 

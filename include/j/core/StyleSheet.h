@@ -10,7 +10,7 @@
 // dark() default. apply() assigns into the live singleton, so a reload reskins the GUI
 // (Colors:: points into it; hosts read style().* each frame) — edit the file, reload, presto.
 
-#include "BaseWidgets.h"     // JTheme, JTabBarEdge, JTabFill, style()
+#include "JTheme.h"
 #include <string>
 #include <sstream>
 #include <fstream>

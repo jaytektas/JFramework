@@ -1,6 +1,7 @@
 #include <j/core/ApplicationCore.h>
 #include <j/core/SceneGraph.h>
-#include <j/core/BaseWidgets.h>
+#include <j/core/JButton.h>
+#include <j/core/JSlider.h>
 #include <j/graphics/RenderPrimitive.h>
 #include <j/graphics/GpuHal.h>
 #include <iostream>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <j/core/BaseWidgets.h>
+#include <j/core/JTextHelper.h>
 #include <j/graphics/GpuHal.h>
 
 #if defined(_WIN32)

@@ -7,7 +7,10 @@
 // NOTE: the text engine currently renders one atlas font, so family/bold/italic are stored + shown but
 // not yet visually distinct — extending the text engine is the render-side follow-up.
 
-#include <j/core/BaseWidgets.h>
+#include <j/core/JSpinBox.h>
+#include <j/core/JSlider.h>
+#include <j/core/JListView.h>
+#include <j/core/JLineEdit.h>
 #include <j/graphics/GpuHal.h>
 #include <j/graphics/RenderPrimitive.h>
 #include <j/graphics/FontEngine.h>       // jListSystemFonts() — REAL installed fonts, no external toolkit

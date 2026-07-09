@@ -23,7 +23,7 @@
 
 #include <j/graphics/VectorGraphics.h>
 #include <j/graphics/RenderPrimitive.h>
-#include <j/core/BaseWidgets.h>   // TextHelper
+#include <j/core/JTextHelper.h>
 #include <string>
 #include <vector>
 #include <cmath>

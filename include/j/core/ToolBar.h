@@ -4,7 +4,8 @@
 // separators) that hover-highlight and fire a callback on click. JAppWindow owns one and
 // drives its layout/input/render; the app just declares buttons.
 
-#include <j/core/BaseWidgets.h>          // JTextHelper, Colors
+#include <j/core/JTextHelper.h>
+#include <j/core/JWidget.h>
 #include <j/graphics/RenderPrimitive.h>
 
 #include <algorithm>

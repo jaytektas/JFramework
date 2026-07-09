@@ -25,7 +25,6 @@
 #include <algorithm>
 #include <cmath>
 
-#include "BaseWidgets.h"   // Colors, Rect, PrimitiveBuffer, TextHelper
 #include "DockWidget.h"    // DockWidget
 #include "DockRegistry.h"
 #include "Style.h"         // JStyle/style() cascade — JTabBarEdge, JTabFill

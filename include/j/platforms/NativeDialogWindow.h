@@ -16,7 +16,7 @@
 // ============================================================================
 
 #include <j/core/Dialog.h>
-#include <j/core/BaseWidgets.h>
+#include <j/core/JWindowControls.h>
 #include <j/graphics/GpuHal.h>
 #include <j/graphics/RenderPrimitive.h>
 

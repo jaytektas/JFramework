@@ -3,7 +3,8 @@
 #include <cmath>
 #include <algorithm>
 #include <string>
-#include "BaseWidgets.h"
+#include "JTextHelper.h"
+#include "JWidget.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846

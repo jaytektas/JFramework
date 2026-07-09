@@ -19,7 +19,7 @@
 // Concept reference only (no source adapted): a single-visible-child stack.
 // ============================================================================
 
-#include "BaseWidgets.h"
+#include "JWidget.h"
 #include <vector>
 #include <algorithm>
 

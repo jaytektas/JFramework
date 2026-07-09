@@ -1,6 +1,7 @@
 #pragma once
 
-#include <j/core/BaseWidgets.h>
+#include <j/core/JWindowControls.h>
+#include <j/core/JPopupItem.h>
 #include <j/graphics/GpuHal.h>
 
 #if defined(_WIN32)

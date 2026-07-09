@@ -27,7 +27,8 @@
 #include <j/model/TableModel.h>
 #include <j/model/TreeModel.h>
 #include <j/model/SortFilterModel.h>
-#include <j/core/BaseWidgets.h>
+#include <j/core/JTreeView.h>
+#include <j/core/JDataGrid.h>
 
 inline namespace jf {
 

@@ -1,4 +1,5 @@
-#include <j/core/BaseWidgets.h>
+#include <j/core/JSlider.h>
+#include <j/core/JButton.h>
 #include <j/core/SceneGraph.h>
 #include <cassert>
 #include <iostream>

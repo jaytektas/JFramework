@@ -10,7 +10,7 @@
 #include "Signal.h"
 #include "ApplicationCore.h"
 #include "SceneGraph.h"
-#include "BaseWidgets.h"
+#include "JWidget.h"
 #include "DockWidget.h"
 #include "MainThreadDispatcher.h"
 

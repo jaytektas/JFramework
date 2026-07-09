@@ -8,7 +8,7 @@
 #include <atomic>
 #include <cstdint>
 #include "Signal.h"
-#include "BaseWidgets.h"
+#include "JWidget.h"
 #include "SceneGraph.h"
 
 inline namespace jf {

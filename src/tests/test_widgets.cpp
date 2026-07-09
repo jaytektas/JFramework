@@ -1,4 +1,11 @@
-#include <j/core/BaseWidgets.h>
+#include <j/core/JDataGrid.h>
+#include <j/core/JTreeView.h>
+#include <j/core/JListView.h>
+#include <j/core/JScrollArea.h>
+#include <j/core/JTextArea.h>
+#include <j/core/JComboBox.h>
+#include <j/core/JSlider.h>
+#include <j/core/JButton.h>
 #include <j/core/MenuSystem.h>
 #include <j/core/SceneGraph.h>
 #include <j/graphics/RenderPrimitive.h>

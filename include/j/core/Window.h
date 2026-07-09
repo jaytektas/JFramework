@@ -2,7 +2,7 @@
 
 #include <string>
 #include <memory>
-#include "BaseWidgets.h"
+#include "JWidget.h"
 #include "JStyleEngine.h"
 
 inline namespace jf {

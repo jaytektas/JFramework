@@ -26,7 +26,7 @@
 // see one uniform accepted/value shape across the whole dialog set.
 // ============================================================================
 
-#include "BaseWidgets.h"   // JPrimitiveBuffer, JTextHelper, Colors, JRect, JKeyEvent
+#include "JTextHelper.h"
 #include "KeyEvent.h"
 
 #include <algorithm>

@@ -5,7 +5,9 @@
 #include <memory>
 #include <functional>
 #include <algorithm>
-#include "BaseWidgets.h"
+#include "JTextHelper.h"
+#include "JWidget.h"
+#include "JControl.h"
 #include "KeyEvent.h"
 #include "Signal.h"
 #include "../graphics/RenderPrimitive.h"

@@ -8,7 +8,11 @@
 
 #include <j/app/JAppWindow.h>
 #include <j/core/GenesisComponents.h>
-#include <j/core/BaseWidgets.h>
+#include <j/core/JButton.h>
+#include <j/core/JLabel.h>
+#include <j/core/JFontButton.h>
+#include <j/core/JColorButton.h>
+#include <j/core/JComboBox.h>
 
 #include <iostream>
 #include <string>

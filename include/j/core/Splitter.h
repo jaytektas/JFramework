@@ -1,6 +1,6 @@
 #pragma once
 
-#include <j/core/BaseWidgets.h>
+#include <j/core/JWidget.h>
 
 #include <algorithm>
 #include <numeric>
