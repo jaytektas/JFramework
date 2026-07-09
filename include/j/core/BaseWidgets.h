@@ -498,6 +498,13 @@ struct JTheme {
     static JTheme& current();
     static void   apply(JTheme t);
 
+    // Optional fully-custom palette. When set, palette() returns it verbatim instead of
+    // deriving one from the named colours — so a caller can install JPalette::light()/
+    // dark()/bespoke and have every migrated widget follow it. Left empty by default so
+    // the derived (named-colour) palette drives the standard themes unchanged.
+    std::optional<JPalette> paletteOverride;
+    JTheme& setPalette(JPalette p) { paletteOverride = std::move(p); return *this; }
+
     // Semantic palette derived from THIS theme's named colours — the bridge that lets
     // role-based widgets read the live theme with no visual change (see mapping below).
     JPalette palette() const;
@@ -532,6 +539,7 @@ inline void   JTheme::apply(JTheme t) { current() = std::move(t); }
 //   *Text        <- TextPrimary  Placeholder <- TextSecondary
 //   Highlight/Accent/Link <- Accent          Border      <- Border
 inline JPalette JTheme::palette() const {
+    if (paletteOverride) return *paletteOverride;   // caller-installed custom palette wins
     return palette_detail::build(
         /*Window*/          JColor::fromArray(Surface1),
         /*WindowText*/      JColor::fromArray(TextPrimary),
@@ -563,6 +571,68 @@ inline float JTheme::hint(JStyleHint h) const {
 
 // The one stylesheet accessor — read by the whole framework each frame.
 inline JTheme& style() { return JTheme::current(); }
+
+// ============================================================================
+// jstyle — palette-routed styling helpers shared by the standard widgets.
+// A control builds a JStyleOption from its live JWidgetState, then pulls
+// fill / border / text from the semantic palette (JTheme::palette()) via the
+// JStyle decision hooks instead of naming raw shades. Every ROLE picked below
+// resolves — under the default theme — to the EXACT shade the widget painted
+// before migration (Base=Surface1, Button=Surface2, ToolTipBase=Surface3,
+// Border=Border, Highlight/Accent=Accent, Text/WindowText=TextPrimary,
+// PlaceholderText=TextSecondary; see JTheme::palette). So a default-theme
+// render is pixel-for-pixel unchanged, while a theme/palette swap now restyles
+// the whole set from one place and hover/press/focus/on/selected resolve
+// consistently. A few status shades (AccentPress/Success/Danger) have no
+// palette role; those stay on their themed JTheme field (still follow a theme
+// swap) and are called out at each site.
+// ============================================================================
+namespace jstyle {
+
+// Compose a style option from a widget's coarse state. Like the migrated
+// JCheckBox we resolve colour in the Active/Enabled group: the pre-migration
+// widgets did NOT dim on disable (their render code never consulted the state),
+// so keeping the Active group makes a disabled render pixel-identical (no
+// regression) while still exposing hover/press/focus/on/selected to the hooks.
+inline JStyleOption option(JWidgetState st, bool focused,
+                           bool on = false, bool selected = false) {
+    JStyleOption o;                              // state defaults to State_Enabled
+    if (focused)                     o.set(State_Focused, true);
+    if (st == JWidgetState::Hovered) o.set(State_Hovered, true);
+    if (st == JWidgetState::Pressed) o.set(State_Pressed, true);
+    o.set(State_On, on);
+    o.set(State_Selected, selected);
+    return o;
+}
+
+inline JPalette pal() { return JTheme::current().palette(); }
+
+// Resolve a bare role in the option's group.
+inline JColor role(JColorRole r, const JStyleOption& o) { return pal().color(r, o.group()); }
+
+// Outline: Accent ring when focused, else Border (JStyle::borderColor).
+inline JColor border(const JStyleOption& o) { return JStyle::borderColor(o, pal()); }
+
+// Standard focus-aware outline width: FocusRingWidth when focused, else BorderWidth.
+inline float borderW(bool focused) {
+    const JTheme& t = JTheme::current();
+    return focused ? t.hint(JStyleHint::FocusRingWidth) : t.hint(JStyleHint::BorderWidth);
+}
+
+// Input-field / list / strip background = the Base surface role.
+inline JColor fieldFill(const JStyleOption& o) { return role(JColorRole::Base, o); }
+
+// Push-button-style background across states: pressed => Highlight, hovered =>
+// the lifted ToolTipBase surface (old Surface3 hover), else the Button role.
+inline JColor buttonFill(const JStyleOption& o) {
+    const JColorGroup g = o.group();
+    const JPalette p = pal();
+    if (o.has(State_Pressed)) return p.color(JColorRole::Highlight, g);
+    if (o.has(State_Hovered)) return p.color(JColorRole::ToolTipBase, g);
+    return p.color(JColorRole::Button, g);
+}
+
+} // namespace jstyle
 
 // Legacy palette access: each role is a live pointer into the runtime stylesheet, so
 // every existing `Colors::Role` site now reads JTheme::current() (mutate it / apply() a
@@ -1033,20 +1103,20 @@ public:
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        const uint8_t* fill = Colors::Surface2;
-        if (m_state == JWidgetState::Hovered) fill = Colors::Surface3;
-        if (m_state == JWidgetState::Pressed) fill = Colors::Accent;
-        bool focused = isFocused();
-        drawBackground(buf, b, fill, focused);
+        // Fill by ROLE/state: normal=Button, hover=ToolTipBase (old Surface3), pressed=Highlight.
+        const JColor fill = jstyle::buttonFill(jstyle::option(m_state, isFocused()));
+        drawBackground(buf, b, fill.data(), isFocused());
         drawLabel(buf, b);
     }
 
 
 protected:
     virtual void drawBackground(JPrimitiveBuffer& buf, const JRect& b, const uint8_t* fill, bool focused) {
-        buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f,
-                          focused ? 1.5f : 1.0f,
-                          focused ? Colors::Accent : Colors::Border);
+        // Outline by role (Accent ring when focused, else Border) + themed widths.
+        const JColor bd = jstyle::border(jstyle::option(m_state, focused));
+        buf.pushRectangle(b.x, b.y, b.width, b.height, fill,
+                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          jstyle::borderW(focused), bd.data());
     }
     virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b) {
         if (JTextHelper::hasAtlas()) {
@@ -1111,24 +1181,26 @@ public:
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        const uint8_t* fill = m_toggled ? Colors::Accent : Colors::Surface2;
-        uint8_t hover[4];
-        if (m_state == JWidgetState::Hovered) {
-            std::copy(fill, fill+4, hover);
-            for (int i=0;i<3;i++) hover[i] = static_cast<uint8_t>(std::min(255, hover[i]+20));
-            fill = hover;
+        // Base fill by ROLE: toggled=Highlight, else Button (old Accent / Surface2).
+        JStyleOption o = jstyle::option(m_state, isFocused(), m_toggled, m_toggled);
+        JColor fill = m_toggled ? jstyle::role(JColorRole::Highlight, o)
+                                : jstyle::role(JColorRole::Button, o);
+        if (m_state == JWidgetState::Hovered) {   // hover brighten preserved (no discrete role)
+            fill.r = static_cast<uint8_t>(std::min(255, fill.r + 20));
+            fill.g = static_cast<uint8_t>(std::min(255, fill.g + 20));
+            fill.b = static_cast<uint8_t>(std::min(255, fill.b + 20));
         }
-        bool focused = isFocused();
-        drawBackground(buf, b, fill, focused);
+        drawBackground(buf, b, fill.data(), isFocused());
         drawLabel(buf, b);
     }
 
 
 protected:
     virtual void drawBackground(JPrimitiveBuffer& buf, const JRect& b, const uint8_t* fill, bool focused) {
-        buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f,
-                          focused ? 1.5f : 1.0f,
-                          focused ? Colors::Accent : Colors::Border);
+        const JColor bd = jstyle::border(jstyle::option(m_state, focused));
+        buf.pushRectangle(b.x, b.y, b.width, b.height, fill,
+                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          jstyle::borderW(focused), bd.data());
     }
     virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b) {
         if (JTextHelper::hasAtlas()) {
@@ -1264,22 +1336,26 @@ public:
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float r = b.height;
-        const uint8_t* ring = m_selected ? Colors::Accent : Colors::Surface1;
-        bool focused = isFocused();
-        drawCircle(buf, b, r, ring, focused);
+        // Ring fill by role: selected=Highlight, else Base (old Accent / Surface1) — the
+        // exact controlFill decision the checkbox uses.
+        JStyleOption o = jstyle::option(m_state, isFocused(), m_selected, m_selected);
+        const JColor ring = JStyle::controlFill(o, jstyle::pal());
+        drawCircle(buf, b, r, ring.data(), isFocused());
         drawLabel(buf, b, r);
     }
 
 
 protected:
     virtual void drawCircle(JPrimitiveBuffer& buf, const JRect& b, float r, const uint8_t* ring, bool focused) {
-        float borderW = 1.5f;
+        float borderWidth = 1.5f;
+        const JColor bd = jstyle::border(jstyle::option(m_state, focused));
         buf.pushRectangle(b.x, b.y, r, r, ring, r * 0.5f,
-                          focused ? 2.0f : borderW,
-                          focused ? Colors::Accent : Colors::Border);
+                          focused ? 2.0f : borderWidth,
+                          bd.data());
         if (m_selected) {
             float dot = r * 0.42f, offset = (r - dot) * 0.5f;
-            buf.pushRectangle(b.x + offset, b.y + offset, dot, dot, Colors::TextPrimary, dot * 0.5f);
+            const JColor dc = jstyle::role(JColorRole::Text, jstyle::option(m_state, focused, true, true));
+            buf.pushRectangle(b.x + offset, b.y + offset, dot, dot, dc.data(), dot * 0.5f);
         }
     }
     virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b, float r) {
@@ -1355,22 +1431,29 @@ public:
         // collapsing to ~0 width during a drag), b.x + b.width - thumbW < b.x, which would
         // make std::clamp's lo > hi and abort under libstdc++ hardening.
         thumbX = std::clamp(thumbX, b.x, std::max(b.x, b.x + b.width - thumbW));
-        const uint8_t* tc = (m_state == JWidgetState::Pressed) ? Colors::AccentPress : Colors::TextPrimary;
+        // Thumb: pressed => themed AccentPress (no palette role for the pressed accent),
+        // else the Text role (old TextPrimary).
+        const JColor tc = (m_state == JWidgetState::Pressed)
+                            ? JColor::fromArray(Colors::AccentPress)
+                            : jstyle::role(JColorRole::Text, jstyle::option(m_state, isFocused()));
         bool focused = isFocused();
-        drawThumb(buf, b, thumbX, thumbW, thumbH, tc, focused);
+        drawThumb(buf, b, thumbX, thumbW, thumbH, tc.data(), focused);
     }
 
 
 protected:
     virtual void drawTrack(JPrimitiveBuffer& buf, const JRect& b, float trackY, float trackH, float fillW) {
-        buf.pushRectangle(b.x, trackY, b.width, trackH, Colors::Surface3, 2.0f);
+        JStyleOption o = jstyle::option(m_state, isFocused());
+        // Track groove = ToolTipBase (old Surface3); filled portion = Highlight (old Accent).
+        buf.pushRectangle(b.x, trackY, b.width, trackH, jstyle::role(JColorRole::ToolTipBase, o).data(), 2.0f);
         if (fillW > 0.5f)
-            buf.pushRectangle(b.x, trackY, fillW, trackH, Colors::Accent, 2.0f);
+            buf.pushRectangle(b.x, trackY, fillW, trackH, jstyle::role(JColorRole::Highlight, o).data(), 2.0f);
     }
     virtual void drawThumb(JPrimitiveBuffer& buf, const JRect& b, float thumbX, float thumbW, float thumbH, const uint8_t* tc, bool focused) {
+        const JColor bd = jstyle::border(jstyle::option(m_state, focused));
         buf.pushRectangle(thumbX, b.y, thumbW, thumbH, tc, thumbW * 0.5f,
-                          focused ? 1.5f : 0.0f,
-                          focused ? Colors::Accent : Colors::Border);
+                          focused ? jstyle::borderW(true) : 0.0f,
+                          bd.data());
     }
 
 private:
@@ -1404,11 +1487,17 @@ public:
 
 protected:
     virtual void drawTrack(JPrimitiveBuffer& buf, const JRect& b) {
-        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface2, 6.0f);
+        // Trough = Button role (old Surface2).
+        const JColor trough = jstyle::role(JColorRole::Button, jstyle::option(m_state, isFocused()));
+        buf.pushRectangle(b.x, b.y, b.width, b.height, trough.data(),
+                          JTheme::current().hint(JStyleHint::ControlRadius));
     }
     virtual void drawProgressFill(JPrimitiveBuffer& buf, const JRect& b, float progress) {
+        // Progress fill is a status colour (Success) with no palette role — kept on its
+        // themed JTheme field so it still follows a theme swap.
         if (progress > 0.005f)
-            buf.pushRectangle(b.x, b.y, b.width * progress, b.height, Colors::Success, 6.0f);
+            buf.pushRectangle(b.x, b.y, b.width * progress, b.height, Colors::Success,
+                              JTheme::current().hint(JStyleHint::ControlRadius));
     }
 
 private:
@@ -1455,13 +1544,17 @@ public:
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1, 7.0f);
+        JStyleOption o = jstyle::option(m_state, isFocused());
+        // Gutter = Base role (old Surface1).
+        buf.pushRectangle(b.x, b.y, b.width, b.height, jstyle::fieldFill(o).data(), 7.0f);
         float tw = b.width * m_thumbRatio;
         float tx = b.x + m_position * (b.width - tw);
-        const uint8_t* tc = (m_state == JWidgetState::Pressed) ? Colors::AccentPress
-                           : (m_state == JWidgetState::Hovered) ? Colors::Surface3
-                                                                : Colors::Border;
-        buf.pushRectangle(tx, b.y + 1.0f, tw, b.height - 2.0f, tc, 6.0f);
+        // Thumb: pressed => themed AccentPress; hovered => ToolTipBase (old Surface3);
+        // else Border role.
+        const JColor tc = (m_state == JWidgetState::Pressed) ? JColor::fromArray(Colors::AccentPress)
+                        : (m_state == JWidgetState::Hovered) ? jstyle::role(JColorRole::ToolTipBase, o)
+                                                             : jstyle::role(JColorRole::Border, o);
+        buf.pushRectangle(tx, b.y + 1.0f, tw, b.height - 2.0f, tc.data(), 6.0f);
     }
 
 
@@ -1624,11 +1717,12 @@ public:
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         bool focused = isFocused();
+        JStyleOption o = jstyle::option(m_state, focused);
 
-        // Background + border (accent when focused)
-        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1, 6.0f,
-                          focused ? 1.5f : 1.0f,
-                          focused ? Colors::Accent : Colors::Border);
+        // Background = Base role, border = Accent ring when focused else Border (by role).
+        buf.pushRectangle(b.x, b.y, b.width, b.height, jstyle::fieldFill(o).data(),
+                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          jstyle::borderW(focused), jstyle::border(o).data());
 
         const float pad = textPadding();
         float innerX = b.x + pad;
@@ -1641,8 +1735,8 @@ public:
             float xHi = innerX + JTextHelper::measureWidth(m_text.substr(0, selectionEnd()));
             if (xHi > innerX + innerW) xHi = innerX + innerW;
             if (xLo < innerX) xLo = innerX;
-            uint8_t sc[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 90};
-            buf.pushRectangle(xLo, b.y + 4.0f, std::max(1.0f, xHi - xLo), b.height - 8.0f, sc, 2.0f);
+            const JColor sc = withAlpha(jstyle::role(JColorRole::Highlight, o), 90);   // Accent @ 90
+            buf.pushRectangle(xLo, b.y + 4.0f, std::max(1.0f, xHi - xLo), b.height - 8.0f, sc.data(), 2.0f);
         }
 
         if (JTextHelper::hasAtlas()) {
@@ -1672,7 +1766,8 @@ public:
                 cx = innerX + (JTextHelper::hasAtlas() ? JTextHelper::measureWidth(m_text.substr(0, caret))
                                                        : innerW * 0.65f * (float)caret / (float)std::max<size_t>(1, m_text.size()));
             if (cx > innerX + innerW) cx = innerX + innerW;   // clamp inside the field
-            buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f, Colors::Accent);
+            buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f,
+                              jstyle::role(JColorRole::Accent, o).data());
         }
     }
 
@@ -2482,34 +2577,39 @@ public:
         float fieldW = b.width - btnW;
 
         bool focused = isFocused();
+        // Field surface + border by role. A field that is focused OR mid-edit takes the
+        // Accent ring, so fold m_editing into the option's focus bit.
+        JStyleOption o = jstyle::option(m_state, focused || m_editing);
         // Value field
-        buf.pushRectangle(b.x, b.y, fieldW, b.height, Colors::Surface1, 6.0f,
-                          (focused || m_editing) ? 1.5f : 1.0f,
-                          (focused || m_editing) ? Colors::Accent : Colors::Border);
+        buf.pushRectangle(b.x, b.y, fieldW, b.height, jstyle::fieldFill(o).data(),
+                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          jstyle::borderW(focused || m_editing), jstyle::border(o).data());
         // Value text
         const std::string txt = m_editing ? m_editBuf : std::to_string(m_value);
         if (JTextHelper::hasAtlas()) {
             uint8_t vc[4] = {210, 210, 220, 220};
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             if (m_editing && m_selectAll && !txt.empty()) {   // selection highlight behind the value
-                uint8_t sel[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 90};
+                const JColor sel = withAlpha(jstyle::role(JColorRole::Highlight, o), 90);   // Accent @ 90
                 buf.pushRectangle(b.x + textPadding() - 1.0f, b.y + 4.0f,
-                                  std::min(fieldW - textPadding(), JTextHelper::measureWidth(txt) + 2.0f), b.height - 8.0f, sel, 2.0f);
+                                  std::min(fieldW - textPadding(), JTextHelper::measureWidth(txt) + 2.0f), b.height - 8.0f, sel.data(), 2.0f);
             }
             JTextHelper::pushText(buf, b.x + textPadding(), ty, txt, vc, fieldW - textPadding());
             if (m_editing && !m_selectAll) {
                 float cx = b.x + textPadding() + JTextHelper::measureWidth(txt) + 1.0f;
-                buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f, Colors::Accent);
+                buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f, jstyle::role(JColorRole::Accent, o).data());
             }
         } else {
             uint8_t vc[4] = {200, 200, 210, 180};
             buf.pushRectangle(b.x + textPadding(), b.y + (b.height-7.0f)*0.5f, fieldW * 0.6f, 7.0f, vc, 2.0f);
         }
 
-        // Up/down button area
+        // Up/down button area — Button role fill, Border-role outline.
         float halfH = b.height * 0.5f;
-        buf.pushRectangle(b.x + fieldW, b.y,          btnW, halfH, Colors::Surface2, 0.0f, 1.0f, Colors::Border);
-        buf.pushRectangle(b.x + fieldW, b.y + halfH,  btnW, halfH, Colors::Surface2, 0.0f, 1.0f, Colors::Border);
+        const JColor btnFill = jstyle::role(JColorRole::Button, o);
+        const JColor btnBd   = jstyle::role(JColorRole::Border, o);
+        buf.pushRectangle(b.x + fieldW, b.y,          btnW, halfH, btnFill.data(), 0.0f, 1.0f, btnBd.data());
+        buf.pushRectangle(b.x + fieldW, b.y + halfH,  btnW, halfH, btnFill.data(), 0.0f, 1.0f, btnBd.data());
         // Arrow marks (tiny rects)
         float ax = b.x + fieldW + btnW * 0.3f, aw = btnW * 0.4f;
         uint8_t ac[4] = {180, 180, 190, 200};
@@ -2637,34 +2737,38 @@ public:
         float fieldW = b.width - btnW;
 
         bool focused = isFocused();
+        // Field surface + border by role; focused OR editing takes the Accent ring.
+        JStyleOption o = jstyle::option(m_state, focused || m_editing);
         // Value field
-        buf.pushRectangle(b.x, b.y, fieldW, b.height, Colors::Surface1, 6.0f,
-                          (focused || m_editing) ? 1.5f : 1.0f,
-                          (focused || m_editing) ? Colors::Accent : Colors::Border);
+        buf.pushRectangle(b.x, b.y, fieldW, b.height, jstyle::fieldFill(o).data(),
+                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          jstyle::borderW(focused || m_editing), jstyle::border(o).data());
         // Value text (the live edit buffer while typing, otherwise the formatted value)
         const std::string txt = m_editing ? m_editBuf : _formatValue();
         if (JTextHelper::hasAtlas()) {
             uint8_t vc[4] = {210, 210, 220, 220};
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             if (m_editing && m_selectAll && !txt.empty()) {   // selection highlight behind the value
-                uint8_t sel[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 90};
+                const JColor sel = withAlpha(jstyle::role(JColorRole::Highlight, o), 90);   // Accent @ 90
                 buf.pushRectangle(b.x + textPadding() - 1.0f, b.y + 4.0f,
-                                  std::min(fieldW - textPadding(), JTextHelper::measureWidth(txt) + 2.0f), b.height - 8.0f, sel, 2.0f);
+                                  std::min(fieldW - textPadding(), JTextHelper::measureWidth(txt) + 2.0f), b.height - 8.0f, sel.data(), 2.0f);
             }
             JTextHelper::pushText(buf, b.x + textPadding(), ty, txt, vc, fieldW - textPadding());
             if (m_editing && !m_selectAll) {   // caret at the end of the typed text
                 float cx = b.x + textPadding() + JTextHelper::measureWidth(txt) + 1.0f;
-                buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f, Colors::Accent);
+                buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f, jstyle::role(JColorRole::Accent, o).data());
             }
         } else {
             uint8_t vc[4] = {200, 200, 210, 180};
             buf.pushRectangle(b.x + textPadding(), b.y + (b.height-7.0f)*0.5f, fieldW * 0.6f, 7.0f, vc, 2.0f);
         }
 
-        // Up/down button area
+        // Up/down button area — Button role fill, Border-role outline.
         float halfH = b.height * 0.5f;
-        buf.pushRectangle(b.x + fieldW, b.y,          btnW, halfH, Colors::Surface2, 0.0f, 1.0f, Colors::Border);
-        buf.pushRectangle(b.x + fieldW, b.y + halfH,  btnW, halfH, Colors::Surface2, 0.0f, 1.0f, Colors::Border);
+        const JColor btnFill = jstyle::role(JColorRole::Button, o);
+        const JColor btnBd   = jstyle::role(JColorRole::Border, o);
+        buf.pushRectangle(b.x + fieldW, b.y,          btnW, halfH, btnFill.data(), 0.0f, 1.0f, btnBd.data());
+        buf.pushRectangle(b.x + fieldW, b.y + halfH,  btnW, halfH, btnFill.data(), 0.0f, 1.0f, btnBd.data());
         // Arrow marks (tiny rects)
         float ax = b.x + fieldW + btnW * 0.3f, aw = btnW * 0.4f;
         uint8_t ac[4] = {180, 180, 190, 200};
@@ -2863,15 +2967,19 @@ public:
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float arrowW = b.height * 0.75f;
-        const uint8_t* fill = (m_state == JWidgetState::Hovered) ? Colors::Surface3 : Colors::Surface2;
-        // Main box
         bool focused = isFocused();
-        buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f,
-                          focused ? 1.5f : 1.0f,
-                          focused ? Colors::Accent : Colors::Border);
-        // Arrow area
+        JStyleOption o = jstyle::option(m_state, focused);
+        // Box fill by role: hovered => ToolTipBase (old Surface3), else Button (old Surface2).
+        const JColor fill = (m_state == JWidgetState::Hovered)
+                              ? jstyle::role(JColorRole::ToolTipBase, o)
+                              : jstyle::role(JColorRole::Button, o);
+        // Main box
+        buf.pushRectangle(b.x, b.y, b.width, b.height, fill.data(),
+                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          jstyle::borderW(focused), jstyle::border(o).data());
+        // Arrow area = ToolTipBase (old Surface3)
         buf.pushRectangle(b.x + b.width - arrowW, b.y + 1.0f, arrowW - 1.0f, b.height - 2.0f,
-                          Colors::Surface3, 5.0f);
+                          jstyle::role(JColorRole::ToolTipBase, o).data(), 5.0f);
         // Arrow chevron (two rects forming a V)
         float ax = b.x + b.width - arrowW * 0.62f, ay = b.y + b.height * 0.38f;
         uint8_t ac[4] = {180, 180, 190, 220};
@@ -3207,24 +3315,30 @@ public:
         float tabW = b.width / static_cast<float>(m_tabs.size());
 
         bool focused = isFocused();
-        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1, 6.0f,
-                          focused ? 1.5f : 0.0f,
-                          focused ? Colors::Accent : Colors::Border);
+        JStyleOption so = jstyle::option(m_state, focused);
+        // Strip = Base role; Accent ring when focused (borderW 0 when not, as before).
+        buf.pushRectangle(b.x, b.y, b.width, b.height, jstyle::fieldFill(so).data(),
+                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          focused ? jstyle::borderW(true) : 0.0f, jstyle::border(so).data());
 
+        const JColor baseFill   = jstyle::role(JColorRole::Base, so);        // Surface1
+        const JColor activeFill  = jstyle::role(JColorRole::ToolTipBase, so); // Surface3
+        const JColor accent      = jstyle::role(JColorRole::Highlight, so);   // Accent
         for (int i = 0; i < (int)m_tabs.size(); ++i) {
             float tx   = b.x + i * tabW;
             bool active = (i == m_activeIndex);
             // Highlight the tab being dragged (pre-tear)
             bool dragging = m_drag.active && !m_drag.tornOff && (i == m_drag.pressedIndex);
 
-            const uint8_t* fill = dragging ? Colors::AccentPress
-                                 : active   ? Colors::Surface3
-                                            : Colors::Surface1;
+            // dragging => themed AccentPress (no palette role); active => Surface3; else Base.
+            const JColor fill = dragging ? JColor::fromArray(Colors::AccentPress)
+                                : active  ? activeFill
+                                          : baseFill;
             float radius = (i == 0) ? 6.0f : (i == (int)m_tabs.size()-1) ? 6.0f : 0.0f;
-            buf.pushRectangle(tx + 1.0f, b.y + 1.0f, tabW - 2.0f, b.height - 2.0f, fill, radius);
+            buf.pushRectangle(tx + 1.0f, b.y + 1.0f, tabW - 2.0f, b.height - 2.0f, fill.data(), radius);
 
             if (active && !dragging)
-                buf.pushRectangle(tx + 4.0f, b.y + b.height - 3.0f, tabW - 8.0f, 2.5f, Colors::Accent, 1.0f);
+                buf.pushRectangle(tx + 4.0f, b.y + b.height - 3.0f, tabW - 8.0f, 2.5f, accent.data(), 1.0f);
 
             // Tearable indicator: small dot in top-right of each tab when tearable
             if (m_tearable && !active) {
@@ -3372,20 +3486,26 @@ public:
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         const JRect strip = _stripRect(b);
-        buf.pushRectangle(strip.x, strip.y, strip.width, strip.height, Colors::Surface1);   // strip backdrop
+        JStyleOption so = jstyle::option(m_state, isFocused());
+        const JColor stripFill  = jstyle::role(JColorRole::Base, so);         // Surface1
+        const JColor activeFill  = jstyle::role(JColorRole::ToolTipBase, so);  // Surface3
+        buf.pushRectangle(strip.x, strip.y, strip.width, strip.height, stripFill.data());   // strip backdrop
         _layoutTabs(b);
         const bool horiz = _horizontal();
         for (int i = 0; i < (int)m_tabs.size(); ++i) {
             const JRect& r = m_tabRect[i];
             const bool active = (i == m_active);
             buf.pushRectangle(r.x + 1.f, r.y + 1.f, r.width - 2.f, r.height - 2.f,
-                              active ? Colors::Surface3 : Colors::Surface1, 5.f);
+                              (active ? activeFill : stripFill).data(), 5.f);
             _drawActiveEdge(buf, r, active);
             if (JTextHelper::hasAtlas()) {
-                uint8_t lc[4]; const uint8_t* base = active ? Colors::TextPrimary : Colors::TextSecondary;
-                std::copy(base, base + 4, lc);
-                uint8_t cc[4]; const uint8_t* cb = (i == m_hotClose) ? Colors::Danger : Colors::TextSecondary;
-                std::copy(cb, cb + 4, cc);
+                // Label text by role: active=WindowText (TextPrimary), inactive=PlaceholderText
+                // (TextSecondary). Close glyph: hot=themed Danger, else PlaceholderText.
+                const JColor lcRole = jstyle::role(active ? JColorRole::WindowText : JColorRole::PlaceholderText, so);
+                uint8_t lc[4]; std::copy(lcRole.data(), lcRole.data() + 4, lc);
+                uint8_t cc[4];
+                if (i == m_hotClose) { std::copy(Colors::Danger, Colors::Danger + 4, cc); }
+                else { const JColor ph = jstyle::role(JColorRole::PlaceholderText, so); std::copy(ph.data(), ph.data() + 4, cc); }
                 const float lh = JTextHelper::lineHeight();
                 if (horiz) {
                     JTextHelper::pushText(buf, r.x + kPadX, r.y + (r.height - lh) * 0.5f, tr(m_tabs[i].label), lc);
@@ -3551,11 +3671,13 @@ private:
     }
     void _drawActiveEdge(JPrimitiveBuffer& buf, const JRect& r, bool active) const {
         if (!active) return;
-        switch (m_edge) {   // an accent line on the content-facing edge of the active tab
-            case JTabBarEdge::Bottom: buf.pushRectangle(r.x + 4.f, r.y, r.width - 8.f, 2.f, Colors::Accent, 1.f); break;
-            case JTabBarEdge::Left:   buf.pushRectangle(r.x + r.width - 2.5f, r.y + 4.f, 2.f, r.height - 8.f, Colors::Accent, 1.f); break;
-            case JTabBarEdge::Right:  buf.pushRectangle(r.x, r.y + 4.f, 2.f, r.height - 8.f, Colors::Accent, 1.f); break;
-            default:                  buf.pushRectangle(r.x + 4.f, r.y + r.height - 2.5f, r.width - 8.f, 2.f, Colors::Accent, 1.f); break;
+        // Accent line on the content-facing edge of the active tab — Highlight role.
+        const JColor a = jstyle::role(JColorRole::Highlight, jstyle::option(m_state, isFocused()));
+        switch (m_edge) {
+            case JTabBarEdge::Bottom: buf.pushRectangle(r.x + 4.f, r.y, r.width - 8.f, 2.f, a.data(), 1.f); break;
+            case JTabBarEdge::Left:   buf.pushRectangle(r.x + r.width - 2.5f, r.y + 4.f, 2.f, r.height - 8.f, a.data(), 1.f); break;
+            case JTabBarEdge::Right:  buf.pushRectangle(r.x, r.y + 4.f, 2.f, r.height - 8.f, a.data(), 1.f); break;
+            default:                  buf.pushRectangle(r.x + 4.f, r.y + r.height - 2.5f, r.width - 8.f, 2.f, a.data(), 1.f); break;
         }
     }
 
@@ -3593,9 +3715,12 @@ public:
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        // Panel body
+        // Panel body. The translucent panel/title shades are bespoke (no palette role
+        // resolves to them) so they stay literal to preserve pixels; the outline routes
+        // through the Border role so it follows a theme/palette swap.
         uint8_t panelFill[4] = {22, 22, 25, 180};
-        buf.pushRectangle(b.x, b.y, b.width, b.height, panelFill, 8.0f, 1.0f, Colors::Border);
+        const JColor bd = jstyle::role(JColorRole::Border, jstyle::option(m_state, isFocused()));
+        buf.pushRectangle(b.x, b.y, b.width, b.height, panelFill, 8.0f, 1.0f, bd.data());
         // Title bar strip at top
         uint8_t titleBg[4] = {36, 36, 40, 200};
         buf.pushRectangle(b.x + 1.0f, b.y + 1.0f, b.width - 2.0f, 24.0f, titleBg, 7.0f);
@@ -3973,11 +4098,12 @@ public:
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         bool focused = isFocused();
+        JStyleOption o = jstyle::option(m_state, focused);
 
-        // Background
-        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1, 6.0f,
-                          focused ? 1.5f : 1.0f,
-                          focused ? Colors::Accent : Colors::Border);
+        // Background = Base role; border = Accent ring when focused else Border.
+        buf.pushRectangle(b.x, b.y, b.width, b.height, jstyle::fieldFill(o).data(),
+                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          jstyle::borderW(focused), jstyle::border(o).data());
 
         if (m_items.empty()) return;
 
@@ -3998,13 +4124,16 @@ public:
             float itemW = b.width - 14.0f;
 
             if (i == m_selectedIndex) {
-                buf.pushRectangle(b.x + 4.0f, itemY, itemW - 4.0f, itemH - 2.0f, Colors::Accent, 3.0f);
+                // Selection fill = Highlight role (old Accent).
+                buf.pushRectangle(b.x + 4.0f, itemY, itemW - 4.0f, itemH - 2.0f,
+                                  jstyle::role(JColorRole::Highlight, o).data(), 3.0f);
             }
 
             if (JTextHelper::hasAtlas()) {
                 uint8_t tc[4] = {220, 220, 228, 220};
-                if (i == m_selectedIndex) {
-                    tc[0] = 255; tc[1] = 255; tc[2] = 255;
+                if (i == m_selectedIndex) {   // selected text takes HighlightedText's rgb (white), same alpha
+                    const JColor ht = jstyle::role(JColorRole::HighlightedText, o);
+                    tc[0] = ht.r; tc[1] = ht.g; tc[2] = ht.b;
                 }
                 JTextHelper::pushText(buf, b.x + 8.0f, itemY + 4.0f, tr(m_items[i]), tc, itemW - 12.0f);
             } else {
