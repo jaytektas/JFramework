@@ -444,6 +444,14 @@ public:
                     }
                 }
 
+            // General widget-to-widget drag (DragDrop.h / JMimeData). Runs AFTER the mouse
+            // press/move/release routing above (which is where a source's startDrag() opens the
+            // session) so an in-flight session routes enter/move/leave to the top-most accepting
+            // widget under the cursor, and delivers onDrop on release. Uses its own jCurrentDrag()
+            // state — independent of the JDragDrop typed-payload/ghost path handled elsewhere — and
+            // consumes nothing from the runner, so it does not disturb focus/click routing.
+            jDragTick(mx, my, pressed, released);
+
             // Keyboard: the runner owns focus routing. Re-sync the tab order from the live
             // widget set (so newly created / destroyed widgets are tracked without app
             // registration), then for each pressed key: menu accelerators first, then the
