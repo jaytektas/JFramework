@@ -47,6 +47,8 @@
 #include <j/platforms/FontPickerDialog.h>  // JFontPickerDialog (font-button modal dialog)
 #include <j/platforms/NativeDialogWindow.h>  // JNativeDialogWindow
 #include <j/platforms/FileDialogWindow.h>    // JFileDialogWindow (in-app file/folder picker)
+#include <j/core/JAiBus.h>                    // opt-in AI bus (introspect/drive over shared memory)
+#include <cstdlib>                            // getenv (JF_AI_BUS opt-in)
 #if defined(__linux__)
 #  include <j/platforms/linux/FloatingDockWindow.h>   // tear-out / floating docks
 #endif
@@ -92,6 +94,11 @@ public:
         JClipboard::s_getHook = [w]{ return w->getClipboardText(); };
         JWidget::s_clipboardSet = [](const std::string& s){ JClipboard::setText(s); };
         JWidget::s_clipboardGet = []{ return JClipboard::getText(); };
+
+        // AI bus: opt-in via env (JF_AI_BUS=1). Off by default → zero overhead. When on, the frame loop
+        // publishes the widget snapshot + services actions over shared memory (see tick() below).
+        if (const char* e = std::getenv("JF_AI_BUS"); e && *e && *e != '0')
+            JAiBus::instance().enable();
     }
 
     bool valid() const { return m_window && m_hal; }
@@ -545,6 +552,10 @@ public:
             // an emptied area collapses and the centre reclaims its space.
             m_space.computeLayout({0.f, contentTop(), static_cast<float>(m_w),
                                    static_cast<float>(m_h) - contentTop() - m_statusH});
+
+            // AI bus (opt-in): one main-thread call — service a pending action, publish the live snapshot.
+            // No-op unless JF_AI_BUS enabled it. A serviced action forces a repaint so its effect shows.
+            if (JAiBus::instance().tick(JWidget::s_activeWidgets, &m_focus)) activity = true;
 
             // Menu popups: poll (modal grab / dismiss-outside) + render their own surfaces.
             if (m_menuBar) {
