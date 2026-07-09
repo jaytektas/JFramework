@@ -14,6 +14,7 @@
 #include "SceneGraph.h"
 #include "TranslationEngine.h"
 #include "KeyEvent.h"
+#include "Validator.h"          // JValidator / JIntValidator / JDoubleValidator / JRegexValidator
 #include "DragDrop.h"           // cross-widget drag payloads (JDragDrop) — drop-on-release routing
 #include "Style.h"              // JTabBarEdge / JTabFill (folded into JTheme)
 #include "StyleEngine.h"        // JPalette / JColorRole / JStyleOption / JStyle / JStyleHint
@@ -1143,6 +1144,66 @@ private:
 };
 
 // ============================================================================
+// JToolButton — a compact icon/text button. Two opt-in traits over JButton:
+//   autoRaise      — flat (no fill/border) at rest; only draws the button chrome
+//                    on hover/press/focus. The toolbar look.
+//   menu arrow     — an attached down-chevron on the right; clicking it fires
+//                    onMenuRequested (for an attached pop-up menu) instead of
+//                    onClicked, so a split action/menu button is one control.
+// Everything else (label, sizing, styling) is inherited unchanged.
+// ============================================================================
+
+class JToolButton : public JButton {
+public:
+    jf::JSignal<> onMenuRequested;   // fires when the menu-arrow zone is clicked
+
+    JToolButton(JSceneGraph& graph, const std::string& label,
+                float w = 96.0f, float h = 0.0f)
+        : JButton(graph, label, w, h) {}
+
+    void setAutoRaise(bool a) { m_autoRaise = a; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    bool autoRaise() const { return m_autoRaise; }
+    // Show the attached pop-up-menu arrow on the right edge.
+    void setMenuArrow(bool on) { m_menuArrow = on; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    bool hasMenuArrow() const { return m_menuArrow; }
+
+    void handleMousePress(float mx, float my) override {
+        if (m_state == JWidgetState::Disabled || !isPointInside(mx, my)) return;
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        if (m_menuArrow && mx >= b.x + b.width - _arrowZone(b.height)) {
+            setState(JWidgetState::Pressed);
+            onMenuRequested.emit();      // arrow zone → request the menu, not the primary action
+            return;
+        }
+        JButton::handleMousePress(mx, my);   // primary action (emits onClicked)
+    }
+
+    void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
+        JButton::populateRenderPrimitives(buf);   // background(our override) + label
+        if (m_menuArrow) {
+            const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+            float cx = b.x + b.width - _arrowZone(b.height) * 0.5f;
+            float cy = b.y + b.height * 0.5f;
+            uint8_t ac[4] = {180, 180, 190, 220};    // down-chevron (two rects forming a V)
+            buf.pushRectangle(cx - 4.0f, cy - 1.0f, 5.0f, 2.0f, ac, 1.0f);
+            buf.pushRectangle(cx + 1.0f, cy - 1.0f, 5.0f, 2.0f, ac, 1.0f);
+        }
+    }
+
+protected:
+    // Flat at rest when auto-raised: skip the fill+border entirely unless hovered/pressed/focused.
+    void drawBackground(JPrimitiveBuffer& buf, const JRect& b, const uint8_t* fill, bool focused) override {
+        if (m_autoRaise && m_state == JWidgetState::Normal && !focused) return;   // flat
+        JButton::drawBackground(buf, b, fill, focused);
+    }
+
+private:
+    static float _arrowZone(float h) { return h * 0.7f; }
+    bool m_autoRaise{true};
+    bool m_menuArrow{false};
+};
+
+// ============================================================================
 // JToggleButton
 // ============================================================================
 
@@ -1229,7 +1290,11 @@ private:
 
 class JCheckBox : public JControl {
 public:
-    jf::JSignal<bool> onStateChanged;
+    // Tri-state model. A plain (two-state) box only ever visits Unchecked/Checked.
+    enum CheckState { Unchecked, PartiallyChecked, Checked };
+
+    jf::JSignal<bool>       onStateChanged;       // fires with (state==Checked) — legacy two-state signal
+    jf::JSignal<CheckState> onCheckStateChanged;  // fires with the full tri-state on any change
 
     JCheckBox(JSceneGraph& graph, const std::string& label, float w = 200.0f, float h = 0.0f)
         : JControl(graph, "JCheckBox"), m_label(label)
@@ -1240,34 +1305,45 @@ public:
         l.minHeight = h;
     }
 
-    void setChecked(bool v) {
-        if (m_checked != v) {
-            m_checked = v;
+    // ---- Tri-state API ---------------------------------------------------------------------------------
+    // Opt-in: enables the middle (PartiallyChecked) state in the click cycle.
+    void setTristate(bool on) { m_tristate = on; }
+    bool isTristate() const { return m_tristate; }
+    void setCheckState(CheckState s) {
+        if (m_state_cb != s) {
+            m_state_cb = s;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
-            onStateChanged.emit(v);
+            onCheckStateChanged.emit(s);
+            onStateChanged.emit(s == Checked);
         }
     }
-    bool isChecked() const { return m_checked; }
+    CheckState checkState() const { return m_state_cb; }
+
+    // ---- Two-state compatibility ----------------------------------------------------------------------
+    void setChecked(bool v) { setCheckState(v ? Checked : Unchecked); }
+    bool isChecked() const { return m_state_cb == Checked; }
 
     JVariant getRef(const std::string& key) const override {
-        if (key == "checked" || key == "value") return m_checked;
+        if (key == "checked")   return m_state_cb == Checked;
+        if (key == "value" || key == "checkState") return static_cast<int64_t>(m_state_cb);
         return JWidget::getRef(key);
     }
 
     void handleMousePress(float mx, float my) override {
-        if (isPointInside(mx, my)) setChecked(!m_checked);
+        if (isPointInside(mx, my)) _cycle();
     }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float boxSz = b.height;
         // MIGRATED to the role/state styler: resolve the indicator fill by semantic ROLE
-        // from the live palette instead of naming a raw shade. checked -> Highlight,
+        // from the live palette instead of naming a raw shade. checked/partial -> Highlight,
         // unchecked -> Base — which map onto the old Accent / Surface1 exactly.
+        const bool on = m_state_cb != Unchecked;
         JStyleOption opt;
         opt.rect = {b.x, b.y, boxSz, boxSz};
         opt.set(State_Focused, isFocused());
-        opt.set(State_On | State_Selected, m_checked);
+        opt.set(State_On | State_Selected, on);
         const JColor fill = JStyle::controlFill(opt, JTheme::current().palette());
         drawBox(buf, b, boxSz, fill.data(), isFocused());
         drawLabel(buf, b, boxSz);
@@ -1275,6 +1351,16 @@ public:
 
 
 protected:
+    // Click cycle. Two-state: Unchecked <-> Checked. Tri-state: Unchecked -> Checked ->
+    // PartiallyChecked -> Unchecked (documented order).
+    void _cycle() {
+        if (!m_tristate) { setChecked(m_state_cb != Checked); return; }
+        switch (m_state_cb) {
+            case Unchecked:        setCheckState(Checked);          break;
+            case Checked:          setCheckState(PartiallyChecked); break;
+            case PartiallyChecked: setCheckState(Unchecked);        break;
+        }
+    }
     virtual void drawBox(JPrimitiveBuffer& buf, const JRect& b, float boxSz, const uint8_t* fill, bool focused) {
         // Border colour by ROLE: Accent ring when focused, else Border (was hardcoded).
         JStyleOption opt; opt.set(State_Focused, focused);
@@ -1282,10 +1368,13 @@ protected:
         buf.pushRectangle(b.x, b.y, boxSz, boxSz, fill, 4.0f,
                           focused ? 2.0f : 1.5f,
                           border.data());
-        if (m_checked) {
+        if (m_state_cb == Checked) {                 // full mark: the original plus/tick
             uint8_t white[4] = {255, 255, 255, 220};
             buf.pushRectangle(b.x + 3.0f, b.y + boxSz*0.5f - 1.5f, boxSz - 6.0f, 3.0f, white, 1.5f);
             buf.pushRectangle(b.x + boxSz*0.5f - 1.5f, b.y + 3.0f, 3.0f, boxSz - 6.0f, white, 1.5f);
+        } else if (m_state_cb == PartiallyChecked) { // partial: a single centred dash
+            uint8_t white[4] = {255, 255, 255, 200};
+            buf.pushRectangle(b.x + 4.0f, b.y + boxSz*0.5f - 1.5f, boxSz - 8.0f, 3.0f, white, 1.5f);
         }
     }
     virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b, float boxSz) {
@@ -1303,7 +1392,8 @@ protected:
 
 private:
     std::string m_label;
-    bool m_checked{false};
+    CheckState  m_state_cb{Unchecked};
+    bool        m_tristate{false};
 };
 
 // ============================================================================
@@ -1592,6 +1682,33 @@ public:
     }
     const std::string& text()        const { return m_text; }
     const std::string& placeholder() const { return m_placeholder; }
+    void setPlaceholderText(const std::string& p) { m_placeholder = p; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+
+    // ---- Echo mode -------------------------------------------------------------------------------------
+    // Normal              — show the text verbatim.
+    // Password            — every character rendered as a bullet ('•').
+    // NoEcho              — render nothing (blank field), text still held.
+    // PasswordEchoOnEdit  — plain while focused (being edited), bullets otherwise.
+    enum EchoMode { Normal, Password, NoEcho, PasswordEchoOnEdit };
+    void     setEchoMode(EchoMode m) { m_echo = m; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    EchoMode echoMode() const { return m_echo; }
+    // The string as it is drawn (post-echo). Exposed so callers/tests can see the masked form
+    // without scraping the render buffer.
+    std::string displayText() const { return _echo(m_text); }
+
+    // ---- Length limit / read-only / validator ----------------------------------------------------------
+    // 0 == unlimited. Truncates the current text and gates future inserts/pastes.
+    void   setMaxLength(int n) { m_maxLength = n < 0 ? 0 : (size_t)n;
+                                 if (m_maxLength && m_text.size() > m_maxLength) { m_text.resize(m_maxLength); m_caret = m_anchor = m_text.size(); m_graph.invalidateNode(m_nodeId, DirtySelf); } }
+    int    maxLength() const { return (int)m_maxLength; }
+    void   setReadOnly(bool ro) { m_readOnly = ro; }
+    bool   isReadOnly() const { return m_readOnly; }
+    // Non-owning. A keystroke that would make the text Invalid is rejected; on commit/focus-out a
+    // non-Acceptable value is fixup()'d (clamped) and, failing that, reverted to the last acceptable text.
+    void         setValidator(JValidator* v) { m_validator = v; m_committed = m_text; }
+    JValidator*  validator() const { return m_validator; }
+    // Force a commit-time validation now (also invoked on Return and focus-out).
+    void commit() { _enforceValidatorOnCommit(); }
 
     // ---- Selection model -------------------------------------------------------------------------------
     // A selection is the byte range [anchor, caret) (either end may be the larger). anchor==caret ⇒ none.
@@ -1656,21 +1773,35 @@ public:
         if (ke.ctrl && !ke.alt) {
             const char lc = static_cast<char>(ke.utf8[0] | 0x20);   // case-fold the printable, if any
             if (ke.key == K::A || lc == 'a') { selectAll(); return true; }
-            if (ke.key == K::C || lc == 'c') { if (hasSelection()) clipboardSet(selectedText()); return true; }
+            // Copy is disabled while masked so a password can't be lifted verbatim.
+            if (ke.key == K::C || lc == 'c') { if (hasSelection() && !_masked()) clipboardSet(selectedText()); return true; }
             if (ke.key == K::X || lc == 'x') {
-                if (hasSelection()) { clipboardSet(selectedText()); _deleteSelection(); changed(); }
+                if (m_readOnly) return true;
+                if (hasSelection()) { if (!_masked()) clipboardSet(selectedText()); _deleteSelection(); changed(); }
                 return true;
             }
             if (ke.key == K::V || lc == 'v') {
+                if (m_readOnly) return true;
                 std::string clip = clipboardGet();
                 clip.erase(std::remove(clip.begin(), clip.end(), '\n'), clip.end());   // single-line field: drop newlines
                 clip.erase(std::remove(clip.begin(), clip.end(), '\r'), clip.end());
                 if (!clip.empty()) {
-                    _deleteSelection();                              // paste replaces the active selection
-                    m_text.insert(m_caret, clip);
-                    m_caret += clip.size();
-                    m_anchor = m_caret;
-                    changed();
+                    // Build the candidate (selection replaced by clip), enforce max length + validator.
+                    std::string cand = m_text;
+                    const size_t lo = selectionStart(), hi = selectionEnd();
+                    cand.replace(lo, hi - lo, clip);
+                    if (m_maxLength && cand.size() > m_maxLength) {          // trim the paste to fit
+                        const size_t room = m_maxLength > (m_text.size() - (hi - lo)) ? m_maxLength - (m_text.size() - (hi - lo)) : 0;
+                        clip.resize(std::min(clip.size(), room));
+                        cand = m_text; cand.replace(lo, hi - lo, clip);
+                    }
+                    if (!clip.empty() && _acceptsText(cand)) {
+                        _deleteSelection();                              // paste replaces the active selection
+                        m_text.insert(m_caret, clip);
+                        m_caret += clip.size();
+                        m_anchor = m_caret;
+                        changed();
+                    }
                 }
                 return true;
             }
@@ -1678,11 +1809,13 @@ public:
 
         switch (ke.key) {
             case K::Backspace:
+                if (m_readOnly) return true;
                 if (hasSelection())      { _deleteSelection(); changed(); }
                 else if (ke.ctrl)        { const size_t p = _prevWord(m_caret); if (p < m_caret) { m_text.erase(p, m_caret - p); m_caret = m_anchor = p; changed(); } }
                 else if (m_caret > 0)    { const size_t p = _prevCharStart(m_caret); m_text.erase(p, m_caret - p); m_caret = m_anchor = p; changed(); }
                 return true;
             case K::Delete:
+                if (m_readOnly) return true;
                 if (hasSelection())              { _deleteSelection(); changed(); }
                 else if (ke.ctrl)                { const size_t e = _nextWord(m_caret); if (e > m_caret) { m_text.erase(m_caret, e - m_caret); m_anchor = m_caret; changed(); } }
                 else if (m_caret < m_text.size()){ m_text.erase(m_caret, _nextCharStart(m_caret) - m_caret); m_anchor = m_caret; changed(); }
@@ -1699,11 +1832,18 @@ public:
             }
             case K::Home: m_caret = 0;             if (!ke.shift) m_anchor = m_caret; moved(); return true;
             case K::End:  m_caret = m_text.size(); if (!ke.shift) m_anchor = m_caret; moved(); return true;
-            case K::Return: onReturnPressed.emit(); return true;
+            case K::Return: _enforceValidatorOnCommit(); onReturnPressed.emit(); return true;
             default: break;
         }
         if (!ke.ctrl && !ke.alt && ke.utf8[0] != '\0' && static_cast<uint8_t>(ke.utf8[0]) >= 32) {   // printable → replace selection + insert
+            if (m_readOnly) return true;
             const std::string ch = ke.utf8;
+            // Build the resulting text and gate it on max length + validator (reject → consume, no change).
+            std::string cand = m_text;
+            const size_t lo = selectionStart(), hi = selectionEnd();
+            cand.replace(lo, hi - lo, ch);
+            if (m_maxLength && cand.size() > m_maxLength) return true;
+            if (!_acceptsText(cand)) return true;
             _deleteSelection();
             m_text.insert(m_caret, ch);
             m_caret += ch.size();
@@ -1717,6 +1857,9 @@ public:
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         bool focused = isFocused();
+        // Losing focus commits: clamp/revert a non-Acceptable value via the validator.
+        if (m_wasFocused && !focused) _enforceValidatorOnCommit();
+        m_wasFocused = focused;
         JStyleOption o = jstyle::option(m_state, focused);
 
         // Background = Base role, border = Accent ring when focused else Border (by role).
@@ -1729,10 +1872,13 @@ public:
         float innerW = b.width - 2.0f * pad;
         float midY   = b.y + (b.height - 7.0f) * 0.5f;
 
+        // Echo-aware display string (verbatim / bullets / blank). Selection + caret measure against it.
+        const std::string disp = _echo(m_text);
+
         // Selection highlight — a translucent rectangle behind the selected glyph run (drawn before the text).
-        if (hasSelection() && JTextHelper::hasAtlas() && !m_text.empty()) {
-            float xLo = innerX + JTextHelper::measureWidth(m_text.substr(0, selectionStart()));
-            float xHi = innerX + JTextHelper::measureWidth(m_text.substr(0, selectionEnd()));
+        if (hasSelection() && JTextHelper::hasAtlas() && !disp.empty()) {
+            float xLo = innerX + JTextHelper::measureWidth(_echo(m_text.substr(0, selectionStart())));
+            float xHi = innerX + JTextHelper::measureWidth(_echo(m_text.substr(0, selectionEnd())));
             if (xHi > innerX + innerW) xHi = innerX + innerW;
             if (xLo < innerX) xLo = innerX;
             const JColor sc = withAlpha(jstyle::role(JColorRole::Highlight, o), 90);   // Accent @ 90
@@ -1746,7 +1892,7 @@ public:
                 JTextHelper::pushText(buf, innerX, ty, m_placeholder, pc, innerW);
             } else {
                 uint8_t tc[4] = {220, 220, 228, 220};
-                JTextHelper::pushText(buf, innerX, ty, m_text, tc, innerW);
+                JTextHelper::pushText(buf, innerX, ty, disp, tc, innerW);
             }
         } else {
             if (m_text.empty()) {
@@ -1763,7 +1909,7 @@ public:
             const size_t caret = m_caret > m_text.size() ? m_text.size() : m_caret;
             float cx = innerX;
             if (caret > 0)
-                cx = innerX + (JTextHelper::hasAtlas() ? JTextHelper::measureWidth(m_text.substr(0, caret))
+                cx = innerX + (JTextHelper::hasAtlas() ? JTextHelper::measureWidth(_echo(m_text.substr(0, caret)))
                                                        : innerW * 0.65f * (float)caret / (float)std::max<size_t>(1, m_text.size()));
             if (cx > innerX + innerW) cx = innerX + innerW;   // clamp inside the field
             buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f,
@@ -1839,6 +1985,47 @@ private:
         m_caret = m_anchor = lo;
     }
 
+    // ---- Echo / validator plumbing --------------------------------------------------------------------
+    // True when characters are currently masked (so copy is suppressed / caret metrics use bullets).
+    bool _masked() const {
+        return m_echo == Password || m_echo == NoEcho ||
+               (m_echo == PasswordEchoOnEdit && !isFocused());
+    }
+    // Number of UTF-8 codepoints (glyph cells) in s.
+    static size_t _cpCount(const std::string& s) {
+        size_t n = 0;
+        for (size_t i = 0; i < s.size(); ++i)
+            if ((static_cast<uint8_t>(s[i]) & 0xC0) != 0x80) ++n;
+        return n;
+    }
+    // Map a plaintext run to its rendered form per the echo mode (one bullet per codepoint).
+    std::string _echo(const std::string& s) const {
+        switch (m_echo) {
+            case Normal: return s;
+            case NoEcho: return std::string();
+            case PasswordEchoOnEdit: if (isFocused()) return s; [[fallthrough]];
+            case Password: default: break;
+        }
+        std::string out; out.reserve(_cpCount(s) * 3);
+        for (size_t i = 0, n = _cpCount(s); i < n; ++i) out += "\xE2\x80\xA2";   // U+2022 BULLET
+        return out;
+    }
+    // A candidate string is acceptable to type when there is no validator, or it is not Invalid.
+    bool _acceptsText(const std::string& cand) const {
+        if (!m_validator) return true;
+        int pos = (int)m_caret;
+        return m_validator->validate(cand, pos) != JValidator::Invalid;
+    }
+    // Commit-time gate: keep an Acceptable value, else fixup() (clamp) toward Acceptable, else revert.
+    void _enforceValidatorOnCommit() {
+        if (!m_validator) { m_committed = m_text; return; }
+        int pos = (int)m_caret;
+        if (m_validator->validate(m_text, pos) == JValidator::Acceptable) { m_committed = m_text; return; }
+        std::string t = m_text; m_validator->fixup(t); pos = (int)t.size();
+        if (m_validator->validate(t, pos) == JValidator::Acceptable) { setText(t); m_committed = t; }
+        else { setText(m_committed); }   // unrecoverable → restore the last good value
+    }
+
     std::string m_text;
     std::string m_placeholder;
     size_t      m_caret  = 0;   // insertion index into m_text (bytes; on a UTF-8 char boundary)
@@ -1847,6 +2034,12 @@ private:
     int         m_clickCount = 0;                                    // 1/2/3 = single/double/triple within the window
     std::chrono::steady_clock::time_point m_lastClick{};
     float       m_lastClickX = 0.f;
+    EchoMode    m_echo{Normal};
+    size_t      m_maxLength{0};        // 0 = unlimited
+    bool        m_readOnly{false};
+    bool        m_wasFocused{false};   // focus-out edge → commit
+    JValidator* m_validator{nullptr};  // non-owning
+    std::string m_committed;           // last Acceptable text (revert target)
 };
 
 // ============================================================================
@@ -2901,7 +3094,8 @@ enum class JComboBoxMode {
 class JComboBox : public JControl {
 public:
     jf::JSignal<int>         onIndexChanged;
-    jf::JSignal<std::string> onTextChanged;
+    jf::JSignal<std::string> onTextChanged;       // committed text (selection or typed value on Return)
+    jf::JSignal<std::string> onEditTextChanged;   // live text while typing in an editable combo
     jf::JSignal<JComboBox*>   onPopupRequested;
     // Framework hook: the app runner installs this to OWN the dropdown — it creates, polls,
     // dismisses the popup window and sets the selected index. When set, it fires on a
@@ -2935,6 +3129,7 @@ public:
         int c = (m_items.empty()) ? -1 : std::clamp(i, 0, (int)m_items.size()-1);
         if (m_currentIndex != c) {
             m_currentIndex = c;
+            if (m_editable) { m_editText = (c >= 0) ? m_items[c] : ""; m_edited = false; }   // selection re-seeds the edit box
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onIndexChanged.emit(c);
             if (c >= 0) onTextChanged.emit(m_items[c]);
@@ -2942,6 +3137,7 @@ public:
     }
     int         currentIndex() const { return m_currentIndex; }
     std::string currentText()  const {
+        if (m_editable && m_edited) return m_editText;           // free-typed value wins in an editable combo
         return (m_currentIndex >= 0 && m_currentIndex < (int)m_items.size())
                ? m_items[m_currentIndex] : "";
     }
@@ -2950,18 +3146,61 @@ public:
     JComboBoxMode mode() const { return m_mode; }
     void setMode(JComboBoxMode mode) { m_mode = mode; }
 
+    // ---- Editable combo --------------------------------------------------------------------------------
+    // An editable combo lets the user type a value directly; the drop list acts as suggestions. Clicking
+    // the text area focuses it for typing, clicking the arrow still opens the list. Non-editable is default.
+    void setEditable(bool e) {
+        m_editable = e;
+        if (e && m_editText.empty() && !m_edited) m_editText = currentText();
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+    bool isEditable() const { return m_editable; }
+    void setEditText(const std::string& t) {
+        m_editText = t; m_edited = true;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+        onEditTextChanged.emit(t);
+    }
+    const std::string& editText() const { return m_editText; }
+
     void handleMousePress(float mx, float my) override {
-        if (isPointInside(mx, my)) {
-            onClicked.emit();
-            if (!m_items.empty()) {
-                if (m_mode == JComboBoxMode::Cycling) {
-                    setCurrentIndex((m_currentIndex + 1) % (int)m_items.size());
-                } else if (m_mode == JComboBoxMode::Popup) {
-                    if (onOpenPopupHook) onOpenPopupHook(this);
-                    onPopupRequested.emit(this);
-                }
+        if (!isPointInside(mx, my)) return;
+        onClicked.emit();
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const float arrowW = b.height * 0.75f;
+        const bool onArrow = mx >= b.x + b.width - arrowW;
+        if (m_editable && !onArrow) {          // click the text area → focus for typing (no cycle/popup)
+            requestFocus();
+            return;
+        }
+        if (!m_items.empty()) {
+            if (m_mode == JComboBoxMode::Cycling && !m_editable) {
+                setCurrentIndex((m_currentIndex + 1) % (int)m_items.size());
+            } else {   // Popup (or an editable combo's arrow) opens the suggestion list
+                if (onOpenPopupHook) onOpenPopupHook(this);
+                onPopupRequested.emit(this);
             }
         }
+    }
+
+    bool handleKeyEvent(const JKeyEvent& ke) override {
+        if (!m_editable || !ke.pressed) return false;
+        using K = JKeyEvent::JKey;
+        if (ke.key == K::Return) { onTextChanged.emit(m_editText); _syncIndexToText(); return true; }
+        if (ke.key == K::Backspace) {
+            if (!m_editText.empty()) {
+                do { m_editText.pop_back(); }   // drop one UTF-8 codepoint
+                while (!m_editText.empty() && (static_cast<uint8_t>(m_editText.back()) & 0xC0) == 0x80);
+                m_edited = true; m_graph.invalidateNode(m_nodeId, DirtySelf); onEditTextChanged.emit(m_editText);
+            }
+            return true;
+        }
+        if (!ke.ctrl && !ke.alt && ke.utf8[0] != '\0' && static_cast<uint8_t>(ke.utf8[0]) >= 32) {
+            m_editText += ke.utf8; m_edited = true;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            onEditTextChanged.emit(m_editText);
+            return true;
+        }
+        return false;
     }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
@@ -2985,15 +3224,22 @@ public:
         uint8_t ac[4] = {180, 180, 190, 220};
         buf.pushRectangle(ax - 4.0f, ay, 5.0f, 2.0f, ac, 1.0f);
         buf.pushRectangle(ax + 1.0f, ay, 5.0f, 2.0f, ac, 1.0f);
-        // Selected item text
-        if (JTextHelper::hasAtlas() && !currentText().empty()) {
+        // Selected item text (or the live edit buffer in an editable combo — untranslated, it's user input).
+        const std::string shown = m_editable ? currentText() : tr(currentText());
+        const float textAvail = b.width - arrowW - textPadding() - 6.0f;
+        if (JTextHelper::hasAtlas() && !shown.empty()) {
             uint8_t tc[4] = {210, 210, 220, 220};
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
-            JTextHelper::pushText(buf, b.x + textPadding(), ty, tr(currentText()), tc, b.width - arrowW - textPadding() - 6.0f);
-        } else {
+            JTextHelper::pushText(buf, b.x + textPadding(), ty, shown, tc, textAvail);
+        } else if (!JTextHelper::hasAtlas()) {
             uint8_t tc[4] = {200, 200, 210, 180};
             buf.pushRectangle(b.x + textPadding(), b.y + (b.height-7.0f)*0.5f,
-                              b.width - arrowW - textPadding() - 6.0f, 7.0f, tc, 2.0f);
+                              textAvail, 7.0f, tc, 2.0f);
+        }
+        // Caret at the end of the typed text while an editable combo has focus.
+        if (m_editable && focused && JTextHelper::hasAtlas()) {
+            float cx = b.x + textPadding() + std::min(textAvail, JTextHelper::measureWidth(shown)) + 1.0f;
+            buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f, jstyle::role(JColorRole::Accent, o).data());
         }
     }
 
@@ -3010,9 +3256,19 @@ private:
         l.minHeight = m_graph.getLayoutConst(m_nodeId).boundingBox.height;
     }
 
+    // If the typed text exactly matches an item, adopt that item's index (keeps selection in sync on Return).
+    void _syncIndexToText() {
+        for (int i = 0; i < (int)m_items.size(); ++i) {
+            if (m_items[i] == m_editText) { if (m_currentIndex != i) { m_currentIndex = i; onIndexChanged.emit(i); } m_edited = false; return; }
+        }
+    }
+
     std::vector<std::string> m_items;
     int m_currentIndex{-1};
     JComboBoxMode m_mode{JComboBoxMode::Popup};   // dropdown list by default (the app wires the popup hook)
+    bool          m_editable{false};
+    bool          m_edited{false};                // user has typed into the edit box
+    std::string   m_editText;
 };
 
 // ============================================================================
