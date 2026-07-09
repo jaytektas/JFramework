@@ -287,9 +287,9 @@ public:
     static void _reportStaleNode(const char* who, NodeId id) {
         static int warned = 0;
         if (warned++ < 20)
-            std::fprintf(stderr, "[JSceneGraph] %s: node id %u out of range — stale/freed widget node; "
-                                 "returning a default layout instead of overrunning (warning %d/20)\n",
-                         who, unsigned(id), warned), std::fflush(stderr);
+            JLOGC("SceneGraph", JLogLevel::Warn)
+                << who << ": node id " << unsigned(id) << " out of range — stale/freed widget node; "
+                << "returning a default layout instead of overrunning (warning " << warned << "/20)";
     }
     
     bool isDirty(NodeId id) const { return m_dirtyFlags[id] != Clean; }

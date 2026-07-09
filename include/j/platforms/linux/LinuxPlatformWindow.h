@@ -44,8 +44,9 @@ public:
         : m_screenX(screenX), m_screenY(screenY)
         , m_width(width), m_height(height)
         , m_style(style) {
-        std::cout << "[INFO][Platform] JLinuxPlatformWindow created: " << title
-                  << ", parentWindow: " << parentWindow << ", style: " << (int)style << std::endl;
+        JLOGC("Platform", JLogLevel::Info)
+            << "JLinuxPlatformWindow created: " << title
+            << ", parentWindow: " << parentWindow << ", style: " << (int)style;
         if (sharedConnection) {
             m_connection = sharedConnection;
             m_ownsConnection = false;

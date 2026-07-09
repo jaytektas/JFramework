@@ -12,13 +12,16 @@
 
 #include <j/core/DockManager.h>
 #include <j/core/DockRegistry.h>
+#include <j/core/Log.h>
 #include <j/graphics/RenderPrimitive.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <iomanip>
 #include <optional>
+#include <sstream>
 
 inline namespace jf {
 
@@ -67,13 +70,16 @@ public:
 
     void dump(const char* tag) const {
         static const char* nm[] = {"L", "R", "T", "B", "C"};
-        std::fprintf(stderr, "[space %s]", tag);
+        std::ostringstream ss;
+        ss << "[space " << tag << "]";
+        ss << std::fixed << std::setprecision(0);
         for (int a = 0; a < AreaCount; ++a)
-            std::fprintf(stderr, " %s{act=%d sz=%.0f docks=%zu rect=%.0f,%.0f,%.0fx%.0f strip=%.0fx%.0f}",
-                         nm[a], active(Area(a)) ? 1 : 0, m_size[a], m_host[a].dockCount(),
-                         m_rect[a].x, m_rect[a].y, m_rect[a].width, m_rect[a].height,
-                         m_strip[a].width, m_strip[a].height);
-        std::fprintf(stderr, "\n");
+            ss << ' ' << nm[a] << "{act=" << (active(Area(a)) ? 1 : 0)
+               << " sz=" << m_size[a] << " docks=" << m_host[a].dockCount()
+               << " rect=" << m_rect[a].x << ',' << m_rect[a].y << ','
+               << m_rect[a].width << 'x' << m_rect[a].height
+               << " strip=" << m_strip[a].width << 'x' << m_strip[a].height << '}';
+        JLOGC("Dock", JLogLevel::Debug) << ss.str();
     }
 
     void computeLayout(JRect content) {

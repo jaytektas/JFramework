@@ -976,8 +976,7 @@ private:
         VkResult cr = vkCreateSwapchainKHR(m_device, &ci, nullptr, &s.swapchain);
         if (oldSwapchain) vkDestroySwapchainKHR(m_device, oldSwapchain, nullptr);
         if (cr != VK_SUCCESS) {
-            std::fprintf(stderr, "[VulkanError] vkCreateSwapchainKHR failed with error code: %d\n", cr);
-            std::fflush(stderr);
+            JLOGC("Vulkan", JLogLevel::Error) << "vkCreateSwapchainKHR failed with error code: " << cr;
             throw std::runtime_error("vkCreateSwapchainKHR failed");
         }
 
@@ -1041,7 +1040,7 @@ private:
                 fwrite(&px[i*4+0], 1, 1, f); // B (was R channel)
             }
             fclose(f);
-            std::cout << "[Vulkan] Screenshot: " << s.screenshotSavePath << "\n" << std::flush;
+            JLOGC("Vulkan", JLogLevel::Info) << "Screenshot: " << s.screenshotSavePath;
         }
 
         vkUnmapMemory(m_device, s.screenshotMem);
@@ -1380,7 +1379,7 @@ std::unique_ptr<JGpuHal> JGpuHal::create(JGpuApiType api, const JNativeWindowHan
                 return hal;
             }
         } catch (const std::exception& e) {
-            std::cerr << "[GENESIS] Vulkan hardware initialization failed: " << e.what() << ". Falling back to Software API.\n";
+            JLOGC("Vulkan", JLogLevel::Warn) << "Vulkan hardware initialization failed: " << e.what() << ". Falling back to Software API.";
         }
     }
     

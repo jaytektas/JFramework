@@ -183,8 +183,10 @@ public:
                 // font size). Report an oversize glyph rather than hiding the drop behind the bounds check.
                 if (penX + w + 1 >= atlasW || penY + h + 1 >= atlasH) {
                     if (static_cast<uint32_t>(w) + 2 >= atlasW || static_cast<uint32_t>(h) + 2 >= atlasH)
-                        std::fprintf(stderr, "[FontEngine] glyph cp=%u %dx%d exceeds atlas %ux%u @%.1fpx — skipped\n",
-                                     cp, w, h, atlasW, atlasH, pixelSize);
+                        JLOGC("Font", JLogLevel::Warn)
+                            << "glyph cp=" << cp << ' ' << w << 'x' << h
+                            << " exceeds atlas " << atlasW << 'x' << atlasH
+                            << " @" << pixelSize << "px — skipped";
                     stbtt_FreeBitmap(bmp, nullptr); continue;
                 }
 

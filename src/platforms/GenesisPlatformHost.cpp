@@ -1,5 +1,6 @@
 #include <j/core/ApplicationCore.h>
 #include <j/core/GenesisComponents.h>
+#include <j/core/Log.h>
 #include <j/graphics/GpuHal.h>
 #include <j/graphics/RenderPrimitive.h>
 
@@ -27,14 +28,14 @@ inline namespace jf {
 #endif
 
 int main() {
-    std::cout << "[GENESIS] Bootstrapping Native Genesis Host...\n";
+    JLOGC("Platform", JLogLevel::Info) << "Bootstrapping Native Genesis Host...";
 
     jf::JGuiApplication app;
     jf::JMainWindow mainWindow("Genesis Host");
     mainWindow.show();
 
-    std::cout << "[GENESIS] Host initialized successfully. Platform-agnostic core is ready.\n";
-    std::cout << "[GENESIS] Use 'genesis_controls_catalog' for the visual widget showcase.\n";
+    JLOGC("Platform", JLogLevel::Info) << "Host initialized successfully. Platform-agnostic core is ready.";
+    JLOGC("Platform", JLogLevel::Info) << "Use 'genesis_controls_catalog' for the visual widget showcase.";
     
     return 0;
 }
