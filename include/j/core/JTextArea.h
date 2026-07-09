@@ -376,8 +376,9 @@ public:
         bool focused = isFocused();
 
         // Background + border (accent when focused)
-        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1, 6.0f,
-                          focused ? 1.5f : 1.0f,
+        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1,
+                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          jstyle::borderW(focused),
                           focused ? Colors::Accent : Colors::Border);
 
         float innerX = b.x + 8.0f;
@@ -414,7 +415,7 @@ public:
         // Selection highlight — per visual row, the intersection of the row's byte range with [selLo, selHi).
         if (m_selActive && m_selStart != m_selEnd) {
             const size_t selLo = std::min(m_selStart, m_selEnd), selHi = std::max(m_selStart, m_selEnd);
-            const uint8_t selColor[4] = {65, 105, 225, 100};
+            const uint8_t selColor[4] = {Colors::SelectionFill[0], Colors::SelectionFill[1], Colors::SelectionFill[2], 100};
             for (size_t r = 0; r < rows.size(); ++r) {
                 const float lineY = innerY + r * lh - m_scrollOffset;
                 if (lineY + lh < innerY || lineY > innerY + innerH) continue;
@@ -429,9 +430,9 @@ public:
 
         if (JTextHelper::hasAtlas()) {
             const std::vector<uint8_t>& cols = m_hcols;   // syntax colours from the cached layout (not per frame)
-            const uint8_t tc[4] = {220, 220, 228, 220};
+            const uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 220};
             if (m_text.empty() && !m_placeholder.empty()) {
-                uint8_t pc[4] = {100, 100, 110, 160};
+                uint8_t pc[4] = {Colors::FieldPlaceholder[0], Colors::FieldPlaceholder[1], Colors::FieldPlaceholder[2], 160};
                 JTextHelper::pushText(buf, innerX, innerY, m_placeholder, pc, innerW);
             } else {
                 for (size_t i = 0; i < rows.size(); ++i) {
@@ -459,10 +460,10 @@ public:
             }
         } else {
             if (m_text.empty()) {
-                uint8_t pc[4] = {100, 100, 110, 120};
+                uint8_t pc[4] = {Colors::FieldPlaceholder[0], Colors::FieldPlaceholder[1], Colors::FieldPlaceholder[2], 120};
                 buf.pushRectangle(innerX, innerY + (lh - 7.0f) * 0.5f, innerW * 0.55f, 7.0f, pc, 2.0f);
             } else {
-                uint8_t tc[4] = {220, 220, 228, 200};
+                uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 200};
                 for (size_t i = 0; i < rows.size(); ++i) {
                     float lineY = innerY + i * lh - m_scrollOffset;
                     if (lineY + lh < innerY || lineY > innerY + innerH) continue;

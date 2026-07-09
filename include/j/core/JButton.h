@@ -54,12 +54,12 @@ protected:
             // label is truncated inside the button instead of spilling past its edges.
             const float tx = (tw <= avail) ? b.x + (b.width - tw) * 0.5f : b.x + pad;
             const float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
-            uint8_t tc[4] = {220, 220, 228, 230};
+            uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 230};
             JTextHelper::pushText(buf, tx, ty, txt, tc, avail);
         } else {
             float tw = b.width * 0.5f;
             float tx = b.x + (b.width - tw) * 0.5f;
-            uint8_t tc[4] = {220, 220, 228, 200};
+            uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 200};
             buf.pushRectangle(tx, b.y + (b.height - 6.0f) * 0.5f, tw, 6.0f, tc, 2.0f);
         }
     }

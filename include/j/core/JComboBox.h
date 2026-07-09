@@ -158,18 +158,18 @@ public:
                           jstyle::role(JColorRole::ToolTipBase, o).data(), 5.0f);
         // Arrow chevron (two rects forming a V)
         float ax = b.x + b.width - arrowW * 0.62f, ay = b.y + b.height * 0.38f;
-        uint8_t ac[4] = {180, 180, 190, 220};
+        uint8_t ac[4] = {Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 220};
         buf.pushRectangle(ax - 4.0f, ay, 5.0f, 2.0f, ac, 1.0f);
         buf.pushRectangle(ax + 1.0f, ay, 5.0f, 2.0f, ac, 1.0f);
         // Selected item text (or the live edit buffer in an editable combo — untranslated, it's user input).
         const std::string shown = m_editable ? currentText() : tr(currentText());
         const float textAvail = b.width - arrowW - textPadding() - 6.0f;
         if (JTextHelper::hasAtlas() && !shown.empty()) {
-            uint8_t tc[4] = {210, 210, 220, 220};
+            uint8_t tc[4] = {Colors::FieldText[0], Colors::FieldText[1], Colors::FieldText[2], 220};
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             JTextHelper::pushText(buf, b.x + textPadding(), ty, shown, tc, textAvail);
         } else if (!JTextHelper::hasAtlas()) {
-            uint8_t tc[4] = {200, 200, 210, 180};
+            uint8_t tc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 180};
             buf.pushRectangle(b.x + textPadding(), b.y + (b.height-7.0f)*0.5f,
                               textAvail, 7.0f, tc, 2.0f);
         }

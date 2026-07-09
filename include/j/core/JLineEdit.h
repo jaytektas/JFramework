@@ -257,18 +257,18 @@ public:
         if (JTextHelper::hasAtlas()) {
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             if (m_text.empty()) {
-                uint8_t pc[4] = {100, 100, 110, 160};
+                uint8_t pc[4] = {Colors::FieldPlaceholder[0], Colors::FieldPlaceholder[1], Colors::FieldPlaceholder[2], 160};
                 JTextHelper::pushText(buf, innerX, ty, m_placeholder, pc, innerW);
             } else {
-                uint8_t tc[4] = {220, 220, 228, 220};
+                uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 220};
                 JTextHelper::pushText(buf, innerX, ty, disp, tc, innerW);
             }
         } else {
             if (m_text.empty()) {
-                uint8_t pc[4] = {100, 100, 110, 120};
+                uint8_t pc[4] = {Colors::FieldPlaceholder[0], Colors::FieldPlaceholder[1], Colors::FieldPlaceholder[2], 120};
                 buf.pushRectangle(innerX, midY, innerW * 0.55f, 7.0f, pc, 2.0f);
             } else {
-                uint8_t tc[4] = {220, 220, 228, 200};
+                uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 200};
                 buf.pushRectangle(innerX, midY, innerW * 0.65f, 7.0f, tc, 2.0f);
             }
         }

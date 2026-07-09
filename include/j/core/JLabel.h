@@ -31,13 +31,13 @@ public:
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         if (JTextHelper::hasAtlas()) {
-            uint8_t c[4] = {200, 200, 210, 200};
+            uint8_t c[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 200};
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             JTextHelper::pushText(buf, b.x, ty, tr(m_text), c, b.width);
         } else {
             // Fallback placeholder bars
             float cy = b.y + b.height * 0.5f - 3.0f;
-            uint8_t c[4] = {200, 200, 210, 140};
+            uint8_t c[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 140};
             buf.pushRectangle(b.x, cy, b.width * 0.55f, 6.0f, c, 2.0f);
         }
     }

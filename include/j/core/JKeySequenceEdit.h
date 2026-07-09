@@ -63,21 +63,22 @@ public:
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1, 6.0f,
-                          m_capturing ? 1.5f : 1.0f,
+        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1,
+                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          jstyle::borderW(m_capturing),
                           m_capturing ? Colors::Accent : Colors::Border);
         const float pad = textPadding();
         const float innerX = b.x + pad, innerW = b.width - 2.0f * pad;
         if (JTextHelper::hasAtlas()) {
             const float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             if (m_capturing) {
-                uint8_t pc[4] = {150, 190, 255, 210};
+                uint8_t pc[4] = {Colors::CaptureHint[0], Colors::CaptureHint[1], Colors::CaptureHint[2], 210};
                 JTextHelper::pushText(buf, innerX, ty, "Press a key...", pc, innerW);
             } else if (m_text.empty()) {
-                uint8_t pc[4] = {100, 100, 110, 160};
+                uint8_t pc[4] = {Colors::FieldPlaceholder[0], Colors::FieldPlaceholder[1], Colors::FieldPlaceholder[2], 160};
                 JTextHelper::pushText(buf, innerX, ty, "None", pc, innerW);
             } else {
-                uint8_t tc[4] = {220, 220, 228, 220};
+                uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 220};
                 JTextHelper::pushText(buf, innerX, ty, m_text, tc, innerW);
             }
         }

@@ -54,6 +54,10 @@ inline JTheme parseStyleSheet(const std::string& text) {
         {"success", t.Success}, {"warning", t.Warning}, {"danger", t.Danger},
         {"closebtn", t.CloseBtn}, {"closebtnhover", t.CloseBtnHover}, {"closebtnmark", t.CloseBtnMark},
         {"titlebar", t.TitleBar}, {"titlebartext", t.TitleBarText},
+        {"controltext", t.ControlText}, {"fieldtext", t.FieldText}, {"labeltext", t.LabelText},
+        {"mutedtext", t.MutedText}, {"fieldplaceholder", t.FieldPlaceholder},
+        {"capturehint", t.CaptureHint}, {"selectionfill", t.SelectionFill},
+        {"highlightedtext", t.HighlightedText},
     };
     struct FRef { const char* n; float* p; };
     FRef floats[] = {

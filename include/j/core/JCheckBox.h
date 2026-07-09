@@ -102,24 +102,25 @@ protected:
                           focused ? 2.0f : 1.5f,
                           border.data());
         if (m_state_cb == Checked) {                 // full mark: the original plus/tick
-            uint8_t white[4] = {255, 255, 255, 220};
+            uint8_t white[4] = {Colors::HighlightedText[0], Colors::HighlightedText[1], Colors::HighlightedText[2], 220};
             buf.pushRectangle(b.x + 3.0f, b.y + boxSz*0.5f - 1.5f, boxSz - 6.0f, 3.0f, white, 1.5f);
             buf.pushRectangle(b.x + boxSz*0.5f - 1.5f, b.y + 3.0f, 3.0f, boxSz - 6.0f, white, 1.5f);
         } else if (m_state_cb == PartiallyChecked) { // partial: a single centred dash
-            uint8_t white[4] = {255, 255, 255, 200};
+            uint8_t white[4] = {Colors::HighlightedText[0], Colors::HighlightedText[1], Colors::HighlightedText[2], 200};
             buf.pushRectangle(b.x + 4.0f, b.y + boxSz*0.5f - 1.5f, boxSz - 8.0f, 3.0f, white, 1.5f);
         }
     }
     virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b, float boxSz) {
+        const float gap = JTheme::current().itemPadding;   // label offset from the indicator box
         if (JTextHelper::hasAtlas()) {
-            uint8_t lc[4] = {200, 200, 210, 200};
-            JTextHelper::pushText(buf, b.x + boxSz + 8.0f,
+            uint8_t lc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 200};
+            JTextHelper::pushText(buf, b.x + boxSz + gap,
                                  b.y + (b.height - JTextHelper::lineHeight()) * 0.5f,
-                                 tr(m_label), lc, b.width - boxSz - 8.0f);
+                                 tr(m_label), lc, b.width - boxSz - gap);
         } else {
-            uint8_t lc[4] = {180, 180, 190, 140};
-            buf.pushRectangle(b.x + boxSz + 8.0f, b.y + (b.height - 6.0f)*0.5f,
-                               b.width - boxSz - 8.0f, 6.0f, lc, 2.0f);
+            uint8_t lc[4] = {Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 140};
+            buf.pushRectangle(b.x + boxSz + gap, b.y + (b.height - 6.0f)*0.5f,
+                               b.width - boxSz - gap, 6.0f, lc, 2.0f);
         }
     }
 

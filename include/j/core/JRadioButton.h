@@ -66,15 +66,16 @@ protected:
         }
     }
     virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b, float r) {
+        const float gap = JTheme::current().itemPadding;   // label offset from the ring
         if (JTextHelper::hasAtlas()) {
-            uint8_t lc[4] = {200, 200, 210, 200};
-            JTextHelper::pushText(buf, b.x + r + 8.0f,
+            uint8_t lc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 200};
+            JTextHelper::pushText(buf, b.x + r + gap,
                                  b.y + (b.height - JTextHelper::lineHeight()) * 0.5f,
-                                 tr(m_label), lc, b.width - r - 8.0f);
+                                 tr(m_label), lc, b.width - r - gap);
         } else {
-            uint8_t lc[4] = {180, 180, 190, 140};
-            buf.pushRectangle(b.x + r + 8.0f, b.y + (b.height - 6.0f)*0.5f,
-                               b.width - r - 8.0f, 6.0f, lc, 2.0f);
+            uint8_t lc[4] = {Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 140};
+            buf.pushRectangle(b.x + r + gap, b.y + (b.height - 6.0f)*0.5f,
+                               b.width - r - gap, 6.0f, lc, 2.0f);
         }
     }
 

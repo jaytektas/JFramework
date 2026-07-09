@@ -121,7 +121,7 @@ public:
         // Value text (the live edit buffer while typing, otherwise the formatted value)
         const std::string txt = m_editing ? m_editBuf : _formatValue();
         if (JTextHelper::hasAtlas()) {
-            uint8_t vc[4] = {210, 210, 220, 220};
+            uint8_t vc[4] = {Colors::FieldText[0], Colors::FieldText[1], Colors::FieldText[2], 220};
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             if (m_editing && m_selectAll && !txt.empty()) {   // selection highlight behind the value
                 const JColor sel = withAlpha(jstyle::role(JColorRole::Highlight, o), 90);   // Accent @ 90
@@ -134,7 +134,7 @@ public:
                 buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f, jstyle::role(JColorRole::Accent, o).data());
             }
         } else {
-            uint8_t vc[4] = {200, 200, 210, 180};
+            uint8_t vc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 180};
             buf.pushRectangle(b.x + textPadding(), b.y + (b.height-7.0f)*0.5f, fieldW * 0.6f, 7.0f, vc, 2.0f);
         }
 
@@ -146,7 +146,7 @@ public:
         buf.pushRectangle(b.x + fieldW, b.y + halfH,  btnW, halfH, btnFill.data(), 0.0f, 1.0f, btnBd.data());
         // Arrow marks (tiny rects)
         float ax = b.x + fieldW + btnW * 0.3f, aw = btnW * 0.4f;
-        uint8_t ac[4] = {180, 180, 190, 200};
+        uint8_t ac[4] = {Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 200};
         buf.pushRectangle(ax, b.y + halfH * 0.35f,        aw, 2.0f, ac);  // up mark
         buf.pushRectangle(ax, b.y + halfH + halfH * 0.55f, aw, 2.0f, ac); // down mark
     }

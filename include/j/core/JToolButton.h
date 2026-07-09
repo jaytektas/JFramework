@@ -48,7 +48,7 @@ public:
             const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
             float cx = b.x + b.width - _arrowZone(b.height) * 0.5f;
             float cy = b.y + b.height * 0.5f;
-            uint8_t ac[4] = {180, 180, 190, 220};    // down-chevron (two rects forming a V)
+            uint8_t ac[4] = {Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 220};    // down-chevron (two rects forming a V)
             buf.pushRectangle(cx - 4.0f, cy - 1.0f, 5.0f, 2.0f, ac, 1.0f);
             buf.pushRectangle(cx + 1.0f, cy - 1.0f, 5.0f, 2.0f, ac, 1.0f);
         }

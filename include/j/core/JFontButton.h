@@ -54,7 +54,7 @@ public:
             uint8_t tc[4]; std::copy(m_spec.empty() ? Colors::TextSecondary : Colors::TextPrimary, (m_spec.empty() ? Colors::TextSecondary : Colors::TextPrimary) + 4, tc);
             JTextHelper::pushText(buf, b.x + 8.0f, b.y + (b.height - JTextHelper::lineHeight()) * 0.5f, prettify(m_spec), tc, b.width - 16.0f);
             if (m_inheritable && !m_spec.empty()) {
-                uint8_t xc[4] = {200, 200, 210, 200};
+                uint8_t xc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 200};
                 JTextHelper::pushText(buf, b.x + b.width - b.height + 6.0f, b.y + (b.height - JTextHelper::lineHeight()) * 0.5f, "x", xc, b.height);
             }
         }

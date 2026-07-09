@@ -74,6 +74,18 @@ struct JTheme {
     uint8_t TitleBar[4]      = {22,  22,  28,  255};   // window/dialog/popup title-bar fill (semantic role)
     uint8_t TitleBarText[4]  = {200, 200, 210, 230};   // title-bar caption
 
+    // Widget text/mark roles — de-hardcoded from the standard widgets. Each default is the EXACT byte
+    // value the widget painted before migration (the site's own alpha is applied at the call site), so a
+    // default-theme render is pixel-identical while a theme swap now restyles the whole widget set.
+    uint8_t ControlText[4]      = {220, 220, 228, 255};  // caption/value text on filled controls (buttons, inputs, popup rows)
+    uint8_t FieldText[4]        = {210, 210, 220, 255};  // value text in spin/combo entry fields
+    uint8_t LabelText[4]        = {200, 200, 210, 255};  // widget labels / secondary captions
+    uint8_t MutedText[4]        = {180, 180, 190, 255};  // arrow & chevron marks, dimmed fallback labels
+    uint8_t FieldPlaceholder[4] = {100, 100, 110, 255};  // placeholder text inside input fields
+    uint8_t CaptureHint[4]      = {150, 190, 255, 255};  // key-capture "Press a key…" arming prompt
+    uint8_t SelectionFill[4]    = {65,  105, 225, 255};  // text-area selection highlight band
+    uint8_t HighlightedText[4]  = {255, 255, 255, 255};  // marks/glyphs drawn on a highlight fill (check ticks)
+
     // Dimensions
     float cornerRadius   = 6.f;
     float menuItemHeight = 28.f;
@@ -134,6 +146,15 @@ inline JTheme JTheme::light() {
     s(t.CloseBtn,      200, 188, 188, 160);
     s(t.TitleBar,      222, 222, 228, 255);
     s(t.TitleBarText,   15,  15,  22, 255);
+    // Widget text roles in the light scheme resolve to dark ink (HighlightedText stays white — it is
+    // drawn on the accent fill). Not covered by the default-theme byte-exact gate; sensible light values.
+    s(t.ControlText,     30,  30,  36, 255);
+    s(t.FieldText,       40,  40,  48, 255);
+    s(t.LabelText,       60,  60,  70, 255);
+    s(t.MutedText,      110, 110, 120, 255);
+    s(t.FieldPlaceholder,150, 150, 160, 255);
+    s(t.CaptureHint,     20,  90, 200, 255);
+    s(t.SelectionFill,  120, 160, 235, 255);
     return t;
 }
 inline JTheme& JTheme::current() { static JTheme inst; return inst; }
@@ -155,7 +176,7 @@ inline JPalette JTheme::palette() const {
         /*Button*/          JColor::fromArray(Surface2),
         /*ButtonText*/      JColor::fromArray(TextPrimary),
         /*Highlight*/       JColor::fromArray(Accent),
-        /*HighlightedText*/ JColor{255, 255, 255, 255},
+        /*HighlightedText*/ JColor::fromArray(HighlightedText),
         /*Border*/          JColor::fromArray(Border),
         /*Accent*/          JColor::fromArray(Accent),
         /*ToolTipBase*/     JColor::fromArray(Surface3),
@@ -264,7 +285,16 @@ namespace Colors {
     inline const uint8_t* const CloseBtnMark  = JTheme::current().CloseBtnMark;
     inline const uint8_t* const TitleBar      = JTheme::current().TitleBar;
     inline const uint8_t* const TitleBarText  = JTheme::current().TitleBarText;
+    inline const uint8_t* const ControlText      = JTheme::current().ControlText;
+    inline const uint8_t* const FieldText        = JTheme::current().FieldText;
+    inline const uint8_t* const LabelText        = JTheme::current().LabelText;
+    inline const uint8_t* const MutedText        = JTheme::current().MutedText;
+    inline const uint8_t* const FieldPlaceholder = JTheme::current().FieldPlaceholder;
+    inline const uint8_t* const CaptureHint      = JTheme::current().CaptureHint;
+    inline const uint8_t* const SelectionFill    = JTheme::current().SelectionFill;
+    inline const uint8_t* const HighlightedText  = JTheme::current().HighlightedText;
     inline constexpr uint8_t    Transparent[4] = {0, 0, 0, 0};  // truly constant, not themed
+    inline constexpr uint8_t    White[4]        = {255, 255, 255, 255};  // truly constant neutral white (overlay tints)
 }
 
 } // inline namespace jf

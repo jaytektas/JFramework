@@ -58,19 +58,19 @@ public:
 
         // Hover highlight — subtle tint only; no border, no solid fill at rest.
         if (m_state == JWidgetState::Hovered || m_state == JWidgetState::Pressed) {
-            uint8_t hi[4] = {255, 255, 255, 18};
+            uint8_t hi[4] = {Colors::White[0], Colors::White[1], Colors::White[2], 18};
             buf.pushRectangle(b.x, b.y, b.width, b.height, hi, 3.0f);
         }
 
         // JLabel text
         if (JTextHelper::hasAtlas()) {
-            uint8_t tc[4] = {220, 220, 228, 230};
+            uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 230};
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             JTextHelper::pushText(buf, b.x + 10.f, ty, tr(m_label), tc,
                                  b.width - 16.f);
         } else {
             // Fallback: coloured bar representing the text
-            uint8_t tc[4] = {200, 200, 210, 180};
+            uint8_t tc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 180};
             float bw = JTextHelper::hasAtlas()
                        ? JTextHelper::measureWidth(m_label)
                        : b.width * 0.6f;
