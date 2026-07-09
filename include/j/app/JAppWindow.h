@@ -671,7 +671,7 @@ private:
                                 static_cast<uint32_t>(fw), static_cast<uint32_t>(fh),
                                 offX, offY, *m_hal, /*initialDrag=*/true,
                                 JFloatingDockOptions{},
-                                static_cast<xcb_window_t>(m_window->rawWindowId()));
+                                static_cast<JFloatingDockWindow::NativeWinHandleType>(m_window->rawWindowId()));
         // Bridge the float's content input (which carries the wheel) to the torn dock's
         // onInputContent hook. Content RENDER needs no bridge: the float's internal host
         // renders through the same _renderLeaf path, invoking the dock's onRenderContent.
