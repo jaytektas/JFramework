@@ -1,8 +1,8 @@
 #pragma once
 
-// Style enums shared between the dock layer and the unified stylesheet (JTheme, in
+// Style enums shared between the dock layer and the unified stylesheet (JStyle, in
 // BaseWidgets.h). Kept in this leaf header (no framework deps) so both can use them without
-// an include cycle. The stylesheet itself is JTheme; read it via style() (= JTheme::current()).
+// an include cycle. The stylesheet itself is JStyle; read it via style() (= JStyle::current()).
 
 #include <cstdint>
 

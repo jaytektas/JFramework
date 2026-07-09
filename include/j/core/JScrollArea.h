@@ -109,7 +109,7 @@ public:
         
         // Background
         buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::ScrollAreaBg,
-                          JTheme::current().hint(JStyleHint::ControlRadius), 1.0f, Colors::Border);
+                          JStyle::current().hint(JStyleHint::ControlRadius), 1.0f, Colors::Border);
 
         if (m_children.empty()) return;
 

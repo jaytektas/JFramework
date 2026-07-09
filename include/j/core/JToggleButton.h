@@ -20,7 +20,7 @@ public:
         : JControl(graph, "JToggleButton"), m_label(label)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().buttonHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().buttonHeight;
         l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(m_label) + 24.f) : w;
         l.minHeight = h;
     }
@@ -71,7 +71,7 @@ protected:
     virtual void drawBackground(JPrimitiveBuffer& buf, const JRect& b, const uint8_t* fill, bool focused) {
         const JColor bd = jstyle::border(jstyle::option(m_state, focused));
         buf.pushRectangle(b.x, b.y, b.width, b.height, fill,
-                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          JStyle::current().hint(JStyleHint::ControlRadius),
                           jstyle::borderW(focused), bd.data());
     }
     virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b) {

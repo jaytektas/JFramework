@@ -27,7 +27,7 @@ public:
           m_value(min), m_min(min), m_max(max), m_step(step), m_decimals(decimals)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().controlHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().controlHeight;
         l.minWidth = 60.0f;
         l.minHeight = h;
     }
@@ -116,7 +116,7 @@ public:
         JStyleOption o = jstyle::option(m_state, focused || m_editing);
         // Value field
         buf.pushRectangle(b.x, b.y, fieldW, b.height, jstyle::fieldFill(o).data(),
-                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          JStyle::current().hint(JStyleHint::ControlRadius),
                           jstyle::borderW(focused || m_editing), jstyle::border(o).data());
         // Value text (the live edit buffer while typing, otherwise the formatted value)
         const std::string txt = m_editing ? m_editBuf : _formatValue();

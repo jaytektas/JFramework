@@ -3,7 +3,7 @@
 // Each widget touched by the de-hardcode pass is constructed with a JSceneGraph, rendered into a
 // JPrimitiveBuffer under the DEFAULT (dark) theme, and the emitted fill / border / text colours are
 // asserted against the EXACT OLD literal bytes that were hardcoded before migration (the expected value
-// in every assertion IS the recorded pre-migration literal). We also assert every NEW JTheme role added
+// in every assertion IS the recorded pre-migration literal). We also assert every NEW JStyle role added
 // by the pass equals its old bytes under the default theme. PASS/FAIL per case; non-zero exit on any fail.
 
 #include <j/core/JButton.h>
@@ -24,7 +24,7 @@
 #include <j/core/JSlider.h>
 #include <j/core/JScrollBar.h>
 #include <j/core/JProgressBar.h>
-#include <j/core/JTheme.h>
+#include <j/core/JStyle.h>
 
 #include <cstdio>
 #include <cstdint>
@@ -77,12 +77,12 @@ static void installTestAtlas() {
 }
 
 int main() {
-    JTheme::apply(JTheme::dark());   // default theme = byte-exact baseline
+    JStyle::apply(JStyle::dark());   // default theme = byte-exact baseline
     installTestAtlas();
 
     // ---- NEW roles: each default must equal the exact old literal bytes under the default theme ----
     {
-        const JTheme& t = JTheme::current();
+        const JStyle& t = JStyle::current();
         check("role.ControlText      == {220,220,228,255}", eq4(t.ControlText,      220,220,228,255));
         check("role.FieldText        == {210,210,220,255}", eq4(t.FieldText,        210,210,220,255));
         check("role.LabelText        == {200,200,210,255}", eq4(t.LabelText,        200,200,210,255));

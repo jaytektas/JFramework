@@ -20,7 +20,7 @@ public:
         : JControl(graph, "JScrollBar"), m_thumbRatio(std::clamp(thumbRatio, 0.05f, 1.0f))
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().menuItemHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().menuItemHeight;
         l.minWidth = 40.0f;
         l.minHeight = h;
     }

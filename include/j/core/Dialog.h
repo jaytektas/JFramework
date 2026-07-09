@@ -21,7 +21,7 @@
 #include "Signal.h"
 #include "MainThreadDispatcher.h"
 #include "JTextHelper.h"
-#include "JTheme.h"
+#include "JStyle.h"
 #include "KeyEvent.h"
 #include <string>
 #include <vector>

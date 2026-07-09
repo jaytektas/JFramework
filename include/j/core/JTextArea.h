@@ -21,7 +21,7 @@ public:
         : JControl(graph, "JTextArea"), m_placeholder(placeholder)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().controlHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().controlHeight;
         l.minWidth = 100.0f;
         l.minHeight = 40.0f;
     }
@@ -377,7 +377,7 @@ public:
 
         // Background + border (accent when focused)
         buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1,
-                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          JStyle::current().hint(JStyleHint::ControlRadius),
                           jstyle::borderW(focused),
                           focused ? Colors::Accent : Colors::Border);
 

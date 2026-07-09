@@ -18,13 +18,13 @@
 #include "TranslationEngine.h"
 #include "KeyEvent.h"
 #include "DragDrop.h"
-#include "JTheme.h"          // JWidgetState / JFocusPolicy / JTheme / Colors (pulls Style/JStyleEngine/VectorGraphics)
+#include "JStyle.h"          // JWidgetState / JFocusPolicy / JStyle / Colors (pulls Style/JStyleEngine/VectorGraphics)
 #include "../graphics/RenderPrimitive.h"
 #include "../platform/Clipboard.h"
 
 inline namespace jf {
 
-// JWidgetState / JFocusPolicy moved to JTheme.h (included above).
+// JWidgetState / JFocusPolicy moved to JStyle.h (included above).
 
 // ============================================================================
 // JWidget — base for every element in the UI tree
@@ -383,7 +383,7 @@ protected:
     float _clampH(float h) const { return std::clamp(h, m_minH, m_maxH); }
 
     // Call at the end of populateRenderPrimitives to draw a keyboard-focus ring.
-    // Defined out-of-line (after JTheme) — see below.
+    // Defined out-of-line (after JStyle) — see below.
     void drawFocusRing(JPrimitiveBuffer& buf) const;
 
     JSceneGraph& m_graph;

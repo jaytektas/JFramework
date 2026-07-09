@@ -22,7 +22,7 @@ public:
     jf::JSignal<std::string> onColorChanged;
 
     JColorButton(JSceneGraph& graph, float w = 200.0f, float h = 0.0f) : JControl(graph, "JColorButton") {
-        auto& l = m_graph.getLayout(m_nodeId); l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().controlHeight;
+        auto& l = m_graph.getLayout(m_nodeId); l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().controlHeight;
     }
     void setInheritable(bool v) { m_inheritable = v; }
     bool inheritable() const    { return m_inheritable; }

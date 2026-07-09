@@ -38,7 +38,7 @@ public:
         : JControl(graph, "JTabBar"), m_tabs(std::move(tabs))
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().menuItemHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().menuItemHeight;
         if (!m_tabs.empty()) m_activeIndex = 0;
         _updateMinSize();
     }
@@ -109,7 +109,7 @@ public:
         float gx = m_drag.curX - tabW * 0.5f;
         float gy = m_drag.curY - b.height * 0.5f;
         buf.pushRectangle(gx, gy, tabW, b.height, Colors::TabGhostFill,
-                          JTheme::current().hint(JStyleHint::ControlRadius), 1.5f, Colors::TabGhostBorder);
+                          JStyle::current().hint(JStyleHint::ControlRadius), 1.5f, Colors::TabGhostBorder);
         const uint8_t* lc = Colors::TabGhostBar;
         buf.pushRectangle(gx + 8.0f, gy + (b.height - 6.0f) * 0.5f, tabW - 16.0f, 6.0f, lc, 2.0f);
     }
@@ -190,7 +190,7 @@ public:
         JStyleOption so = jstyle::option(m_state, focused);
         // Strip = Base role; Accent ring when focused (borderW 0 when not, as before).
         buf.pushRectangle(b.x, b.y, b.width, b.height, jstyle::fieldFill(so).data(),
-                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          JStyle::current().hint(JStyleHint::ControlRadius),
                           focused ? jstyle::borderW(true) : 0.0f, jstyle::border(so).data());
 
         const JColor baseFill   = jstyle::role(JColorRole::Base, so);        // Surface1

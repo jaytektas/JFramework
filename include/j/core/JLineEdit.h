@@ -23,7 +23,7 @@ public:
         : JControl(graph, "JLineEdit"), m_placeholder(placeholder)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().controlHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().controlHeight;
         l.minWidth = 60.0f;
         l.minHeight = h;
     }
@@ -233,7 +233,7 @@ public:
 
         // Background = Base role, border = Accent ring when focused else Border (by role).
         buf.pushRectangle(b.x, b.y, b.width, b.height, jstyle::fieldFill(o).data(),
-                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          JStyle::current().hint(JStyleHint::ControlRadius),
                           jstyle::borderW(focused), jstyle::border(o).data());
 
         const float pad = textPadding();

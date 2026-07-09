@@ -6,8 +6,8 @@
 //       migrated widget emits the EXACT fill/border bytes it painted before
 //       migration (checked for Normal AND Disabled — the pre-migration render
 //       never dimmed on disable, so disabled must equal the base shade).
-//   (B) THEMING NOW FLOWS: swap the palette (via JTheme::apply(light) AND via
-//       the new JTheme::setPalette() custom-palette override) and the SAME
+//   (B) THEMING NOW FLOWS: swap the palette (via JStyle::apply(light) AND via
+//       the new JStyle::setPalette() custom-palette override) and the SAME
 //       widget now emits DIFFERENT bytes — the palette actually drives paint.
 //
 // Compile:
@@ -47,10 +47,10 @@ int main() {
     JSceneGraph graph;
 
     // ---- Capture the pre-migration named shades from the default (dark) theme.
-    const JTheme dk = JTheme::dark();
+    const JStyle dk = JStyle::dark();
 
     // ================================================================= (A) no regression
-    JTheme::apply(JTheme::dark());
+    JStyle::apply(JStyle::dark());
     {
         JButton btn(graph, "OK");
         Rect r = firstRect(btn);
@@ -105,9 +105,9 @@ int main() {
     { JButton b(graph, "x"); darkButtonFill = firstRect(b).fill; }
 
     // ================================================================= (B1) theme swap flows
-    JTheme::apply(JTheme::light());
+    JStyle::apply(JStyle::light());
     {
-        const JTheme lt = JTheme::light();
+        const JStyle lt = JStyle::light();
         JButton btn(graph, "OK");
         JColor f = firstRect(btn).fill;
         check("JButton fill CHANGES after light-theme swap", f != darkButtonFill);
@@ -126,9 +126,9 @@ int main() {
         JPalette custom = JPalette::dark();
         const JColor green{0, 200, 0, 255};
         custom.setColor(JColorRole::Button, JColorGroup::Active, green);
-        JTheme t = JTheme::light();
+        JStyle t = JStyle::light();
         t.setPalette(custom);
-        JTheme::apply(t);
+        JStyle::apply(t);
 
         JButton btn(graph, "OK");
         check("JButton follows a custom JPalette::setColor(Button) override",
@@ -136,7 +136,7 @@ int main() {
     }
 
     // Restore the default theme so we leave global state clean.
-    JTheme::apply(JTheme::dark());
+    JStyle::apply(JStyle::dark());
 
     std::printf("\n%s (%d failure%s)\n", g_fail ? "FAILED" : "ALL PASS",
                 g_fail, g_fail == 1 ? "" : "s");

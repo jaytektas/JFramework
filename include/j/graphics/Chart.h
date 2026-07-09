@@ -24,7 +24,7 @@
 #include <j/graphics/VectorGraphics.h>
 #include <j/graphics/RenderPrimitive.h>
 #include <j/core/JTextHelper.h>
-#include <j/core/JTheme.h>   // Colors:: — chart palette roles
+#include <j/core/JStyle.h>   // Colors:: — chart palette roles
 #include <string>
 #include <vector>
 #include <cmath>

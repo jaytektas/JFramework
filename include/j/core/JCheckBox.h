@@ -23,7 +23,7 @@ public:
         : JControl(graph, "JCheckBox"), m_label(label)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().checkHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().checkHeight;
         l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(m_label) + 28.f) : w;
         l.minHeight = h;
     }
@@ -77,7 +77,7 @@ public:
         opt.rect = {b.x, b.y, boxSz, boxSz};
         opt.set(State_Focused, isFocused());
         opt.set(State_On | State_Selected, on);
-        const JColor fill = JStyle::controlFill(opt, JTheme::current().palette());
+        const JColor fill = JStyle::controlFill(opt, JStyle::current().palette());
         drawBox(buf, b, boxSz, fill.data(), isFocused());
         drawLabel(buf, b, boxSz);
     }
@@ -97,7 +97,7 @@ protected:
     virtual void drawBox(JPrimitiveBuffer& buf, const JRect& b, float boxSz, const uint8_t* fill, bool focused) {
         // Border colour by ROLE: Accent ring when focused, else Border (was hardcoded).
         JStyleOption opt; opt.set(State_Focused, focused);
-        const JColor border = JStyle::borderColor(opt, JTheme::current().palette());
+        const JColor border = JStyle::borderColor(opt, JStyle::current().palette());
         buf.pushRectangle(b.x, b.y, boxSz, boxSz, fill, 4.0f,
                           focused ? 2.0f : 1.5f,
                           border.data());
@@ -111,7 +111,7 @@ protected:
         }
     }
     virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b, float boxSz) {
-        const float gap = JTheme::current().itemPadding;   // label offset from the indicator box
+        const float gap = JStyle::current().itemPadding;   // label offset from the indicator box
         if (JTextHelper::hasAtlas()) {
             uint8_t lc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 200};
             JTextHelper::pushText(buf, b.x + boxSz + gap,

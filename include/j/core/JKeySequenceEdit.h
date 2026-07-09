@@ -28,7 +28,7 @@ public:
         : JControl(graph, "JKeySequenceEdit"), m_text(text)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().controlHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().controlHeight;
         l.minWidth = 60.0f;
         l.minHeight = h;
     }
@@ -64,7 +64,7 @@ public:
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface1,
-                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          JStyle::current().hint(JStyleHint::ControlRadius),
                           jstyle::borderW(m_capturing),
                           m_capturing ? Colors::Accent : Colors::Border);
         const float pad = textPadding();

@@ -20,7 +20,7 @@ public:
         : JControl(graph, "JRadioButton"), m_label(label)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().checkHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().checkHeight;
         l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(m_label) + 28.f) : w;
         l.minHeight = h;
     }
@@ -66,7 +66,7 @@ protected:
         }
     }
     virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b, float r) {
-        const float gap = JTheme::current().itemPadding;   // label offset from the ring
+        const float gap = JStyle::current().itemPadding;   // label offset from the ring
         if (JTextHelper::hasAtlas()) {
             uint8_t lc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 200};
             JTextHelper::pushText(buf, b.x + r + gap,

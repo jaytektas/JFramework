@@ -1,6 +1,6 @@
 #pragma once
 
-// StyleSheet — author the unified stylesheet (JTheme) as a text file and load/reload it at
+// StyleSheet — author the unified stylesheet (JStyle) as a text file and load/reload it at
 // runtime. Format: `key: value` lines, `#` comments, blank lines ignored.
 //   colours   -> "r g b a"  (a optional, defaults 255)   e.g.  accent: 10 132 255
 //   floats    -> a number                                 e.g.  cornerRadius: 6
@@ -10,7 +10,7 @@
 // dark() default. apply() assigns into the live singleton, so a reload reskins the GUI
 // (Colors:: points into it; hosts read style().* each frame) — edit the file, reload, presto.
 
-#include "JTheme.h"
+#include "JStyle.h"
 #include <string>
 #include <sstream>
 #include <fstream>
@@ -40,10 +40,10 @@ namespace style_detail {
     }
 }
 
-// Parse a stylesheet into a JTheme (starting from dark() so partial sheets are fine).
-inline JTheme parseStyleSheet(const std::string& text) {
+// Parse a stylesheet into a JStyle (starting from dark() so partial sheets are fine).
+inline JStyle parseStyleSheet(const std::string& text) {
     using namespace style_detail;
-    JTheme t = JTheme::dark();
+    JStyle t = JStyle::dark();
 
     struct CRef { const char* n; uint8_t* p; };
     CRef colors[] = {
@@ -121,7 +121,7 @@ inline JTheme parseStyleSheet(const std::string& text) {
 }
 
 // Read + parse a stylesheet file. Returns false if the file can't be opened.
-inline bool loadStyleSheet(const std::string& path, JTheme& out) {
+inline bool loadStyleSheet(const std::string& path, JStyle& out) {
     std::ifstream f(path);
     if (!f) return false;
     std::stringstream ss; ss << f.rdbuf();
@@ -131,9 +131,9 @@ inline bool loadStyleSheet(const std::string& path, JTheme& out) {
 
 // Load a stylesheet file and make it the live theme (reskins the GUI). False if unreadable.
 inline bool applyStyleSheetFile(const std::string& path) {
-    JTheme t;
+    JStyle t;
     if (!loadStyleSheet(path, t)) return false;
-    JTheme::apply(std::move(t));
+    JStyle::apply(std::move(t));
     return true;
 }
 

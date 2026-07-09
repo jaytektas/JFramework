@@ -5,7 +5,7 @@
 #include <string>
 #include <algorithm>
 #include <cstdint>
-#include "JTheme.h"
+#include "JStyle.h"
 #include "../graphics/RenderPrimitive.h"
 #include "../graphics/FontEngine.h"
 

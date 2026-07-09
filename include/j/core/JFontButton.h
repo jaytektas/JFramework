@@ -19,7 +19,7 @@ public:
     jf::JSignal<std::string> onFontChanged;
 
     JFontButton(JSceneGraph& graph, float w = 200.0f, float h = 0.0f) : JControl(graph, "JFontButton") {
-        auto& l = m_graph.getLayout(m_nodeId); l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().controlHeight;
+        auto& l = m_graph.getLayout(m_nodeId); l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().controlHeight;
     }
     void setInheritable(bool v) { m_inheritable = v; }
     void setFontSpec(const std::string& s) { if (m_spec != s) { m_spec = s; m_graph.invalidateNode(m_nodeId, DirtySelf); } }

@@ -10,8 +10,8 @@ inline namespace jf {
 // JControl — interactive widget with hover/press/click signals
 // ============================================================================
 
-// The scheme's default interior text padding (defined after JTheme, below). Forward-declared here so
-// JControl — which precedes JTheme in this header — can fall back to it in textPadding().
+// The scheme's default interior text padding (defined after JStyle, below). Forward-declared here so
+// JControl — which precedes JStyle in this header — can fall back to it in textPadding().
 inline float _jStyleFieldPadding();
 
 class JControl : public JWidget {
@@ -46,7 +46,7 @@ public:
 
 
     // Interior text padding for input controls (JLineEdit/JSpinBox/JComboBox…). Falls back to the
-    // scheme's JTheme::fieldPadding; set per-instance for granular control (a negative value restores
+    // scheme's JStyle::fieldPadding; set per-instance for granular control (a negative value restores
     // the scheme default).
     void  setTextPadding(float p) { m_textPad = p; m_graph.invalidateNode(m_nodeId, DirtySelf); }
     float textPadding() const { return m_textPad >= 0.f ? m_textPad : _jStyleFieldPadding(); }

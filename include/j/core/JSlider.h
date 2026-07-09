@@ -19,7 +19,7 @@ public:
         : JControl(graph, "JSlider"), m_value(0.5f)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().sliderHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().sliderHeight;
         l.minWidth = 50.0f;
         l.minHeight = h;
     }

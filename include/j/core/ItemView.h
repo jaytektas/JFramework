@@ -144,7 +144,7 @@ public:
     // ---- Render ------------------------------------------------------------
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        const auto& th = JTheme::current();
+        const auto& th = JStyle::current();
 
         // Frame.
         buf.pushRectangle(b.x, b.y, b.width, b.height, th.Surface1,
@@ -342,7 +342,7 @@ public:
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        const auto& th = JTheme::current();
+        const auto& th = JStyle::current();
         buf.pushRectangle(b.x, b.y, b.width, b.height, th.Surface1,
                           th.cornerRadius, th.borderWidth, th.Border);
         if (!m_model) { drawFocusRing(buf); return; }

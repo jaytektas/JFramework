@@ -3,7 +3,7 @@
 // Each container/chrome widget touched by the pass is constructed with a JSceneGraph, rendered into a
 // JPrimitiveBuffer under the DEFAULT (dark) theme, and the emitted fill / border / text colours are
 // asserted against the EXACT OLD literal bytes that were hardcoded before migration (the expected value
-// in every assertion IS the recorded pre-migration literal). We also assert every NEW JTheme role added
+// in every assertion IS the recorded pre-migration literal). We also assert every NEW JStyle role added
 // by the pass equals its old bytes under the default theme. PASS/FAIL per case; non-zero exit on any fail.
 
 #include <j/core/JTabWidget.h>
@@ -14,7 +14,7 @@
 #include <j/core/JGroupBox.h>
 #include <j/core/JScrollArea.h>
 #include <j/core/JButton.h>
-#include <j/core/JTheme.h>
+#include <j/core/JStyle.h>
 
 #include <cstdio>
 #include <cstdint>
@@ -64,12 +64,12 @@ static void installTestAtlas() {
 }
 
 int main() {
-    JTheme::apply(JTheme::dark());   // default theme = byte-exact baseline
+    JStyle::apply(JStyle::dark());   // default theme = byte-exact baseline
     installTestAtlas();
 
     // ---- NEW roles: each default must equal the exact old literal bytes under the default theme ----
     {
-        const JTheme& t = JTheme::current();
+        const JStyle& t = JStyle::current();
         check("role.ScrollTrack        == {30,30,35,120}",   eq4(t.ScrollTrack,        30,30,35,120));
         check("role.ScrollThumb        == {100,100,110,200}",eq4(t.ScrollThumb,        100,100,110,200));
         check("role.ScrollThumbActive  == {130,130,140,200}",eq4(t.ScrollThumbActive,  130,130,140,200));

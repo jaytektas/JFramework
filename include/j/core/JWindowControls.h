@@ -6,7 +6,7 @@
 #include "JWidget.h"
 #include "JTextHelper.h"
 #include "DragDrop.h"
-#include "JTheme.h"
+#include "JStyle.h"
 #include "../graphics/RenderPrimitive.h"
 
 inline namespace jf {
@@ -62,7 +62,7 @@ inline void JWidget::renderTooltips(JPrimitiveBuffer& buf, float mouseX, float m
 inline void JWidget::drawFocusRing(JPrimitiveBuffer& buf) const {
     if (m_state != JWidgetState::Focused) return;
     const auto& bb  = m_graph.getLayoutConst(m_nodeId).boundingBox;
-    const auto& th  = JTheme::current();
+    const auto& th  = JStyle::current();
     float p = th.focusRingWidth * 0.5f + 1.f;
     uint8_t ring[4] = {th.Accent[0], th.Accent[1], th.Accent[2], 210};
     uint8_t none[4] = {0, 0, 0, 0};

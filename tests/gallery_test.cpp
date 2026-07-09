@@ -27,7 +27,7 @@
 #include "j/core/BaseWidgets.h"      // JLabel/JButton/JToolButton/JToggleButton/JCheckBox/
                                      // JRadioButton/JSlider/JProgressBar/JScrollBar/JLineEdit/
                                      // JSpinBox/JDoubleSpinBox/JComboBox/JTabWidget/JGroupBox/
-                                     // JContainer/JScrollArea/JListView/JSeparator + JTheme/JStyle
+                                     // JContainer/JScrollArea/JListView/JSeparator + JStyle/JStyle
 #include "j/core/ItemView.h"         // JItemListView / JItemTableView (+ JAbstractItemView)
 #include "j/core/Splitter.h"         // JSplitter
 // ---- subsystems --------------------------------------------------------------
@@ -308,21 +308,21 @@ int main() {
 
     // Palette swap changes the bytes a widget paints.
     {
-        JTheme::apply(JTheme::dark());
+        JStyle::apply(JStyle::dark());
         JButton bd(graph, "OK");  JColor darkFill = firstFill(bd);
         // Install an explicit custom palette straight onto the theme.
         JPalette custom = JPalette::dark();
         const JColor green{0, 200, 0, 255};
         custom.setColor(JColorRole::Button, JColorGroup::Active, green);
-        JTheme t = JTheme::dark(); t.setPalette(custom); JTheme::apply(t);
+        JStyle t = JStyle::dark(); t.setPalette(custom); JStyle::apply(t);
         JButton bc(graph, "OK");  JColor customFill = firstFill(bc);
         check("JPalette override changes painted bytes",
               customFill == green && customFill != darkFill);
 
-        JTheme::apply(JTheme::light());
+        JStyle::apply(JStyle::light());
         JButton bl(graph, "OK");  JColor lightFill = firstFill(bl);
         check("light theme paints differently than dark", lightFill != darkFill);
-        JTheme::apply(JTheme::dark());   // leave global state clean
+        JStyle::apply(JStyle::dark());   // leave global state clean
     }
 
     // Focus manager, animator registry, and timer registry all live in one TU

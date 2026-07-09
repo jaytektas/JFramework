@@ -21,7 +21,10 @@
 
 #include <j/core/ApplicationCore.h>      // JPlatformWindow
 #include <j/core/PlatformCommon.h>       // JPlatformWindowStyle
-#include <j/core/GenesisComponents.h>    // JGuiApplication, + JTextHelper/Colors via BaseWidgets
+#include <j/core/GenesisComponents.h>    // JGuiApplication
+#include <j/core/JComboBox.h>            // JComboBox (managed combo-dropdown popup)
+#include <j/core/JColorButton.h>         // JColorButton (opens the colour picker dialog)
+#include <j/core/JFontButton.h>          // JFontButton (opens the font picker dialog)
 #include <j/core/DragDrop.h>             // JDragDrop — drag ghost overlay + drop-end repaint
 #include <j/core/DockManager.h>          // JDockHost (auto-managed dock layout)
 #include <j/core/DockSpace.h>            // JDockSpace (centre + 4 dock areas)
@@ -194,7 +197,7 @@ public:
             m_menuRuntime.wire(m_hal.get(),
                                static_cast<JPopupWindow::NativeWinHandleType>(m_window->rawWindowId()),
                                m_menuBar.get());
-            m_menuH = JTheme::current().menuItemHeight + 4.f;   // menu bar scales with the scheme row height
+            m_menuH = JStyle::current().menuItemHeight + 4.f;   // menu bar scales with the scheme row height
             layoutDocks();
         }
         return *m_menuBar;
@@ -217,7 +220,7 @@ public:
     // buttons with addButton(label, onClick); the framework lays it out, renders it, and
     // routes input. Returns the bar so the app just declares buttons.
     JToolBar& toolBar() {
-        if (!m_toolBar) { m_toolBar = std::make_unique<JToolBar>(); m_toolbarH = JTheme::current().buttonHeight + 8.f; layoutDocks(); }   // toolbar scales with the scheme button height
+        if (!m_toolBar) { m_toolBar = std::make_unique<JToolBar>(); m_toolbarH = JStyle::current().buttonHeight + 8.f; layoutDocks(); }   // toolbar scales with the scheme button height
         return *m_toolBar;
     }
     // Override the toolbar height (e.g. to host a tall icon widget). Call after toolBar().
@@ -1035,7 +1038,7 @@ private:
     float                            m_mx{-1.0f}, m_my{-1.0f};
     int64_t                          m_lastTitleMs{0};   // last title-bar press (double-click → maximize)
     bool                             m_leftHeld{false};   // app-tracked button state (press→release)
-    float                            m_titleH{JTheme::current().titleBarHeight};   // one canonical title-bar height
+    float                            m_titleH{JStyle::current().titleBarHeight};   // one canonical title-bar height
     bool                             m_needRedraw{false};
     bool                             m_wasDragging{false};   // drag active last frame (repaint on drop)
     bool                             m_dragBtnWasDown{false};// button state last frame during a drag (release edge)

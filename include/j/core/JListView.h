@@ -22,7 +22,7 @@ public:
         : JControl(graph, "JListView"), m_items(std::move(items))
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().menuItemHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().menuItemHeight;
         l.minWidth = 80.0f;
         l.minHeight = 40.0f;
     }
@@ -142,7 +142,7 @@ public:
 
         // Background = Base role; border = Accent ring when focused else Border.
         buf.pushRectangle(b.x, b.y, b.width, b.height, jstyle::fieldFill(o).data(),
-                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          JStyle::current().hint(JStyleHint::ControlRadius),
                           jstyle::borderW(focused), jstyle::border(o).data());
 
         if (m_items.empty()) return;

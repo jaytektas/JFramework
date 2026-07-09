@@ -18,7 +18,7 @@ inline namespace jf {
 //   role  : what a pixel MEANS (Window background, Text, Highlight…), not a literal shade
 //   group : the widget's coarse state family { Active, Inactive, Disabled }
 // A widget asks `palette.color(role, group)` and never names a raw colour. The default
-// light() / dark() palettes are self-contained; JTheme::palette() (BaseWidgets.h) rebuilds
+// light() / dark() palettes are self-contained; JStyle::palette() (BaseWidgets.h) rebuilds
 // one from the live named theme colours so existing `Colors::` sites stay pixel-identical.
 // ============================================================================
 enum class JColorRole : uint8_t {
@@ -247,50 +247,13 @@ private:
     std::unordered_map<NodeId, JStyleStore> m_nodeStyles;
 };
 
-/**
- * @brief Standard JStyle Keys for the Toolkit.
- */
-namespace JStyle {
-    constexpr JStyleKey<uint32_t[4]> BackgroundColor{ 0x01 }; // RGBA8
-    constexpr JStyleKey<float> CornerRadius{ 0x02 };
-    constexpr JStyleKey<float> BorderWidth{ 0x03 };
-    constexpr JStyleKey<float> RowHeight{ 0x50 };
-    constexpr JStyleKey<float> HeaderHeight{ 0x51 };
-    constexpr JStyleKey<float> CellPadding{ 0x52 };
-
-    // ------------------------------------------------------------------------
-    // Primitive draw-DECISION hooks. Given a control's state + a palette, resolve
-    // which semantic colour a widget should paint — so widgets stop hardcoding
-    // shades. These decide roles only; the widget still issues the draw call.
-    // ------------------------------------------------------------------------
-
-    // Background fill for a generic control (button/checkbox/…): a checked/selected
-    // or pressed control reads Highlight, everything else its Base surface.
-    inline JColor controlFill(const JStyleOption& o, const JPalette& p) {
-        const JColorGroup g = o.group();
-        if (o.has(State_On | State_Selected | State_Pressed))
-            return p.color(JColorRole::Highlight, g);
-        return p.color(JColorRole::Base, g);
-    }
-
-    // Outline colour: a focused control takes the Accent ring, else the Border role.
-    inline JColor borderColor(const JStyleOption& o, const JPalette& p) {
-        const JColorGroup g = o.group();
-        if (o.has(State_Focused)) return p.color(JColorRole::Accent, g);
-        return p.color(JColorRole::Border, g);
-    }
-
-    // Foreground text colour for the control's current group.
-    inline JColor textColor(const JStyleOption& o, const JPalette& p) {
-        if (o.has(State_On | State_Selected))
-            return p.color(JColorRole::HighlightedText, o.group());
-        return p.color(JColorRole::Text, o.group());
-    }
-}
+// (The former `namespace JStyle` — dead JStyleKey constants + the controlFill/borderColor/textColor
+//  decision hooks — was folded into the unified `class JStyle` (JStyle.h): the hooks are now its static
+//  methods, and the unused style-key constants were dropped.)
 
 // ============================================================================
 // JStyleHint — keyed metrics a widget queries instead of embedding magic
-// numbers. Resolved by JTheme::hint() (BaseWidgets.h) against the live theme.
+// numbers. Resolved by JStyle::hint() (BaseWidgets.h) against the live theme.
 // ============================================================================
 enum class JStyleHint : uint16_t {
     FocusRingWidth,   // outline width of the focus ring

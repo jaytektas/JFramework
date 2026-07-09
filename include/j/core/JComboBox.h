@@ -35,7 +35,7 @@ public:
         : JControl(graph, "JComboBox"), m_items(std::move(items))
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().controlHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().controlHeight;
         _updateMinSize();
     }
 
@@ -151,7 +151,7 @@ public:
                               : jstyle::role(JColorRole::Button, o);
         // Main box
         buf.pushRectangle(b.x, b.y, b.width, b.height, fill.data(),
-                          JTheme::current().hint(JStyleHint::ControlRadius),
+                          JStyle::current().hint(JStyleHint::ControlRadius),
                           jstyle::borderW(focused), jstyle::border(o).data());
         // Arrow area = ToolTipBase (old Surface3)
         buf.pushRectangle(b.x + b.width - arrowW, b.y + 1.0f, arrowW - 1.0f, b.height - 2.0f,

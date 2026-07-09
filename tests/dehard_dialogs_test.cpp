@@ -1,6 +1,6 @@
 // dehard_dialogs_test.cpp — BYTE-EXACT no-regression gate for the dialog/misc
 // colour de-hardcoding pass. Two kinds of check:
-//   (A) every NEW JTheme role, under the default (dark) theme, equals the exact
+//   (A) every NEW JStyle role, under the default (dark) theme, equals the exact
 //       literal it replaced;
 //   (B) a real JMessageBox is rendered into a JPrimitiveBuffer headlessly and its
 //       recorded background / title / button fill+border colours are asserted
@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <vector>
 
-#include <j/core/JTheme.h>
+#include <j/core/JStyle.h>
 #include <j/core/StandardDialogs.h>
 
 using namespace jf;
@@ -32,8 +32,8 @@ static void check(const char* name, const uint8_t* got,
 }
 
 int main() {
-    // Default theme is dark() — the singleton starts at JTheme{}.
-    const JTheme& t = JTheme::current();
+    // Default theme is dark() — the singleton starts at JStyle{}.
+    const JStyle& t = JStyle::current();
 
     std::printf("--- (A) new roles == replaced literals (default theme) ---\n");
     // Dialog / popup chrome

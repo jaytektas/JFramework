@@ -25,7 +25,7 @@ public:
         : JWidget(graph, "JTabWidget")
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().menuItemHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().menuItemHeight;
     }
 
     // content is non-owning; caller keeps it alive while the tab exists. Returns the new tab index.

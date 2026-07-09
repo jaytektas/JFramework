@@ -1,6 +1,6 @@
 #pragma once
 
-// JTheme — THE stylesheet: runtime-mutable colours + dimensions + dock-tab style, the semantic
+// JStyle — THE stylesheet: runtime-mutable colours + dimensions + dock-tab style, the semantic
 // palette bridge, the jstyle helpers, and the legacy Colors:: aliases. Extracted from BaseWidgets.h
 // so the theme/schema is one file, editable without touching the widget classes. Also carries the two
 // small foundational enums (JWidgetState / JFocusPolicy) the theme's jstyle helpers consume.
@@ -49,11 +49,11 @@ inline JFocusPolicy operator|(JFocusPolicy a, JFocusPolicy b) {
 }
 
 // ============================================================================
-// JTheme — THE stylesheet (unified). Runtime-mutable colours + dimensions + dock
-// tab style; swap the whole app with JTheme::apply(). Read it via style() (alias
+// JStyle — THE stylesheet (unified). Runtime-mutable colours + dimensions + dock
+// tab style; swap the whole app with JStyle::apply(). Read it via style() (alias
 // for current()); legacy Colors:: now points into it.
 // ============================================================================
-struct JTheme {
+struct JStyle {
     // Palette
     uint8_t Surface0[4]      = {18,  18,  20,  255};
     uint8_t Surface1[4]      = {28,  28,  30,  255};
@@ -172,30 +172,48 @@ struct JTheme {
     JTabFill    tabFill{JTabFill::Fill};
     float       tabBarSize = 28.f;
 
-    static JTheme  dark();
-    static JTheme  light();
-    static JTheme& current();
-    static void   apply(JTheme t);
+    static JStyle  dark();
+    static JStyle  light();
+    static JStyle& current();
+    static void   apply(JStyle t);
 
     // Optional fully-custom palette. When set, palette() returns it verbatim instead of
     // deriving one from the named colours — so a caller can install JPalette::light()/
     // dark()/bespoke and have every migrated widget follow it. Left empty by default so
     // the derived (named-colour) palette drives the standard themes unchanged.
     std::optional<JPalette> paletteOverride;
-    JTheme& setPalette(JPalette p) { paletteOverride = std::move(p); return *this; }
+    JStyle& setPalette(JPalette p) { paletteOverride = std::move(p); return *this; }
 
     // Semantic palette derived from THIS theme's named colours — the bridge that lets
     // role-based widgets read the live theme with no visual change (see mapping below).
     JPalette palette() const;
     // Keyed metric lookup — widgets query hint(JStyleHint::…) instead of magic numbers.
     float    hint(JStyleHint h) const;
+
+    // Draw-DECISION hooks (folded in from the former `namespace JStyle`): given a control's state + a
+    // palette, resolve which semantic colour it paints — widgets name roles, not shades. Static: they
+    // read the passed palette, not `this`, so a call site writes JStyle::controlFill(opt, pal).
+    static JColor controlFill(const JStyleOption& o, const JPalette& p) {
+        const JColorGroup g = o.group();
+        if (o.has(State_On | State_Selected | State_Pressed)) return p.color(JColorRole::Highlight, g);
+        return p.color(JColorRole::Base, g);
+    }
+    static JColor borderColor(const JStyleOption& o, const JPalette& p) {
+        const JColorGroup g = o.group();
+        if (o.has(State_Focused)) return p.color(JColorRole::Accent, g);
+        return p.color(JColorRole::Border, g);
+    }
+    static JColor textColor(const JStyleOption& o, const JPalette& p) {
+        if (o.has(State_On | State_Selected)) return p.color(JColorRole::HighlightedText, o.group());
+        return p.color(JColorRole::Text, o.group());
+    }
 };
 
-inline float _jStyleFieldPadding() { return JTheme::current().fieldPadding; }
+inline float _jStyleFieldPadding() { return JStyle::current().fieldPadding; }
 
-inline JTheme JTheme::dark()  { return JTheme{}; }
-inline JTheme JTheme::light() {
-    JTheme t;
+inline JStyle JStyle::dark()  { return JStyle{}; }
+inline JStyle JStyle::light() {
+    JStyle t;
     auto s = [](uint8_t* d, uint8_t a, uint8_t b, uint8_t c, uint8_t e)
               { d[0]=a; d[1]=b; d[2]=c; d[3]=e; };
     s(t.Surface0,      248, 248, 250, 255);
@@ -276,8 +294,8 @@ inline JTheme JTheme::light() {
     s(t.FloatSeparator,   200, 200, 208, 255);
     return t;
 }
-inline JTheme& JTheme::current() { static JTheme inst; return inst; }
-inline void   JTheme::apply(JTheme t) { current() = std::move(t); }
+inline JStyle& JStyle::current() { static JStyle inst; return inst; }
+inline void   JStyle::apply(JStyle t) { current() = std::move(t); }
 
 // Map the legacy named colours onto semantic roles. This is the ONE source of truth for
 // the running theme: every role resolves to a live theme field, so a widget that switches
@@ -285,7 +303,7 @@ inline void   JTheme::apply(JTheme t) { current() = std::move(t); }
 //   Window/Base  <- Surface1     Button      <- Surface2     ToolTipBase <- Surface3
 //   *Text        <- TextPrimary  Placeholder <- TextSecondary
 //   Highlight/Accent/Link <- Accent          Border      <- Border
-inline JPalette JTheme::palette() const {
+inline JPalette JStyle::palette() const {
     if (paletteOverride) return *paletteOverride;   // caller-installed custom palette wins
     return palette_detail::build(
         /*Window*/          JColor::fromArray(Surface1),
@@ -304,7 +322,7 @@ inline JPalette JTheme::palette() const {
         /*Link*/            JColor::fromArray(Accent));
 }
 
-inline float JTheme::hint(JStyleHint h) const {
+inline float JStyle::hint(JStyleHint h) const {
     switch (h) {
         case JStyleHint::FocusRingWidth: return focusRingWidth;
         case JStyleHint::ControlRadius:  return cornerRadius;
@@ -317,21 +335,21 @@ inline float JTheme::hint(JStyleHint h) const {
 }
 
 // The one stylesheet accessor — read by the whole framework each frame.
-inline JTheme& style() { return JTheme::current(); }
+inline JStyle& style() { return JStyle::current(); }
 
 // ============================================================================
 // jstyle — palette-routed styling helpers shared by the standard widgets.
 // A control builds a JStyleOption from its live JWidgetState, then pulls
-// fill / border / text from the semantic palette (JTheme::palette()) via the
+// fill / border / text from the semantic palette (JStyle::palette()) via the
 // JStyle decision hooks instead of naming raw shades. Every ROLE picked below
 // resolves — under the default theme — to the EXACT shade the widget painted
 // before migration (Base=Surface1, Button=Surface2, ToolTipBase=Surface3,
 // Border=Border, Highlight/Accent=Accent, Text/WindowText=TextPrimary,
-// PlaceholderText=TextSecondary; see JTheme::palette). So a default-theme
+// PlaceholderText=TextSecondary; see JStyle::palette). So a default-theme
 // render is pixel-for-pixel unchanged, while a theme/palette swap now restyles
 // the whole set from one place and hover/press/focus/on/selected resolve
 // consistently. A few status shades (AccentPress/Success/Danger) have no
-// palette role; those stay on their themed JTheme field (still follow a theme
+// palette role; those stay on their themed JStyle field (still follow a theme
 // swap) and are called out at each site.
 // ============================================================================
 namespace jstyle {
@@ -352,7 +370,7 @@ inline JStyleOption option(JWidgetState st, bool focused,
     return o;
 }
 
-inline JPalette pal() { return JTheme::current().palette(); }
+inline JPalette pal() { return JStyle::current().palette(); }
 
 // Resolve a bare role in the option's group.
 inline JColor role(JColorRole r, const JStyleOption& o) { return pal().color(r, o.group()); }
@@ -362,7 +380,7 @@ inline JColor border(const JStyleOption& o) { return JStyle::borderColor(o, pal(
 
 // Standard focus-aware outline width: FocusRingWidth when focused, else BorderWidth.
 inline float borderW(bool focused) {
-    const JTheme& t = JTheme::current();
+    const JStyle& t = JStyle::current();
     return focused ? t.hint(JStyleHint::FocusRingWidth) : t.hint(JStyleHint::BorderWidth);
 }
 
@@ -382,90 +400,90 @@ inline JColor buttonFill(const JStyleOption& o) {
 } // namespace jstyle
 
 // Legacy palette access: each role is a live pointer into the runtime stylesheet, so
-// every existing `Colors::Role` site now reads JTheme::current() (mutate it / apply() a
+// every existing `Colors::Role` site now reads JStyle::current() (mutate it / apply() a
 // new theme and the whole GUI follows). apply() copies into the same singleton object,
 // so these pointers stay valid.
 namespace Colors {
-    inline const uint8_t* const Surface0      = JTheme::current().Surface0;
-    inline const uint8_t* const Surface1      = JTheme::current().Surface1;
-    inline const uint8_t* const Surface2      = JTheme::current().Surface2;
-    inline const uint8_t* const Surface3      = JTheme::current().Surface3;
-    inline const uint8_t* const Border        = JTheme::current().Border;
-    inline const uint8_t* const TextPrimary   = JTheme::current().TextPrimary;
-    inline const uint8_t* const TextSecondary = JTheme::current().TextSecondary;
-    inline const uint8_t* const Accent        = JTheme::current().Accent;
-    inline const uint8_t* const AccentHover   = JTheme::current().AccentHover;
-    inline const uint8_t* const AccentPress   = JTheme::current().AccentPress;
-    inline const uint8_t* const Success       = JTheme::current().Success;
-    inline const uint8_t* const Warning       = JTheme::current().Warning;
-    inline const uint8_t* const Danger        = JTheme::current().Danger;
-    inline const uint8_t* const CloseBtn      = JTheme::current().CloseBtn;
-    inline const uint8_t* const CloseBtnHover = JTheme::current().CloseBtnHover;
-    inline const uint8_t* const CloseBtnMark  = JTheme::current().CloseBtnMark;
-    inline const uint8_t* const TitleBar      = JTheme::current().TitleBar;
-    inline const uint8_t* const TitleBarText  = JTheme::current().TitleBarText;
-    inline const uint8_t* const ControlText      = JTheme::current().ControlText;
-    inline const uint8_t* const FieldText        = JTheme::current().FieldText;
-    inline const uint8_t* const LabelText        = JTheme::current().LabelText;
-    inline const uint8_t* const MutedText        = JTheme::current().MutedText;
-    inline const uint8_t* const FieldPlaceholder = JTheme::current().FieldPlaceholder;
-    inline const uint8_t* const CaptureHint      = JTheme::current().CaptureHint;
-    inline const uint8_t* const SelectionFill    = JTheme::current().SelectionFill;
-    inline const uint8_t* const HighlightedText  = JTheme::current().HighlightedText;
-    inline const uint8_t* const DialogBg          = JTheme::current().DialogBg;
-    inline const uint8_t* const DialogTitleBg     = JTheme::current().DialogTitleBg;
-    inline const uint8_t* const OverlayScrim      = JTheme::current().OverlayScrim;
-    inline const uint8_t* const DialogShadow      = JTheme::current().DialogShadow;
-    inline const uint8_t* const InputFieldBg      = JTheme::current().InputFieldBg;
-    inline const uint8_t* const CancelBtnBg       = JTheme::current().CancelBtnBg;
-    inline const uint8_t* const CancelBtnBorder   = JTheme::current().CancelBtnBorder;
-    inline const uint8_t* const DialogCloseHover  = JTheme::current().DialogCloseHover;
-    inline const uint8_t* const PopupBg           = JTheme::current().PopupBg;
-    inline const uint8_t* const PopupInnerBg      = JTheme::current().PopupInnerBg;
-    inline const uint8_t* const PopupItemText     = JTheme::current().PopupItemText;
-    inline const uint8_t* const PreviewBg         = JTheme::current().PreviewBg;
-    inline const uint8_t* const ChartBg           = JTheme::current().ChartBg;
-    inline const uint8_t* const ChartTitleText    = JTheme::current().ChartTitleText;
-    inline const uint8_t* const ChartAxisText     = JTheme::current().ChartAxisText;
-    inline const uint8_t* const ChartAxis2Text    = JTheme::current().ChartAxis2Text;
-    inline const uint8_t* const ChartLegendText   = JTheme::current().ChartLegendText;
-    inline const uint8_t* const ChartTooltipText  = JTheme::current().ChartTooltipText;
-    inline const uint8_t* const ChartTooltipBg    = JTheme::current().ChartTooltipBg;
-    inline const uint8_t* const ChartTooltipBorder= JTheme::current().ChartTooltipBorder;
-    inline const uint8_t* const ChartCrosshair    = JTheme::current().ChartCrosshair;
-    inline const uint8_t* const ScrollTrack        = JTheme::current().ScrollTrack;
-    inline const uint8_t* const ScrollThumb        = JTheme::current().ScrollThumb;
-    inline const uint8_t* const ScrollThumbActive  = JTheme::current().ScrollThumbActive;
-    inline const uint8_t* const ScrollAreaBg       = JTheme::current().ScrollAreaBg;
-    inline const uint8_t* const TabGhostFill       = JTheme::current().TabGhostFill;
-    inline const uint8_t* const TabGhostBorder     = JTheme::current().TabGhostBorder;
-    inline const uint8_t* const TabGhostBar        = JTheme::current().TabGhostBar;
-    inline const uint8_t* const TabTearDot         = JTheme::current().TabTearDot;
-    inline const uint8_t* const TabInactiveText    = JTheme::current().TabInactiveText;
-    inline const uint8_t* const DockTabInactiveText= JTheme::current().DockTabInactiveText;
-    inline const uint8_t* const TreeEditText       = JTheme::current().TreeEditText;
-    inline const uint8_t* const TreeIconTable      = JTheme::current().TreeIconTable;
-    inline const uint8_t* const TreeIconConfig     = JTheme::current().TreeIconConfig;
-    inline const uint8_t* const TreeIconToggle     = JTheme::current().TreeIconToggle;
-    inline const uint8_t* const TreeIconEnum       = JTheme::current().TreeIconEnum;
-    inline const uint8_t* const TreeIconCurve      = JTheme::current().TreeIconCurve;
-    inline const uint8_t* const RowAltBg           = JTheme::current().RowAltBg;
-    inline const uint8_t* const GridLine           = JTheme::current().GridLine;
-    inline const uint8_t* const GridHeaderText     = JTheme::current().GridHeaderText;
-    inline const uint8_t* const GroupPanelFill     = JTheme::current().GroupPanelFill;
-    inline const uint8_t* const GroupTitleBg       = JTheme::current().GroupTitleBg;
-    inline const uint8_t* const DockContentBg      = JTheme::current().DockContentBg;
-    inline const uint8_t* const DockPinIdle        = JTheme::current().DockPinIdle;
-    inline const uint8_t* const DockResizeIdle     = JTheme::current().DockResizeIdle;
-    inline const uint8_t* const DockResizeHot      = JTheme::current().DockResizeHot;
-    inline const uint8_t* const DockCloseMark      = JTheme::current().DockCloseMark;
-    inline const uint8_t* const DockSplitLine      = JTheme::current().DockSplitLine;
-    inline const uint8_t* const DropArrowBg        = JTheme::current().DropArrowBg;
-    inline const uint8_t* const DropArrowBorder    = JTheme::current().DropArrowBorder;
-    inline const uint8_t* const WindowTitleFill    = JTheme::current().WindowTitleFill;
-    inline const uint8_t* const WindowFrameBorder  = JTheme::current().WindowFrameBorder;
-    inline const uint8_t* const FloatTitleBarBg    = JTheme::current().FloatTitleBarBg;
-    inline const uint8_t* const FloatSeparator     = JTheme::current().FloatSeparator;
+    inline const uint8_t* const Surface0      = JStyle::current().Surface0;
+    inline const uint8_t* const Surface1      = JStyle::current().Surface1;
+    inline const uint8_t* const Surface2      = JStyle::current().Surface2;
+    inline const uint8_t* const Surface3      = JStyle::current().Surface3;
+    inline const uint8_t* const Border        = JStyle::current().Border;
+    inline const uint8_t* const TextPrimary   = JStyle::current().TextPrimary;
+    inline const uint8_t* const TextSecondary = JStyle::current().TextSecondary;
+    inline const uint8_t* const Accent        = JStyle::current().Accent;
+    inline const uint8_t* const AccentHover   = JStyle::current().AccentHover;
+    inline const uint8_t* const AccentPress   = JStyle::current().AccentPress;
+    inline const uint8_t* const Success       = JStyle::current().Success;
+    inline const uint8_t* const Warning       = JStyle::current().Warning;
+    inline const uint8_t* const Danger        = JStyle::current().Danger;
+    inline const uint8_t* const CloseBtn      = JStyle::current().CloseBtn;
+    inline const uint8_t* const CloseBtnHover = JStyle::current().CloseBtnHover;
+    inline const uint8_t* const CloseBtnMark  = JStyle::current().CloseBtnMark;
+    inline const uint8_t* const TitleBar      = JStyle::current().TitleBar;
+    inline const uint8_t* const TitleBarText  = JStyle::current().TitleBarText;
+    inline const uint8_t* const ControlText      = JStyle::current().ControlText;
+    inline const uint8_t* const FieldText        = JStyle::current().FieldText;
+    inline const uint8_t* const LabelText        = JStyle::current().LabelText;
+    inline const uint8_t* const MutedText        = JStyle::current().MutedText;
+    inline const uint8_t* const FieldPlaceholder = JStyle::current().FieldPlaceholder;
+    inline const uint8_t* const CaptureHint      = JStyle::current().CaptureHint;
+    inline const uint8_t* const SelectionFill    = JStyle::current().SelectionFill;
+    inline const uint8_t* const HighlightedText  = JStyle::current().HighlightedText;
+    inline const uint8_t* const DialogBg          = JStyle::current().DialogBg;
+    inline const uint8_t* const DialogTitleBg     = JStyle::current().DialogTitleBg;
+    inline const uint8_t* const OverlayScrim      = JStyle::current().OverlayScrim;
+    inline const uint8_t* const DialogShadow      = JStyle::current().DialogShadow;
+    inline const uint8_t* const InputFieldBg      = JStyle::current().InputFieldBg;
+    inline const uint8_t* const CancelBtnBg       = JStyle::current().CancelBtnBg;
+    inline const uint8_t* const CancelBtnBorder   = JStyle::current().CancelBtnBorder;
+    inline const uint8_t* const DialogCloseHover  = JStyle::current().DialogCloseHover;
+    inline const uint8_t* const PopupBg           = JStyle::current().PopupBg;
+    inline const uint8_t* const PopupInnerBg      = JStyle::current().PopupInnerBg;
+    inline const uint8_t* const PopupItemText     = JStyle::current().PopupItemText;
+    inline const uint8_t* const PreviewBg         = JStyle::current().PreviewBg;
+    inline const uint8_t* const ChartBg           = JStyle::current().ChartBg;
+    inline const uint8_t* const ChartTitleText    = JStyle::current().ChartTitleText;
+    inline const uint8_t* const ChartAxisText     = JStyle::current().ChartAxisText;
+    inline const uint8_t* const ChartAxis2Text    = JStyle::current().ChartAxis2Text;
+    inline const uint8_t* const ChartLegendText   = JStyle::current().ChartLegendText;
+    inline const uint8_t* const ChartTooltipText  = JStyle::current().ChartTooltipText;
+    inline const uint8_t* const ChartTooltipBg    = JStyle::current().ChartTooltipBg;
+    inline const uint8_t* const ChartTooltipBorder= JStyle::current().ChartTooltipBorder;
+    inline const uint8_t* const ChartCrosshair    = JStyle::current().ChartCrosshair;
+    inline const uint8_t* const ScrollTrack        = JStyle::current().ScrollTrack;
+    inline const uint8_t* const ScrollThumb        = JStyle::current().ScrollThumb;
+    inline const uint8_t* const ScrollThumbActive  = JStyle::current().ScrollThumbActive;
+    inline const uint8_t* const ScrollAreaBg       = JStyle::current().ScrollAreaBg;
+    inline const uint8_t* const TabGhostFill       = JStyle::current().TabGhostFill;
+    inline const uint8_t* const TabGhostBorder     = JStyle::current().TabGhostBorder;
+    inline const uint8_t* const TabGhostBar        = JStyle::current().TabGhostBar;
+    inline const uint8_t* const TabTearDot         = JStyle::current().TabTearDot;
+    inline const uint8_t* const TabInactiveText    = JStyle::current().TabInactiveText;
+    inline const uint8_t* const DockTabInactiveText= JStyle::current().DockTabInactiveText;
+    inline const uint8_t* const TreeEditText       = JStyle::current().TreeEditText;
+    inline const uint8_t* const TreeIconTable      = JStyle::current().TreeIconTable;
+    inline const uint8_t* const TreeIconConfig     = JStyle::current().TreeIconConfig;
+    inline const uint8_t* const TreeIconToggle     = JStyle::current().TreeIconToggle;
+    inline const uint8_t* const TreeIconEnum       = JStyle::current().TreeIconEnum;
+    inline const uint8_t* const TreeIconCurve      = JStyle::current().TreeIconCurve;
+    inline const uint8_t* const RowAltBg           = JStyle::current().RowAltBg;
+    inline const uint8_t* const GridLine           = JStyle::current().GridLine;
+    inline const uint8_t* const GridHeaderText     = JStyle::current().GridHeaderText;
+    inline const uint8_t* const GroupPanelFill     = JStyle::current().GroupPanelFill;
+    inline const uint8_t* const GroupTitleBg       = JStyle::current().GroupTitleBg;
+    inline const uint8_t* const DockContentBg      = JStyle::current().DockContentBg;
+    inline const uint8_t* const DockPinIdle        = JStyle::current().DockPinIdle;
+    inline const uint8_t* const DockResizeIdle     = JStyle::current().DockResizeIdle;
+    inline const uint8_t* const DockResizeHot      = JStyle::current().DockResizeHot;
+    inline const uint8_t* const DockCloseMark      = JStyle::current().DockCloseMark;
+    inline const uint8_t* const DockSplitLine      = JStyle::current().DockSplitLine;
+    inline const uint8_t* const DropArrowBg        = JStyle::current().DropArrowBg;
+    inline const uint8_t* const DropArrowBorder    = JStyle::current().DropArrowBorder;
+    inline const uint8_t* const WindowTitleFill    = JStyle::current().WindowTitleFill;
+    inline const uint8_t* const WindowFrameBorder  = JStyle::current().WindowFrameBorder;
+    inline const uint8_t* const FloatTitleBarBg    = JStyle::current().FloatTitleBarBg;
+    inline const uint8_t* const FloatSeparator     = JStyle::current().FloatSeparator;
     inline constexpr uint8_t    Transparent[4] = {0, 0, 0, 0};  // truly constant, not themed
     inline constexpr uint8_t    White[4]        = {255, 255, 255, 255};  // truly constant neutral white (overlay tints)
 }

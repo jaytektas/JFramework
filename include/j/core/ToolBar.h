@@ -76,13 +76,13 @@ public:
             }
             // Text button: a persistent bordered chip at the scheme button height, centred vertically —
             // matches the original studio's QToolButton (panel fill + 1px border + rounded corners).
-            const float bh = JTheme::current().buttonHeight;
+            const float bh = JStyle::current().buttonHeight;
             const float by = m_rect.y + (h - bh) * 0.5f;
-            const float br = JTheme::current().cornerRadius;
+            const float br = JStyle::current().cornerRadius;
             const bool  press = static_cast<int>(i) == m_pressed && static_cast<int>(i) == m_hover;
             const bool  hover = static_cast<int>(i) == m_hover;
             const uint8_t* fill = press ? Colors::AccentPress : hover ? Colors::Surface3 : Colors::Surface2;
-            buf.pushRectangle(it.x, by, it.w, bh, fill, br, JTheme::current().borderWidth, Colors::Border);
+            buf.pushRectangle(it.x, by, it.w, bh, fill, br, JStyle::current().borderWidth, Colors::Border);
             if (JTextHelper::hasAtlas()) {
                 uint8_t tc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, tc);
                 float tw = JTextHelper::measureWidth(it.label);

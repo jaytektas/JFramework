@@ -17,7 +17,7 @@ public:
         : JWidget(graph, "JProgressBar"), m_progress(0.0f)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().menuItemHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().menuItemHeight;
         l.minWidth = 50.0f;
         l.minHeight = h;
     }
@@ -45,14 +45,14 @@ protected:
         // Trough = Button role (old Surface2).
         const JColor trough = jstyle::role(JColorRole::Button, jstyle::option(m_state, isFocused()));
         buf.pushRectangle(b.x, b.y, b.width, b.height, trough.data(),
-                          JTheme::current().hint(JStyleHint::ControlRadius));
+                          JStyle::current().hint(JStyleHint::ControlRadius));
     }
     virtual void drawProgressFill(JPrimitiveBuffer& buf, const JRect& b, float progress) {
         // Progress fill is a status colour (Success) with no palette role — kept on its
-        // themed JTheme field so it still follows a theme swap.
+        // themed JStyle field so it still follows a theme swap.
         if (progress > 0.005f)
             buf.pushRectangle(b.x, b.y, b.width * progress, b.height, Colors::Success,
-                              JTheme::current().hint(JStyleHint::ControlRadius));
+                              JStyle::current().hint(JStyleHint::ControlRadius));
     }
 
 private:

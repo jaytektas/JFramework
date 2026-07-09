@@ -3,7 +3,7 @@
 //   g++ -std=c++20 -I<repo>/include -I<repo>/third_party tests/style_test.cpp -o /tmp/style_test
 // Prints PASS/FAIL per case; exits non-zero on any failure.
 
-#include "j/core/BaseWidgets.h"   // pulls in StyleEngine.h (JPalette/JStyleOption/JStyle) + JTheme
+#include "j/core/BaseWidgets.h"   // pulls in StyleEngine.h (JPalette/JStyleOption/JStyle) + JStyle
 #include <cstdio>
 
 using namespace jf;
@@ -16,8 +16,8 @@ static void check(const char* name, bool ok) {
 
 int main() {
     // 1) Light and dark palettes must differ in the two most fundamental roles.
-    JPalette dark = JTheme::dark().palette();
-    JPalette light = JTheme::light().palette();
+    JPalette dark = JStyle::dark().palette();
+    JPalette light = JStyle::light().palette();
     check("dark/light Window differ",
           dark.color(JColorRole::Window) != light.color(JColorRole::Window));
     check("dark/light Text differ",
@@ -33,7 +33,7 @@ int main() {
               != dark.color(JColorRole::Text, JColorGroup::Active));
 
     // 3) No visual regression: the old named constants map onto roles with IDENTICAL rgba.
-    JTheme t = JTheme::dark();
+    JStyle t = JStyle::dark();
     JPalette p = t.palette();
     check("role Window == old Surface1",
           p.color(JColorRole::Window) == JColor::fromArray(t.Surface1));

@@ -17,7 +17,7 @@ public:
         : JWidget(graph, "JLabel: " + text), m_text(text)
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().labelHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().labelHeight;
         l.minWidth = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(m_text) : w;
         l.minHeight = h;
     }

@@ -63,7 +63,7 @@ public:
         : JControl(graph, "JTreeView"), m_root{"Root", true, false, {}}
     {
         auto& l = m_graph.getLayout(m_nodeId);
-        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JTheme::current().menuItemHeight;
+        l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().menuItemHeight;
         l.minWidth = 80.0f;
         l.minHeight = 40.0f;
     }

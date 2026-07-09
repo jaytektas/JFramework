@@ -271,7 +271,7 @@ private:
         char t[8]; std::snprintf(t, sizeof(t), "#%02x%02x%02x", c[0], c[1], c[2]); return t;
     }
     static std::vector<std::string> _themeDefaults() {
-        const JTheme& t = JTheme::current();
+        const JStyle& t = JStyle::current();
         return { _hexOf(t.Accent), _hexOf(t.Success), _hexOf(t.Warning), _hexOf(t.Danger),
                  _hexOf(t.TextPrimary), _hexOf(t.TextSecondary), _hexOf(t.Surface3) };
     }
