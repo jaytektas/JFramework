@@ -96,9 +96,9 @@ int main() {
         check("SelectionModel clearSelection empties", !sel.hasSelection());
     }
 
-    // 5) JTableModel 2x2 round-trip.
+    // 5) JGridModel 2x2 round-trip.
     {
-        JTableModel t(2, 2);
+        JGridModel t(2, 2);
         check("TableModel rowCount==2", t.rowCount() == 2);
         check("TableModel columnCount==2", t.columnCount() == 2);
         t.setData(t.index(0, 0), JVariant(11));

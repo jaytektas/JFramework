@@ -310,13 +310,13 @@ private:
 };
 
 // ============================================================================
-// JTableModel — flat 2D grid of JVariant. A dense, editable table backing store
+// JGridModel — flat 2D grid of JVariant. A dense, editable table backing store
 // and a fixture for table views. Optional per-orientation header labels.
 // ============================================================================
-class JTableModel : public JAbstractItemModel {
+class JGridModel : public JAbstractItemModel {
 public:
-    JTableModel() = default;
-    JTableModel(int rows, int cols) { resize(rows, cols); }
+    JGridModel() = default;
+    JGridModel(int rows, int cols) { resize(rows, cols); }
 
     void resize(int rows, int cols) {
         m_rows = rows < 0 ? 0 : rows;

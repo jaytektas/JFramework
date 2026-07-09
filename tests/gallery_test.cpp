@@ -19,9 +19,9 @@
 //     j/core/Easing.h + j/core/Animation.h — the two cannot coexist in one TU.
 //     The live animation subsystem (JAnimation / JAnimator / jAnimator()) lives in
 //     Animation.h; Animator.h is a stale duplicate and is deliberately NOT included.
-//   * j/model/TableModel.h redefines `class JTableModel` already defined (and used
+//   * j/model/TableModel.h redefines `class JGridModel` already defined (and used
 //     by the shipping model/view stack) in j/model/ItemModel.h. The canonical
-//     JTableModel comes from ItemModel.h; TableModel.h is deliberately NOT included.
+//     JGridModel comes from ItemModel.h; TableModel.h is deliberately NOT included.
 
 // ---- widgets -----------------------------------------------------------------
 #include "j/core/BaseWidgets.h"      // JLabel/JButton/JToolButton/JToggleButton/JCheckBox/
@@ -45,7 +45,7 @@
 #include "j/core/Validator.h"        // JIntValidator / JDoubleValidator
 #include "j/core/DragDrop.h"         // JMimeData / drag session (coexistence)
 // ---- model / view ------------------------------------------------------------
-#include "j/model/ItemModel.h"       // JStringListModel / JTableModel / JModelIndex
+#include "j/model/ItemModel.h"       // JStringListModel / JGridModel / JModelIndex
 #include "j/model/SelectionModel.h"  // JItemSelectionModel
 #include "j/model/AbstractItemView.h"
 #include "j/model/ItemDelegate.h"    // JStyledItemDelegate
@@ -152,7 +152,7 @@ int main() {
     JItemListView    ilv(graph, 200.f, 200.f); ilv.setModel(&listModel);
     gateLeaf("JItemListView", ilv, {0,0,200,160});
 
-    JTableModel      tableModel(3, 2);
+    JGridModel      tableModel(3, 2);
     tableModel.setData(tableModel.index(0,0), JVariant(11));
     JItemTableView   itv(graph, 320.f, 200.f); itv.setModel(&tableModel);
     gateContainer("JItemTableView", itv, {0,0,320,160});
