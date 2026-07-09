@@ -11,6 +11,7 @@
 #include <functional>
 #include "Signal.h"
 #include "Variant.h"
+#include "AccessibilityBridge.h"   // JA11yNode / JA11yRole / JA11yState — the accessibility surface
 #include "SceneGraph.h"
 #include "TranslationEngine.h"
 #include "KeyEvent.h"
@@ -90,6 +91,13 @@ public:
     // — never the OS directly — so a headless test drives the exact same paths as the real app.
     inline static std::function<std::string()>            s_clipboardGet;
     inline static std::function<void(const std::string&)> s_clipboardSet;
+
+    // Accessibility change-notification hook — installed by the framework (e.g. the
+    // JAccessibilityBridge) to hear when a widget's value/state/focus changes so an AT
+    // client (Orca) is told to re-read it. Widgets call notifyAccessibility() at their
+    // change sites; unset (headless / no AT running) → a no-op. Mirrors s_focusHook.
+    inline static std::function<void(JWidget*)> s_a11yNotifyHook;
+    void notifyAccessibility() { if (s_a11yNotifyHook) s_a11yNotifyHook(this); }
     static std::string  clipboardGet()                     { return s_clipboardGet ? s_clipboardGet() : _clipboardFallback(); }
     static void         clipboardSet(const std::string& s) { if (s_clipboardSet) s_clipboardSet(s); else _clipboardFallback() = s; }
     static std::string& _clipboardFallback()               { static std::string s; return s; }
@@ -298,6 +306,7 @@ public:
         if (m_focused != f) {
             m_focused = f;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
+            notifyAccessibility();
         }
     }
 
@@ -308,6 +317,7 @@ public:
         if (m_state != s) {
             m_state = s;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
+            notifyAccessibility();
         }
     }
 
@@ -362,7 +372,39 @@ public:
         return JVariant{};
     }
 
+    // ------------------------------------------------------------------
+    // Accessibility — the semantic snapshot an AT client reads. Every
+    // interactive widget overrides a11yNode() to report its role, accessible
+    // name, current value and live state. The default derives a generic
+    // "widget" role and takes its name from the debug name.
+    // ------------------------------------------------------------------
+    virtual JA11yNode a11yNode() const {
+        JA11yNode n;
+        _a11yFillCommon(n, JA11yRole::Widget, m_debugName, "");
+        return n;
+    }
+
 protected:
+    // Populate id / role / name / value / bounds and the universal state bits
+    // (focusable, focused, disabled, pressed) shared by every widget. Overrides
+    // call this, then OR in role-specific bits (Checked/Selected/Editable/...).
+    void _a11yFillCommon(JA11yNode& n, JA11yRole role,
+                         const std::string& name, const std::string& value) const {
+        n.id     = static_cast<uint32_t>(m_nodeId);
+        n.roleId = role;
+        jA11yCopyStr(n.role,  sizeof(n.role),  jA11yRoleName(role));
+        jA11yCopyStr(n.name,  sizeof(n.name),  name);
+        jA11yCopyStr(n.value, sizeof(n.value), value);
+        const JBBox b = getBoundingBox();
+        n.x = b.x; n.y = b.y; n.width = b.width; n.height = b.height;
+        uint32_t s = 0;
+        if (isFocusable())               s |= JA11yFocusable;
+        if (isFocused())                 s |= JA11yFocused;
+        if (!isEnabled())                s |= JA11yDisabled;
+        if (m_state == JWidgetState::Pressed) s |= JA11yPressed;
+        n.stateFlags = s;
+    }
+
     bool isPointInside(float mx, float my) const {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         return mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height;
@@ -1046,7 +1088,11 @@ public:
         l.minHeight = h;
     }
 
-    void setText(const std::string& t) { m_text = t; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    void setText(const std::string& t) { m_text = t; m_graph.invalidateNode(m_nodeId, DirtySelf); notifyAccessibility(); }
+
+    JA11yNode a11yNode() const override {
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::Label, m_text, ""); return n;
+    }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
@@ -1080,8 +1126,12 @@ public:
         l.minHeight = h;
     }
 
-    void setLabel(const std::string& label) { m_label = label; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    void setLabel(const std::string& label) { m_label = label; m_graph.invalidateNode(m_nodeId, DirtySelf); notifyAccessibility(); }
     const std::string& label() const { return m_label; }
+
+    JA11yNode a11yNode() const override {
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::Button, m_label, ""); return n;
+    }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
@@ -1207,11 +1257,18 @@ public:
             m_toggled = v;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onToggled.emit(v);
+            notifyAccessibility();
         }
     }
     bool isToggled() const { return m_toggled; }
-    void setLabel(const std::string& l) { m_label = l; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    void setLabel(const std::string& l) { m_label = l; m_graph.invalidateNode(m_nodeId, DirtySelf); notifyAccessibility(); }
     const std::string& label() const { return m_label; }
+
+    JA11yNode a11yNode() const override {
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::ToggleButton, m_label, m_toggled ? "on" : "off");
+        if (m_toggled) n.stateFlags |= JA11yChecked;
+        return n;
+    }
 
     void handleMousePress(float mx, float my) override {
         if (isPointInside(mx, my)) setState(JWidgetState::Pressed);
@@ -1296,9 +1353,19 @@ public:
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onCheckStateChanged.emit(s);
             onStateChanged.emit(s == Checked);
+            notifyAccessibility();
         }
     }
     CheckState checkState() const { return m_state_cb; }
+
+    JA11yNode a11yNode() const override {
+        const char* v = m_state_cb == Checked ? "checked"
+                      : m_state_cb == PartiallyChecked ? "mixed" : "unchecked";
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::CheckBox, m_label, v);
+        if (m_state_cb == Checked)               n.stateFlags |= JA11yChecked;
+        else if (m_state_cb == PartiallyChecked) n.stateFlags |= JA11yMixed;
+        return n;
+    }
 
     // ---- Two-state compatibility ----------------------------------------------------------------------
     void setChecked(bool v) { setCheckState(v ? Checked : Unchecked); }
@@ -1396,9 +1463,15 @@ public:
     }
 
     void setSelected(bool v) {
-        if (m_selected != v) { m_selected = v; m_graph.invalidateNode(m_nodeId, DirtySelf); onSelected.emit(v); }
+        if (m_selected != v) { m_selected = v; m_graph.invalidateNode(m_nodeId, DirtySelf); onSelected.emit(v); notifyAccessibility(); }
     }
     bool isSelected() const { return m_selected; }
+
+    JA11yNode a11yNode() const override {
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::RadioButton, m_label, m_selected ? "selected" : "");
+        if (m_selected) n.stateFlags |= (JA11yChecked | JA11ySelected);
+        return n;
+    }
 
     void handleMousePress(float mx, float my) override {
         if (isPointInside(mx, my)) setSelected(true);
@@ -1466,13 +1539,20 @@ public:
 
     void setValue(float v) {
         float c = std::clamp(v, 0.0f, 1.0f);
-        if (m_value != c) { m_value = c; m_graph.invalidateNode(m_nodeId, DirtySelf); onValueChanged.emit(c); }
+        if (m_value != c) { m_value = c; m_graph.invalidateNode(m_nodeId, DirtySelf); onValueChanged.emit(c); notifyAccessibility(); }
     }
     float getValue() const { return m_value; }
 
     JVariant getRef(const std::string& key) const override {
         if (key == "value") return static_cast<double>(m_value);
         return JWidget::getRef(key);
+    }
+
+    JA11yNode a11yNode() const override {
+        char v[24]; std::snprintf(v, sizeof(v), "%.2f", m_value);
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::Slider, m_debugName, v);
+        n.hasRange = true; n.curValue = m_value; n.minValue = 0.0f; n.maxValue = 1.0f;
+        return n;
     }
 
     void handleMouseMove(float mx, float my) override {
@@ -1546,8 +1626,16 @@ public:
         l.minHeight = h;
     }
 
-    void setProgress(float p) { m_progress = std::clamp(p, 0.0f, 1.0f); m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    void setProgress(float p) { m_progress = std::clamp(p, 0.0f, 1.0f); m_graph.invalidateNode(m_nodeId, DirtySelf); notifyAccessibility(); }
     float getProgress() const { return m_progress; }
+
+    JA11yNode a11yNode() const override {
+        char v[24]; std::snprintf(v, sizeof(v), "%d%%", static_cast<int>(m_progress * 100.0f + 0.5f));
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::ProgressBar, m_debugName, v);
+        n.hasRange = true; n.curValue = m_progress; n.minValue = 0.0f; n.maxValue = 1.0f;
+        n.stateFlags |= JA11yReadOnly;
+        return n;
+    }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
@@ -1595,9 +1683,16 @@ public:
 
     void setScrollPosition(float p) {
         float c = std::clamp(p, 0.0f, 1.0f);
-        if (m_position != c) { m_position = c; m_graph.invalidateNode(m_nodeId, DirtySelf); onScrolled.emit(c); }
+        if (m_position != c) { m_position = c; m_graph.invalidateNode(m_nodeId, DirtySelf); onScrolled.emit(c); notifyAccessibility(); }
     }
     float scrollPosition() const { return m_position; }
+
+    JA11yNode a11yNode() const override {
+        char v[24]; std::snprintf(v, sizeof(v), "%.2f", m_position);
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::ScrollBar, m_debugName, v);
+        n.hasRange = true; n.curValue = m_position; n.minValue = 0.0f; n.maxValue = 1.0f;
+        return n;
+    }
 
     void handleMousePress(float mx, float my) override {
         if (!isPointInside(mx, my)) return;
@@ -1659,6 +1754,7 @@ public:
             m_caret = m_anchor = m_text.size();               // caret to end + collapse selection on set
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onTextChanged.emit(t);
+            notifyAccessibility();
         }
     }
     const std::string& text()        const { return m_text; }
@@ -1676,6 +1772,18 @@ public:
     // The string as it is drawn (post-echo). Exposed so callers/tests can see the masked form
     // without scraping the render buffer.
     std::string displayText() const { return _echo(m_text); }
+
+    JA11yNode a11yNode() const override {
+        // A masked field (Password/NoEcho) must never leak its text through the
+        // accessibility value: report it Protected+Editable with an empty value.
+        const bool masked = _masked();
+        const std::string name = !m_placeholder.empty() ? m_placeholder : m_debugName;
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::TextField, name, masked ? "" : m_text);
+        n.stateFlags |= JA11yEditable;
+        if (masked)     n.stateFlags |= JA11yProtected;
+        if (m_readOnly) n.stateFlags |= JA11yReadOnly;
+        return n;
+    }
 
     // ---- Length limit / read-only / validator ----------------------------------------------------------
     // 0 == unlimited. Truncates the current text and gates future inserts/pastes.
@@ -2688,9 +2796,16 @@ public:
 
     void setValue(int v) {
         int c = std::clamp(v, m_min, m_max);
-        if (m_value != c) { m_value = c; m_graph.invalidateNode(m_nodeId, DirtySelf); onValueChanged.emit(c); }
+        if (m_value != c) { m_value = c; m_graph.invalidateNode(m_nodeId, DirtySelf); onValueChanged.emit(c); notifyAccessibility(); }
     }
     int  value() const { return m_value; }
+
+    JA11yNode a11yNode() const override {
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::SpinBox, m_debugName, std::to_string(m_value));
+        n.hasRange = true; n.curValue = (float)m_value; n.minValue = (float)m_min; n.maxValue = (float)m_max;
+        n.stateFlags |= JA11yEditable;
+        return n;
+    }
 
     void handleMousePress(float mx, float my) override {
         if (!isPointInside(mx, my)) { _commitEdit(); return; }
@@ -2840,9 +2955,16 @@ public:
 
     void setValue(double v) {
         double c = std::clamp(v, m_min, m_max);
-        if (m_value != c) { m_value = c; m_graph.invalidateNode(m_nodeId, DirtySelf); onValueChanged.emit(c); }
+        if (m_value != c) { m_value = c; m_graph.invalidateNode(m_nodeId, DirtySelf); onValueChanged.emit(c); notifyAccessibility(); }
     }
     double value() const { return m_value; }
+
+    JA11yNode a11yNode() const override {
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::SpinBox, m_debugName, _formatValue());
+        n.hasRange = true; n.curValue = (float)m_value; n.minValue = (float)m_min; n.maxValue = (float)m_max;
+        n.stateFlags |= JA11yEditable;
+        return n;
+    }
 
     void setRange(double min, double max) { m_min = min; m_max = max; setValue(m_value); }
     void setStep(double step)             { m_step = step; }
@@ -3114,6 +3236,7 @@ public:
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onIndexChanged.emit(c);
             if (c >= 0) onTextChanged.emit(m_items[c]);
+            notifyAccessibility();
         }
     }
     int         currentIndex() const { return m_currentIndex; }
@@ -3123,6 +3246,14 @@ public:
                ? m_items[m_currentIndex] : "";
     }
     const std::vector<std::string>& items() const { return m_items; }
+
+    JA11yNode a11yNode() const override {
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::ComboBox, m_debugName, currentText());
+        if (m_editable) n.stateFlags |= JA11yEditable;
+        n.hasRange = true; n.curValue = (float)m_currentIndex;
+        n.minValue = 0.0f; n.maxValue = m_items.empty() ? 0.0f : (float)(m_items.size() - 1);
+        return n;
+    }
 
     JComboBoxMode mode() const { return m_mode; }
     void setMode(JComboBoxMode mode) { m_mode = mode; }
@@ -3140,6 +3271,7 @@ public:
         m_editText = t; m_edited = true;
         m_graph.invalidateNode(m_nodeId, DirtySelf);
         onEditTextChanged.emit(t);
+        notifyAccessibility();
     }
     const std::string& editText() const { return m_editText; }
 
@@ -3429,8 +3561,18 @@ public:
         m_activeIndex = i;
         m_graph.invalidateNode(m_nodeId, DirtySelf);
         onTabChanged.emit(i);
+        notifyAccessibility();
     }
     int activeTab() const { return m_activeIndex; }
+
+    JA11yNode a11yNode() const override {
+        const std::string cur = (m_activeIndex >= 0 && m_activeIndex < (int)m_tabs.size())
+                                ? m_tabs[m_activeIndex] : std::string();
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::TabList, m_debugName, cur);
+        n.hasRange = true; n.curValue = (float)m_activeIndex;
+        n.minValue = 0.0f; n.maxValue = m_tabs.empty() ? 0.0f : (float)(m_tabs.size() - 1);
+        return n;
+    }
 
     // --- Tearable mode ---
     void setTearable(bool t) { m_tearable = t; }
@@ -3703,12 +3845,22 @@ public:
         m_active = i;
         m_graph.invalidateNode(m_nodeId, DirtySelf);
         onTabChanged.emit(i);
+        notifyAccessibility();
     }
     int      activeTab() const { return m_active; }
     int      tabCount()  const { return (int)m_tabs.size(); }
     JWidget* content(int i) const { return (i >= 0 && i < (int)m_tabs.size()) ? m_tabs[i].content : nullptr; }
     JWidget* activeContent() const { return content(m_active); }
     void     setTabLabel(int i, const std::string& s) { if (i >= 0 && i < (int)m_tabs.size()) { m_tabs[i].label = s; m_graph.invalidateNode(m_nodeId, DirtySelf); } }
+
+    JA11yNode a11yNode() const override {
+        const std::string cur = (m_active >= 0 && m_active < (int)m_tabs.size())
+                                ? m_tabs[m_active].label : std::string();
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::TabList, m_debugName, cur);
+        n.hasRange = true; n.curValue = (float)m_active;
+        n.minValue = 0.0f; n.maxValue = m_tabs.empty() ? 0.0f : (float)(m_tabs.size() - 1);
+        return n;
+    }
 
     // Pro layout config (opt-in; defaults = a Top strip, tabs at natural width).
     //   edge — which side the strip sits on (Top / Bottom / Left / Right; Left/Right run vertical).
@@ -3948,6 +4100,10 @@ public:
         l.padding = 12.0f;
         l.gap     = 8.0f;
         l.direction = JFlexDirection::Column;
+    }
+
+    JA11yNode a11yNode() const override {
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::Group, m_title, ""); return n;
     }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
@@ -4249,9 +4405,20 @@ public:
             m_selectedIndex = nextIdx;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onSelectionChanged.emit(nextIdx);
+            notifyAccessibility();
         }
     }
     int selectedIndex() const { return m_selectedIndex; }
+
+    JA11yNode a11yNode() const override {
+        const std::string cur = (m_selectedIndex >= 0 && m_selectedIndex < (int)m_items.size())
+                                ? m_items[m_selectedIndex] : std::string();
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::List, m_debugName, cur);
+        n.hasRange = true; n.curValue = (float)m_selectedIndex;
+        n.minValue = 0.0f; n.maxValue = m_items.empty() ? 0.0f : (float)(m_items.size() - 1);
+        if (m_selectedIndex >= 0) n.stateFlags |= JA11ySelected;
+        return n;
+    }
 
     void handleMouseMove(float mx, float my) override {
         if (m_draggingScroll) {

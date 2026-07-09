@@ -17,20 +17,118 @@ struct DBusMessage;
 inline namespace jf {
 
 /**
+ * @brief Toolkit-neutral accessibility role for a widget.
+ *
+ * A widget reports one of these from JWidget::a11yNode(); the bridge maps it to
+ * the platform accessibility role (AT-SPI on Linux) via jA11yAtSpiRoleFor().
+ * Deliberately independent of any single desktop toolkit's role vocabulary.
+ */
+enum class JA11yRole : uint32_t {
+    Widget = 0,
+    Button,
+    ToggleButton,
+    CheckBox,
+    RadioButton,
+    TextField,
+    SpinBox,
+    ComboBox,
+    Slider,
+    ProgressBar,
+    Label,
+    List,
+    ListItem,
+    Tab,        // a single tab / the selected-tab surface
+    TabList,    // a tab bar (group of tabs)
+    Menu,
+    MenuItem,
+    Dialog,
+    Window,
+    Group,
+    ScrollBar,
+    Separator,
+    Tree,
+    Table,
+};
+
+/**
+ * @brief Toolkit-neutral accessibility state bits (OR-combined into
+ *        JA11yNode::stateFlags). The bridge translates these to the platform's
+ *        state set (AT-SPI JAtSpiState) when answering a client.
+ */
+enum JA11yState : uint32_t {
+    JA11yFocused    = 1u << 0,   // currently holds keyboard focus
+    JA11yFocusable  = 1u << 1,   // can take keyboard focus
+    JA11yDisabled   = 1u << 2,   // greyed / not sensitive
+    JA11yChecked    = 1u << 3,   // checkbox/radio/toggle is on
+    JA11yMixed      = 1u << 4,   // tri-state checkbox partial ("mixed")
+    JA11ySelected   = 1u << 5,   // selected within a group/list
+    JA11yEditable   = 1u << 6,   // text can be edited by the user
+    JA11yExpanded   = 1u << 7,   // expandable node is open
+    JA11yPressed    = 1u << 8,   // momentarily pressed
+    JA11yReadOnly   = 1u << 9,   // editable widget locked read-only
+    JA11yProtected  = 1u << 10,  // password / masked — value not exposed
+};
+
+/**
  * @brief Blit-safe, POD accessibility node — the semantic snapshot the bridge
  *        exposes to AT-SPI (role/label/value/state + geometry).
  */
 struct alignas(16) JA11yNode {
-    uint32_t id{0xFFFFFFFF};
-    uint32_t stateFlags{0};
-    float    x{0.0f};
-    float    y{0.0f};
-    float    width{0.0f};
-    float    height{0.0f};
-    char     role[24]{0};   // "JButton", "JSlider", "JCheckBox", ...
-    char     name[32]{0};   // label / accessible name
-    char     value[24]{0};  // current value ("0.50", "checked", text, ...)
+    uint32_t  id{0xFFFFFFFF};
+    uint32_t  stateFlags{0};      // OR of JA11yState bits
+    JA11yRole roleId{JA11yRole::Widget};
+    float     x{0.0f};
+    float     y{0.0f};
+    float     width{0.0f};
+    float     height{0.0f};
+    // Numeric value interface (sliders / spin boxes / progress bars). hasRange
+    // says whether curValue/minValue/maxValue are meaningful for this node.
+    bool      hasRange{false};
+    float     curValue{0.0f};
+    float     minValue{0.0f};
+    float     maxValue{0.0f};
+    char      role[24]{0};   // canonical role string ("JButton", "JSlider", ...)
+    char      name[32]{0};   // label / accessible name
+    char      value[24]{0};  // current value ("0.50", "checked", text, ...)
 };
+
+/** Copy a std::string into a fixed char buffer, always NUL-terminated. */
+static inline void jA11yCopyStr(char* dst, size_t cap, const std::string& s) {
+    if (!cap) return;
+    size_t n = s.size() < cap - 1 ? s.size() : cap - 1;
+    std::memcpy(dst, s.data(), n);
+    dst[n] = '\0';
+}
+
+/** Canonical role string for a JA11yRole (feeds roleForSemanticType). */
+static inline const char* jA11yRoleName(JA11yRole r) {
+    switch (r) {
+        case JA11yRole::Button:       return "JButton";
+        case JA11yRole::ToggleButton: return "JToggleButton";
+        case JA11yRole::CheckBox:     return "JCheckBox";
+        case JA11yRole::RadioButton:  return "JRadioButton";
+        case JA11yRole::TextField:    return "JLineEdit";
+        case JA11yRole::SpinBox:      return "JSpinBox";
+        case JA11yRole::ComboBox:     return "JComboBox";
+        case JA11yRole::Slider:       return "JSlider";
+        case JA11yRole::ProgressBar:  return "JProgressBar";
+        case JA11yRole::Label:        return "JLabel";
+        case JA11yRole::List:         return "JListView";
+        case JA11yRole::ListItem:     return "JListItem";
+        case JA11yRole::Tab:          return "JTab";
+        case JA11yRole::TabList:      return "JTabBar";
+        case JA11yRole::Menu:         return "JMenu";
+        case JA11yRole::MenuItem:     return "JMenuItem";
+        case JA11yRole::Dialog:       return "JDialog";
+        case JA11yRole::Window:       return "JWindow";
+        case JA11yRole::Group:        return "JGroupBox";
+        case JA11yRole::ScrollBar:    return "JScrollBar";
+        case JA11yRole::Separator:    return "JSeparator";
+        case JA11yRole::Tree:         return "JTreeView";
+        case JA11yRole::Table:        return "JDataGrid";
+        case JA11yRole::Widget: default: return "JWidget";
+    }
+}
 
 /**
  * @brief Maps Genesis semantic roles to AT-SPI role constants.
@@ -76,6 +174,11 @@ static inline JAtSpiRole roleForSemanticType(const std::string& role) {
     if (role == "JSeparator")   return JAtSpiRole::SeparatorRole;
     if (role == "JDockWidget")  return JAtSpiRole::Frame;
     return JAtSpiRole::Panel;
+}
+
+/** Map a toolkit-neutral JA11yRole directly to its AT-SPI role constant. */
+static inline JAtSpiRole jA11yAtSpiRoleFor(JA11yRole r) {
+    return roleForSemanticType(jA11yRoleName(r));
 }
 
 /**
