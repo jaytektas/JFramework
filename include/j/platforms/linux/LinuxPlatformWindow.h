@@ -11,6 +11,9 @@
 #include <algorithm>
 #include <cstring>
 #include <vector>
+#include <string>
+#include <thread>
+#include <chrono>
 #include <deque>
 #include <utility>  // std::pair
 #include <unistd.h>
@@ -184,6 +187,13 @@ public:
         xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
                             syncCounterAtom, XCB_ATOM_CARDINAL, 32, 1, &m_syncCounter);
 
+        // Clipboard (CLIPBOARD selection) atoms — used by set/getClipboardText and the
+        // XCB_SELECTION_REQUEST handler. Interned once; native picker, no xclip shell-out.
+        m_atomClipboard = _internAtom("CLIPBOARD");
+        m_atomUtf8      = _internAtom("UTF8_STRING");
+        m_atomTargets   = _internAtom("TARGETS");
+        m_atomClipProp  = _internAtom("JF_CLIPBOARD_IN");
+
         // Load standard cursors from cursor font
         m_cursorFont = xcb_generate_id(m_connection);
         xcb_open_font(m_connection, m_cursorFont, 6, "cursor");
@@ -226,9 +236,14 @@ public:
     // ---- JPlatformWindow interface ----
     void pollNativeEvents() override {
         xcb_generic_event_t* ev;
-        while ((ev = xcb_poll_for_event(m_connection))) {
+        while ((ev = _nextEvent())) {
             uint8_t type = ev->response_type & ~0x80;
             switch (type) {
+                case XCB_SELECTION_REQUEST: {
+                    // Another app is pasting from us — serve the CLIPBOARD selection.
+                    _serveSelectionRequest(reinterpret_cast<xcb_selection_request_event_t*>(ev));
+                    break;
+                }
                 case XCB_MOTION_NOTIFY: {
                     auto* m = reinterpret_cast<xcb_motion_notify_event_t*>(ev);
                     // Input is in the same physical-pixel space as layout and the
@@ -873,6 +888,106 @@ public:
 
     // ---- Native handles for Vulkan surface creation ----
     xcb_connection_t* nativeConnection() const { return m_connection; }
+
+    // ---- Native text clipboard (CLIPBOARD selection) -----------------------
+    // We own the selection and serve it from pollNativeEvents (XCB_SELECTION_REQUEST).
+    // No xclip/xsel shell-out — this is the framework talking X11 directly.
+    void setClipboardText(const std::string& text) override {
+        m_clipboardText = text;
+        xcb_set_selection_owner(m_connection, m_windowId, m_atomClipboard, XCB_CURRENT_TIME);
+        xcb_flush(m_connection);
+    }
+
+    std::string getClipboardText() override {
+        // Fast path: if we own the selection, return our own copy — no round-trip.
+        xcb_get_selection_owner_reply_t* own = xcb_get_selection_owner_reply(
+            m_connection, xcb_get_selection_owner(m_connection, m_atomClipboard), nullptr);
+        bool weOwn = own && own->owner == m_windowId;
+        if (own) free(own);
+        if (weOwn) return m_clipboardText;
+
+        // Otherwise ask the current owner to convert CLIPBOARD → UTF8_STRING into our property.
+        xcb_delete_property(m_connection, m_windowId, m_atomClipProp);
+        xcb_convert_selection(m_connection, m_windowId, m_atomClipboard,
+                              m_atomUtf8, m_atomClipProp, XCB_CURRENT_TIME);
+        xcb_flush(m_connection);
+
+        // Wait (bounded ~200ms) for the SelectionNotify. Any non-selection events that
+        // arrive meanwhile are deferred, not dropped — pollNativeEvents replays them.
+        bool got = false;
+        xcb_selection_notify_event_t notify{};
+        for (int spins = 0; spins < 200 && !got; ++spins) {
+            xcb_generic_event_t* e = xcb_poll_for_event(m_connection);
+            if (!e) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); continue; }
+            if ((e->response_type & ~0x80) == XCB_SELECTION_NOTIFY) {
+                notify = *reinterpret_cast<xcb_selection_notify_event_t*>(e);
+                got = true;
+            } else {
+                m_deferredEvents.push_back(e);   // replay through the normal switch next frame
+                continue;
+            }
+            free(e);
+        }
+        if (!got || notify.property == XCB_ATOM_NONE) return {};
+        return _readTextProperty(m_atomClipProp);
+    }
+
+private:
+    // Deferred-then-live event source, so a clipboard paste's blocking wait can stash
+    // unrelated events for the next pollNativeEvents pass instead of discarding them.
+    xcb_generic_event_t* _nextEvent() {
+        if (!m_deferredEvents.empty()) {
+            xcb_generic_event_t* e = m_deferredEvents.front();
+            m_deferredEvents.erase(m_deferredEvents.begin());
+            return e;
+        }
+        return xcb_poll_for_event(m_connection);
+    }
+
+    // Serve a paste request from another client against our owned CLIPBOARD text.
+    void _serveSelectionRequest(xcb_selection_request_event_t* req) {
+        xcb_selection_notify_event_t notify{};
+        notify.response_type = XCB_SELECTION_NOTIFY;
+        notify.requestor = req->requestor;
+        notify.selection = req->selection;
+        notify.target    = req->target;
+        notify.time      = req->time;
+        notify.property  = XCB_ATOM_NONE;   // default: refused
+
+        if (req->target == m_atomTargets) {
+            xcb_atom_t targets[] = { m_atomTargets, m_atomUtf8, XCB_ATOM_STRING };
+            xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, req->requestor,
+                                req->property, XCB_ATOM_ATOM, 32, 3, targets);
+            notify.property = req->property;
+        } else if (req->target == m_atomUtf8 || req->target == XCB_ATOM_STRING) {
+            xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, req->requestor,
+                                req->property, req->target, 8,
+                                static_cast<uint32_t>(m_clipboardText.size()),
+                                m_clipboardText.data());
+            notify.property = req->property;
+        }
+        xcb_send_event(m_connection, 0, req->requestor,
+                       XCB_EVENT_MASK_NO_EVENT, reinterpret_cast<const char*>(&notify));
+        xcb_flush(m_connection);
+    }
+
+    // Read (and delete) a text property delivered to our window.
+    std::string _readTextProperty(xcb_atom_t prop) {
+        std::string out;
+        xcb_get_property_reply_t* r = xcb_get_property_reply(m_connection,
+            xcb_get_property(m_connection, 1 /*delete after read*/, m_windowId,
+                             prop, XCB_ATOM_ANY, 0, 0x3fffffff), nullptr);
+        if (r) {
+            int len = xcb_get_property_value_length(r);
+            if (len > 0)
+                out.assign(reinterpret_cast<const char*>(xcb_get_property_value(r)),
+                           static_cast<size_t>(len));
+            free(r);
+        }
+        return out;
+    }
+
+public:
     xcb_window_t      nativeWindow()     const { return m_windowId; }
 
     jf::JNativeWindowHandle nativeHandle() const override {
@@ -1015,6 +1130,14 @@ private:
     xcb_window_t        m_rootWindow{0};
     xcb_atom_t          m_deleteWindowAtom{0};
     xcb_atom_t          m_syncRequestAtom{0};
+
+    // Clipboard (CLIPBOARD selection) state.
+    xcb_atom_t          m_atomClipboard{XCB_ATOM_NONE};
+    xcb_atom_t          m_atomUtf8{XCB_ATOM_NONE};
+    xcb_atom_t          m_atomTargets{XCB_ATOM_NONE};
+    xcb_atom_t          m_atomClipProp{XCB_ATOM_NONE};
+    std::string         m_clipboardText;                 // text we own on CLIPBOARD
+    std::vector<xcb_generic_event_t*> m_deferredEvents;  // events stashed during a paste wait
     xcb_sync_counter_t  m_syncCounter{0};
     uint32_t            m_syncValueLo{0};
     uint32_t            m_syncValueHi{0};

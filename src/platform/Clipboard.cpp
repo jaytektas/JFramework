@@ -1,29 +1,26 @@
 #include <j/platform/Clipboard.h>
 
 // Platform backend for JClipboard — confined to this translation unit so the
-// public header leaks no windows.h / HGLOBAL / X11 types (CLAUDE.md platform
-// boundary). The Linux path still shells to xclip/xsel; swapping that for a
-// native xcb selection owner is a tracked self-contained follow-up.
+// public header leaks no windows.h / HGLOBAL type (CLAUDE.md platform boundary).
+// Linux routes through the installed native hook (LinuxPlatformWindow's xcb
+// CLIPBOARD selection) — no xclip/xsel shell-out; falls back to an in-process
+// store when headless. Windows uses the Win32 clipboard API directly.
 #if defined(_WIN32)
   #define WIN32_LEAN_AND_MEAN
   #include <windows.h>
   #include <cstring>
-#else
-  #include <cstdio>
 #endif
 
 inline namespace jf {
 
+#ifndef _WIN32
+static std::string& _clipboardFallback() { static std::string s; return s; }
+#endif
+
 void JClipboard::setText(const std::string& text) {
 #ifndef _WIN32
-    // Try xclip first; fall back to xsel if popen returns null.
-    FILE* fp = ::popen("xclip -selection clipboard", "w");
-    if (!fp)
-        fp = ::popen("xsel --clipboard --input", "w");
-    if (!fp)
-        return;
-    ::fwrite(text.data(), 1, text.size(), fp);
-    ::pclose(fp);
+    if (s_setHook) s_setHook(text);
+    else           _clipboardFallback() = text;
 #else
     if (!::OpenClipboard(nullptr))
         return;
@@ -49,20 +46,7 @@ void JClipboard::setText(const std::string& text) {
 
 std::string JClipboard::getText() {
 #ifndef _WIN32
-    // Single shell command: try xclip, fall back to xsel via || operator.
-    FILE* fp = ::popen(
-        "xclip -selection clipboard -o 2>/dev/null "
-        "|| xsel --clipboard --output 2>/dev/null",
-        "r");
-    if (!fp)
-        return {};
-
-    std::string result;
-    char buf[4096];
-    while (::fgets(buf, sizeof(buf), fp))
-        result += buf;
-    ::pclose(fp);
-    return result;
+    return s_getHook ? s_getHook() : _clipboardFallback();
 #else
     if (!::OpenClipboard(nullptr))
         return {};

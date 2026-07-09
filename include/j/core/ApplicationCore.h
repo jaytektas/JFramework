@@ -71,7 +71,12 @@ public:
     virtual void     setCursor(jf::JPlatformCursor shape) { (void)shape; }
     virtual jf::JPlatformWindowStyle windowStyle() const { return jf::JPlatformWindowStyle::Normal; }
     virtual jf::JNativeWindowHandle nativeHandle() const { return {}; }
-    
+
+    // Text clipboard, backed by the OS selection/clipboard. Default: unsupported
+    // (headless / other backends) — the framework then falls back to an in-process store.
+    virtual void        setClipboardText(const std::string& text) { (void)text; }
+    virtual std::string getClipboardText() { return {}; }
+
     // Focus & state checks
     virtual bool consumeFocusLost()  { return false; }
     virtual bool consumeMouseLeave() { return false; }

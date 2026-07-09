@@ -83,6 +83,15 @@ public:
             JTextHelper::setAtlas(atlas);
             m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
         }
+
+        // Route the OS clipboard through this window's native selection. JClipboard
+        // is the single funnel: text widgets go via JWidget::clipboardGet/Set →
+        // JClipboard, and direct JClipboard callers land here too.
+        JPlatformWindow* w = m_window.get();
+        JClipboard::s_setHook = [w](const std::string& s){ w->setClipboardText(s); };
+        JClipboard::s_getHook = [w]{ return w->getClipboardText(); };
+        JWidget::s_clipboardSet = [](const std::string& s){ JClipboard::setText(s); };
+        JWidget::s_clipboardGet = []{ return JClipboard::getText(); };
     }
 
     bool valid() const { return m_window && m_hal; }
