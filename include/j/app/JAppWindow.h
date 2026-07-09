@@ -27,6 +27,7 @@
 #include <j/core/DockSpace.h>            // JDockSpace (centre + 4 dock areas)
 #include <j/core/DockRegistry.h>         // host registration for floating re-dock
 #include <j/core/MenuSystem.h>           // JMenuBar, JMenuManager (accelerators)
+#include <j/core/ShortcutMap.h>          // jShortcuts() — JAction / JKeySequence global accelerators
 #include <j/core/MenuRuntime.h>          // JMenuRuntime (popup menu engine)
 #include <j/core/FocusManager.h>         // JFocusManager (keyboard focus + Tab cycling)
 #include <j/core/MainThreadDispatcher.h> // drain UI-thread callbacks (JTimer / JSerialPort / posts)
@@ -481,6 +482,11 @@ public:
                 // The centre is a plain central widget (not in the focus order), so give it a shot at
                 // keys nothing else consumed — e.g. the surface editor's Delete / arrows / Ctrl+Z.
                 if (JWidget* cw = m_space.centralWidget(); cw && cw->handleKeyEvent(ke)) continue;
+                // Global action/shortcut accelerators: a focused widget (e.g. a text field) has
+                // already had first refusal above, so typing still works; anything it didn't
+                // consume is offered to registered JActions / standalone chords (like the menu
+                // accelerator pass, but for the shared command registry). Consumed = stop routing.
+                if (jShortcuts().dispatch(ke)) continue;
                 if (ke.key == JKeyEvent::JKey::Tab)     { m_focus.nextFocus(); continue; }
                 if (ke.key == JKeyEvent::JKey::BackTab) { m_focus.prevFocus(); continue; }
                 if (onKey) onKey(ke);
