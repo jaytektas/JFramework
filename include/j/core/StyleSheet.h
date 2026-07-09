@@ -68,6 +68,22 @@ inline JTheme parseStyleSheet(const std::string& text) {
         {"chartaxis2text", t.ChartAxis2Text}, {"chartlegendtext", t.ChartLegendText},
         {"charttooltiptext", t.ChartTooltipText}, {"charttooltipbg", t.ChartTooltipBg},
         {"charttooltipborder", t.ChartTooltipBorder}, {"chartcrosshair", t.ChartCrosshair},
+        {"scrolltrack", t.ScrollTrack}, {"scrollthumb", t.ScrollThumb},
+        {"scrollthumbactive", t.ScrollThumbActive}, {"scrollareabg", t.ScrollAreaBg},
+        {"tabghostfill", t.TabGhostFill}, {"tabghostborder", t.TabGhostBorder},
+        {"tabghostbar", t.TabGhostBar}, {"tabteardot", t.TabTearDot},
+        {"tabinactivetext", t.TabInactiveText}, {"docktabinactivetext", t.DockTabInactiveText},
+        {"treeedittext", t.TreeEditText}, {"treeicontable", t.TreeIconTable},
+        {"treeiconconfig", t.TreeIconConfig}, {"treeicontoggle", t.TreeIconToggle},
+        {"treeiconenum", t.TreeIconEnum}, {"treeiconcurve", t.TreeIconCurve},
+        {"rowaltbg", t.RowAltBg}, {"gridline", t.GridLine}, {"gridheadertext", t.GridHeaderText},
+        {"grouppanelfill", t.GroupPanelFill}, {"grouptitlebg", t.GroupTitleBg},
+        {"dockcontentbg", t.DockContentBg}, {"dockpinidle", t.DockPinIdle},
+        {"dockresizeidle", t.DockResizeIdle}, {"dockresizehot", t.DockResizeHot},
+        {"dockclosemark", t.DockCloseMark}, {"docksplitline", t.DockSplitLine},
+        {"droparrowbg", t.DropArrowBg}, {"droparrowborder", t.DropArrowBorder},
+        {"windowtitlefill", t.WindowTitleFill}, {"windowframeborder", t.WindowFrameBorder},
+        {"floattitlebarbg", t.FloatTitleBarBg}, {"floatseparator", t.FloatSeparator},
     };
     struct FRef { const char* n; float* p; };
     FRef floats[] = {

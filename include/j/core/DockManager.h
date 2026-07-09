@@ -1290,13 +1290,11 @@ private:
         if (r.width < 1.f || r.height < 1.f) return;
 
         // Body background.
-        uint8_t body[4] = {22, 22, 26, 255};
-        buf.pushRectangle(r.x, r.y, r.width, r.height, body, 0.0f, 1.0f, Colors::Border);
+        buf.pushRectangle(r.x, r.y, r.width, r.height, Colors::PopupBg, 0.0f, 1.0f, Colors::Border);
 
         // Content area (slightly darker than the body).
         JRect content = _leafContentRect(leaf);
-        uint8_t contentBg[4] = {14, 14, 16, 255};
-        buf.pushRectangle(content.x, content.y, content.width, content.height, contentBg, 0.0f);
+        buf.pushRectangle(content.x, content.y, content.width, content.height, Colors::DockContentBg, 0.0f);
 
         // Content for the active tab. The dock carries either a framework-hosted content widget
         // (rendered via its own populateRenderPrimitives) or, for custom studio-drawn controls,
@@ -1361,10 +1359,9 @@ private:
                 if (JTextHelper::hasAtlas() && leaf.tabs[i]) {
                     std::string label = leaf.tabs[i]->title();
                     float lw = JTextHelper::measureWidth(label);
-                    uint8_t lc[4] = {active ? (uint8_t)220 : (uint8_t)150,
-                                     active ? (uint8_t)220 : (uint8_t)150,
-                                     active ? (uint8_t)228 : (uint8_t)158,
-                                     active ? (uint8_t)220 : (uint8_t)150};
+                    // active label = ControlText, inactive = DockTabInactiveText; alpha follows active state.
+                    const uint8_t* lbase = active ? Colors::ControlText : Colors::DockTabInactiveText;
+                    uint8_t lc[4] = {lbase[0], lbase[1], lbase[2], active ? (uint8_t)220 : (uint8_t)150};
                     if (vert) {
                         // Left edge reads bottom->top (CCW), right edge top->bottom (CW).
                         const bool cw = (edge == JTabBarEdge::Right);
@@ -1385,9 +1382,9 @@ private:
 
         // Close button on the active tab / single title bar.
         JRect closeR = _closeBtnRect(leaf);
-        uint8_t closeFill[4] = {60, 40, 44, 180};
+        uint8_t closeFill[4] = {Colors::CloseBtn[0], Colors::CloseBtn[1], Colors::CloseBtn[2], 180};
         buf.pushRectangle(closeR.x, closeR.y, closeR.width, closeR.height, closeFill, 3.0f);
-        uint8_t xc[4] = {235, 235, 240, 210};
+        const uint8_t* xc = Colors::DockCloseMark;
         buf.pushRectangle(closeR.x + 3.f, closeR.y + closeR.height * 0.42f,
                           closeR.width - 6.f, 2.0f, xc, 1.0f);
         buf.pushRectangle(closeR.x + closeR.width * 0.42f, closeR.y + 3.f,
@@ -1412,7 +1409,7 @@ private:
                 pinFill[0]=50;  pinFill[1]=50;  pinFill[2]=60;  pinFill[3]=140;
             }
             buf.pushRectangle(pinX, closeR.y, BTN_SZ, BTN_SZ, pinFill, 3.0f);
-            uint8_t needle[4] = {200, 200, 210, 180};
+            uint8_t needle[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 180};
             buf.pushRectangle(pinX + BTN_SZ * 0.42f, closeR.y + 2.f, 2.0f, BTN_SZ - 4.f, needle, 1.0f);
         }
     }
@@ -1421,7 +1418,7 @@ private:
         bool horiz = (split.splitDir == JSplitDir::Horizontal);
         for (const JRect& h : split.handleRects) {
             // Subtle divider line centered in the 6px hit area.
-            uint8_t line[4] = {60, 60, 64, 255};
+            const uint8_t* line = Colors::DockSplitLine;
             if (horiz) {
                 float lx = h.x + (h.width - HANDLE_VIS) * 0.5f;
                 buf.pushRectangle(lx, h.y, HANDLE_VIS, h.height, line, 1.0f);
@@ -1449,9 +1446,7 @@ private:
             _renderArrow(dt, buf, /*white=*/true);
         } else {
             // Faint grey arrow background.
-            uint8_t bg[4]     = {40, 40, 46, 170};
-            uint8_t border[4] = {90, 90, 96, 180};
-            buf.pushRectangle(a.x, a.y, a.width, a.height, bg, 6.0f, 1.0f, border);
+            buf.pushRectangle(a.x, a.y, a.width, a.height, Colors::DropArrowBg, 6.0f, 1.0f, Colors::DropArrowBorder);
             _renderArrow(dt, buf, /*white=*/false);
         }
     }

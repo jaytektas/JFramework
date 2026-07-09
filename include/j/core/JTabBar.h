@@ -108,10 +108,9 @@ public:
         float tabW = m_tabs.empty() ? 120.0f : b.width / static_cast<float>(m_tabs.size() + 1);
         float gx = m_drag.curX - tabW * 0.5f;
         float gy = m_drag.curY - b.height * 0.5f;
-        uint8_t ghostFill[4]   = {40, 40, 50, 180};
-        uint8_t ghostBorder[4] = {80, 130, 255, 200};
-        buf.pushRectangle(gx, gy, tabW, b.height, ghostFill, 6.0f, 1.5f, ghostBorder);
-        uint8_t lc[4] = {200, 210, 255, 180};
+        buf.pushRectangle(gx, gy, tabW, b.height, Colors::TabGhostFill,
+                          JTheme::current().hint(JStyleHint::ControlRadius), 1.5f, Colors::TabGhostBorder);
+        const uint8_t* lc = Colors::TabGhostBar;
         buf.pushRectangle(gx + 8.0f, gy + (b.height - 6.0f) * 0.5f, tabW - 16.0f, 6.0f, lc, 2.0f);
     }
 
@@ -215,24 +214,20 @@ public:
 
             // Tearable indicator: small dot in top-right of each tab when tearable
             if (m_tearable && !active) {
-                uint8_t dot[4] = {80, 80, 100, 120};
-                buf.pushRectangle(tx + tabW - 8.0f, b.y + 5.0f, 3.0f, 3.0f, dot, 1.5f);
+                buf.pushRectangle(tx + tabW - 8.0f, b.y + 5.0f, 3.0f, 3.0f, Colors::TabTearDot, 1.5f);
             }
 
             if (JTextHelper::hasAtlas()) {
                 std::string label = tr(m_tabs[i]);
                 float lw = JTextHelper::measureWidth(label);
-                uint8_t lc[4] = {active ? (uint8_t)220 : (uint8_t)140,
-                                  active ? (uint8_t)220 : (uint8_t)140,
-                                  active ? (uint8_t)228 : (uint8_t)148,
-                                  active ? (uint8_t)220 : (uint8_t)140};
+                // active label = ControlText, inactive = TabInactiveText; alpha follows the active state.
+                const uint8_t* lbase = active ? Colors::ControlText : Colors::TabInactiveText;
+                uint8_t lc[4] = {lbase[0], lbase[1], lbase[2], active ? (uint8_t)220 : (uint8_t)140};
                 float ly = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
                 JTextHelper::pushText(buf, tx + (tabW - lw) * 0.5f, ly, label, lc);
             } else {
-                uint8_t lc[4] = {active ? (uint8_t)220 : (uint8_t)140,
-                                  active ? (uint8_t)220 : (uint8_t)140,
-                                  active ? (uint8_t)228 : (uint8_t)148,
-                                  active ? (uint8_t)220 : (uint8_t)140};
+                const uint8_t* lbase = active ? Colors::ControlText : Colors::TabInactiveText;
+                uint8_t lc[4] = {lbase[0], lbase[1], lbase[2], active ? (uint8_t)220 : (uint8_t)140};
                 float lw = tabW * 0.5f;
                 buf.pushRectangle(tx + (tabW - lw)*0.5f, b.y + (b.height-6.0f)*0.5f, lw, 6.0f, lc, 2.0f);
             }

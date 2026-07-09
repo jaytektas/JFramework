@@ -586,14 +586,12 @@ public:
 
         bool hasTitle = isGlobalTitleBarVisible();
         if (hasTitle) {
-            uint8_t barBg[4] = {28, 28, 32, 255};
-            buf.pushRectangle(0.f, 0.f, static_cast<float>(m_winW), kGlobalTitleH, barBg, 0.f);
+            buf.pushRectangle(0.f, 0.f, static_cast<float>(m_winW), kGlobalTitleH, Colors::FloatTitleBarBg, 0.f);
 
-            uint8_t sepColor[4] = {50, 50, 55, 255};
-            buf.pushRectangle(0.f, kGlobalTitleH - 1.f, static_cast<float>(m_winW), 1.f, sepColor, 0.f);
+            buf.pushRectangle(0.f, kGlobalTitleH - 1.f, static_cast<float>(m_winW), 1.f, Colors::FloatSeparator, 0.f);
 
             if (JTextHelper::hasAtlas()) {
-                uint8_t tc[4] = {180, 180, 190, 255};
+                const uint8_t* tc = Colors::MutedText;
                 float ty = (kGlobalTitleH - JTextHelper::lineHeight()) * 0.5f;
                 std::string title = m_docks.empty() ? "Genesis JWindow" : m_docks[0]->title();
                 if (m_docks.size() > 1) {

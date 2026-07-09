@@ -290,13 +290,13 @@ public:
     // --- Rendering ---
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) const {
-        // 1. Drop shadow
-        uint8_t shadow[4] = {0, 0, 0, 100};
+        // 1. Drop shadow (shared drop-shadow role, this site's own alpha)
+        uint8_t shadow[4] = {Colors::DialogShadow[0], Colors::DialogShadow[1], Colors::DialogShadow[2], 100};
         buf.pushRectangle(m_x + SHADOW_OFF, m_y + SHADOW_OFF,
                           m_w, m_h, shadow, BORDER_R);
 
-        // 2. Body
-        uint8_t body[4] = {22, 22, 26, 245};
+        // 2. Body (PopupBg surface, this site's own alpha)
+        uint8_t body[4] = {Colors::PopupBg[0], Colors::PopupBg[1], Colors::PopupBg[2], 245};
         buf.pushRectangle(m_x, m_y, m_w, m_h, body, BORDER_R,
                           1.0f, Colors::Border);
 
@@ -311,12 +311,12 @@ public:
             float btnAreaW  = (m_closeable ? BTN_SZ + 2.f : 0.f)
                             + (m_pinnable  ? BTN_SZ + 2.f : 0.f);
             if (JTextHelper::hasAtlas()) {
-                uint8_t tc[4] = {210, 210, 220, 220};
+                uint8_t tc[4] = {Colors::FieldText[0], Colors::FieldText[1], Colors::FieldText[2], 220};
                 float ty = m_y + (TITLE_H - JTextHelper::lineHeight()) * 0.5f;
                 float maxTitleW = m_w - btnAreaW - 14.0f;
                 JTextHelper::pushText(buf, m_x + 10.0f, ty, m_title, tc, maxTitleW);
             } else {
-                uint8_t tc[4] = {200, 200, 210, 180};
+                uint8_t tc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 180};
                 buf.pushRectangle(m_x + 10.0f, titleBarY, m_w * 0.30f, 7.0f, tc, 2.0f);
             }
 
@@ -324,12 +324,11 @@ public:
             float btnY = m_y + (TITLE_H - BTN_SZ) * 0.5f;
             if (m_pinnable) {
                 float pinX = m_x + m_w - BTN_SZ * (m_closeable ? 2.0f : 1.0f) - (m_closeable ? 8.0f : 6.0f);
-                uint8_t pinFill[4] = {m_pinned ? (uint8_t)10  : (uint8_t)50,
-                                       m_pinned ? (uint8_t)132 : (uint8_t)50,
-                                       m_pinned ? (uint8_t)255 : (uint8_t)60,
-                                       m_hoverPin ? (uint8_t)220 : (uint8_t)140};
+                // pinned = Accent, unpinned = DockPinIdle; alpha follows hover state.
+                const uint8_t* pinBase = m_pinned ? Colors::Accent : Colors::DockPinIdle;
+                uint8_t pinFill[4] = {pinBase[0], pinBase[1], pinBase[2], m_hoverPin ? (uint8_t)220 : (uint8_t)140};
                 buf.pushRectangle(pinX, btnY, BTN_SZ, BTN_SZ, pinFill, 3.0f);
-                uint8_t needle[4] = {200, 200, 210, 180};
+                uint8_t needle[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 180};
                 buf.pushRectangle(pinX + BTN_SZ * 0.42f, btnY + 2.0f, 2.5f, BTN_SZ - 4.0f, needle, 1.0f);
             }
 
@@ -340,23 +339,20 @@ public:
             }
         } // end m_titleVisible
 
-        // 7. Content area background
-        uint8_t content[4] = {14, 14, 16, 240};
+        // 7. Content area background (DockContentBg, this site's own alpha)
+        uint8_t content[4] = {Colors::DockContentBg[0], Colors::DockContentBg[1], Colors::DockContentBg[2], 240};
         buf.pushRectangle(m_x + 1.0f, m_y + TITLE_H,
                           m_w - 2.0f, m_h - TITLE_H - 1.0f, content, 0.0f);
 
         // 8. Re-dock hint badge (only for torn tabs)
         if (m_tornState.has_value()) {
-            uint8_t badge[4] = {10, 132, 255, 120};
+            uint8_t badge[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 120};
             buf.pushRectangle(m_x + 6.0f, m_y + m_h - 14.0f, 60.0f, 8.0f, badge, 4.0f);
         }
 
         // 9. Resize corner handle (bottom-right) — only if resizable
         if (m_resizable) {
-            uint8_t handle[4] = {m_hoverResize ? (uint8_t)140 : (uint8_t)70,
-                                 m_hoverResize ? (uint8_t)140 : (uint8_t)70,
-                                 m_hoverResize ? (uint8_t)160 : (uint8_t)80,
-                                 m_hoverResize ? (uint8_t)240 : (uint8_t)160};
+            const uint8_t* handle = m_hoverResize ? Colors::DockResizeHot : Colors::DockResizeIdle;
             float hSz = 12.0f;
             buf.pushRectangle(m_x + m_w - hSz - 2.0f, m_y + m_h - hSz - 2.0f,
                               hSz, hSz, handle, 3.0f);

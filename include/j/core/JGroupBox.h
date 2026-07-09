@@ -34,19 +34,17 @@ public:
         // Panel body. The translucent panel/title shades are bespoke (no palette role
         // resolves to them) so they stay literal to preserve pixels; the outline routes
         // through the Border role so it follows a theme/palette swap.
-        uint8_t panelFill[4] = {22, 22, 25, 180};
         const JColor bd = jstyle::role(JColorRole::Border, jstyle::option(m_state, isFocused()));
-        buf.pushRectangle(b.x, b.y, b.width, b.height, panelFill, 8.0f, 1.0f, bd.data());
+        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::GroupPanelFill, 8.0f, 1.0f, bd.data());
         // Title bar strip at top
-        uint8_t titleBg[4] = {36, 36, 40, 200};
-        buf.pushRectangle(b.x + 1.0f, b.y + 1.0f, b.width - 2.0f, 24.0f, titleBg, 7.0f);
+        buf.pushRectangle(b.x + 1.0f, b.y + 1.0f, b.width - 2.0f, 24.0f, Colors::GroupTitleBg, 7.0f);
         // Title text
         if (JTextHelper::hasAtlas()) {
-            uint8_t tc[4] = {200, 200, 210, 200};
+            uint8_t tc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 200};
             float ty = b.y + (24.0f - JTextHelper::lineHeight()) * 0.5f;
             JTextHelper::pushText(buf, b.x + 10.0f, ty, tr(m_title), tc, b.width - 20.0f);
         } else {
-            uint8_t tc[4] = {200, 200, 210, 180};
+            uint8_t tc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 180};
             buf.pushRectangle(b.x + 10.0f, b.y + 9.0f, b.width * 0.4f, 7.0f, tc, 2.0f);
         }
     }
