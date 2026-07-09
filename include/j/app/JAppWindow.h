@@ -31,6 +31,7 @@
 #include <j/core/FocusManager.h>         // JFocusManager (keyboard focus + Tab cycling)
 #include <j/core/MainThreadDispatcher.h> // drain UI-thread callbacks (JTimer / JSerialPort / posts)
 #include <j/core/Animation.h>            // jAnimator() — per-frame tween/transition registry
+#include <j/core/FrameTimer.h>           // jTimers() — per-frame timer / deferred-call registry
 #include <j/core/ToolBar.h>              // JToolBar
 #include <j/core/StatusBar.h>            // JStatusBar (text + transient messages + widgets)
 #include <j/core/Dialog.h>               // JDialogManager (native dialog request queue)
@@ -274,6 +275,9 @@ public:
                 if (dtMs > 100.0f) dtMs = 100.0f;   // clamp long idles so tweens don't jump
                 jAnimator().tick(dtMs);
                 if (jAnimator().hasActive()) activity = true;
+                // Frame-ticked timers ride the SAME dt: fire due timeouts / deferred calls
+                // and arm a repaint when anything fired so timer-driven UI updates present.
+                if (jTimers().tick(dtMs)) activity = true;
             }
 
             // Sync the swapchain to the window's CURRENT size every iteration, by direct
