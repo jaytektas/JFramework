@@ -16,6 +16,7 @@
 #include "KeyEvent.h"
 #include "DragDrop.h"           // cross-widget drag payloads (JDragDrop) — drop-on-release routing
 #include "Style.h"              // JTabBarEdge / JTabFill (folded into JTheme)
+#include "StyleEngine.h"        // JPalette / JColorRole / JStyleOption / JStyle / JStyleHint
 #include "../graphics/RenderPrimitive.h"
 #include "../graphics/VectorGraphics.h"   // JVectorCanvas — anti-aliased triangle for the tree expand arrow
 #include "../platform/Clipboard.h"
@@ -496,6 +497,12 @@ struct JTheme {
     static JTheme  light();
     static JTheme& current();
     static void   apply(JTheme t);
+
+    // Semantic palette derived from THIS theme's named colours — the bridge that lets
+    // role-based widgets read the live theme with no visual change (see mapping below).
+    JPalette palette() const;
+    // Keyed metric lookup — widgets query hint(JStyleHint::…) instead of magic numbers.
+    float    hint(JStyleHint h) const;
 };
 
 inline float _jStyleFieldPadding() { return JTheme::current().fieldPadding; }
@@ -517,6 +524,42 @@ inline JTheme JTheme::light() {
 }
 inline JTheme& JTheme::current() { static JTheme inst; return inst; }
 inline void   JTheme::apply(JTheme t) { current() = std::move(t); }
+
+// Map the legacy named colours onto semantic roles. This is the ONE source of truth for
+// the running theme: every role resolves to a live theme field, so a widget that switches
+// to palette().color(role) paints exactly what the old Colors:: constant produced.
+//   Window/Base  <- Surface1     Button      <- Surface2     ToolTipBase <- Surface3
+//   *Text        <- TextPrimary  Placeholder <- TextSecondary
+//   Highlight/Accent/Link <- Accent          Border      <- Border
+inline JPalette JTheme::palette() const {
+    return palette_detail::build(
+        /*Window*/          JColor::fromArray(Surface1),
+        /*WindowText*/      JColor::fromArray(TextPrimary),
+        /*Base*/            JColor::fromArray(Surface1),
+        /*Text*/            JColor::fromArray(TextPrimary),
+        /*Button*/          JColor::fromArray(Surface2),
+        /*ButtonText*/      JColor::fromArray(TextPrimary),
+        /*Highlight*/       JColor::fromArray(Accent),
+        /*HighlightedText*/ JColor{255, 255, 255, 255},
+        /*Border*/          JColor::fromArray(Border),
+        /*Accent*/          JColor::fromArray(Accent),
+        /*ToolTipBase*/     JColor::fromArray(Surface3),
+        /*ToolTipText*/     JColor::fromArray(TextPrimary),
+        /*PlaceholderText*/ JColor::fromArray(TextSecondary),
+        /*Link*/            JColor::fromArray(Accent));
+}
+
+inline float JTheme::hint(JStyleHint h) const {
+    switch (h) {
+        case JStyleHint::FocusRingWidth: return focusRingWidth;
+        case JStyleHint::ControlRadius:  return cornerRadius;
+        case JStyleHint::BorderWidth:    return borderWidth;
+        case JStyleHint::ControlHeight:  return controlHeight;
+        case JStyleHint::ItemPadding:    return itemPadding;
+        case JStyleHint::Spacing:        return spacing;
+    }
+    return 0.f;
+}
 
 // The one stylesheet accessor — read by the whole framework each frame.
 inline JTheme& style() { return JTheme::current(); }
@@ -1146,18 +1189,27 @@ public:
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float boxSz = b.height;
-        const uint8_t* fill = m_checked ? Colors::Accent : Colors::Surface1;
-        bool focused = isFocused();
-        drawBox(buf, b, boxSz, fill, focused);
+        // MIGRATED to the role/state styler: resolve the indicator fill by semantic ROLE
+        // from the live palette instead of naming a raw shade. checked -> Highlight,
+        // unchecked -> Base — which map onto the old Accent / Surface1 exactly.
+        JStyleOption opt;
+        opt.rect = {b.x, b.y, boxSz, boxSz};
+        opt.set(State_Focused, isFocused());
+        opt.set(State_On | State_Selected, m_checked);
+        const JColor fill = JStyle::controlFill(opt, JTheme::current().palette());
+        drawBox(buf, b, boxSz, fill.data(), isFocused());
         drawLabel(buf, b, boxSz);
     }
 
 
 protected:
     virtual void drawBox(JPrimitiveBuffer& buf, const JRect& b, float boxSz, const uint8_t* fill, bool focused) {
+        // Border colour by ROLE: Accent ring when focused, else Border (was hardcoded).
+        JStyleOption opt; opt.set(State_Focused, focused);
+        const JColor border = JStyle::borderColor(opt, JTheme::current().palette());
         buf.pushRectangle(b.x, b.y, boxSz, boxSz, fill, 4.0f,
                           focused ? 2.0f : 1.5f,
-                          focused ? Colors::Accent : Colors::Border);
+                          border.data());
         if (m_checked) {
             uint8_t white[4] = {255, 255, 255, 220};
             buf.pushRectangle(b.x + 3.0f, b.y + boxSz*0.5f - 1.5f, boxSz - 6.0f, 3.0f, white, 1.5f);

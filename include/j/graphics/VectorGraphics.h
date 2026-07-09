@@ -37,6 +37,13 @@ inline namespace jf {
 // ---- Colour -----------------------------------------------------------------
 struct JColor {
     uint8_t r{0}, g{0}, b{0}, a{255};
+    bool operator==(const JColor& o) const { return r==o.r && g==o.g && b==o.b && a==o.a; }
+    bool operator!=(const JColor& o) const { return !(*this == o); }
+    // Contiguous RGBA8 view — the 4 packed bytes are a valid `const uint8_t[4]` for the
+    // render primitives (pushRectangle et al.).
+    const uint8_t* data() const noexcept { return &r; }
+    // Build from the legacy `uint8_t[4]` colour arrays the theme stores.
+    static JColor fromArray(const uint8_t c[4]) { return JColor{c[0], c[1], c[2], c[3]}; }
 };
 inline JColor rgb (uint8_t r, uint8_t g, uint8_t b)            { return {r, g, b, 255}; }
 inline JColor rgba(uint8_t r, uint8_t g, uint8_t b, uint8_t a) { return {r, g, b, a}; }
