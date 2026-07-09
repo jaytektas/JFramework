@@ -100,6 +100,10 @@ public:
     JGpuHal&         hal()    { return *m_hal; }
     void             requestClose() { m_window->requestClose(); }   // e.g. File▸Quit
 
+    // Fired when a dock is dismissed via its title-bar close button (not the menu). The app uses this
+    // to keep a View-menu visibility toggle in sync with a dock the user closed directly.
+    std::function<void(JDockWidget*)> onDockClosed;
+
     // Change the whole-UI (application) font at runtime: reload the font file, rebuild the glyph atlas at the
     // given base size (scaled by DPI), repoint the text helper's metrics, and re-upload the atlas to the GPU.
     // A single global font (not simultaneous mixed fonts), so the one atlas is simply rebuilt. false on failure.
@@ -446,8 +450,11 @@ public:
                 if (res.ev && res.host) {
                     if (res.ev->type == JDockHost::JDockEvent::JType::WantsFloat)
                         spawnFloat(res.host, res.ev->dock);   // framework owns tear-out
-                    else if (res.ev->type == JDockHost::JDockEvent::JType::CloseRequested)
-                        res.host->removeDock(res.ev->dock);
+                    else if (res.ev->type == JDockHost::JDockEvent::JType::CloseRequested) {
+                        JDockWidget* closed = res.ev->dock;
+                        res.host->removeDock(closed);
+                        if (onDockClosed) onDockClosed(closed);   // let the app sync its View-menu toggle, etc.
+                    }
                 }
             }
             // Focus-on-click: pressing a focusable widget focuses it (keyboard then routes
