@@ -256,8 +256,7 @@ public:
             drawHeaderCell(buf, i, {startX, b.y + 1.0f, colW, headerH - 1.0f}, m_headers[i]);
 
             if (i > 0) {
-                uint8_t gridC[4] = {72, 72, 76, 255};
-                buf.pushRectangle(startX, b.y + 1.0f, 1.0f, headerH - 1.0f, gridC);
+                buf.pushRectangle(startX, b.y + 1.0f, 1.0f, headerH - 1.0f, Colors::Border);
             }
         }
 
@@ -270,11 +269,10 @@ public:
             float rowY = b.y + headerH + r * rowH - m_scrollY;
 
             if (r == m_selectedIndex) {
-                uint8_t selBg[4] = {10, 132, 255, 60};
+                uint8_t selBg[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 60};
                 buf.pushRectangle(b.x + 1.0f, rowY, visibleW, rowH, selBg);
             } else if (r % 2 == 1) {
-                uint8_t altBg[4] = {34, 34, 36, 120};
-                buf.pushRectangle(b.x + 1.0f, rowY, visibleW, rowH, altBg);
+                buf.pushRectangle(b.x + 1.0f, rowY, visibleW, rowH, Colors::RowAltBg);
             }
 
             for (int c = 0; c < (int)m_headers.size() && c < (int)m_rows[r].size(); ++c) {
@@ -284,13 +282,11 @@ public:
                 drawRowCell(buf, r, c, {cellX, rowY, colW, rowH}, m_rows[r][c], r == m_selectedIndex);
 
                 if (c > 0) {
-                    uint8_t gridC[4] = {50, 50, 54, 180};
-                    buf.pushRectangle(cellX, rowY, 1.0f, rowH, gridC);
+                    buf.pushRectangle(cellX, rowY, 1.0f, rowH, Colors::GridLine);
                 }
             }
 
-            uint8_t gridH[4] = {50, 50, 54, 180};
-            buf.pushRectangle(b.x + 1.0f, rowY + rowH - 1.0f, visibleW, 1.0f, gridH);
+            buf.pushRectangle(b.x + 1.0f, rowY + rowH - 1.0f, visibleW, 1.0f, Colors::GridLine);
         }
 
         buf.popClip();
@@ -322,15 +318,14 @@ public:
 protected:
     virtual void drawHeaderCell(JPrimitiveBuffer& buf, int colIdx, const JRect& bounds, const std::string& title) {
         if (JTextHelper::hasAtlas()) {
-            uint8_t tc[4] = {230, 230, 240, 255};
             float ty = bounds.y + (bounds.height - JTextHelper::lineHeight()) * 0.5f;
-            JTextHelper::pushText(buf, bounds.x + m_cellPadding, ty, tr(title), tc, bounds.width - m_cellPadding * 2.0f);
+            JTextHelper::pushText(buf, bounds.x + m_cellPadding, ty, tr(title), Colors::GridHeaderText, bounds.width - m_cellPadding * 2.0f);
         }
     }
 
     virtual void drawRowCell(JPrimitiveBuffer& buf, int rowIdx, int colIdx, const JRect& bounds, const std::string& val, bool selected) {
         if (JTextHelper::hasAtlas()) {
-            uint8_t tc[4] = {200, 200, 210, 220};
+            uint8_t tc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 220};
             float ty = bounds.y + (bounds.height - JTextHelper::lineHeight()) * 0.5f;
             JTextHelper::pushText(buf, bounds.x + m_cellPadding, ty, tr(val), tc, bounds.width - m_cellPadding * 2.0f);
         }

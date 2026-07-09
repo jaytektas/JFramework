@@ -108,8 +108,8 @@ public:
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         
         // Background
-        uint8_t fill[4] = {20, 20, 24, 255};
-        buf.pushRectangle(b.x, b.y, b.width, b.height, fill, 6.0f, 1.0f, Colors::Border);
+        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::ScrollAreaBg,
+                          JTheme::current().hint(JStyleHint::ControlRadius), 1.0f, Colors::Border);
 
         if (m_children.empty()) return;
 
@@ -157,18 +157,14 @@ public:
             float trackX = b.x + b.width - trackW - 2.0f;
             float trackY = b.y + 2.0f;
 
-            uint8_t trackColor[4] = {30, 30, 35, 120};
-            buf.pushRectangle(trackX, trackY, trackW, trackH, trackColor, 3.0f);
+            buf.pushRectangle(trackX, trackY, trackW, trackH, Colors::ScrollTrack, 3.0f);
 
             float visibleRatio = b.height / totalH;
             float thumbH = std::max(20.0f, trackH * visibleRatio);
             float scrollRatio = m_scrollY / maxScrollY;
             float thumbY = trackY + scrollRatio * (trackH - thumbH);
 
-            uint8_t thumbColor[4] = {100, 100, 110, 200};
-            if (m_draggingScroll) {
-                thumbColor[0] = 130; thumbColor[1] = 130; thumbColor[2] = 140;
-            }
+            const uint8_t* thumbColor = m_draggingScroll ? Colors::ScrollThumbActive : Colors::ScrollThumb;
             buf.pushRectangle(trackX + 1.0f, thumbY, trackW - 2.0f, thumbH, thumbColor, 3.0f);
         }
     }

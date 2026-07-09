@@ -33,12 +33,12 @@ public:
 class JFallbackWindowSkin : public JWindowSkin {
 public:
     void drawFrame(JPrimitiveBuffer& buffer, const JRect& bounds, const JStyleEngine& styles, NodeId nodeId) override {
-        JColor defaultTitleColor = { 30, 30, 32, 255 };
-        JColor defaultBorderColor = { 60, 60, 65, 255 };
+        JColor defaultTitleColor = JColor::fromArray(Colors::WindowTitleFill);
+        JColor defaultBorderColor = JColor::fromArray(Colors::WindowFrameBorder);
         float titleHeight = styles.lookup(nodeId, WindowStyle::TitleBarHeight, 32.0f);
         
         // 1. Draw Main JWindow Body
-        uint8_t bgColor[4] = { 18, 18, 20, 255 };
+        const uint8_t* bgColor = Colors::Surface0;
         buffer.pushRectangle(bounds.x, bounds.y, bounds.width, bounds.height, bgColor, 8.0f);
 
         // 2. Draw Title Bar Area

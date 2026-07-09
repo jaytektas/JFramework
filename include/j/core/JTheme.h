@@ -110,6 +110,44 @@ struct JTheme {
     uint8_t ChartTooltipBorder[4]={90,  96,  110, 255};
     uint8_t ChartCrosshair[4]   = {255, 255, 255, 70};
 
+    // Container / chrome roles — de-hardcoded from the tab / list / tree / grid / group-box / dock / scroll
+    // / window widgets. Each default is the EXACT byte value the widget painted before migration (a site's
+    // own alpha is applied at the call site where it differs), so a default-theme render is pixel-identical
+    // while a theme swap now restyles the whole container/chrome set from here.
+    uint8_t ScrollTrack[4]        = {30,  30,  35,  120};  // list / scroll-area scrollbar track
+    uint8_t ScrollThumb[4]        = {100, 100, 110, 200};  // scrollbar thumb (idle)
+    uint8_t ScrollThumbActive[4]  = {130, 130, 140, 200};  // scrollbar thumb (dragging)
+    uint8_t ScrollAreaBg[4]       = {20,  20,  24,  255};  // scroll-area body fill
+    uint8_t TabGhostFill[4]       = {40,  40,  50,  180};  // torn-tab drag ghost body
+    uint8_t TabGhostBorder[4]     = {80,  130, 255, 200};  // torn-tab drag ghost outline
+    uint8_t TabGhostBar[4]        = {200, 210, 255, 180};  // torn-tab drag ghost label bar
+    uint8_t TabTearDot[4]         = {80,  80,  100, 120};  // tearable-tab corner dot
+    uint8_t TabInactiveText[4]    = {140, 140, 148, 255};  // inactive tab label (active = ControlText)
+    uint8_t DockTabInactiveText[4]= {150, 150, 158, 255};  // inactive dock-tab label (active = ControlText)
+    uint8_t TreeEditText[4]       = {225, 225, 232, 255};  // tree in-place edit buffer text
+    uint8_t TreeIconTable[4]      = {220, 150, 60,  255};  // tree node-kind glyph: table
+    uint8_t TreeIconConfig[4]     = {90,  150, 230, 255};  // tree node-kind glyph: config (filled)
+    uint8_t TreeIconToggle[4]     = {90,  200, 130, 255};  // tree node-kind glyph: toggle / value outline
+    uint8_t TreeIconEnum[4]       = {175, 130, 225, 255};  // tree node-kind glyph: enum
+    uint8_t TreeIconCurve[4]      = {90,  200, 220, 255};  // tree node-kind glyph: curve
+    uint8_t RowAltBg[4]           = {34,  34,  36,  120};  // data-grid alternating row stripe
+    uint8_t GridLine[4]           = {50,  50,  54,  180};  // data-grid cell / row grid line
+    uint8_t GridHeaderText[4]     = {230, 230, 240, 255};  // data-grid header caption
+    uint8_t GroupPanelFill[4]     = {22,  22,  25,  180};  // group-box panel body
+    uint8_t GroupTitleBg[4]       = {36,  36,  40,  200};  // group-box title strip
+    uint8_t DockContentBg[4]      = {14,  14,  16,  255};  // dock / leaf content-area fill (alpha varies at site)
+    uint8_t DockPinIdle[4]        = {50,  50,  60,  255};  // dock pin badge, unpinned / flexible (alpha varies)
+    uint8_t DockResizeIdle[4]     = {70,  70,  80,  160};  // dock resize grip (idle)
+    uint8_t DockResizeHot[4]      = {140, 140, 160, 240};  // dock resize grip (hover)
+    uint8_t DockCloseMark[4]      = {235, 235, 240, 210};  // dock close-× glyph
+    uint8_t DockSplitLine[4]      = {60,  60,  64,  255};  // dock split-handle divider line
+    uint8_t DropArrowBg[4]        = {40,  40,  46,  170};  // dock drop-target arrow bg (idle)
+    uint8_t DropArrowBorder[4]    = {90,  90,  96,  180};  // dock drop-target arrow outline (idle)
+    uint8_t WindowTitleFill[4]    = {30,  30,  32,  255};  // fallback-skin window title-bar fill
+    uint8_t WindowFrameBorder[4]  = {60,  60,  65,  255};  // fallback-skin window frame border
+    uint8_t FloatTitleBarBg[4]    = {28,  28,  32,  255};  // floating-window global title bar
+    uint8_t FloatSeparator[4]     = {50,  50,  55,  255};  // floating-window title separator line
+
     // Dimensions
     float cornerRadius   = 6.f;
     float menuItemHeight = 28.f;
@@ -202,6 +240,40 @@ inline JTheme JTheme::light() {
     s(t.ChartTooltipBg,   245, 246, 250, 235);
     s(t.ChartTooltipBorder,160,166, 178, 255);
     s(t.ChartCrosshair,     0,   0,   0,  70);
+    // Container / chrome roles — light-theme values (provisional; not covered by the byte-exact gate).
+    s(t.ScrollTrack,        0,   0,   0,  30);
+    s(t.ScrollThumb,      160, 160, 170, 200);
+    s(t.ScrollThumbActive,130, 130, 140, 220);
+    s(t.ScrollAreaBg,     248, 248, 250, 255);
+    s(t.TabGhostFill,     225, 225, 235, 180);
+    s(t.TabGhostBorder,    80, 130, 255, 200);
+    s(t.TabGhostBar,      120, 150, 220, 180);
+    s(t.TabTearDot,       150, 150, 170, 140);
+    s(t.TabInactiveText,  120, 120, 130, 255);
+    s(t.DockTabInactiveText,120,120,130, 255);
+    s(t.TreeEditText,      30,  30,  36, 255);
+    s(t.TreeIconTable,    200, 130,  40, 255);
+    s(t.TreeIconConfig,    60, 120, 210, 255);
+    s(t.TreeIconToggle,    50, 170, 100, 255);
+    s(t.TreeIconEnum,     150, 100, 205, 255);
+    s(t.TreeIconCurve,     50, 170, 190, 255);
+    s(t.RowAltBg,           0,   0,   0,  14);
+    s(t.GridLine,           0,   0,   0,  40);
+    s(t.GridHeaderText,    30,  30,  40, 255);
+    s(t.GroupPanelFill,   255, 255, 255, 180);
+    s(t.GroupTitleBg,     228, 228, 234, 200);
+    s(t.DockContentBg,    252, 252, 254, 255);
+    s(t.DockPinIdle,      170, 170, 180, 255);
+    s(t.DockResizeIdle,   150, 150, 160, 160);
+    s(t.DockResizeHot,     90,  90, 110, 240);
+    s(t.DockCloseMark,     40,  40,  48, 210);
+    s(t.DockSplitLine,    190, 190, 198, 255);
+    s(t.DropArrowBg,      220, 220, 226, 170);
+    s(t.DropArrowBorder,  150, 150, 160, 180);
+    s(t.WindowTitleFill,  228, 228, 234, 255);
+    s(t.WindowFrameBorder,170, 170, 180, 255);
+    s(t.FloatTitleBarBg,  235, 235, 240, 255);
+    s(t.FloatSeparator,   200, 200, 208, 255);
     return t;
 }
 inline JTheme& JTheme::current() { static JTheme inst; return inst; }
@@ -361,6 +433,39 @@ namespace Colors {
     inline const uint8_t* const ChartTooltipBg    = JTheme::current().ChartTooltipBg;
     inline const uint8_t* const ChartTooltipBorder= JTheme::current().ChartTooltipBorder;
     inline const uint8_t* const ChartCrosshair    = JTheme::current().ChartCrosshair;
+    inline const uint8_t* const ScrollTrack        = JTheme::current().ScrollTrack;
+    inline const uint8_t* const ScrollThumb        = JTheme::current().ScrollThumb;
+    inline const uint8_t* const ScrollThumbActive  = JTheme::current().ScrollThumbActive;
+    inline const uint8_t* const ScrollAreaBg       = JTheme::current().ScrollAreaBg;
+    inline const uint8_t* const TabGhostFill       = JTheme::current().TabGhostFill;
+    inline const uint8_t* const TabGhostBorder     = JTheme::current().TabGhostBorder;
+    inline const uint8_t* const TabGhostBar        = JTheme::current().TabGhostBar;
+    inline const uint8_t* const TabTearDot         = JTheme::current().TabTearDot;
+    inline const uint8_t* const TabInactiveText    = JTheme::current().TabInactiveText;
+    inline const uint8_t* const DockTabInactiveText= JTheme::current().DockTabInactiveText;
+    inline const uint8_t* const TreeEditText       = JTheme::current().TreeEditText;
+    inline const uint8_t* const TreeIconTable      = JTheme::current().TreeIconTable;
+    inline const uint8_t* const TreeIconConfig     = JTheme::current().TreeIconConfig;
+    inline const uint8_t* const TreeIconToggle     = JTheme::current().TreeIconToggle;
+    inline const uint8_t* const TreeIconEnum       = JTheme::current().TreeIconEnum;
+    inline const uint8_t* const TreeIconCurve      = JTheme::current().TreeIconCurve;
+    inline const uint8_t* const RowAltBg           = JTheme::current().RowAltBg;
+    inline const uint8_t* const GridLine           = JTheme::current().GridLine;
+    inline const uint8_t* const GridHeaderText     = JTheme::current().GridHeaderText;
+    inline const uint8_t* const GroupPanelFill     = JTheme::current().GroupPanelFill;
+    inline const uint8_t* const GroupTitleBg       = JTheme::current().GroupTitleBg;
+    inline const uint8_t* const DockContentBg      = JTheme::current().DockContentBg;
+    inline const uint8_t* const DockPinIdle        = JTheme::current().DockPinIdle;
+    inline const uint8_t* const DockResizeIdle     = JTheme::current().DockResizeIdle;
+    inline const uint8_t* const DockResizeHot      = JTheme::current().DockResizeHot;
+    inline const uint8_t* const DockCloseMark      = JTheme::current().DockCloseMark;
+    inline const uint8_t* const DockSplitLine      = JTheme::current().DockSplitLine;
+    inline const uint8_t* const DropArrowBg        = JTheme::current().DropArrowBg;
+    inline const uint8_t* const DropArrowBorder    = JTheme::current().DropArrowBorder;
+    inline const uint8_t* const WindowTitleFill    = JTheme::current().WindowTitleFill;
+    inline const uint8_t* const WindowFrameBorder  = JTheme::current().WindowFrameBorder;
+    inline const uint8_t* const FloatTitleBarBg    = JTheme::current().FloatTitleBarBg;
+    inline const uint8_t* const FloatSeparator     = JTheme::current().FloatSeparator;
     inline constexpr uint8_t    Transparent[4] = {0, 0, 0, 0};  // truly constant, not themed
     inline constexpr uint8_t    White[4]        = {255, 255, 255, 255};  // truly constant neutral white (overlay tints)
 }

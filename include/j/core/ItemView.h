@@ -173,8 +173,7 @@ public:
                 buf.pushRectangle(b.x + 1.f, ry, b.width - 2.f, m_rowH, sel, 0.f);
             }
             if (current) {
-                uint8_t none[4] = {0, 0, 0, 0};
-                buf.pushRectangle(b.x + 1.f, ry, b.width - 2.f, m_rowH, none,
+                buf.pushRectangle(b.x + 1.f, ry, b.width - 2.f, m_rowH, Colors::Transparent,
                                   0.f, 1.0f, th.Accent);
             }
 
@@ -371,8 +370,7 @@ public:
                 buf.pushRectangle(b.x + 1.f, ry, b.width - 2.f, m_rowH, sel, 0.f);
             }
             if (rowCur.isValid() && rowCur.row() == row) {
-                uint8_t none[4] = {0, 0, 0, 0};
-                buf.pushRectangle(b.x + 1.f, ry, b.width - 2.f, m_rowH, none,
+                buf.pushRectangle(b.x + 1.f, ry, b.width - 2.f, m_rowH, Colors::Transparent,
                                   0.f, 1.0f, th.Accent);
             }
 

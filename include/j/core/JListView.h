@@ -170,14 +170,14 @@ public:
             }
 
             if (JTextHelper::hasAtlas()) {
-                uint8_t tc[4] = {220, 220, 228, 220};
+                uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 220};
                 if (i == m_selectedIndex) {   // selected text takes HighlightedText's rgb (white), same alpha
                     const JColor ht = jstyle::role(JColorRole::HighlightedText, o);
                     tc[0] = ht.r; tc[1] = ht.g; tc[2] = ht.b;
                 }
                 JTextHelper::pushText(buf, b.x + 8.0f, itemY + 4.0f, tr(m_items[i]), tc, itemW - 12.0f);
             } else {
-                uint8_t tc[4] = {200, 200, 210, 180};
+                uint8_t tc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 180};
                 if (i == m_selectedIndex) {
                     tc[0] = 255; tc[1] = 255; tc[2] = 255;
                 }
@@ -192,18 +192,14 @@ public:
             float trackX = b.x + b.width - trackW - 2.0f;
             float trackY = b.y + 2.0f;
 
-            uint8_t trackColor[4] = {30, 30, 35, 120};
-            buf.pushRectangle(trackX, trackY, trackW, trackH, trackColor, 3.0f);
+            buf.pushRectangle(trackX, trackY, trackW, trackH, Colors::ScrollTrack, 3.0f);
 
             float visibleRatio = b.height / totalH;
             float thumbH = std::max(20.0f, trackH * visibleRatio);
             float scrollRatio = m_scrollY / maxScrollY;
             float thumbY = trackY + scrollRatio * (trackH - thumbH);
 
-            uint8_t thumbColor[4] = {100, 100, 110, 200};
-            if (m_draggingScroll) {
-                thumbColor[0] = 130; thumbColor[1] = 130; thumbColor[2] = 140;
-            }
+            const uint8_t* thumbColor = m_draggingScroll ? Colors::ScrollThumbActive : Colors::ScrollThumb;
             buf.pushRectangle(trackX + 1.0f, thumbY, trackW - 2.0f, thumbH, thumbColor, 3.0f);
         }
     }

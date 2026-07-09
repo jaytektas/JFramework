@@ -396,7 +396,7 @@ public:
                 const float ex = textX - 3.0f, ew = b.x + b.width - 16.0f - ex;
                 buf.pushRectangle(ex, itemY + 2.0f, ew, itemH - 4.0f, Colors::Surface0, 3.0f, 1.5f, Colors::Accent);
                 if (JTextHelper::hasAtlas()) {
-                    uint8_t tc[4] = {225, 225, 232, 230};
+                    uint8_t tc[4] = {Colors::TreeEditText[0], Colors::TreeEditText[1], Colors::TreeEditText[2], 230};
                     JTextHelper::pushText(buf, textX, ty, m_editBuf, tc, ew - 10.0f);
                     buf.pushRectangle(textX + JTextHelper::measureWidth(m_editBuf) + 1.0f, itemY + 4.0f, 1.5f, itemH - 8.0f, Colors::Accent);
                 }
@@ -414,7 +414,7 @@ public:
             for (int i = 0; i < (int)flatNodes.size(); ++i) if (flatNodes[i].node == m_dropTarget) { di = i; break; }
             if (di >= 0) {
                 float ry = b.y + 4.0f + di * itemH - m_scrollY;
-                uint8_t ind[4] = {10, 132, 255, 255};
+                const uint8_t* ind = Colors::Accent;
                 if (m_dropMode == 1) {
                     buf.pushRectangle(b.x + 3.0f, ry, b.width - 16.0f, itemH, Colors::Transparent, 4.0f, 2.0f, ind);
                 } else {
@@ -443,7 +443,7 @@ public:
 
 protected:
     virtual void drawNodeBackground(JPrimitiveBuffer& buf, JTreeViewNode* node, const JRect& bounds) {
-        uint8_t selBg[4] = {10, 132, 255, 60};
+        uint8_t selBg[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 60};
         buf.pushRectangle(bounds.x, bounds.y, bounds.width, bounds.height, selBg, 4.0f);
     }
 
@@ -452,8 +452,10 @@ protected:
     // else a hollow outline. Kinds are app-defined; unknown ones fall through to the hollow default.
     void _drawTreeIcon(JPrimitiveBuffer& buf, float x, float cy, int kind) {
         const float s = 10.0f, y = cy - s * 0.5f, h = s * 0.45f;
-        static const uint8_t orange[4] = {220, 150, 60, 255}, blue[4] = {90, 150, 230, 255},
-                             green[4] = {90, 200, 130, 255}, purple[4] = {175, 130, 225, 255}, cyan[4] = {90, 200, 220, 255};
+        // Node-kind glyph colours route through the themed TreeIcon* roles (byte-identical defaults).
+        const uint8_t* orange = Colors::TreeIconTable; const uint8_t* blue = Colors::TreeIconConfig;
+        const uint8_t* green  = Colors::TreeIconToggle; const uint8_t* purple = Colors::TreeIconEnum;
+        const uint8_t* cyan   = Colors::TreeIconCurve;
         switch (kind) {
             case 1:  // table — 2×2 grid
                 buf.pushRectangle(x, y, h, h, orange);           buf.pushRectangle(x + h + 1.f, y, h, h, orange);
@@ -470,7 +472,7 @@ protected:
     virtual void drawNodeChevron(JPrimitiveBuffer& buf, JTreeViewNode* /*node*/, float ax, float ay, float /*size*/, bool expanded) {
         // A filled triangle disclosure arrow (▶ collapsed / ▼ expanded), matching the original studio's tree
         // branch indicators — not the old crude split-bar (which read as vertical dots).
-        const JColor col = jf::rgba(180, 180, 190, 230);
+        const JColor col = jf::rgba(Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 230);
         const float s = 4.0f;
         JVectorCanvas vg; vg.setAntiAlias(1.2f);
         if (expanded) vg.fillConvex({ {ax - s, ay - s * 0.55f}, {ax + s, ay - s * 0.55f}, {ax, ay + s * 0.85f} }, JPaint::solid(col));   // ▼
@@ -480,10 +482,10 @@ protected:
 
     virtual void drawNodeText(JPrimitiveBuffer& buf, JTreeViewNode* node, float tx, float ty, float maxW) {
         if (JTextHelper::hasAtlas()) {
-            uint8_t tc[4] = {210, 210, 220, 220};
+            uint8_t tc[4] = {Colors::FieldText[0], Colors::FieldText[1], Colors::FieldText[2], 220};
             JTextHelper::pushText(buf, tx, ty, tr(node->label), tc, maxW);
         } else {
-            uint8_t tc[4] = {200, 200, 210, 180};
+            uint8_t tc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 180};
             buf.pushRectangle(tx, ty + 2.0f, 60.0f, 8.0f, tc, 2.0f);
         }
     }
