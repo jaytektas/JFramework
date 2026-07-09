@@ -198,11 +198,38 @@ public:
     }
     void setMaximumSize(float w, float h) {
         m_maxW = w; m_maxH = h;
-        const auto& bb = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        setSize(bb.width, bb.height);
+        auto& l = m_graph.getLayout(m_nodeId);
+        l.maxWidth = w; l.maxHeight = h;                 // let the layout pass honour the ceiling too
+        setSize(l.boundingBox.width, l.boundingBox.height);
     }
     std::pair<float,float> minimumSize() const { return { m_minW, m_minH }; }
     std::pair<float,float> maximumSize() const { return { m_maxW, m_maxH }; }
+
+    // ------------------------------------------------------------------
+    // Size policy — how this widget negotiates for space along each axis when its parent's
+    // flex/box pass has slack or a deficit to hand out. Default is Preferred/0 (original
+    // behaviour). Pass stretch < 0 to leave the existing stretch factor untouched.
+    // ------------------------------------------------------------------
+    void setHSizePolicy(JSizePolicyMode m, int stretch = -1) {
+        auto& l = m_graph.getLayout(m_nodeId);
+        l.hPolicy.mode = m; if (stretch >= 0) l.hPolicy.stretch = stretch;
+    }
+    void setVSizePolicy(JSizePolicyMode m, int stretch = -1) {
+        auto& l = m_graph.getLayout(m_nodeId);
+        l.vPolicy.mode = m; if (stretch >= 0) l.vPolicy.stretch = stretch;
+    }
+    void setSizePolicy(JSizePolicyMode h, JSizePolicyMode v) { setHSizePolicy(h); setVSizePolicy(v); }
+    // Set the stretch factor on both axes (weights how expanding space is split against siblings).
+    void setStretch(int factor) {
+        auto& l = m_graph.getLayout(m_nodeId);
+        l.hPolicy.stretch = factor; l.vPolicy.stretch = factor;
+    }
+    JSizePolicy hSizePolicy() const { return m_graph.getLayoutConst(m_nodeId).hPolicy; }
+    JSizePolicy vSizePolicy() const { return m_graph.getLayoutConst(m_nodeId).vPolicy; }
+
+    // Placement inside an over-sized layout cell (grid column / opted-out box child).
+    void       setCellAlign(JCellAlign a) { m_graph.getLayout(m_nodeId).cellAlign = a; }
+    JCellAlign cellAlign() const          { return m_graph.getLayoutConst(m_nodeId).cellAlign; }
 
     // Pin the widget to an exact size: min == max == the given size, and clamp now.
     void setFixedSize(float w, float h) {
@@ -210,6 +237,9 @@ public:
         m_minH = m_maxH = h;
         auto& l = m_graph.getLayout(m_nodeId);
         l.minWidth = w; l.minHeight = h;
+        l.maxWidth = w; l.maxHeight = h;            // pin the layout pass too
+        l.hPolicy.mode = JSizePolicyMode::Fixed;
+        l.vPolicy.mode = JSizePolicyMode::Fixed;
         setSize(w, h);
     }
 
