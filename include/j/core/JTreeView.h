@@ -159,9 +159,25 @@ public:
                         const bool dbl = m_editable && !wasEditing && flat.node == m_lastClickNode &&
                                          std::chrono::duration_cast<std::chrono::milliseconds>(nowT - m_lastClickTime).count() < 400;
                         m_lastClickNode = flat.node; m_lastClickTime = nowT;
-                        _selectNode(flat.node);
-                        if (dbl) beginRename();
-                        else     onNodeActivated.emit(flat.node);
+                        if (m_multiSelect && (JWidget::s_ctrlDown || JWidget::s_shiftDown)) {
+                            if (JWidget::s_shiftDown) { auto fn = flatNodes; _selectRangeTo(flat.node, fn); }
+                            else {   // Ctrl: toggle this node in/out of the set
+                                flat.node->selected = !flat.node->selected;
+                                m_selectedNode = m_anchorNode = flat.node;
+                                m_graph.invalidateNode(m_nodeId, DirtySelf);
+                                onSelectionChanged.emit(flat.node);
+                            }
+                            m_pendingCollapse = nullptr;
+                        } else if (m_multiSelect && flat.node->selected && _selectedCount() > 1) {
+                            // Keep the multi-selection so a drag carries all of it; collapse to just this
+                            // node on release only if the press turns out to be a click (no drag).
+                            m_selectedNode = flat.node; m_pendingCollapse = flat.node;
+                        } else {
+                            if (m_multiSelect) _selectSingle(flat.node); else _selectNode(flat.node);
+                            m_pendingCollapse = nullptr;
+                            if (dbl) beginRename();
+                            else     onNodeActivated.emit(flat.node);
+                        }
                     }
                 }
             }
@@ -170,6 +186,9 @@ public:
 
     void handleMouseRelease(float mx, float my) override {
         m_draggingScroll = false;
+        // A click (no drag) on an already-multi-selected node collapses the set to just that node. A drag
+        // cleared m_pressNode (external) or set m_dragging (reorder), so either of those means "not a click".
+        if (m_pendingCollapse) { if (m_pressNode && !m_dragging) _selectSingle(m_pendingCollapse); m_pendingCollapse = nullptr; }
         if (m_dragging) {
             JDragDrop::cancel();   // released back inside the tree → a reorder, not a surface placement
             JTreeViewNode* moved = m_pressNode;
@@ -450,6 +469,17 @@ public:
 
     JTreeViewNode* selectedNode() const { return m_selectedNode; }
 
+    // Multi-select (opt-in): Ctrl+click toggles a node, Shift+click extends a range from the anchor, a
+    // plain click collapses to one. Pressing an already-selected node keeps the set (so a drag carries
+    // every selected node) and only collapses to it if the press turns out to be a click, not a drag.
+    void setMultiSelect(bool on) { m_multiSelect = on; }
+    bool multiSelect() const { return m_multiSelect; }
+    std::vector<JTreeViewNode*> selectedNodes() {
+        std::vector<JTreeViewNode*> out;
+        for (auto& c : m_root.children) _collectSelected(c, out);
+        return out;
+    }
+
 protected:
     virtual void drawNodeBackground(JPrimitiveBuffer& buf, JTreeViewNode* node, const JRect& bounds) {
         uint8_t selBg[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 60};
@@ -527,6 +557,34 @@ private:
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onSelectionChanged.emit(node);
         }
+    }
+
+    // --- Multi-select helpers ------------------------------------------------------------------------
+    void _clearSelRec(JTreeViewNode& n) { n.selected = false; for (auto& c : n.children) _clearSelRec(c); }
+    void _clearAllSelected() { for (auto& c : m_root.children) _clearSelRec(c); }
+    void _collectSelected(JTreeViewNode& n, std::vector<JTreeViewNode*>& out) {
+        if (n.selected) out.push_back(&n);
+        for (auto& c : n.children) _collectSelected(c, out);
+    }
+    int  _selectedCount() { std::vector<JTreeViewNode*> v; for (auto& c : m_root.children) _collectSelected(c, v); return (int)v.size(); }
+    void _selectSingle(JTreeViewNode* node) {   // clear the whole set, select just `node`, make it the anchor
+        _clearAllSelected();
+        m_selectedNode = m_anchorNode = node;
+        if (node) node->selected = true;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+        onSelectionChanged.emit(node);
+    }
+    void _selectRangeTo(JTreeViewNode* target, std::vector<JFlatNode>& flat) {   // anchor..target inclusive
+        int ai = -1, ti = -1;
+        for (int i = 0; i < (int)flat.size(); ++i) { if (flat[i].node == m_anchorNode) ai = i; if (flat[i].node == target) ti = i; }
+        if (ai < 0) { _selectSingle(target); return; }
+        if (ti < 0) ti = ai;
+        _clearAllSelected();
+        if (ai > ti) std::swap(ai, ti);
+        for (int i = ai; i <= ti; ++i) flat[i].node->selected = true;
+        m_selectedNode = target;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+        onSelectionChanged.emit(target);
     }
 
     JTreeViewNode* _findParent(JTreeViewNode* current, JTreeViewNode* target) {
@@ -651,6 +709,9 @@ private:
 
     JTreeViewNode  m_root;
     JTreeViewNode* m_selectedNode{nullptr};
+    bool           m_multiSelect{false};        // Ctrl/Shift multi-select (opt-in)
+    JTreeViewNode* m_anchorNode{nullptr};       // range-select anchor
+    JTreeViewNode* m_pendingCollapse{nullptr};  // click-on-selected: collapse to this on release-without-drag
     JTreeViewNode* m_editNode{nullptr};   // node whose label is being edited in place
     std::string    m_editBuf;             // working text during an in-place rename
     bool           m_editable{true};      // F2 / click-selected may start an in-place rename
