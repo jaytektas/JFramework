@@ -95,6 +95,7 @@ public:
     virtual void setMaximized(bool on)   { (void)on; }
     virtual bool isMaximized() const     { return false; }
     virtual void requestClose()          {}
+    virtual void clearCloseRequest()     {}   // veto a pending close (app intercepted it, e.g. save prompt)
     virtual void startWindowMove()              {}
     // dir: 0=TL,1=T,2=TR,3=R,4=BR,5=B,6=BL,7=L  (_NET_WM_MOVERESIZE directions)
     virtual void startWindowResize(uint32_t dir) { (void)dir; }

@@ -111,6 +111,11 @@ public:
     // to keep a View-menu visibility toggle in sync with a dock the user closed directly.
     std::function<void(JDockWidget*)> onDockClosed;
 
+    // Interpose on window close (✕ / WM-close / File▸Quit → requestClose). Return true to let the window
+    // close; return false to VETO it (the app is handling it — e.g. showing a Save-changes prompt, then
+    // calling requestClose() again once the user chose). Unset → always close.
+    std::function<bool()> onCloseRequest;
+
     // Change the whole-UI (application) font at runtime: reload the font file, rebuild the glyph atlas at the
     // given base size (scaled by DPI), repoint the text helper's metrics, and re-upload the atlas to the GPU.
     // A single global font (not simultaneous mixed fonts), so the one atlas is simply rebuilt. false on failure.
@@ -279,8 +284,14 @@ public:
         int   redraw = 4;                  // frames left to render (armed by activity)
         float lastMx = -1.f, lastMy = -1.f;
         auto  lastFrameTime = std::chrono::steady_clock::now();   // for per-frame animation delta
-        while (!m_window->shouldClose()) {
+        while (true) {
             m_window->pollNativeEvents();
+            // Close interposition: if a close is pending and the app vetoes (e.g. it's showing a Save
+            // prompt), clear the request and keep running so the prompt can render + resolve.
+            if (m_window->shouldClose()) {
+                if (!onCloseRequest || onCloseRequest()) break;
+                m_window->clearCloseRequest();
+            }
             bool activity = false;
 
             // Off-screen capture request (set by a signal handler / tool): grab THIS frame's swapchain to a

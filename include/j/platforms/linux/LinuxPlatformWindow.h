@@ -435,6 +435,7 @@ public:
 
     bool shouldClose()  const override { return m_closeRequested; }
     void requestClose()       override { m_closeRequested = true; }
+    void clearCloseRequest()  override { m_closeRequested = false; }
     bool consumeFocusLost()  override { bool v = m_focusLost;  m_focusLost  = false; return v; }
     bool consumeMouseLeave() override { bool v = m_mouseLeft; m_mouseLeft = false; return v; }
     bool consumeWasResized() override { bool v = m_wasResized; m_wasResized = false; return v; }
