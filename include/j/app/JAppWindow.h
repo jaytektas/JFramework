@@ -179,7 +179,7 @@ public:
         const std::string startFam = jReadFontFamilyName(orig);   // seed the list to the active family (best-effort)
         const int cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(JFontPickerDialog::kW)) / 2;
         const int cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(JFontPickerDialog::kH)) / 2;
-        const auto parent = (JFontPickerDialog::NativeWinHandleType)(m_window->rawWindowId());
+        const auto parent = (JFontPickerDialog::NativeWinHandleType)(activeModalParent());   // transient-for the opener (e.g. Preferences)
         auto dlg = std::make_shared<JFontPickerDialog>(
             startFam.empty() ? std::string() : (startFam + "|12|0|0"), *m_hal, cx, cy, parent,
             std::function<void(std::string)>{});          // spec-accept unused in app-font mode
@@ -210,23 +210,35 @@ public:
     // frame it). Any JWidget; opt into a dock host here only if you actually want docks in the centre.
     void setCentralWidget(JWidget* w) { m_space.setCentralWidget(w); }
 
+    // The window a newly-opened modal should be transient-for: the modal currently on top of the stack
+    // (so a modal opened FROM a modal — font picker from Preferences — parents to its opener and the WM
+    // stacks + focuses it above it), or the main window when no modal is open. This is THE reason the
+    // font picker no longer opens behind Preferences: it's handed the right parent, centrally, instead of
+    // every dialog raising/focusing itself by hand.
+    uintptr_t activeModalParent() const {
+        return m_modalStack.empty() ? m_window->rawWindowId() : m_modalStack.back().win;
+    }
+
     // Install a generic app-owned modal dialog: `poll` is pumped each frame (renders to its own
     // surface) and returns false once the dialog has closed, at which point `destroy` is called.
-    // The app owns the dialog object/lifetime; this only drives it. Used for Preferences, etc.
+    // The app owns the dialog object/lifetime; this only drives it. Used for Preferences, etc. The
+    // dialog's own window (created just now in its ctor) is recorded as the new stack top so the NEXT
+    // modal parents to it.
     void setModalDialog(std::function<bool(JGpuHal&, JPrimitiveBuffer&)> poll, std::function<void(JGpuHal&)> destroy) {
-        m_modalStack.push_back({ std::move(poll), std::move(destroy) });   // push: modals STACK, so a modal can open another (e.g. Axis Setup -> channel picker) without destroying its parent
+        m_modalStack.push_back({ std::move(poll), std::move(destroy), JPlatformWindow::lastCreatedRaw() });
     }
 
     // Construct an app modal dialog of type T, centred over this window, and drive it via the modal hook.
     // T's ctor is (args..., JGpuHal&, screenX, screenY, T::NativeWinHandleType) — any leading args (a data
     // list, a seed value, an on-accept callback) are forwarded before the fixed hal/pos/handle tail. T needs
-    // static kW/kH + pollAndRender + destroySurface. The dialog lives for as long as it's open.
+    // static kW/kH + pollAndRender + destroySurface. The dialog lives for as long as it's open. It parents
+    // to the active modal (see activeModalParent), so nested dialogs stack + focus correctly by themselves.
     template <typename T, typename... Args>
     void openModal(Args&&... args) {
         const int cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(T::kW)) / 2;
         const int cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(T::kH)) / 2;
         auto dlg = std::make_shared<T>(std::forward<Args>(args)..., *m_hal, cx, cy,
-                                       (typename T::NativeWinHandleType)(m_window->rawWindowId()));
+                                       (typename T::NativeWinHandleType)(activeModalParent()));
         setModalDialog([dlg](JGpuHal& h, JPrimitiveBuffer& b) { return dlg->pollAndRender(h, b); },
                        [dlg](JGpuHal& h) { dlg->destroySurface(h); });
     }
@@ -939,7 +951,7 @@ private:
         // free the std::function mid-invocation; guard the pop on the stack not having grown during the poll.
         if (!m_modalStack.empty()) {
             const size_t idx = m_modalStack.size() - 1;   // the top being pumped
-            auto poll = m_modalStack[idx].first;          // copy: poll() may push a child (realloc) and would
+            auto poll = m_modalStack[idx].poll;           // copy: poll() may push a child (realloc) and would
                                                           // otherwise free this std::function mid-invocation
             if (!poll(*m_hal, scratch)) {
                 // This modal is done — remove IT (idx), even if its poll opened a CHILD (sequential modals like
@@ -947,7 +959,7 @@ private:
                 // idx+1). Popping back() here would wrongly drop the child and leave the DONE parent lingering,
                 // re-polled next frame against a torn-down state (the intermittent Open-ECU crash).
                 if (idx < m_modalStack.size()) {
-                    if (m_modalStack[idx].second) m_modalStack[idx].second(*m_hal);
+                    if (m_modalStack[idx].destroy) m_modalStack[idx].destroy(*m_hal);
                     m_modalStack.erase(m_modalStack.begin() + idx);
                 }
             }
@@ -1101,9 +1113,15 @@ private:
     std::unique_ptr<JPopupWindow>    m_comboPopup;
     JComboBox*                       m_comboOwner{nullptr};
     std::unique_ptr<JColorPickerDialog> m_colorDialog;          // open colour dialog (own surface)
-    // Generic app-modal STACK (Preferences, pickers, Axis Setup…): {poll, destroy} pairs; only the top is
-    // pumped, so one modal can open another. Pushed by setModalDialog, popped when its poll returns false.
-    std::vector<std::pair<std::function<bool(JGpuHal&, JPrimitiveBuffer&)>, std::function<void(JGpuHal&)>>> m_modalStack;
+    // Generic app-modal STACK (Preferences, pickers, Axis Setup…): only the top is pumped, so one modal
+    // can open another. Pushed by setModalDialog, popped when its poll returns false. `win` is the modal's
+    // own window handle, so the NEXT modal can parent to it (activeModalParent) and stack/focus correctly.
+    struct JModalEntry {
+        std::function<bool(JGpuHal&, JPrimitiveBuffer&)> poll;
+        std::function<void(JGpuHal&)>                    destroy;
+        uintptr_t                                        win{0};
+    };
+    std::vector<JModalEntry> m_modalStack;
     JPopupWindow*                    m_comboCloseReq{nullptr};
     std::vector<JNativeDialogWindow> m_dialogs;
     std::vector<JFileDialogWindow>   m_fileDialogs;

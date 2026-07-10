@@ -74,12 +74,6 @@ public:
         // NB: JListView emits onItemActivated on a single click, so a click only SELECTS here — the pick is
         // confirmed with Select / Enter (wiring activation to close would dismiss the dialog on any click).
         m_search->onTextChanged.connect([this](const std::string& q) { _applyFilter(q); });
-
-        // This dialog is usually opened FROM another modal (Preferences ▸ Application Font), which is a
-        // sibling window under the same parent. Restack above it and take keyboard focus, or it maps behind
-        // its opener and receives no clicks/keys (the opener, on top, swallows them).
-        m_window->raise();
-        m_window->grabKeyboardFocus();
     }
 
     void destroySurface(JGpuHal& hal) { hal.destroySurface(m_surface); }

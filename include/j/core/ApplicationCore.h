@@ -107,6 +107,13 @@ public:
     virtual void setMinSize(uint32_t minW, uint32_t minH) { (void)minW; (void)minH; }
     // Appended LAST so it adds a new vtable slot without shifting existing ones (no lib rebuild needed).
     virtual void setTitle(const std::string& title) { (void)title; }   // runtime WM title (no-op default)
+
+    // Raw handle of the most-recently-created platform window, set by each concrete window ctor. Lets the
+    // modal system (JAppWindow) parent a newly-opened modal to the modal that opened it WITHOUT every
+    // dialog exposing its window — so a nested modal (font picker from Preferences) becomes transient-for
+    // its opener and the WM stacks + focuses it. Static (not virtual): no vtable change, no lib rebuild.
+    static inline uintptr_t s_lastCreatedRaw = 0;
+    static uintptr_t lastCreatedRaw() { return s_lastCreatedRaw; }
 };
 
 /**

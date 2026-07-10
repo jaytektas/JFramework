@@ -93,6 +93,7 @@ public:
 
         ShowWindow(m_hwnd, SW_SHOW);
         UpdateWindow(m_hwnd);
+        s_lastCreatedRaw = reinterpret_cast<uintptr_t>(m_hwnd);   // modal system parents the next modal to this
     }
 
     ~JWindowsPlatformWindow() override {
@@ -152,12 +153,6 @@ public:
         m_width = w;
         m_height = h;
         SetWindowPos(m_hwnd, nullptr, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-    }
-
-    // Restack above siblings so a nested modal (font picker over Preferences) isn't stuck behind its
-    // opener and starved of clicks. Non-virtual — mirrors the Linux window's raise().
-    void raise() {
-        SetWindowPos(m_hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
     void setCursor(jf::JPlatformCursor shape) override { (void)shape; }
