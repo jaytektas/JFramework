@@ -179,7 +179,7 @@ public:
         const std::string startFam = jReadFontFamilyName(orig);   // seed the list to the active family (best-effort)
         const int cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(JFontPickerDialog::kW)) / 2;
         const int cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(JFontPickerDialog::kH)) / 2;
-        const auto parent = static_cast<JFontPickerDialog::NativeWinHandleType>(m_window->rawWindowId());
+        const auto parent = (JFontPickerDialog::NativeWinHandleType)(m_window->rawWindowId());
         auto dlg = std::make_shared<JFontPickerDialog>(
             startFam.empty() ? std::string() : (startFam + "|12|0|0"), *m_hal, cx, cy, parent,
             std::function<void(std::string)>{});          // spec-accept unused in app-font mode
@@ -226,7 +226,7 @@ public:
         const int cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(T::kW)) / 2;
         const int cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(T::kH)) / 2;
         auto dlg = std::make_shared<T>(std::forward<Args>(args)..., *m_hal, cx, cy,
-                                       static_cast<typename T::NativeWinHandleType>(m_window->rawWindowId()));
+                                       (typename T::NativeWinHandleType)(m_window->rawWindowId()));
         setModalDialog([dlg](JGpuHal& h, JPrimitiveBuffer& b) { return dlg->pollAndRender(h, b); },
                        [dlg](JGpuHal& h) { dlg->destroySurface(h); });
     }
@@ -243,7 +243,7 @@ public:
                          m_window->screenY() + static_cast<int>(ly) };
             };
             m_menuRuntime.wire(m_hal.get(),
-                               static_cast<JPopupWindow::NativeWinHandleType>(m_window->rawWindowId()),
+                               (JPopupWindow::NativeWinHandleType)(m_window->rawWindowId()),
                                m_menuBar.get());
             m_menuH = JStyle::current().menuItemHeight + 4.f;   // menu bar scales with the scheme row height
             layoutDocks();
@@ -734,7 +734,7 @@ private:
                                 static_cast<uint32_t>(fw), static_cast<uint32_t>(fh),
                                 offX, offY, *m_hal, /*initialDrag=*/true,
                                 JFloatingDockOptions{},
-                                static_cast<JFloatingDockWindow::NativeWinHandleType>(m_window->rawWindowId()));
+                                (JFloatingDockWindow::NativeWinHandleType)(m_window->rawWindowId()));
         // Bridge the float's content input (which carries the wheel) to the torn dock's
         // onInputContent hook. Content RENDER needs no bridge: the float's internal host
         // renders through the same _renderLeaf path, invoking the dock's onRenderContent.
@@ -841,8 +841,8 @@ private:
         const auto& host = cb->sceneGraph().hostWindow();
         const int wsx = host.set ? host.screenX : m_window->screenX();
         const int wsy = host.set ? host.screenY : m_window->screenY();
-        const auto parent = host.set ? static_cast<JPopupWindow::NativeWinHandleType>(host.nativeHandle)
-                                     : static_cast<JPopupWindow::NativeWinHandleType>(m_window->rawWindowId());
+        const auto parent = host.set ? (JPopupWindow::NativeWinHandleType)(host.nativeHandle)
+                                     : (JPopupWindow::NativeWinHandleType)(m_window->rawWindowId());
         const int sx = wsx + static_cast<int>(bb.x);
         const int sy = wsy + static_cast<int>(bb.y + bb.height);
         const auto popupW = static_cast<uint32_t>(bb.width);
@@ -874,8 +874,8 @@ private:
         const auto& host = b->sceneGraph().hostWindow();
         const int wsx = host.set ? host.screenX : m_window->screenX();
         const int wsy = host.set ? host.screenY : m_window->screenY();
-        const auto parent = host.set ? static_cast<JColorPickerDialog::NativeWinHandleType>(host.nativeHandle)
-                                     : static_cast<JColorPickerDialog::NativeWinHandleType>(m_window->rawWindowId());
+        const auto parent = host.set ? (JColorPickerDialog::NativeWinHandleType)(host.nativeHandle)
+                                     : (JColorPickerDialog::NativeWinHandleType)(m_window->rawWindowId());
         // The dialog opens on its palette page; anchor against that height (it grows for the editor).
         const int pw = static_cast<int>(JColorPickerDialog::kW), ph = static_cast<int>(JColorPickerDialog::kPaletteH);
         const auto [sw, sh] = m_window->virtualDesktopSize();
@@ -902,11 +902,11 @@ private:
         typename JFontPickerDialog::NativeWinHandleType parent;
         if (host.set) {
             cx = host.screenX + 40; cy = host.screenY + 40;
-            parent = static_cast<JFontPickerDialog::NativeWinHandleType>(host.nativeHandle);
+            parent = (JFontPickerDialog::NativeWinHandleType)(host.nativeHandle);
         } else {
             cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(JFontPickerDialog::kW)) / 2;
             cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(JFontPickerDialog::kH)) / 2;
-            parent = static_cast<JFontPickerDialog::NativeWinHandleType>(m_window->rawWindowId());
+            parent = (JFontPickerDialog::NativeWinHandleType)(m_window->rawWindowId());
         }
         JFontButton* target = b;
         auto dlg = std::make_shared<JFontPickerDialog>(b->fontSpec(), *m_hal, cx, cy, parent,
@@ -981,10 +981,10 @@ private:
             }
             if (isFile)
                 m_fileDialogs.emplace_back(*req, *m_hal, dlgX, dlgY,
-                    static_cast<JFileDialogWindow::NativeWinHandleType>(m_window->rawWindowId()));
+                    (JFileDialogWindow::NativeWinHandleType)(m_window->rawWindowId()));
             else
                 m_dialogs.emplace_back(*req, *m_hal, dlgX, dlgY,
-                    static_cast<JNativeDialogWindow::NativeWinHandleType>(m_window->rawWindowId()));
+                    (JNativeDialogWindow::NativeWinHandleType)(m_window->rawWindowId()));
             JDialogManager::instance().pop();
         }
         for (auto it = m_dialogs.begin(); it != m_dialogs.end();) {

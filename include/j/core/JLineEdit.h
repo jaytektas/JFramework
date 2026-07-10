@@ -99,10 +99,10 @@ public:
         // as a double-click when they land close together in space and within 400 ms — the same test path the
         // platform's real click stream drives.
         const auto now  = std::chrono::steady_clock::now();
-        const bool near = std::abs(mx - m_lastClickX) < 4.0f;
+        const bool nearby = std::abs(mx - m_lastClickX) < 4.0f;   // NB: 'near' is a legacy windows.h macro
         const bool quick = m_clickCount > 0 &&
             std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastClick).count() < 400;
-        m_clickCount = (quick && near) ? m_clickCount + 1 : 1;
+        m_clickCount = (quick && nearby) ? m_clickCount + 1 : 1;
         m_lastClick  = now;
         m_lastClickX = mx;
 

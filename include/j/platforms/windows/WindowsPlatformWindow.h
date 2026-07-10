@@ -190,6 +190,14 @@ public:
     void setResizeCallback(std::function<void(uint32_t, uint32_t)> cb) override {
         m_resizeCallback = cb;
     }
+    // Framework-managed resize affordances (parity with the Linux window; used by the dialog windows).
+    void setResizable(bool on)      { m_resizable = on; }
+    void setResizeTopInset(float t) { m_resizeTopInset = t; }
+    void setOpacity(float a) {
+        const BYTE alpha = static_cast<BYTE>((a < 0.f ? 0.f : a > 1.f ? 1.f : a) * 255.0f);
+        SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE, GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE) | WS_EX_LAYERED);
+        SetLayeredWindowAttributes(m_hwnd, 0, alpha, LWA_ALPHA);
+    }
 
     void setFullscreen(bool on) override {
         if (on) {
@@ -267,6 +275,7 @@ private:
                 m_width = LOWORD(lParam);
                 m_height = HIWORD(lParam);
                 qCInfo(LogWin32Backend) << "WM_SIZE: " << m_width << "x" << m_height << "\n";
+                if (m_resizeCallback && m_width && m_height) m_resizeCallback(m_width, m_height);
                 return 0;
             }
             case WM_WINDOWPOSCHANGED: {
@@ -310,6 +319,9 @@ private:
     int      m_screenY{0};
     uint32_t m_width{0};
     uint32_t m_height{0};
+    std::function<void(uint32_t, uint32_t)> m_resizeCallback;   // swapchain resize hook (fired on WM_SIZE)
+    bool  m_resizable{true};
+    float m_resizeTopInset{0.0f};
     float m_mouseX{0.0f};
     float m_mouseY{0.0f};
     float m_wheelY{0.0f};
