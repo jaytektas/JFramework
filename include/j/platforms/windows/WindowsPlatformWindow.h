@@ -94,6 +94,7 @@ public:
         ShowWindow(m_hwnd, SW_SHOW);
         UpdateWindow(m_hwnd);
         s_lastCreatedRaw = reinterpret_cast<uintptr_t>(m_hwnd);   // modal system parents the next modal to this
+        if (parentWindow) m_activateFrames = 3;   // parented modal: raise+focus for the first opening frames
     }
 
     ~JWindowsPlatformWindow() override {
@@ -103,6 +104,12 @@ public:
     }
 
     void pollNativeEvents() override {
+        if (m_activateFrames > 0) {   // parented modal: raise (Z-top) + focus for the first frames it's shown
+            --m_activateFrames;
+            SetWindowPos(m_hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            SetForegroundWindow(m_hwnd);
+            SetFocus(m_hwnd);
+        }
         MSG msg;
         while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) {
@@ -311,6 +318,7 @@ private:
     }
 
     HWND m_hwnd{nullptr};
+    int  m_activateFrames{0};   // parented modal: raise+focus for this many opening frames
     HINSTANCE m_hInstance{nullptr};
     jf::JPlatformWindowStyle m_style;
     bool m_closeRequested;
