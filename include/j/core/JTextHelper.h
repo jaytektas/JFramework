@@ -5,6 +5,9 @@
 #include <string>
 #include <algorithm>
 #include <cstdint>
+#include <cmath>
+#include <map>
+#include <functional>
 #include "JStyle.h"
 #include "../graphics/RenderPrimitive.h"
 #include "../graphics/FontEngine.h"
@@ -25,6 +28,36 @@ public:
     static void setAtlas(JFontAtlas atlas) { get() = std::move(atlas); }
     static const JFontAtlas& atlas()       { return get(); }
     static bool hasAtlas()                { return get().valid; }
+
+    // ---- Size-aware glyph cache (Qt-style crisp text at any size) ------------------------------
+    // The base atlas above serves normal UI text (pushText). Large text (pushTextScaled) would blur
+    // if it just upscaled the base bitmap, so instead we rasterise a fresh atlas AT the target pixel
+    // size and draw from it 1:1. JAppWindow wires these three hooks to the font engine + GPU; if they
+    // are unset (e.g. a headless/text-only build) pushTextScaled falls back to scaling the base atlas.
+    static inline std::function<JFontAtlas(float px)>       s_buildSized;   // rasterise a whole atlas at px
+    static inline std::function<uint32_t(const JFontAtlas&)> s_uploadSized;  // upload -> gpu atlas id (>0)
+    static inline std::function<void()>                     s_freeSized;    // free every gpu sized atlas
+
+    struct SizedAtlas { JFontAtlas atlas; uint32_t id{0}; };
+    static std::map<int, SizedAtlas>& sizedCache() { static std::map<int, SizedAtlas> m; return m; }
+
+    // Get-or-build the glyph atlas whose native size is `px`. Returns nullptr if the size machinery
+    // isn't wired or the bake/upload failed (caller falls back to base-atlas scaling).
+    static const SizedAtlas* sizedFor(int px) {
+        if (!s_buildSized || !s_uploadSized) return nullptr;
+        auto& cache = sizedCache();
+        if (auto it = cache.find(px); it != cache.end()) return &it->second;
+        JFontAtlas a = s_buildSized(static_cast<float>(px));
+        if (!a.valid) return nullptr;
+        uint32_t id = s_uploadSized(a);
+        if (id == 0) return nullptr;
+        SizedAtlas& slot = cache[px];
+        slot.atlas = std::move(a); slot.id = id;
+        return &slot;
+    }
+
+    // The base font changed → every cached sized atlas is stale (wrong face/metrics). Free them.
+    static void invalidateSized() { if (s_freeSized) s_freeSized(); sizedCache().clear(); }
 
     /** Decode one UTF-8 codepoint from src[i], advance i, return codepoint. */
     static uint32_t _decodeUtf8(const std::string& s, size_t& i) {
@@ -126,15 +159,36 @@ public:
                                float scale,
                                float maxWidth = 0.0f)
     {
-        const auto& atl = get();
-        if (!atl.valid || text.empty() || scale <= 0.0f) return;
+        const auto& base = get();
+        if (!base.valid || text.empty() || scale <= 0.0f) return;
         if (scale == 1.0f) { pushText(buf, x, y, text, color, maxWidth); return; }
+
+        // Qt-style crisp scaling: rather than stretch the base bitmap, render from an atlas baked AT the
+        // target pixel size whenever we'd otherwise UPSCALE (downscaling the base atlas is already crisp).
+        // Sizes quantise to 4px steps so we don't bake a new atlas per fractional scale. `s` is the residual
+        // scale on the chosen atlas — ~1.0 when a size-matched atlas is used, so glyphs sample ~1:1.
+        const JFontAtlas* atlp = &base;
+        float s = scale;
+        uint32_t atlasId = 0;
+        const float targetPx = base.pixelSize * scale;
+        if (base.pixelSize > 0.0f && targetPx > base.pixelSize * 1.15f) {
+            int key = static_cast<int>(std::lround(targetPx / 4.0f)) * 4;
+            // Cap the baked size (a 128px atlas already holds every glyph crisp; beyond that a mild
+            // upscale from 128px is still far better than upscaling the 14px base).
+            key = std::clamp(key, static_cast<int>(std::ceil(base.pixelSize)), 128);
+            if (const SizedAtlas* sz = sizedFor(key)) {
+                atlp = &sz->atlas; atlasId = sz->id;
+                s = (sz->atlas.pixelSize > 0.0f) ? targetPx / sz->atlas.pixelSize : 1.0f;
+            }
+        }
+        const JFontAtlas& atl = *atlp;
 
         JPrimitiveBuffer::JTextCall call;
         std::copy(color, color + 4, call.color);
+        call.atlasId = atlasId;
 
         float penX     = x;
-        float baseline = y + atl.ascent * scale;
+        float baseline = y + atl.ascent * s;
 
         size_t i = 0;
         while (i < text.size()) {
@@ -144,17 +198,17 @@ public:
             if (it == atl.glyphs.end()) {
                 cp = _substitute(cp);
                 it = atl.glyphs.find(cp);
-                if (it == atl.glyphs.end()) { penX += atl.ascent * 0.35f * scale; continue; }
+                if (it == atl.glyphs.end()) { penX += atl.ascent * 0.35f * s; continue; }
             }
             const JGlyphInfo& g = it->second;
 
-            if (maxWidth > 0.0f && (penX - x + g.advanceX * scale) > maxWidth) break;
-            penX += g.advanceX * scale;
+            if (maxWidth > 0.0f && (penX - x + g.advanceX * s) > maxWidth) break;
+            penX += g.advanceX * s;
             if (g.pixelW < 0.5f || g.pixelH < 0.5f) continue;
 
-            float gx = penX - g.advanceX * scale + g.bearingX * scale;
-            float gy = baseline + g.bearingY * scale;
-            float gw = g.pixelW * scale, gh = g.pixelH * scale;
+            float gx = penX - g.advanceX * s + g.bearingX * s;
+            float gy = baseline + g.bearingY * s;
+            float gw = g.pixelW * s, gh = g.pixelH * s;
 
             call.verts.push_back({gx,      gy,      g.u0, g.v0});
             call.verts.push_back({gx + gw, gy,      g.u1, g.v0});

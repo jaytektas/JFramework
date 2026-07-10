@@ -85,6 +85,7 @@ public:
             JTextHelper::setAtlas(atlas);
             m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
         }
+        _wireSizedGlyphCache();
 
         // Route the OS clipboard through this window's native selection. JClipboard
         // is the single funnel: text widgets go via JWidget::clipboardGet/Set →
@@ -124,6 +125,7 @@ public:
         auto atlas = m_font.buildAtlas(px * m_window->dpiScale());
         JTextHelper::setAtlas(atlas);
         m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
+        JTextHelper::invalidateSized();   // new face → stale size-specific glyph atlases
         m_appFontPx = px;
         return true;
     }
@@ -134,6 +136,7 @@ public:
         auto atlas = m_font.buildAtlas(px * m_window->dpiScale());
         JTextHelper::setAtlas(atlas);
         m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
+        JTextHelper::invalidateSized();   // new size → stale size-specific glyph atlases
         m_appFontPx = px;
         return true;
     }
@@ -145,8 +148,25 @@ public:
         auto atlas = m_font.buildAtlas(px * m_window->dpiScale());
         JTextHelper::setAtlas(atlas);
         m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
+        JTextHelper::invalidateSized();   // base font changed → drop stale size-specific glyph atlases
         m_appFontPx = px;
         return true;
+    }
+
+    // Wire JTextHelper's size-aware glyph cache to this window's font engine + GPU: rasterise a fresh
+    // atlas at any requested pixel size, upload it as a resident glyph atlas, and free them all when the
+    // base font changes. This is what makes pushTextScaled draw large text CRISP (a real glyph at that
+    // size, Qt-style) instead of stretching the 14px base bitmap into lego bricks.
+    void _wireSizedGlyphCache() {
+        JTextHelper::s_buildSized = [this](float px) -> JFontAtlas {
+            uint32_t dim = static_cast<uint32_t>(std::ceil(px * 13.0f));   // room for the full glyph set at px
+            dim = std::clamp(dim, 512u, 2048u);
+            return m_font.buildAtlas(px, dim, dim);
+        };
+        JTextHelper::s_uploadSized = [this](const JFontAtlas& a) -> uint32_t {
+            return m_hal ? m_hal->createFontAtlas(a.bitmap.data(), a.width, a.height) : 0u;
+        };
+        JTextHelper::s_freeSized = [this]() { if (m_hal) m_hal->freeFontAtlases(); };
     }
 
     // Open the in-app font picker for the WHOLE-APP font (no external chooser). Lists the real installed
@@ -524,8 +544,12 @@ public:
                 if (JMenuManager::instance().processAccelerator(ke)) continue;
                 if (JWidget* f = m_focus.focused(); f && f->handleKeyEvent(ke)) continue;
                 // The centre is a plain central widget (not in the focus order), so give it a shot at
-                // keys nothing else consumed — e.g. the surface editor's Delete / arrows / Ctrl+Z.
-                if (JWidget* cw = m_space.centralWidget(); cw && cw->handleKeyEvent(ke)) continue;
+                // keys nothing else consumed — e.g. the surface editor's Delete / arrows / Ctrl+Z. But
+                // ONLY when nothing focusable holds focus (i.e. focus is on the canvas itself): a focused
+                // dock field ignores keys it doesn't use (a line-edit drops Up/Down, a spin box Left/Right),
+                // and those must NOT bleed onto the canvas and nudge/delete the selection behind the user.
+                if (!m_focus.focused())
+                    if (JWidget* cw = m_space.centralWidget(); cw && cw->handleKeyEvent(ke)) continue;
                 // Global action/shortcut accelerators: a focused widget (e.g. a text field) has
                 // already had first refusal above, so typing still works; anything it didn't
                 // consume is offered to registered JActions / standalone chords (like the menu

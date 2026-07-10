@@ -86,6 +86,17 @@ public:
     virtual bool uploadFontAtlas(const uint8_t* pixels, uint32_t w, uint32_t h) = 0;
 
     /**
+     * @brief Upload an ADDITIONAL greyscale R8 glyph atlas baked at a specific pixel size, kept
+     * resident alongside the base font atlas. Returns a nonzero id used by JTextCall::atlasId to
+     * select it per text draw (0 = the base atlas). Enables crisp text at large sizes without
+     * upscaling the base bitmap. Default: unsupported (returns 0).
+     */
+    virtual uint32_t createFontAtlas(const uint8_t* /*pixels*/, uint32_t /*w*/, uint32_t /*h*/) { return 0; }
+
+    /** Free every atlas created via createFontAtlas() (e.g. when the app font changes). */
+    virtual void freeFontAtlases() {}
+
+    /**
      * @brief Records draw calls for all primitives (SDF rects + text glyphs)
      * into the active command buffer.
      * Must be called between beginFrame() and submitAndPresentFrame().

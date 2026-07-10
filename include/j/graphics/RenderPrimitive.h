@@ -67,6 +67,7 @@ public:
     struct JTextCall {
         uint8_t color[4]{};
         std::vector<JTextVertex> verts;
+        uint32_t atlasId{0};   // 0 = the base UI font atlas; >0 = a size-specific glyph atlas (crisp large text)
     };
 
     // Scissor/clip rectangle in window pixels.  enabled=false means "no clip" (full window).

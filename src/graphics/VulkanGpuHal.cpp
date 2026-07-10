@@ -191,6 +191,12 @@ public:
             if (kv.second.memory)   vkFreeMemory(m_device, kv.second.memory, nullptr);
             if (kv.second.sampler)  vkDestroySampler(m_device, kv.second.sampler, nullptr);
         }
+        for (auto& kv : m_fontAtlases) {   // size-specific glyph atlases
+            if (kv.second.view)     vkDestroyImageView(m_device, kv.second.view, nullptr);
+            if (kv.second.image)    vkDestroyImage(m_device, kv.second.image, nullptr);
+            if (kv.second.memory)   vkFreeMemory(m_device, kv.second.memory, nullptr);
+            if (kv.second.sampler)  vkDestroySampler(m_device, kv.second.sampler, nullptr);
+        }
         if (m_imageDescPool)  vkDestroyDescriptorPool(m_device, m_imageDescPool, nullptr);
 
         // Atlas texture
@@ -385,6 +391,90 @@ public:
         m_atlasUploaded = true;
         qCInfo(LogVulkan) << "Font atlas uploaded " << w << "x" << h << "\n";
         return true;
+    }
+
+    // Create an ADDITIONAL R8 glyph atlas (baked at a specific pixel size) that stays resident next to
+    // the base atlas, each with its own descriptor set. Returns a nonzero id for JTextCall::atlasId so a
+    // text draw can select it. Mirrors uploadTexture()'s per-image descriptor pattern but R8 (single
+    // channel), same layout/sampler as the base font. 0 on failure.
+    uint32_t createFontAtlas(const uint8_t* pixels, uint32_t w, uint32_t h) override {
+        if (!pixels || w == 0 || h == 0) return 0;
+        VkDeviceSize sz = static_cast<VkDeviceSize>(w) * h;
+
+        VkBuffer stagBuf; VkDeviceMemory stagMem;
+        createBuffer(m_device, m_physicalDevice, sz, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagBuf, stagMem);
+        void* ptr; vkMapMemory(m_device, stagMem, 0, sz, 0, &ptr);
+        std::memcpy(ptr, pixels, sz); vkUnmapMemory(m_device, stagMem);
+
+        VulkanTexture tex;
+        VkImageCreateInfo imgCI{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+        imgCI.imageType = VK_IMAGE_TYPE_2D; imgCI.format = VK_FORMAT_R8_UNORM;
+        imgCI.extent = {w, h, 1}; imgCI.mipLevels = 1; imgCI.arrayLayers = 1;
+        imgCI.samples = VK_SAMPLE_COUNT_1_BIT; imgCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imgCI.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        imgCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        if (vkCreateImage(m_device, &imgCI, nullptr, &tex.image) != VK_SUCCESS) {
+            vkDestroyBuffer(m_device, stagBuf, nullptr); vkFreeMemory(m_device, stagMem, nullptr); return 0;
+        }
+        VkMemoryRequirements req; vkGetImageMemoryRequirements(m_device, tex.image, &req);
+        VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        ai.allocationSize = req.size;
+        ai.memoryTypeIndex = findMemoryType(m_physicalDevice, req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        vkAllocateMemory(m_device, &ai, nullptr, &tex.memory);
+        vkBindImageMemory(m_device, tex.image, tex.memory, 0);
+
+        auto cb = beginOneShot(m_device, m_commandPool);
+        transitionImage(cb, tex.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, VK_ACCESS_TRANSFER_WRITE_BIT);
+        VkBufferImageCopy copy{}; copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; copy.imageExtent = {w, h, 1};
+        vkCmdCopyBufferToImage(cb, stagBuf, tex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        transitionImage(cb, tex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+        endOneShot(m_device, m_commandPool, m_graphicsQueue, cb);
+        vkDestroyBuffer(m_device, stagBuf, nullptr); vkFreeMemory(m_device, stagMem, nullptr);
+
+        VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        vci.image = tex.image; vci.viewType = VK_IMAGE_VIEW_TYPE_2D; vci.format = VK_FORMAT_R8_UNORM;
+        vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCreateImageView(m_device, &vci, nullptr, &tex.view);
+
+        VkSamplerCreateInfo sci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        sci.magFilter = VK_FILTER_LINEAR; sci.minFilter = VK_FILTER_LINEAR; sci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        vkCreateSampler(m_device, &sci, nullptr, &tex.sampler);
+
+        VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        dsai.descriptorPool = m_imageDescPool; dsai.descriptorSetCount = 1; dsai.pSetLayouts = &m_textDescSetLayout;
+        if (vkAllocateDescriptorSets(m_device, &dsai, &tex.descSet) != VK_SUCCESS) {
+            vkDestroyImageView(m_device, tex.view, nullptr); vkDestroyImage(m_device, tex.image, nullptr);
+            vkFreeMemory(m_device, tex.memory, nullptr); vkDestroySampler(m_device, tex.sampler, nullptr); return 0;
+        }
+        VkDescriptorImageInfo dii{}; dii.sampler = tex.sampler; dii.imageView = tex.view;
+        dii.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkWriteDescriptorSet wr{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        wr.dstSet = tex.descSet; wr.dstBinding = 0; wr.descriptorCount = 1;
+        wr.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; wr.pImageInfo = &dii;
+        vkUpdateDescriptorSets(m_device, 1, &wr, 0, nullptr);
+
+        uint32_t id = m_nextFontAtlasId++;
+        m_fontAtlases[id] = tex;
+        qCInfo(LogVulkan) << "Sized font atlas " << id << " uploaded " << w << "x" << h << "\n";
+        return id;
+    }
+
+    void freeFontAtlases() override {
+        if (m_fontAtlases.empty()) return;
+        vkDeviceWaitIdle(m_device);
+        for (auto& kv : m_fontAtlases) {
+            if (kv.second.view)    vkDestroyImageView(m_device, kv.second.view, nullptr);
+            if (kv.second.image)   vkDestroyImage(m_device, kv.second.image, nullptr);
+            if (kv.second.memory)  vkFreeMemory(m_device, kv.second.memory, nullptr);
+            if (kv.second.sampler) vkDestroySampler(m_device, kv.second.sampler, nullptr);
+            // descSet: pool has no free bit; left allocated (reset with the pool at teardown).
+        }
+        m_fontAtlases.clear();
     }
 
     JGpuFrameContext beginFrame(GpuSurfaceId sid = kPrimarySurface) override {
@@ -584,13 +674,14 @@ private:
 
     uint32_t _drawTextBatch(const CmdVec& cmds, size_t from, size_t to, uint32_t vertexCursor) {
         std::vector<float> verts;
-        struct DrawRange { uint32_t first, count; uint8_t color[4]; };
+        struct DrawRange { uint32_t first, count; uint8_t color[4]; uint32_t atlasId; };
         std::vector<DrawRange> ranges;
 
         for (size_t k = from; k < to; ++k) {
             const auto& call = cmds[k].text;
             DrawRange r;
             std::copy(call.color, call.color+4, r.color);
+            r.atlasId = call.atlasId;
             r.first = static_cast<uint32_t>(verts.size() / 4);
             for (const auto& tv : call.verts) {
                 verts.push_back(tv.x); verts.push_back(tv.y);
@@ -626,14 +717,24 @@ private:
         vkCmdSetViewport(m_act->cmdBuf, 0, 1, &vp);
         // Scissor is set by the caller (drawPrimitives) from the batch's clip rect.
 
-        vkCmdBindDescriptorSets(m_act->cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_textPipeLayout, 0, 1, &m_textDescSet, 0, nullptr);
-
         VkDeviceSize bindOffset = bufferOffset;
         vkCmdBindVertexBuffers(m_act->cmdBuf, 0, 1, &m_textVertBuffer, &bindOffset);
 
+        // Bind the base font atlas by default; rebind to a size-specific atlas per range as needed
+        // (crisp large text). Consecutive same-atlas ranges reuse the existing bind.
+        uint32_t boundAtlas = UINT32_MAX;
         for (auto& r : ranges) {
             if (r.count == 0) continue;
+            if (r.atlasId != boundAtlas) {
+                VkDescriptorSet ds = m_textDescSet;
+                if (r.atlasId != 0) {
+                    auto it = m_fontAtlases.find(r.atlasId);
+                    if (it != m_fontAtlases.end() && it->second.descSet) ds = it->second.descSet;
+                }
+                vkCmdBindDescriptorSets(m_act->cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        m_textPipeLayout, 0, 1, &ds, 0, nullptr);
+                boundAtlas = r.atlasId;
+            }
             TextPC pc{};
             pc.r   = r.color[0] / 255.0f; pc.g = r.color[1] / 255.0f;
             pc.b   = r.color[2] / 255.0f; pc.a = r.color[3] / 255.0f;
@@ -1360,6 +1461,8 @@ private:
     VkDescriptorPool                              m_imageDescPool{VK_NULL_HANDLE};
     std::unordered_map<TextureHandle, VulkanTexture> m_textures;
     TextureHandle                                 m_nextTexHandle{1};
+    std::unordered_map<uint32_t, VulkanTexture>   m_fontAtlases;   // size-specific glyph atlases (JTextCall::atlasId)
+    uint32_t                                      m_nextFontAtlasId{1};
 
     // Vector geometry pipeline (anti-aliased 2D paths, per-vertex colour)
     VkPipelineLayout      m_vectorPipeLayout{VK_NULL_HANDLE};
