@@ -244,12 +244,25 @@ public:
         // Echo-aware display string (verbatim / bullets / blank). Selection + caret measure against it.
         const std::string disp = _echo(m_text);
 
+        // Horizontal scroll: as the text grows past the field width, shift the whole run left so the CARET
+        // stays visible — standard single-line text-entry behaviour. Recomputed each frame from the caret;
+        // the run + caret + selection are drawn shifted by -m_scrollX and clipped to the inner rect so
+        // nothing spills past the border.
+        const size_t caret = m_caret > m_text.size() ? m_text.size() : m_caret;
+        const float caretW = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(_echo(m_text.substr(0, caret))) : 0.0f;
+        const float fullW  = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(disp) : 0.0f;
+        if (caretW - m_scrollX > innerW) m_scrollX = caretW - innerW;   // caret past the right edge → scroll right
+        if (caretW - m_scrollX < 0.0f)   m_scrollX = caretW;            // caret past the left edge  → scroll left
+        if (m_scrollX > fullW - innerW)  m_scrollX = fullW - innerW;    // don't scroll past the end of the text
+        if (m_scrollX < 0.0f)            m_scrollX = 0.0f;              // (also collapses to 0 when text fits)
+        const float ox = innerX - m_scrollX;                            // text origin, scrolled
+
+        buf.pushClip(innerX, b.y, innerW, b.height);   // scissor text/caret/selection to the field
+
         // Selection highlight — a translucent rectangle behind the selected glyph run (drawn before the text).
         if (hasSelection() && JTextHelper::hasAtlas() && !disp.empty()) {
-            float xLo = innerX + JTextHelper::measureWidth(_echo(m_text.substr(0, selectionStart())));
-            float xHi = innerX + JTextHelper::measureWidth(_echo(m_text.substr(0, selectionEnd())));
-            if (xHi > innerX + innerW) xHi = innerX + innerW;
-            if (xLo < innerX) xLo = innerX;
+            const float xLo = ox + JTextHelper::measureWidth(_echo(m_text.substr(0, selectionStart())));
+            const float xHi = ox + JTextHelper::measureWidth(_echo(m_text.substr(0, selectionEnd())));
             const JColor sc = withAlpha(jstyle::role(JColorRole::Highlight, o), 90);   // Accent @ 90
             buf.pushRectangle(xLo, b.y + 4.0f, std::max(1.0f, xHi - xLo), b.height - 8.0f, sc.data(), 2.0f);
         }
@@ -261,7 +274,7 @@ public:
                 JTextHelper::pushText(buf, innerX, ty, m_placeholder, pc, innerW);
             } else {
                 uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 220};
-                JTextHelper::pushText(buf, innerX, ty, disp, tc, innerW);
+                JTextHelper::pushText(buf, ox, ty, disp, tc, 0.0f);   // clip (not maxWidth) bounds the run
             }
         } else {
             if (m_text.empty()) {
@@ -273,17 +286,14 @@ public:
             }
         }
 
-        // Caret at the actual insertion point (measured up to the caret index), not a fixed fraction.
+        // Caret at the actual insertion point (scrolled with the run, kept in view by m_scrollX above).
         if (focused) {
-            const size_t caret = m_caret > m_text.size() ? m_text.size() : m_caret;
-            float cx = innerX;
-            if (caret > 0)
-                cx = innerX + (JTextHelper::hasAtlas() ? JTextHelper::measureWidth(_echo(m_text.substr(0, caret)))
-                                                       : innerW * 0.65f * (float)caret / (float)std::max<size_t>(1, m_text.size()));
-            if (cx > innerX + innerW) cx = innerX + innerW;   // clamp inside the field
-            buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f,
-                              jstyle::role(JColorRole::Accent, o).data());
+            const float cx = JTextHelper::hasAtlas() ? ox + caretW
+                                                     : innerX + innerW * 0.65f * (float)caret / (float)std::max<size_t>(1, m_text.size());
+            buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f, jstyle::role(JColorRole::Accent, o).data());
         }
+
+        buf.popClip();
     }
 
 
@@ -399,6 +409,7 @@ private:
     std::string m_placeholder;
     size_t      m_caret  = 0;   // insertion index into m_text (bytes; on a UTF-8 char boundary)
     size_t      m_anchor = 0;   // selection anchor (== m_caret ⇒ no selection)
+    float       m_scrollX = 0.f; // horizontal scroll offset (px) so the caret stays visible past the width
     bool        m_selecting = false;                                 // mouse drag-select in progress
     int         m_clickCount = 0;                                    // 1/2/3 = single/double/triple within the window
     std::chrono::steady_clock::time_point m_lastClick{};

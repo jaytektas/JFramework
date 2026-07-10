@@ -171,10 +171,11 @@ public:
     void handleMouseRelease(float mx, float my) override {
         m_draggingScroll = false;
         if (m_dragging) {
+            JDragDrop::cancel();   // released back inside the tree → a reorder, not a surface placement
             JTreeViewNode* moved = m_pressNode;
             _computeDrop(mx, my);
             JTreeViewNode* target = m_dropTarget; int mode = m_dropMode;
-            m_dragging = false; m_dropTarget = nullptr; m_pressNode = nullptr;
+            m_dragging = false; m_externalLive = false; m_dropTarget = nullptr; m_pressNode = nullptr;
             bool didMove = false;
             if (moved && target && moved != target && !_isAncestor(moved, target)) {
                 std::vector<int> srcPath = _pathOf(moved);
@@ -214,22 +215,16 @@ public:
             }
             return;
         }
-        // An internal-reorder drag in progress: track the drop target under the cursor each move.
+        // An internal-reorder drag in progress: track the in-tree drop target while the cursor is over the
+        // tree. The external payload was already armed at drag start (mirroring the original studio's dual
+        // internal-move + node-path drag), so once the cursor leaves the tree we just stop drawing the
+        // drop indicator — a surface under the cursor now owns the drop, and the reorder only applies if
+        // the drag is released back INSIDE the tree.
         if (m_dragging) {
-            // If the drag leaves the tree's bounds, hand the node off to the app as a drag payload
-            // (onNodeDragStarted) so a drop target elsewhere — e.g. a surface placing the node as a
-            // viewport — can accept it. The internal reorder is cancelled. Mirrors the original studio
-            // tree, whose drag carried BOTH an internal-move payload and a node-path mime at once.
             const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-            const bool outside = mx < b.x || mx > b.x + b.width || my < b.y || my > b.y + b.height;
-            if (outside && m_pressNode) {
-                JTreeViewNode* n = m_pressNode;
-                m_dragging = false; m_dropTarget = nullptr; m_pressNode = nullptr;
-                m_graph.invalidateNode(m_nodeId, DirtySelf);
-                onNodeDragStarted.emit(n);
-                return;
-            }
-            _computeDrop(mx, my); m_graph.invalidateNode(m_nodeId, DirtySelf); return;
+            const bool inside = mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height;
+            if (inside) _computeDrop(mx, my); else m_dropTarget = nullptr;
+            m_graph.invalidateNode(m_nodeId, DirtySelf); return;
         }
         // Press-and-drag on a node past a small threshold starts a drag. With internal reorder enabled
         // it becomes an in-tree move (drop indicator + onNodeMoved); otherwise the app turns it into a
@@ -237,7 +232,13 @@ public:
         if (m_pressNode && !m_editNode) {
             const float ddx = mx - m_pressX, ddy = my - m_pressY;
             if (ddx * ddx + ddy * ddy > 25.0f) {
-                if (m_internalReorder) { m_dragging = true; _computeDrop(mx, my); m_graph.invalidateNode(m_nodeId, DirtySelf); }
+                if (m_internalReorder) {
+                    m_dragging = true; m_externalLive = false; _computeDrop(mx, my);
+                    m_graph.invalidateNode(m_nodeId, DirtySelf);
+                    onNodeDragStarted.emit(m_pressNode);   // ALSO arm the external payload NOW, so a drop onto a
+                                                           // surface still works — the tree stops getting moves the
+                                                           // instant the cursor leaves it, so it can't escape later.
+                }
                 else { JTreeViewNode* n = m_pressNode; m_pressNode = nullptr; onNodeDragStarted.emit(n); }
             }
         }
@@ -351,6 +352,14 @@ public:
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        // A reorder drag that ended OUTSIDE the tree (dropped on a surface) never delivered a release here.
+        // Once the external payload we armed at drag start has gone live and then cleared (accepted/cancelled
+        // elsewhere), drop our stale internal-drag state. The two-step guard avoids clearing in the very first
+        // frame, before the app's onNodeDragStarted handler has started the global drag.
+        if (m_dragging) {
+            if (JDragDrop::isDragging()) m_externalLive = true;
+            else if (m_externalLive) { m_dragging = false; m_externalLive = false; m_dropTarget = nullptr; m_pressNode = nullptr; }
+        }
         bool focused = isFocused();
         if (m_editNode && !focused) commitRename();   // focus moved elsewhere (another widget) — end the edit
 
@@ -655,6 +664,7 @@ private:
     float          m_pressX{0.0f}, m_pressY{0.0f};
     bool           m_internalReorder{false};   // drag = in-tree move (vs. onNodeDragStarted external DnD)
     bool           m_dragging{false};          // an internal-reorder drag is live
+    bool           m_externalLive{false};      // the drag's external payload has been observed active (drop-out guard)
     JTreeViewNode* m_dropTarget{nullptr};      // row under the cursor during a drag
     int            m_dropMode{0};              // 0 = insert before, 1 = drop as child, 2 = insert after
     JTreeViewNode* m_lastClickNode{nullptr};                 // double-click-to-rename tracking
