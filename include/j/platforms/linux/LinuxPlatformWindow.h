@@ -150,15 +150,11 @@ public:
         }
 
         if (parentWindow != 0) {
-            // Transient + DIALOG type: the WM grants keyboard focus. Stacking above the parent is NOT
-            // reliable on every WM (some focus without raising), so we ALSO raise the window ourselves on
-            // the first frames it's viewable (m_activateFrames, in pollNativeEvents) — a nested modal
-            // (font picker over Preferences) must come to the front to receive clicks, not just focus.
+            // Transient + DIALOG type: WM stacks above parent, grants keyboard focus.
             xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
                                 XCB_ATOM_WM_TRANSIENT_FOR, XCB_ATOM_WINDOW,
                                 32, 1, &parentWindow);
             _applyWindowType("_NET_WM_WINDOW_TYPE_DIALOG");
-            m_activateFrames = 3;   // raise+focus on the first few polls (window is viewable by then)
         }
 
         // Wire up WM_DELETE_WINDOW (irrelevant for Popup but harmless).
@@ -212,7 +208,6 @@ public:
 
         xcb_map_window(m_connection, m_windowId);
         xcb_flush(m_connection);
-        s_lastCreatedRaw = static_cast<uintptr_t>(m_windowId);   // modal system parents the next modal to this
 
         qCInfo(jf::Log::Platform) << "XCB window created (" << width << "x" << height
                                        << " @ " << screenX << "," << screenY
@@ -240,34 +235,6 @@ public:
 
     // ---- JPlatformWindow interface ----
     void pollNativeEvents() override {
-        // A parented (dialog/modal) window: raise + focus it for the first few frames it's viewable, so a
-        // nested modal comes to the front on WMs that focus-without-raising. Framework-internal — no dialog
-        // or app code does window layering. These windows are WM-MANAGED (reparented into a frame), so
-        // xcb_configure_window(STACK_MODE_ABOVE) only restacks the client among its (empty) siblings and
-        // does NOT change top-level order — the EWMH way to raise a managed window is a _NET_ACTIVE_WINDOW
-        // client message to the root, which asks the WM to raise + focus it. (We still do the direct
-        // configure/focus too, for override-redirect / non-EWMH WMs.)
-        if (m_activateFrames > 0) {
-            --m_activateFrames;
-            const xcb_atom_t active = _internAtom("_NET_ACTIVE_WINDOW");
-            if (active != XCB_ATOM_NONE) {
-                xcb_client_message_event_t cm{};
-                cm.response_type  = XCB_CLIENT_MESSAGE;
-                cm.format         = 32;
-                cm.window         = m_windowId;
-                cm.type           = active;
-                cm.data.data32[0] = 1;                  // source indication: application
-                cm.data.data32[1] = XCB_CURRENT_TIME;
-                cm.data.data32[2] = 0;                  // requestor's currently-active window (unknown)
-                xcb_send_event(m_connection, 0, m_rootWindow,
-                               XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
-                               reinterpret_cast<const char*>(&cm));
-            }
-            const uint32_t above[] = { XCB_STACK_MODE_ABOVE };
-            xcb_configure_window(m_connection, m_windowId, XCB_CONFIG_WINDOW_STACK_MODE, above);
-            xcb_set_input_focus(m_connection, XCB_INPUT_FOCUS_POINTER_ROOT, m_windowId, XCB_CURRENT_TIME);
-            xcb_flush(m_connection);
-        }
         xcb_generic_event_t* ev;
         while ((ev = _nextEvent())) {
             uint8_t type = ev->response_type & ~0x80;
@@ -1162,7 +1129,6 @@ private:
     bool                m_ownsConnection{true};
     xcb_window_t        m_windowId{0};
     xcb_window_t        m_rootWindow{0};
-    int                 m_activateFrames{0};   // parented modal: raise+focus for this many opening frames
     xcb_atom_t          m_deleteWindowAtom{0};
     xcb_atom_t          m_syncRequestAtom{0};
 
