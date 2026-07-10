@@ -47,6 +47,11 @@ public:
     void setRightWidth(float w)   { m_size[Right] = w; }
     void setTopHeight(float h)    { m_size[Top] = h; }
     void setBottomHeight(float h) { m_size[Bottom] = h; }
+    // Live reserved sizes (reflect user seam drags) — for app-side layout persistence.
+    float leftWidth()    const { return m_size[Left]; }
+    float rightWidth()   const { return m_size[Right]; }
+    float topHeight()    const { return m_size[Top]; }
+    float bottomHeight() const { return m_size[Bottom]; }
     // Corner ownership: true = Left/Right run full height (own the corners) and Top/Bottom sit
     // between them; false = Top/Bottom span full width and the sides sit between them.
     void setSidesOwnCorners(bool v) { m_sidesOwnCorners = v; }
