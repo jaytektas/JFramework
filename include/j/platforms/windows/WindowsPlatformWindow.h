@@ -154,6 +154,12 @@ public:
         SetWindowPos(m_hwnd, nullptr, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
+    // Restack above siblings so a nested modal (font picker over Preferences) isn't stuck behind its
+    // opener and starved of clicks. Non-virtual — mirrors the Linux window's raise().
+    void raise() {
+        SetWindowPos(m_hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+
     void setCursor(jf::JPlatformCursor shape) override { (void)shape; }
     jf::JPlatformWindowStyle windowStyle() const override { return m_style; }
 

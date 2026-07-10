@@ -726,6 +726,16 @@ public:
         xcb_flush(m_connection);
     }
 
+    // Restack this window above its siblings. A nested modal (e.g. the font picker opened FROM the
+    // Preferences dialog) is a sibling of its opener under the same parent; without this it can map
+    // behind the opener and never receive clicks (the opener, on top, swallows them). Non-virtual: it's
+    // called on the concrete window type, so adding it doesn't disturb the base vtable.
+    void raise() {
+        const uint32_t vals[] = { XCB_STACK_MODE_ABOVE };
+        xcb_configure_window(m_connection, m_windowId, XCB_CONFIG_WINDOW_STACK_MODE, vals);
+        xcb_flush(m_connection);
+    }
+
     uintptr_t rawWindowId() const override {
         return static_cast<uintptr_t>(m_windowId);
     }
