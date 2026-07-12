@@ -554,14 +554,15 @@ protected:
     }
 
     virtual void drawNodeText(JPrimitiveBuffer& buf, JTreeViewNode* node, float tx, float ty, float maxW) {
-        // A placeholder ("New node…") add-affordance row draws dimmed (muted secondary text) so it reads as a
-        // ghost hint, not a real node; it stays fully selectable/renamable (double-click begins the inline edit).
+        // Resolve the theme's TEXT role (so a custom global palette applies), not a raw shade. Selected rows
+        // take HighlightedText for contrast on the selection fill. A placeholder ("New node…") add-affordance
+        // row draws dimmed so it reads as a ghost hint, not a real node (still selectable/renamable).
+        const JStyleOption o = jstyle::option(m_state, isFocused());
+        const uint8_t* base = jstyle::role(node->selected ? JColorRole::HighlightedText : JColorRole::Text, o).data();
         if (JTextHelper::hasAtlas()) {
-            const uint8_t* base = node->placeholder ? Colors::TextSecondary : Colors::FieldText;
-            uint8_t tc[4] = {base[0], base[1], base[2], static_cast<uint8_t>(node->placeholder ? 170 : 220)};
+            uint8_t tc[4] = {base[0], base[1], base[2], static_cast<uint8_t>(node->placeholder ? 150 : 230)};
             JTextHelper::pushText(buf, tx, ty, tr(node->label), tc, maxW);
         } else {
-            const uint8_t* base = node->placeholder ? Colors::TextSecondary : Colors::LabelText;
             uint8_t tc[4] = {base[0], base[1], base[2], 180};
             buf.pushRectangle(tx, ty + 2.0f, 60.0f, 8.0f, tc, 2.0f);
         }
