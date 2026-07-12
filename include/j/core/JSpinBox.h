@@ -5,6 +5,7 @@
 #include "JControl.h"
 #include "JTextHelper.h"
 #include "KeyEvent.h"
+#include "SpinRepeat.h"
 
 inline namespace jf {
 
@@ -24,6 +25,14 @@ public:
         l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().controlHeight;
         l.minWidth = 60.0f;
         l.minHeight = h;
+        m_repeat.onStep = [this](int units) { setValue(m_value + units); };   // hold up/down → accelerating repeat
+        m_repeat.timer.onTick.connect([this] { m_repeat.tick(); });
+    }
+
+    // Auto-repeat tuning (press-and-hold on the up/down button): initial delay, repeat interval, when the step
+    // starts accelerating, how fast it grows, and the max step — all in ms except maxStep.
+    void setRepeatConfig(int delayMs, int intervalMs, int accelAfterMs, int accelEveryMs, int maxStep) {
+        m_repeat.configure(delayMs, intervalMs, accelAfterMs, accelEveryMs, maxStep);
     }
 
     void setValue(int v) {
@@ -46,11 +55,18 @@ public:
         float btnW = b.height * 0.7f;
         if (mx >= b.x + b.width - btnW) {
             _commitEdit();
-            setValue(m_value + (my < b.y + b.height * 0.5f ? 1 : -1));
+            const int dir = (my < b.y + b.height * 0.5f) ? 1 : -1;
+            setValue(m_value + dir);   // first click steps once; holding then auto-repeats with acceleration
+            m_repeat.begin(dir);
         } else {
             setState(JWidgetState::Pressed);
             _beginEdit();
         }
+    }
+
+    void handleMouseRelease(float mx, float my) override {
+        m_repeat.end();   // releasing the button stops the auto-repeat (wherever the release lands)
+        JControl::handleMouseRelease(mx, my);
     }
 
     bool handleScroll(float mx, float my, float wheel) override {
@@ -143,6 +159,8 @@ public:
 
 
 private:
+    SpinRepeat m_repeat;   // press-and-hold up/down auto-repeat with acceleration
+
     // Click-to-edit pre-fills the current value AND selects it, so the first typed digit replaces it
     // (standard entry-field behaviour); backspace/edit keys drop into in-place editing instead.
     void _beginEdit() { m_editBuf = std::to_string(m_value); m_editing = true; m_selectAll = true; invalidate(); }

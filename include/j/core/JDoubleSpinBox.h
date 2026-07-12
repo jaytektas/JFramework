@@ -5,6 +5,7 @@
 #include "JControl.h"
 #include "JTextHelper.h"
 #include "KeyEvent.h"
+#include "SpinRepeat.h"
 
 inline namespace jf {
 
@@ -30,6 +31,13 @@ public:
         l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().controlHeight;
         l.minWidth = 60.0f;
         l.minHeight = h;
+        m_repeat.onStep = [this](int units) { setValue(m_value + units * m_step); };   // hold up/down → accelerating repeat
+        m_repeat.timer.onTick.connect([this] { m_repeat.tick(); });
+    }
+
+    // Press-and-hold auto-repeat tuning (delay, interval, accel-onset, accel-rate, max step) — all ms but maxStep.
+    void setRepeatConfig(int delayMs, int intervalMs, int accelAfterMs, int accelEveryMs, int maxStep) {
+        m_repeat.configure(delayMs, intervalMs, accelAfterMs, accelEveryMs, maxStep);
     }
 
     void setValue(double v) {
@@ -58,11 +66,18 @@ public:
         float btnW = b.height * 0.7f;
         if (mx >= b.x + b.width - btnW) {   // an arrow — commit any edit, then step
             _commitEdit();
-            setValue(m_value + (my < b.y + b.height * 0.5f ? m_step : -m_step));
+            const int dir = (my < b.y + b.height * 0.5f) ? 1 : -1;
+            setValue(m_value + dir * m_step);   // first click steps once; holding then auto-repeats with acceleration
+            m_repeat.begin(dir);
         } else {                            // the value field — begin direct text entry
             setState(JWidgetState::Pressed);
             _beginEdit();
         }
+    }
+
+    void handleMouseRelease(float mx, float my) override {
+        m_repeat.end();   // releasing the button stops the auto-repeat
+        JControl::handleMouseRelease(mx, my);
     }
 
     bool handleScroll(float mx, float my, float wheel) override {
@@ -155,6 +170,8 @@ public:
 
 
 private:
+    SpinRepeat m_repeat;   // press-and-hold up/down auto-repeat with acceleration
+
     std::string _formatValue() const {
         char buf[64];
         std::snprintf(buf, sizeof(buf), "%.*f", m_decimals, m_value);
