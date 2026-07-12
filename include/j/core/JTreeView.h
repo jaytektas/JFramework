@@ -18,6 +18,7 @@ struct JTreeViewNode {
     std::string userData;   // opaque app payload (e.g. a binding path) carried by a node but not displayed
     int         icon{0};    // small type glyph drawn before the label (0 = none; app-defined kinds)
     bool        hidden{false};   // transient: run-mode visibility filter hides the row + its subtree (not persisted)
+    bool        placeholder{false};  // transient edit-mode "New node…" add-affordance row: drawn dimmed, never persisted (app owns promotion)
 };
 
 class JTreeView : public JControl {
@@ -529,11 +530,15 @@ protected:
     }
 
     virtual void drawNodeText(JPrimitiveBuffer& buf, JTreeViewNode* node, float tx, float ty, float maxW) {
+        // A placeholder ("New node…") add-affordance row draws dimmed (muted secondary text) so it reads as a
+        // ghost hint, not a real node; it stays fully selectable/renamable (double-click begins the inline edit).
         if (JTextHelper::hasAtlas()) {
-            uint8_t tc[4] = {Colors::FieldText[0], Colors::FieldText[1], Colors::FieldText[2], 220};
+            const uint8_t* base = node->placeholder ? Colors::TextSecondary : Colors::FieldText;
+            uint8_t tc[4] = {base[0], base[1], base[2], static_cast<uint8_t>(node->placeholder ? 170 : 220)};
             JTextHelper::pushText(buf, tx, ty, tr(node->label), tc, maxW);
         } else {
-            uint8_t tc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 180};
+            const uint8_t* base = node->placeholder ? Colors::TextSecondary : Colors::LabelText;
+            uint8_t tc[4] = {base[0], base[1], base[2], 180};
             buf.pushRectangle(tx, ty + 2.0f, 60.0f, 8.0f, tc, 2.0f);
         }
     }
