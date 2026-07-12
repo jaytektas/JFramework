@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cmath>
 #include <map>
+#include <utility>
 #include <functional>
 #include "JStyle.h"
 #include "../graphics/RenderPrimitive.h"
@@ -32,26 +33,32 @@ public:
     // ---- Size-aware glyph cache (Qt-style crisp text at any size) ------------------------------
     // The base atlas above serves normal UI text (pushText). Large text (pushTextScaled) would blur
     // if it just upscaled the base bitmap, so instead we rasterise a fresh atlas AT the target pixel
-    // size and draw from it 1:1. JAppWindow wires these three hooks to the font engine + GPU; if they
-    // are unset (e.g. a headless/text-only build) pushTextScaled falls back to scaling the base atlas.
-    static inline std::function<JFontAtlas(float px)>       s_buildSized;   // rasterise a whole atlas at px
-    static inline std::function<uint32_t(const JFontAtlas&)> s_uploadSized;  // upload -> gpu atlas id (>0)
-    static inline std::function<void()>                     s_freeSized;    // free every gpu sized atlas
+    // size and draw from it 1:1. A cached atlas is keyed by (face path, px): an EMPTY face path means the
+    // app's default face (the base font), a non-empty path bakes an arbitrary font file so a widget can
+    // render in a specific family/style. JAppWindow wires these three hooks to the font engine + GPU; if
+    // they are unset (e.g. a headless/text-only build) pushTextScaled falls back to scaling the base atlas.
+    static inline std::function<JFontAtlas(const std::string& facePath, float px)> s_buildSized;   // rasterise a whole atlas at px (empty path = default face)
+    static inline std::function<uint32_t(const JFontAtlas&)>                       s_uploadSized;  // upload -> gpu atlas id (>0)
+    static inline std::function<void()>                                            s_freeSized;    // free every gpu sized atlas
 
     struct SizedAtlas { JFontAtlas atlas; uint32_t id{0}; };
-    static std::map<int, SizedAtlas>& sizedCache() { static std::map<int, SizedAtlas> m; return m; }
+    // Key: (face path, px). Empty path = default-face bucket, so existing default-face sizes still cache/reuse.
+    static std::map<std::pair<std::string, int>, SizedAtlas>& sizedCache() {
+        static std::map<std::pair<std::string, int>, SizedAtlas> m; return m;
+    }
 
-    // Get-or-build the glyph atlas whose native size is `px`. Returns nullptr if the size machinery
-    // isn't wired or the bake/upload failed (caller falls back to base-atlas scaling).
-    static const SizedAtlas* sizedFor(int px) {
+    // Get-or-build the glyph atlas for `facePath` (empty = default face) whose native size is `px`. Returns
+    // nullptr if the size machinery isn't wired or the bake/upload failed (caller falls back to base scaling).
+    static const SizedAtlas* sizedFor(const std::string& facePath, int px) {
         if (!s_buildSized || !s_uploadSized) return nullptr;
         auto& cache = sizedCache();
-        if (auto it = cache.find(px); it != cache.end()) return &it->second;
-        JFontAtlas a = s_buildSized(static_cast<float>(px));
+        const std::pair<std::string, int> key{ facePath, px };
+        if (auto it = cache.find(key); it != cache.end()) return &it->second;
+        JFontAtlas a = s_buildSized(facePath, static_cast<float>(px));
         if (!a.valid) return nullptr;
         uint32_t id = s_uploadSized(a);
         if (id == 0) return nullptr;
-        SizedAtlas& slot = cache[px];
+        SizedAtlas& slot = cache[key];
         slot.atlas = std::move(a); slot.id = id;
         return &slot;
     }
@@ -214,32 +221,40 @@ public:
 
     /** Push text scaled by `scale` about the atlas' native size. Advances/bearings/glyph quads all
      *  multiply by scale, so the single shared atlas can render large readouts (e.g. a value gauge)
-     *  or fine print. Glyphs are sampled up/down by the GPU. maxWidth is measured in final (scaled) px. */
+     *  or fine print. Glyphs are sampled up/down by the GPU. maxWidth is measured in final (scaled) px.
+     *  `facePath` selects the face: empty = the app's default face (base atlas for scale≈1/downscale, a
+     *  sized default-face atlas for upscale); NON-EMPTY = a specific font file, always rendered from a
+     *  sized atlas of THAT face at the target px (the base atlas is the wrong family, so it is never used).
+     *  If a needed sized-face atlas can't be built (machinery unwired / load failed) it falls back to the
+     *  base atlas scaled, so text still renders. */
     static void pushTextScaled(JPrimitiveBuffer& buf,
                                float x, float y,
                                const std::string& text,
                                const uint8_t color[4],
                                float scale,
-                               float maxWidth = 0.0f)
+                               float maxWidth = 0.0f,
+                               const std::string& facePath = "")
     {
         const auto& base = get();
         if (!base.valid || text.empty() || scale <= 0.0f) return;
-        if (scale == 1.0f) { pushText(buf, x, y, text, color, maxWidth); return; }
+        if (facePath.empty() && scale == 1.0f) { pushText(buf, x, y, text, color, maxWidth); return; }
 
         // Qt-style crisp scaling: rather than stretch the base bitmap, render from an atlas baked AT the
         // target pixel size whenever we'd otherwise UPSCALE (downscaling the base atlas is already crisp).
         // Sizes quantise to 4px steps so we don't bake a new atlas per fractional scale. `s` is the residual
-        // scale on the chosen atlas — ~1.0 when a size-matched atlas is used, so glyphs sample ~1:1.
+        // scale on the chosen atlas — ~1.0 when a size-matched atlas is used, so glyphs sample ~1:1. A
+        // non-empty facePath is a different family, so we MUST bake that face at the target px (the base
+        // atlas is the wrong font) — route it through the sized cache regardless of up/downscale.
         const JFontAtlas* atlp = &base;
         float s = scale;
         uint32_t atlasId = 0;
         const float targetPx = base.pixelSize * scale;
-        if (base.pixelSize > 0.0f && targetPx > base.pixelSize * 1.15f) {
+        if (base.pixelSize > 0.0f && (!facePath.empty() || targetPx > base.pixelSize * 1.15f)) {
             int key = static_cast<int>(std::lround(targetPx / 4.0f)) * 4;
             // Cap the baked size (a 128px atlas already holds every glyph crisp; beyond that a mild
             // upscale from 128px is still far better than upscaling the 14px base).
             key = std::clamp(key, static_cast<int>(std::ceil(base.pixelSize)), 128);
-            if (const SizedAtlas* sz = sizedFor(key)) {
+            if (const SizedAtlas* sz = sizedFor(facePath, key)) {
                 atlp = &sz->atlas; atlasId = sz->id;
                 s = (sz->atlas.pixelSize > 0.0f) ? targetPx / sz->atlas.pixelSize : 1.0f;
             }

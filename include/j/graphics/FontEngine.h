@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <array>
 #include <unordered_map>
 #include <map>
 #include <fstream>
@@ -260,8 +261,8 @@ private:
 
 struct JSystemFont { std::string name; std::string path; };
 
-/** Read the human family name (name-table id 1) from a TTF/OTF; empty on failure. */
-inline std::string jReadFontFamilyName(const std::string& path) {
+/** Read a name-table string (by nameID: 1 = family, 2 = subfamily/style) from a TTF/OTF; empty on failure. */
+inline std::string jReadFontName(const std::string& path, int nameID) {
     std::ifstream f(path, std::ios::binary | std::ios::ate);
     if (!f.is_open()) return {};
     const auto sz = static_cast<size_t>(f.tellg());
@@ -272,8 +273,8 @@ inline std::string jReadFontFamilyName(const std::string& path) {
     stbtt_fontinfo info;
     if (!stbtt_InitFont(&info, data.data(), stbtt_GetFontOffsetForIndex(data.data(), 0))) return {};
     int len = 0;
-    // Windows platform (3), Unicode BMP (1), English-US (0x409), nameID 1 = family — UTF-16BE.
-    if (const char* s = stbtt_GetFontNameString(&info, &len, 3, 1, 0x409, 1); s && len >= 2) {
+    // Windows platform (3), Unicode BMP (1), English-US (0x409) — UTF-16BE.
+    if (const char* s = stbtt_GetFontNameString(&info, &len, 3, 1, 0x409, nameID); s && len >= 2) {
         std::string out;
         for (int i = 0; i + 1 < len; i += 2) {
             const uint16_t u = static_cast<uint16_t>((static_cast<uint8_t>(s[i]) << 8) | static_cast<uint8_t>(s[i + 1]));
@@ -282,15 +283,17 @@ inline std::string jReadFontFamilyName(const std::string& path) {
         while (!out.empty() && out.back() == ' ') out.pop_back();
         if (!out.empty()) return out;
     }
-    // Mac platform (1), nameID 1 — usually ASCII.
-    if (const char* s = stbtt_GetFontNameString(&info, &len, 1, 0, 0, 1); s && len > 0)
+    // Mac platform (1) — usually ASCII.
+    if (const char* s = stbtt_GetFontNameString(&info, &len, 1, 0, 0, nameID); s && len > 0)
         return std::string(s, static_cast<size_t>(len));
     return {};
 }
 
-/** Enumerate installed .ttf/.otf/.ttc fonts, one representative face per family, sorted by name. */
-inline std::vector<JSystemFont> jListSystemFonts() {
-    namespace fs = std::filesystem;
+/** Read the human family name (name-table id 1) from a TTF/OTF; empty on failure. */
+inline std::string jReadFontFamilyName(const std::string& path) { return jReadFontName(path, 1); }
+
+/** The platform's font search roots (system dirs + the user's private font dirs). */
+inline std::vector<std::string> jFontRoots() {
     std::vector<std::string> roots;
 #if defined(_WIN32)
     if (const char* w = std::getenv("WINDIR")) roots.push_back(std::string(w) + "\\Fonts");
@@ -302,14 +305,14 @@ inline std::vector<JSystemFont> jListSystemFonts() {
         roots.push_back(std::string(home) + "/.local/share/fonts");
     }
 #endif
-    auto isPlain = [](const std::string& stem) {
-        std::string l; for (char c : stem) l += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        for (const char* w : { "bold", "italic", "oblique", "light", "thin", "black", "medium", "semibold", "condensed" })
-            if (l.find(w) != std::string::npos) return false;
-        return true;
-    };
-    std::map<std::string, std::string> byName;   // family -> representative path (prefer a Regular face)
-    for (const auto& root : roots) {
+    return roots;
+}
+
+/** Walk every installed .ttf/.otf/.ttc under jFontRoots(), invoking fn(path) for each face file. */
+template <typename F>
+inline void jForEachSystemFontFile(F&& fn) {
+    namespace fs = std::filesystem;
+    for (const auto& root : jFontRoots()) {
         std::error_code ec;
         if (!fs::exists(root, ec)) continue;
         fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
@@ -319,19 +322,70 @@ inline std::vector<JSystemFont> jListSystemFonts() {
             std::string ext = it->path().extension().string();
             for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
             if (ext != ".ttf" && ext != ".otf" && ext != ".ttc") continue;
-            const std::string path = it->path().string();
-            std::string name = jReadFontFamilyName(path);
-            if (name.empty()) name = it->path().stem().string();
-            const auto ex = byName.find(name);
-            if (ex == byName.end()) { byName.emplace(name, path); continue; }
-            if (isPlain(it->path().stem().string()) && !isPlain(fs::path(ex->second).stem().string()))
-                ex->second = path;                                     // upgrade to the plainer face
+            fn(it->path());
         }
     }
+}
+
+/** Enumerate installed .ttf/.otf/.ttc fonts, one representative face per family, sorted by name. */
+inline std::vector<JSystemFont> jListSystemFonts() {
+    namespace fs = std::filesystem;
+    auto isPlain = [](const std::string& stem) {
+        std::string l; for (char c : stem) l += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        for (const char* w : { "bold", "italic", "oblique", "light", "thin", "black", "medium", "semibold", "condensed" })
+            if (l.find(w) != std::string::npos) return false;
+        return true;
+    };
+    std::map<std::string, std::string> byName;   // family -> representative path (prefer a Regular face)
+    jForEachSystemFontFile([&](const fs::path& p) {
+        const std::string path = p.string();
+        std::string name = jReadFontFamilyName(path);
+        if (name.empty()) name = p.stem().string();
+        const auto ex = byName.find(name);
+        if (ex == byName.end()) { byName.emplace(name, path); return; }
+        if (isPlain(p.stem().string()) && !isPlain(fs::path(ex->second).stem().string()))
+            ex->second = path;                                         // upgrade to the plainer face
+    });
     std::vector<JSystemFont> out;
     out.reserve(byName.size());
     for (auto& [n, p] : byName) out.push_back({ n, p });
     return out;                                                        // sorted by family (std::map order)
+}
+
+/**
+ * Resolve a concrete face-file path for (family, bold, italic). The index is built ONCE, lazily: every
+ * installed face is classified by its subfamily/style string into a 4-slot table per family
+ * (slot = (bold?1:0)|(italic?2:0)). Resolution prefers the exact style, then Regular, then any face of the
+ * family; the first face seen wins a slot. Returns "" for an empty or unknown family (the caller then falls
+ * back to the app's default face).
+ */
+inline std::string jResolveFontFace(const std::string& family, bool bold, bool italic) {
+    if (family.empty()) return {};
+    static const std::map<std::string, std::array<std::string, 4>> s_index = [] {
+        std::map<std::string, std::array<std::string, 4>> idx;
+        jForEachSystemFontFile([&](const std::filesystem::path& p) {
+            const std::string path = p.string();
+            std::string fam = jReadFontName(path, 1);
+            if (fam.empty()) fam = p.stem().string();
+            std::string style = jReadFontName(path, 2);                // subfamily, e.g. "Bold Italic"
+            if (style.empty()) style = p.stem().string();              // fall back to the filename stem
+            std::string sl; for (char c : style) sl += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            const bool b = sl.find("bold") != std::string::npos;
+            const bool i = sl.find("italic") != std::string::npos || sl.find("oblique") != std::string::npos;
+            auto& slots = idx[fam];
+            const int k = (b ? 1 : 0) | (i ? 2 : 0);
+            if (slots[k].empty()) slots[k] = path;                     // first path wins per (family, style)
+        });
+        return idx;
+    }();
+    const auto it = s_index.find(family);
+    if (it == s_index.end()) return {};
+    const auto& slots = it->second;
+    const int want = (bold ? 1 : 0) | (italic ? 2 : 0);
+    if (!slots[want].empty()) return slots[want];                      // exact style
+    if (!slots[0].empty())    return slots[0];                         // Regular
+    for (const auto& s : slots) if (!s.empty()) return s;              // any non-empty slot
+    return {};
 }
 
 } // inline namespace jf

@@ -66,6 +66,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <map>
 
 inline namespace jf {
 
@@ -158,10 +159,20 @@ public:
     // base font changes. This is what makes pushTextScaled draw large text CRISP (a real glyph at that
     // size, Qt-style) instead of stretching the 14px base bitmap into lego bricks.
     void _wireSizedGlyphCache() {
-        JTextHelper::s_buildSized = [this](float px) -> JFontAtlas {
+        JTextHelper::s_buildSized = [this](const std::string& facePath, float px) -> JFontAtlas {
             uint32_t dim = static_cast<uint32_t>(std::ceil(px * 13.0f));   // room for the full glyph set at px
             dim = std::clamp(dim, 512u, 2048u);
-            return m_font.buildAtlas(px, dim, dim);
+            if (facePath.empty())
+                return m_font.buildAtlas(px, dim, dim);                    // the app's default face
+            // A specific family/style face: load the file once per path (JFontEngine is non-copyable, so it
+            // lives in the node-based map), then bake at the requested size. Empty atlas on load failure →
+            // JTextHelper falls back to the base atlas scaled.
+            auto it = m_faceCache.find(facePath);
+            if (it == m_faceCache.end()) {
+                it = m_faceCache.try_emplace(facePath).first;
+                if (!it->second.loadFromFile(facePath)) { m_faceCache.erase(it); return {}; }
+            }
+            return it->second.buildAtlas(px, dim, dim);
         };
         JTextHelper::s_uploadSized = [this](const JFontAtlas& a) -> uint32_t {
             return m_hal ? m_hal->createFontAtlas(a.bitmap.data(), a.width, a.height) : 0u;
@@ -1163,6 +1174,7 @@ private:
     float                     m_menuH{0.f}, m_toolbarH{0.f}, m_statusH{0.f};
     JStatusBar                m_statusBar;
     JFontEngine                      m_font;
+    std::map<std::string, JFontEngine> m_faceCache;        // facePath → loaded engine for sized-face atlas bakes
     float                            m_appFontPx{14.0f};   // current app-font size — preview/revert reuse it
     std::string                      m_title;
     uint32_t                         m_w{0}, m_h{0};
