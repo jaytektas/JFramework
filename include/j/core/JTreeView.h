@@ -242,7 +242,16 @@ public:
         if (m_dragging) {
             const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
             const bool inside = mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height;
-            if (inside) _computeDrop(mx, my); else m_dropTarget = nullptr;
+            if (inside) {
+                if (m_externalLive) { JDragDrop::cancel(); m_externalLive = false; }   // back inside → resume in-tree reorder
+                _computeDrop(mx, my);
+            } else {
+                m_dropTarget = nullptr;
+                // Left the tree → NOW arm the external node-placement payload for a surface drop. Deferring it to
+                // here (not drag start) means a reorder released INSIDE the tree has no active JDragDrop, so the
+                // app's active-drag release choke doesn't withhold the release from us and the reorder completes.
+                if (!m_externalLive && m_pressNode) { m_externalLive = true; onNodeDragStarted.emit(m_pressNode); }
+            }
             m_graph.invalidateNode(m_nodeId, DirtySelf); return;
         }
         // Press-and-drag on a node past a small threshold starts a drag. With internal reorder enabled
@@ -252,11 +261,11 @@ public:
             const float ddx = mx - m_pressX, ddy = my - m_pressY;
             if (ddx * ddx + ddy * ddy > 25.0f) {
                 if (m_internalReorder) {
+                    // Begin an IN-TREE reorder. The external node-placement payload is armed lazily (in the
+                    // m_dragging branch above) only once the cursor leaves the tree — NOT here — so a drag
+                    // released inside the tree has no active JDragDrop to withhold its reorder release.
                     m_dragging = true; m_externalLive = false; _computeDrop(mx, my);
                     m_graph.invalidateNode(m_nodeId, DirtySelf);
-                    onNodeDragStarted.emit(m_pressNode);   // ALSO arm the external payload NOW, so a drop onto a
-                                                           // surface still works — the tree stops getting moves the
-                                                           // instant the cursor leaves it, so it can't escape later.
                 }
                 else { JTreeViewNode* n = m_pressNode; m_pressNode = nullptr; onNodeDragStarted.emit(n); }
             }
