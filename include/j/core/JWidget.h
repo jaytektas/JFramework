@@ -13,6 +13,7 @@
 #include <functional>
 #include "Signal.h"
 #include "Variant.h"
+#include "JPropertyModel.h"
 #include "AccessibilityBridge.h"
 #include "SceneGraph.h"
 #include "TranslationEngine.h"
@@ -118,7 +119,20 @@ public:
     JSceneGraph&       sceneGraph()       { return m_graph; }
     const JSceneGraph& sceneGraph() const { return m_graph; }
 
-    void setVisible(bool v) { m_visible = v; }
+    // ------------------------------------------------------------------
+    // Base widget signals (the QObject/QWidget analog). Signals live on the BASE widget, so EVERY widget —
+    // not just JControl — can emit change notifications, and JSignal routes them to any receiver widget
+    // (JWidget is a JSlotTracker). Fired by the mutators below; onModified is the generic CanvasElement
+    // modified() analog a subclass raises when one of its own properties changes (call emitModified()).
+    // ------------------------------------------------------------------
+    jf::JSignal<>     onModified;           // a property/state changed
+    jf::JSignal<>     onGeometryChanged;    // bounds / pos / size changed
+    jf::JSignal<bool> onVisibilityChanged;  // shown (true) / hidden (false)
+    jf::JSignal<bool> onFocusChanged;       // focus gained (true) / lost (false)
+    jf::JSignal<bool> onEnabledChanged;     // enabled (true) / disabled (false)
+    void emitModified() { onModified.emit(); }
+
+    void setVisible(bool v) { if (m_visible == v) return; m_visible = v; onVisibilityChanged.emit(v); }
 
     // Position/size this widget's layout box directly — for host-driven placement (e.g. a dock
     // laying its content widget into the leaf's content rect). Marks the node dirty so the
@@ -128,6 +142,7 @@ public:
         c.width  = _clampW(c.width);
         c.height = _clampH(c.height);
         m_graph.getLayout(m_nodeId).boundingBox = c;
+        onGeometryChanged.emit();
     }
     JRect bounds() const { return m_graph.getLayoutConst(m_nodeId).boundingBox; }
 
@@ -142,11 +157,13 @@ public:
     void setPos(float x, float y) {
         auto& bb = m_graph.getLayout(m_nodeId).boundingBox;
         bb.x = x; bb.y = y;
+        onGeometryChanged.emit();
     }
     void setSize(float w, float h) {
         auto& bb = m_graph.getLayout(m_nodeId).boundingBox;
         bb.width  = _clampW(w);
         bb.height = _clampH(h);
+        onGeometryChanged.emit();
     }
 
     // Alias of hitTest(): true when the screen-space point falls inside this widget's box.
@@ -268,21 +285,24 @@ public:
     }
 
     void setEnabled(bool e) {
+        const bool was = (m_state != JWidgetState::Disabled);
         setState(e ? JWidgetState::Normal : JWidgetState::Disabled);
+        if (was != e) onEnabledChanged.emit(e);
     }
     void setFocused(bool f) {
         if (m_focused != f) {
             m_focused = f;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             notifyAccessibility();
-            onFocusEvent(f);   // deterministic blur/focus hook — e.g. spin boxes commit their edit here
+            onFocusEvent(f);       // deterministic blur/focus hook — e.g. spin boxes commit their edit here
+            onFocusChanged.emit(f); // routed signal — external listeners (any receiver widget) observe focus
         }
     }
 
     // Called the instant focus is gained (true) or lost (false), synchronously from setFocused —
     // before any repaint or panel rebuild. Widgets that buffer edits (spin boxes, line edits)
     // override this to commit on blur so a value typed then Tab/click-away is never dropped.
-    // (Named onFocusEvent, not onFocusChanged, to avoid clashing with JControl's onFocusChanged signal.)
+    // (This is the virtual HOOK; the onFocusChanged JSignal above is the external notification — both fire.)
     virtual void onFocusEvent(bool focused) { (void)focused; }
 
     // Schedule a repaint for this widget.
@@ -348,6 +368,20 @@ public:
     }
 
     // ------------------------------------------------------------------
+    // Introspective property model — the QWidget/Q_PROPERTY analog (minus moc).
+    // A flat, editable set of named JVariant properties a generic property editor
+    // enumerates and writes back through. Built lazily on first access and cached;
+    // each subclass overrides collectProperties(), chains to its base, and registers
+    // its own members. Distinct from getRef() above (which resolves reference PATHS
+    // for bindings/the AI bus) and from JPropertyBag (opt-in app-level dynamic
+    // runtime properties). See JPropertyModel.h.
+    // ------------------------------------------------------------------
+    JPropertyModel& properties() {
+        if (!m_propertiesBuilt) { collectProperties(m_propertyModel); m_propertiesBuilt = true; }
+        return m_propertyModel;
+    }
+
+    // ------------------------------------------------------------------
     // Accessibility — the semantic snapshot an AT client reads. Every
     // interactive widget overrides a11yNode() to report its role, accessible
     // name, current value and live state. The default derives a generic
@@ -360,6 +394,39 @@ public:
     }
 
 protected:
+    // Register this widget's editable properties into the model. The base
+    // contributes the universal, most-edited set — identity, behaviour, and
+    // geometry. A subclass overrides this, calls JWidget::collectProperties(m)
+    // first, then adds its own typed members. Called once, lazily, by properties().
+    virtual void collectProperties(JPropertyModel& m) {
+        m.add("name",    this, &JWidget::m_debugName, JPropertyMeta{.category = "General"});
+        m.add("enabled", this, &JWidget::isEnabled, &JWidget::setEnabled, JPropertyMeta{.category = "General"});
+        m.add("visible", this, &JWidget::isVisible, &JWidget::setVisible, JPropertyMeta{.category = "General"});
+        m.add("tooltip", this, &JWidget::tooltip,   &JWidget::setTooltip, JPropertyMeta{.category = "General"});
+        m.add("opacity", this, &JWidget::opacity,   &JWidget::setOpacity,
+              JPropertyMeta{.category = "General", .min = 0.0, .max = 1.0, .step = 0.05});
+
+        // Geometry — the caller/layout owns these coordinates (edits route through
+        // setBounds, which honours the size constraints), so exposing them here does
+        // not violate the "widgets never position themselves" rule.
+        m.add(JProperty{ .name = "x",
+            .get = [this] { return JVariant(bounds().x); },
+            .set = [this](const JVariant& v) { JRect b = bounds(); b.x = static_cast<float>(v.toDouble(b.x)); setBounds(b); return true; },
+            .meta = JPropertyMeta{.category = "Geometry"} });
+        m.add(JProperty{ .name = "y",
+            .get = [this] { return JVariant(bounds().y); },
+            .set = [this](const JVariant& v) { JRect b = bounds(); b.y = static_cast<float>(v.toDouble(b.y)); setBounds(b); return true; },
+            .meta = JPropertyMeta{.category = "Geometry"} });
+        m.add(JProperty{ .name = "width",
+            .get = [this] { return JVariant(bounds().width); },
+            .set = [this](const JVariant& v) { JRect b = bounds(); b.width = static_cast<float>(v.toDouble(b.width)); setBounds(b); return true; },
+            .meta = JPropertyMeta{.category = "Geometry", .min = 0.0} });
+        m.add(JProperty{ .name = "height",
+            .get = [this] { return JVariant(bounds().height); },
+            .set = [this](const JVariant& v) { JRect b = bounds(); b.height = static_cast<float>(v.toDouble(b.height)); setBounds(b); return true; },
+            .meta = JPropertyMeta{.category = "Geometry", .min = 0.0} });
+    }
+
     // Populate id / role / name / value / bounds and the universal state bits
     // (focusable, focused, disabled, pressed) shared by every widget. Overrides
     // call this, then OR in role-specific bits (Checked/Selected/Editable/...).
@@ -405,6 +472,9 @@ protected:
     float        m_opacity{1.0f};                       // [0,1]; advisory to the render layer
     float        m_minW{0.0f},   m_minH{0.0f};          // size constraints (mirror layout minW/minH)
     float        m_maxW{1.0e6f}, m_maxH{1.0e6f};
+
+    JPropertyModel m_propertyModel;                     // introspective/editable property surface (lazy)
+    bool           m_propertiesBuilt{false};            // collectProperties() run yet?
 };
 
 } // inline namespace jf
