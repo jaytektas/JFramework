@@ -209,6 +209,8 @@ public:
         xcb_map_window(m_connection, m_windowId);
         xcb_flush(m_connection);
 
+        s_lastCreatedRaw = static_cast<uintptr_t>(m_windowId);   // so a caller can parent the NEXT modal to this one
+
         qCInfo(jf::Log::Platform) << "XCB window created (" << width << "x" << height
                                        << " @ " << screenX << "," << screenY
                                        << ", style=" << static_cast<int>(style)
@@ -216,6 +218,7 @@ public:
     }
 
     ~JLinuxPlatformWindow() override {
+        if (s_grabHolder == this) s_grabHolder = nullptr;   // never leave a dangling grab-holder pointer
         if (m_syms) { xcb_key_symbols_free(m_syms); m_syms = nullptr; }
         if (m_connection) {
             xcb_free_cursor(m_connection, m_cursorDefault);
@@ -285,6 +288,7 @@ public:
                                 XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
                                 XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
                             xcb_flush(m_connection);
+                            s_grabHolder = this;   // remember who holds the grab so a modal-stack push can drop it
                         }
                     } else if (b->detail == XCB_BUTTON_INDEX_3) {
                         m_mouseX = static_cast<float>(b->event_x);
@@ -299,10 +303,7 @@ public:
                         m_mouseX = static_cast<float>(b->event_x);
                         m_mouseY = static_cast<float>(b->event_y);
                         m_pendingRelease = true;
-                        if (m_style != JPlatformWindowStyle::Popup) {
-                            xcb_ungrab_pointer(m_connection, XCB_CURRENT_TIME);
-                            xcb_flush(m_connection);
-                        }
+                        if (m_style != JPlatformWindowStyle::Popup) _ungrabPointer();
                     } else if (b->detail == XCB_BUTTON_INDEX_3) {
                         m_mouseX = static_cast<float>(b->event_x);
                         m_mouseY = static_cast<float>(b->event_y);
@@ -745,8 +746,7 @@ public:
         // Start each drag with a clean unsnap flag; only an un-maximize that
         // happens DURING this drag should drive the MOVERESIZE-restart fallback.
         m_wasUnsnapped = false;
-        xcb_ungrab_pointer(m_connection, XCB_CURRENT_TIME);
-        xcb_flush(m_connection);
+        _ungrabPointer();
         auto [gx, gy] = globalCursorPos();
         xcb_client_message_event_t ev{};
         ev.response_type  = XCB_CLIENT_MESSAGE;
@@ -768,8 +768,7 @@ public:
         if (m_style == jf::JPlatformWindowStyle::Popup) return;
         xcb_atom_t atom = _internAtom("_NET_WM_MOVERESIZE");
         if (atom == XCB_ATOM_NONE) return;
-        xcb_ungrab_pointer(m_connection, XCB_CURRENT_TIME);
-        xcb_flush(m_connection);
+        _ungrabPointer();
         auto [gx, gy] = globalCursorPos();
         xcb_client_message_event_t ev{};
         ev.response_type  = XCB_CLIENT_MESSAGE;
@@ -890,6 +889,21 @@ public:
     // ---- Native handles for Vulkan surface creation ----
     xcb_connection_t* nativeConnection() const { return m_connection; }
 
+    // The raw window id of the MOST RECENTLY created window. A modal dialog constructs its window in
+    // its ctor, so reading this straight after constructing a dialog yields that dialog's window id —
+    // which the modal stack stores so the NEXT nested modal can be parented (WM_TRANSIENT_FOR) to its
+    // opener rather than the root window. That transient link is what makes the WM stack a child modal
+    // above the modal that opened it (see the ctor's parentWindow branch). Single-threaded UI only.
+    static uintptr_t lastCreatedRawWindowId() { return s_lastCreatedRaw; }
+
+    // Release whatever window currently holds the pointer grab. A window grabs the pointer on
+    // button-press (to keep motion/release during a drag-outside); it normally ungrabs on release.
+    // But a modal that opens a CHILD modal freezes before it ever sees its own button-release, so
+    // that grab would stick and steal every button event the child should get (keyboard is
+    // unaffected — it routes by focus — which is why such a child takes keys but not the mouse).
+    // The modal-stack push calls this so the superseded window's grab is dropped. No-op if none.
+    static void releaseActivePointerGrab() { if (s_grabHolder) s_grabHolder->_ungrabPointer(); }
+
     // ---- Native text clipboard (CLIPBOARD selection) -----------------------
     // We own the selection and serve it from pollNativeEvents (XCB_SELECTION_REQUEST).
     // No xclip/xsel shell-out — this is the framework talking X11 directly.
@@ -934,6 +948,21 @@ public:
     }
 
 private:
+    // Single funnel for releasing the pointer grab: ungrab on this window's connection and clear the
+    // shared grab-holder if it points at us. All ungrab sites (button-release, window move/resize,
+    // releaseActivePointerGrab) go through here so the s_grabHolder tracker never goes stale.
+    void _ungrabPointer() {
+        xcb_ungrab_pointer(m_connection, XCB_CURRENT_TIME);
+        xcb_flush(m_connection);
+        if (s_grabHolder == this) s_grabHolder = nullptr;
+    }
+    // The window that currently holds an active pointer grab (nullptr if none). Windows here each own
+    // their own XCB connection, so releasing must happen on the grabber's connection — hence a pointer
+    // to the holder rather than a bare bool. Set at the grab, cleared at every ungrab + in the dtor.
+    inline static JLinuxPlatformWindow* s_grabHolder = nullptr;
+    // Raw window id of the most recently constructed window (see lastCreatedRawWindowId()).
+    inline static uintptr_t s_lastCreatedRaw = 0;
+
     // Deferred-then-live event source, so a clipboard paste's blocking wait can stash
     // unrelated events for the next pollNativeEvents pass instead of discarding them.
     xcb_generic_event_t* _nextEvent() {

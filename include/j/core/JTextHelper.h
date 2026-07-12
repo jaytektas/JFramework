@@ -149,6 +149,69 @@ public:
         if (!call.verts.empty()) buf.pushTextCall(std::move(call));
     }
 
+    /** Push text using an EXPLICIT atlas (glyph metrics/UVs from `atl`, GPU texture selected by
+     *  `atlasId`), instead of the global one. Lets a caller render a single run in a different font —
+     *  e.g. the font picker's preview line in the chosen face — without swapping the whole-app atlas.
+     *  atlasId 0 means the base atlas, so passing the base atlas + 0 is equivalent to pushText(). */
+    static void pushTextWith(JPrimitiveBuffer& buf,
+                             float x, float y,
+                             const std::string& text,
+                             const uint8_t color[4],
+                             const JFontAtlas& atl, uint32_t atlasId,
+                             float maxWidth = 0.0f)
+    {
+        if (!atl.valid || text.empty()) return;
+
+        JPrimitiveBuffer::JTextCall call;
+        std::copy(color, color + 4, call.color);
+        call.atlasId = atlasId;
+
+        float penX     = x;
+        float baseline = y + atl.ascent;
+
+        size_t i = 0;
+        while (i < text.size()) {
+            uint32_t cp = _decodeUtf8(text, i);
+            if (cp == 0) continue;
+            auto it = atl.glyphs.find(cp);
+            if (it == atl.glyphs.end()) {
+                cp = _substitute(cp);
+                it = atl.glyphs.find(cp);
+                if (it == atl.glyphs.end()) { penX += atl.ascent * 0.35f; continue; }
+            }
+            const JGlyphInfo& g = it->second;
+            if (maxWidth > 0.0f && (penX - x + g.advanceX) > maxWidth) break;
+            penX += g.advanceX;
+            if (g.pixelW < 0.5f || g.pixelH < 0.5f) continue;
+
+            float gx = std::floor(penX - g.advanceX + g.bearingX + 0.5f);
+            float gy = std::floor(baseline + g.bearingY + 0.5f);
+            float gw = g.pixelW, gh = g.pixelH;
+
+            call.verts.push_back({gx,      gy,      g.u0, g.v0});
+            call.verts.push_back({gx + gw, gy,      g.u1, g.v0});
+            call.verts.push_back({gx + gw, gy + gh, g.u1, g.v1});
+            call.verts.push_back({gx + gw, gy + gh, g.u1, g.v1});
+            call.verts.push_back({gx,      gy + gh, g.u0, g.v1});
+            call.verts.push_back({gx,      gy,      g.u0, g.v0});
+        }
+        if (!call.verts.empty()) buf.pushTextCall(std::move(call));
+    }
+
+    /** Rendered width of `text` in an explicit atlas (advances summed from `atl`). */
+    static float measureWidthIn(const std::string& text, const JFontAtlas& atl) {
+        if (!atl.valid) return 0.0f;
+        float w = 0.0f; size_t i = 0;
+        while (i < text.size()) {
+            uint32_t cp = _decodeUtf8(text, i);
+            if (cp == 0) continue;
+            auto it = atl.glyphs.find(cp);
+            if (it == atl.glyphs.end()) { cp = _substitute(cp); it = atl.glyphs.find(cp); }
+            w += (it != atl.glyphs.end()) ? it->second.advanceX : atl.ascent * 0.35f;
+        }
+        return w;
+    }
+
     /** Push text scaled by `scale` about the atlas' native size. Advances/bearings/glyph quads all
      *  multiply by scale, so the single shared atlas can render large readouts (e.g. a value gauge)
      *  or fine print. Glyphs are sampled up/down by the GPU. maxWidth is measured in final (scaled) px. */

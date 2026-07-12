@@ -3,18 +3,20 @@
 // ============================================================================
 // JColorPickerDialog — the colour chooser as a modal dialog window, matching the studio's picker.
 //
-// One window, one "Cancel | Colour | Select" header, two pages:
+// Presents as a normal dialog: a JStyle title bar (the same JTitleBar every other window uses) with the
+// canonical close button, and a bottom OK/Cancel bar (mirroring JNativeDialogWindow). Two pages:
 //   • Palette  — a hue×shade grid of preset swatches (checkmark on the current one) plus a "Custom"
 //                row of previously-defined colours and a "+" that opens the editor.
 //   • Editor   — the "+" custom page: the JColorPicker (hue bar, SV square, eyedropper, hex, alpha).
 //
-// It is a real WM-managed window (keyboard focus, no pointer grab, draggable by the header) — it does
-// not dismiss on click-outside. Select applies the working colour (onAccept); Cancel/close/Escape
-// discard. On the editor page Cancel returns to the palette; Select applies + remembers the custom.
-// Modelled on JNativeDialogWindow's window/surface/drag machinery.
+// A real WM-managed window (keyboard focus, no pointer grab, draggable by the title bar) — it does not
+// dismiss on click-outside. Select applies the working colour (onAccept); Cancel/close/Escape discard.
+// On the editor page Cancel returns to the palette; Select applies + remembers the custom.
 // ============================================================================
 
 #include <j/core/ColorPicker.h>
+#include <j/core/JTitleBar.h>       // shared styled title bar (JStyle) — same one every other window uses
+#include <j/core/JCloseButton.h>    // canonical window close control
 #include <j/config/Settings.h>          // JSettings — persist the custom-colour row
 #include <j/graphics/GpuHal.h>
 #include <j/graphics/RenderPrimitive.h>
@@ -27,6 +29,7 @@
 #endif
 
 #include <algorithm>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
@@ -36,16 +39,20 @@ inline namespace jf {
 
 class JColorPickerDialog {
 public:
-    static constexpr uint32_t kW      = 452;
-    static constexpr float    kHeader = 46.f;
-    static constexpr float    kCloseW = 28.f;
-    static constexpr float    kBtnW   = 84.f;
-    static constexpr float    kBtnH   = 30.f;
+    static constexpr uint32_t kW = 452;
+    static constexpr float    kFooterH = 58.f;                 // bottom OK/Cancel button bar
+    static constexpr float    kDlgBtnW = 88.f;                            // button WIDTH (JStyle has no button-width metric)
+    static float kDlgBtnH() { return JStyle::current().buttonHeight; }    // HEIGHT from JStyle — single source of truth
     // Palette-page grid.
     static constexpr int   kCols = 8, kRows = 5;
     static constexpr float kCellW = 48.f, kCellH = 32.f, kGap = 6.f, kPad = 13.f;
-    static constexpr float kPaletteH = kHeader + 16.f + (kRows * kCellH + (kRows - 1) * kGap) + 16.f + 22.f + kCellH + 14.f;
-    static constexpr float kEditorH  = kHeader + 10.f + JColorPicker::kH + 14.f;
+    static float hdrH()       { return JStyle::current().titleBarHeight; }   // title bar height from the theme
+    static float btnBarY(float H) { return H - kDlgBtnH() - 14.f; }
+    static float selBtnX()   { return static_cast<float>(kW) - kDlgBtnW - 12.f; }        // Select (accent), rightmost
+    static float cancelBtnX(){ return static_cast<float>(kW) - kDlgBtnW * 2.f - 20.f; }  // Cancel, to its left
+    // Window heights per page (runtime — the title bar height comes from the theme). Include the footer.
+    static float paletteH() { return hdrH() + 16.f + (kRows * kCellH + (kRows - 1) * kGap) + 16.f + 22.f + kCellH + 14.f + kFooterH; }
+    static float editorH()  { return hdrH() + 10.f + JColorPicker::kH + 14.f + kFooterH; }
 
 #if defined(_WIN32)
     using PlatformWinType     = JWindowsPlatformWindow;
@@ -60,15 +67,15 @@ public:
                        std::function<void(std::string)> onAccept,
                        std::function<void()>            onCancel = {})
         : m_onAccept(std::move(onAccept)), m_onCancel(std::move(onCancel)), m_working(startHex)
-        , m_window(std::make_unique<PlatformWinType>("Colour", kW, static_cast<uint32_t>(kPaletteH), screenX, screenY,
+        , m_window(std::make_unique<PlatformWinType>("Colour", kW, static_cast<uint32_t>(paletteH()), screenX, screenY,
                                                      JPlatformWindowStyle::Borderless, parentWindow))
-        , m_surface(hal.createSurface(m_window->nativeHandle(), kW, static_cast<uint32_t>(kPaletteH)))
-        , m_curH(static_cast<uint32_t>(kPaletteH))
+        , m_surface(hal.createSurface(m_window->nativeHandle(), kW, static_cast<uint32_t>(paletteH())))
+        , m_curH(static_cast<uint32_t>(paletteH()))
     {
         m_picker = std::make_unique<JColorPicker>(m_graph);
         auto& l = m_graph.getLayout(m_picker->getNodeId());
         l.boundingBox.x = (kW - JColorPicker::kW) * 0.5f;
-        l.boundingBox.y = kHeader + 10.f;
+        l.boundingBox.y = hdrH() + 10.f;
         m_picker->onColorChanged.connect([this](const std::string& hex) { m_working = hex; });
     }
 
@@ -84,7 +91,7 @@ public:
         if (m_window->shouldClose()) { _cancel(); return false; }
 
         // Keep the window height matched to the active page.
-        const uint32_t wantH = static_cast<uint32_t>(m_page == Page::Editor ? kEditorH : kPaletteH);
+        const uint32_t wantH = static_cast<uint32_t>(m_page == Page::Editor ? editorH() : paletteH());
         if (wantH != m_curH) { m_curH = wantH; m_window->setSize(kW, wantH); hal.resizeSurface(m_surface, kW, wantH); }
 
         const float mx = m_window->mouseX(), my = m_window->mouseY();
@@ -92,7 +99,10 @@ public:
         const bool released = m_window->consumeRelease();
         const bool held     = m_window->isLeftButtonDown();
 
-        _handleDrag(mx, my, held);
+        // Title-bar drag (the whole bar except the close button); the close button cancels.
+        const JRect closeR = JCloseButton::rectFor({ 0.f, 0.f, static_cast<float>(kW), hdrH() });
+        _handleDrag(mx, my, held, closeR.x);
+        if (pressed && JCloseButton::hit(closeR, mx, my)) { _cancel(); return false; }
 
         for (const auto& ke : m_window->consumeAllKeys()) {
             if (!ke.pressed) continue;
@@ -102,20 +112,20 @@ public:
             if (ke.key == K::Return) { _select(); if (m_done) return false; continue; }
         }
 
-        // Header buttons (both pages).
-        const float W = static_cast<float>(kW);
-        const float btnY = (kHeader - kBtnH) * 0.5f;
-        const float cancelX = 12.f, selectX = W - kBtnW - 12.f;
-        if (pressed && my >= btnY && my < btnY + kBtnH) {
-            if (mx >= cancelX && mx < cancelX + kBtnW) { _cancelBtn(); if (m_done) return false; }
-            else if (mx >= selectX && mx < selectX + kBtnW) { _select(); if (m_done) return false; }
+        // Footer buttons (bottom of the dialog): Select (accent) and Cancel.
+        const float H = static_cast<float>(m_curH);
+        const float by = btnBarY(H);
+        bool footerHit = false;
+        if (pressed && my >= by && my < by + kDlgBtnH()) {
+            if      (mx >= cancelBtnX() && mx < cancelBtnX() + kDlgBtnW) { footerHit = true; _cancelBtn(); if (m_done) return false; }
+            else if (mx >= selBtnX()    && mx < selBtnX()    + kDlgBtnW) { footerHit = true; _select();    if (m_done) return false; }
         }
 
         if (m_page == Page::Editor) {
             m_picker->handleMouseMove(mx, my);
-            if (pressed)  m_picker->handleMousePress(mx, my);
-            if (released) m_picker->handleMouseRelease(mx, my);
-        } else if (pressed) {
+            if (pressed && !footerHit) m_picker->handleMousePress(mx, my);
+            if (released)              m_picker->handleMouseRelease(mx, my);
+        } else if (pressed && !footerHit) {
             _paletteHit(mx, my);
         }
 
@@ -161,30 +171,39 @@ private:
     }
 
     Rc _cell(int col, int row) const {
-        return { kPad + col * (kCellW + kGap), kHeader + 16.f + row * (kCellH + kGap), kCellW, kCellH };
+        return { kPad + col * (kCellW + kGap), hdrH() + 16.f + row * (kCellH + kGap), kCellW, kCellH };
     }
-    float _customRowY() const { return kHeader + 16.f + kRows * kCellH + (kRows - 1) * kGap + 16.f + 22.f; }
+    float _customRowY() const { return hdrH() + 16.f + kRows * kCellH + (kRows - 1) * kGap + 16.f + 22.f; }
     Rc _customCell(int i) const { return { kPad + i * (kCellW + kGap), _customRowY(), kCellW, kCellH }; }
 
     void _paletteHit(float mx, float my) {
         for (int c = 0; c < kCols; ++c)
-            for (int r = 0; r < kRows; ++r) {
-                const Rc cell = _cell(c, r);
-                if (_in(cell, mx, my)) { m_working = _swatchHex(c, r); return; }
-            }
+            for (int r = 0; r < kRows; ++r)
+                if (_in(_cell(c, r), mx, my)) { _pick(_swatchHex(c, r)); return; }
         // Custom row: index 0 = "+", 1.. = saved customs.
         if (_in(_customCell(0), mx, my)) { m_picker->setColorHex(m_working); m_page = Page::Editor; return; }
         const auto& v = _customs();
         for (size_t i = 0; i < v.size(); ++i)
-            if (_in(_customCell(static_cast<int>(i) + 1), mx, my)) { m_working = v[i]; return; }
+            if (_in(_customCell(static_cast<int>(i) + 1), mx, my)) { _pick(v[i]); return; }
+    }
+
+    // Select a swatch. A SECOND click on the same swatch within the double-click window commits it (as OK).
+    void _pick(const std::string& hex) {
+        const int64_t now = _nowMs();
+        const bool dbl = (hex == m_lastClickHex && now - m_lastClickMs < 400);
+        m_working = hex;
+        m_lastClickHex = hex; m_lastClickMs = now;
+        if (dbl) _select();
+    }
+    static int64_t _nowMs() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
     }
 
     static bool _in(const Rc& r, float x, float y) { return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h; }
 
-    void _handleDrag(float mx, float my, bool held) {
-        // Drag by the header, avoiding the two buttons.
-        const bool inHeader = (my >= 0.f && my < kHeader && mx > 12.f + kBtnW && mx < static_cast<float>(kW) - kBtnW - 12.f);
-        if (held && inHeader && !m_dragging) { m_dragging = true; m_dragAnchorX = mx; m_dragAnchorY = my; }
+    void _handleDrag(float mx, float my, bool held, float closeX) {
+        const bool inTitle = (my >= 0.f && my < hdrH() && mx < closeX);
+        if (held && inTitle && !m_dragging) { m_dragging = true; m_dragAnchorX = mx; m_dragAnchorY = my; }
         if (m_dragging) {
             auto [gx, gy] = m_window->globalCursorPos();
             m_window->setPosition(gx - static_cast<int>(m_dragAnchorX), gy - static_cast<int>(m_dragAnchorY));
@@ -192,35 +211,33 @@ private:
         if (!held) m_dragging = false;
     }
 
+    // Footer bar — Cancel + Select, mirroring JNativeDialogWindow's layout.
+    void _footer(JPrimitiveBuffer& buf, float mx, float my, float H) const {
+        const float lh = JTextHelper::lineHeight();
+        const float by = btnBarY(H), okX = selBtnX(), caX = cancelBtnX();
+        uint8_t cBg[4] = { Colors::CancelBtnBg[0], Colors::CancelBtnBg[1], Colors::CancelBtnBg[2],
+                           static_cast<uint8_t>((mx >= caX && mx < caX + kDlgBtnW && my >= by && my < by + kDlgBtnH()) ? 255 : 220) };
+        buf.pushRectangle(caX, by, kDlgBtnW, kDlgBtnH(), cBg, JStyle::current().cornerRadius, 1.f, Colors::CancelBtnBorder);
+        const bool hovOk = (mx >= okX && mx < okX + kDlgBtnW && my >= by && my < by + kDlgBtnH());
+        uint8_t okBg[4] = { Colors::PrimaryBtnBg[0], Colors::PrimaryBtnBg[1], Colors::PrimaryBtnBg[2], static_cast<uint8_t>(hovOk ? 255 : 220) };
+        buf.pushRectangle(okX, by, kDlgBtnW, kDlgBtnH(), okBg, JStyle::current().cornerRadius, 1.f, Colors::PrimaryBtnBorder);
+        if (JTextHelper::hasAtlas()) {
+            JTextHelper::pushText(buf, caX + (kDlgBtnW - JTextHelper::measureWidth("Cancel")) * 0.5f, by + (kDlgBtnH() - lh) * 0.5f, "Cancel", Colors::CancelBtnText);
+            JTextHelper::pushText(buf, okX + (kDlgBtnW - JTextHelper::measureWidth("Select")) * 0.5f, by + (kDlgBtnH() - lh) * 0.5f, "Select", Colors::PrimaryBtnText);
+        }
+    }
+
     void _render(JPrimitiveBuffer& buf, float mx, float my) {
         const float W = static_cast<float>(kW), H = static_cast<float>(m_curH);
-        const float lh = JTextHelper::lineHeight();
 
         buf.pushRectangle(0.f, 0.f, W, H, Colors::DialogBg, 8.f, 1.f, Colors::Border);
 
-        // ---- Header: Cancel | Colour | Select ----
-        buf.pushRectangle(0.f, 0.f, W, kHeader, Colors::DialogTitleBg, 8.f);
-        buf.pushRectangle(0.f, 8.f, W, kHeader - 8.f, Colors::DialogTitleBg, 0.f);
-        const float btnY = (kHeader - kBtnH) * 0.5f;
-        uint8_t btnTc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, btnTc);
+        // Title bar — the SAME styled bar every other window uses (JStyle), with the canonical close button.
+        const JRect closeR = JCloseButton::rectFor({ 0.f, 0.f, W, hdrH() });
+        JTitleBar::draw(buf, 0.f, 0.f, W, hdrH(), "Colour", JStyle::current().cornerRadius, 0, 12.f, closeR.width + 14.f);
+        JCloseButton::draw(buf, closeR, JCloseButton::hit(closeR, mx, my));
 
-        const float cancelX = 12.f;
-        const bool hovCancel = (mx >= cancelX && mx < cancelX + kBtnW && my >= btnY && my < btnY + kBtnH);
-        uint8_t cBg[4] = {Colors::CancelBtnBg[0], Colors::CancelBtnBg[1], Colors::CancelBtnBg[2], static_cast<uint8_t>(hovCancel ? 255 : 220)};
-        buf.pushRectangle(cancelX, btnY, kBtnW, kBtnH, cBg, 5.f, 1.f, Colors::CancelBtnBorder);
-        const char* cancelLbl = (m_page == Page::Editor) ? "Cancel" : "Cancel";
-        JTextHelper::pushText(buf, cancelX + (kBtnW - JTextHelper::measureWidth(cancelLbl)) * 0.5f, btnY + (kBtnH - lh) * 0.5f, cancelLbl, btnTc);
-
-        uint8_t ttc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, ttc);
-        JTextHelper::pushText(buf, (W - JTextHelper::measureWidth("Colour")) * 0.5f, (kHeader - lh) * 0.5f, "Colour", ttc, W);
-
-        const float selectX = W - kBtnW - 12.f;
-        const bool hovSel = (mx >= selectX && mx < selectX + kBtnW && my >= btnY && my < btnY + kBtnH);
-        uint8_t sBg[4] = {Colors::Success[0], Colors::Success[1], Colors::Success[2], static_cast<uint8_t>(hovSel ? 255 : 230)};
-        buf.pushRectangle(selectX, btnY, kBtnW, kBtnH, sBg, 5.f);
-        JTextHelper::pushText(buf, selectX + (kBtnW - JTextHelper::measureWidth("Select")) * 0.5f, btnY + (kBtnH - lh) * 0.5f, "Select", btnTc);
-
-        if (m_page == Page::Editor) { m_picker->populateRenderPrimitives(buf); return; }
+        if (m_page == Page::Editor) { m_picker->populateRenderPrimitives(buf); _footer(buf, mx, my, H); return; }
 
         // ---- Palette grid ----
         for (int c = 0; c < kCols; ++c)
@@ -246,6 +263,8 @@ private:
             const Rc cell = _customCell(static_cast<int>(i) + 1);
             _swatch(buf, cell, v[i], v[i] == m_working);
         }
+
+        _footer(buf, mx, my, H);
     }
 
     // A rounded swatch; draws a contrast checkmark when selected.
@@ -318,6 +337,8 @@ private:
     bool  m_done{false};
     bool  m_dragging{false};
     float m_dragAnchorX{0.f}, m_dragAnchorY{0.f};
+    std::string m_lastClickHex;   // last swatch clicked + when — a repeat within the window = double-click commit
+    int64_t     m_lastClickMs{0};
 };
 
 } // inline namespace jf

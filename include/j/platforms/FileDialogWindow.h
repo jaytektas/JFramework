@@ -382,15 +382,15 @@ private:
         bool hovCancel = _hit(cancelX, by, bW, btnH);
         buf.pushRectangle(cancelX, by, bW, btnH, Colors::CancelBtnBg, R, 1.f, Colors::CancelBtnBorder);
         JTextHelper::pushText(buf, cancelX + (bW - JTextHelper::measureWidth("Cancel")) * 0.5f,
-                              by + (btnH - lh) * 0.5f, "Cancel", Colors::ControlText);
+                              by + (btnH - lh) * 0.5f, "Cancel", Colors::CancelBtnText);
         if (m_pressed && hovCancel) { _cancel(); return; }
 
         bool hovOk = _hit(okX, by, bW, btnH);
-        uint8_t okBg[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2],
+        uint8_t okBg[4] = {Colors::PrimaryBtnBg[0], Colors::PrimaryBtnBg[1], Colors::PrimaryBtnBg[2],
                             static_cast<uint8_t>(hovOk ? 255 : 220)};
-        buf.pushRectangle(okX, by, bW, btnH, okBg, R);
+        buf.pushRectangle(okX, by, bW, btnH, okBg, R, 1.f, Colors::PrimaryBtnBorder);
         JTextHelper::pushText(buf, okX + (bW - JTextHelper::measureWidth(okLbl)) * 0.5f,
-                              by + (btnH - lh) * 0.5f, okLbl, Colors::TextPrimary);
+                              by + (btnH - lh) * 0.5f, okLbl, Colors::PrimaryBtnText);
         if (m_pressed && hovOk) { _accept(); return; }
     }
 

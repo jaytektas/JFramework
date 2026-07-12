@@ -19,7 +19,7 @@ public:
     jf::JSignal<>     onHoverEntered;
     jf::JSignal<>     onHoverExited;
     jf::JSignal<>     onClicked;
-    jf::JSignal<bool> onFocusChanged;
+    // onFocusChanged now lives on the base JWidget (every widget emits it from setFocused) — inherited here.
 
     JControl(JSceneGraph& graph, const std::string& name) : JWidget(graph, name) {
         // Interactive controls are click- and tab-focusable by default (Qt StrongFocus).

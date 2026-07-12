@@ -218,6 +218,16 @@ public:
         invalidateNode(parentId, DirtyChildren);
     }
 
+    // Detach every child of `parentId` (orphan them; their nodes persist, owned by their widgets). Lets a
+    // container be rebuilt from scratch — e.g. a property form that shows only the rows a selection shares.
+    void clearChildren(NodeId parentId) {
+        if (parentId >= m_hierarchy.size()) return;
+        for (NodeId c : m_hierarchy[parentId].childrenIds)
+            if (c < m_hierarchy.size()) m_hierarchy[c].parentId = InvalidNodeId;
+        m_hierarchy[parentId].childrenIds.clear();
+        invalidateNode(parentId, DirtyChildren);
+    }
+
     // ------------------------------------------------------------------
     // Flexible layout items (spacers). These are widget-less nodes that exist purely to occupy
     // space in a flex/box container — the toolbox trick of pushing widgets apart or to an edge.

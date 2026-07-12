@@ -472,9 +472,26 @@ public:
             if (kv.second.image)   vkDestroyImage(m_device, kv.second.image, nullptr);
             if (kv.second.memory)  vkFreeMemory(m_device, kv.second.memory, nullptr);
             if (kv.second.sampler) vkDestroySampler(m_device, kv.second.sampler, nullptr);
-            // descSet: pool has no free bit; left allocated (reset with the pool at teardown).
+            // m_imageDescPool is created with FREE_DESCRIPTOR_SET_BIT, so return the set to the pool —
+            // otherwise repeated createFontAtlas (e.g. live font preview) exhausts maxSets and then fails.
+            if (kv.second.descSet) vkFreeDescriptorSets(m_device, m_imageDescPool, 1, &kv.second.descSet);
         }
         m_fontAtlases.clear();
+    }
+
+    void freeFontAtlas(uint32_t id) override {
+        if (id == 0) return;                          // 0 = base atlas, not a createFontAtlas() id
+        auto it = m_fontAtlases.find(id);
+        if (it == m_fontAtlases.end()) return;
+        vkDeviceWaitIdle(m_device);
+        if (it->second.view)    vkDestroyImageView(m_device, it->second.view, nullptr);
+        if (it->second.image)   vkDestroyImage(m_device, it->second.image, nullptr);
+        if (it->second.memory)  vkFreeMemory(m_device, it->second.memory, nullptr);
+        if (it->second.sampler) vkDestroySampler(m_device, it->second.sampler, nullptr);
+        // Return the descriptor set to the pool (created with FREE_DESCRIPTOR_SET_BIT) — without this,
+        // recycling the preview atlas per selection leaks a set each time and exhausts the pool (256).
+        if (it->second.descSet) vkFreeDescriptorSets(m_device, m_imageDescPool, 1, &it->second.descSet);
+        m_fontAtlases.erase(it);
     }
 
     JGpuFrameContext beginFrame(GpuSurfaceId sid = kPrimarySurface) override {

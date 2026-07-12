@@ -96,6 +96,11 @@ public:
     /** Free every atlas created via createFontAtlas() (e.g. when the app font changes). */
     virtual void freeFontAtlases() {}
 
+    /** Free a SINGLE atlas created via createFontAtlas() by its id (0 = base atlas: ignored). Lets a
+     *  transient consumer (e.g. the font picker's live preview) recycle its own atlas as the selection
+     *  changes without freeing the app's other resident atlases. Default: unsupported (no-op). */
+    virtual void freeFontAtlas(uint32_t /*id*/) {}
+
     /**
      * @brief Records draw calls for all primitives (SDF rects + text glyphs)
      * into the active command buffer.

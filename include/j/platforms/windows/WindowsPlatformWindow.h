@@ -93,6 +93,7 @@ public:
 
         ShowWindow(m_hwnd, SW_SHOW);
         UpdateWindow(m_hwnd);
+        s_lastCreatedRaw = reinterpret_cast<uintptr_t>(m_hwnd);   // so a caller can parent the NEXT modal to this one
     }
 
     ~JWindowsPlatformWindow() override {
@@ -167,6 +168,18 @@ public:
 
     HWND nativeWindow() const { return m_hwnd; }
     HINSTANCE nativeInstance() const { return m_hInstance; }
+
+    // Release whatever window currently holds the mouse capture. A window captures the mouse on
+    // button-down (to keep motion/up during a drag-outside) and releases on button-up. But a modal
+    // that opens a CHILD modal freezes before it sees its own button-up, so the capture would stick
+    // and steal every mouse event the child should get. The modal-stack push calls this so the
+    // superseded window's capture is dropped. ReleaseCapture() no-ops if nothing is captured.
+    static void releaseActivePointerGrab() { ReleaseCapture(); }
+
+    // Raw HWND (as uintptr_t) of the most recently created window — the modal stack reads this straight
+    // after constructing a dialog so the NEXT nested modal can be parented to its opener. See the Linux
+    // counterpart for the full rationale.
+    static uintptr_t lastCreatedRawWindowId() { return s_lastCreatedRaw; }
 
     bool consumeFocusLost() override { bool v = m_focusLost; m_focusLost = false; return v; }
     bool isAltDown() const override { return m_altDown; }
@@ -310,6 +323,8 @@ private:
     }
 
     HWND m_hwnd{nullptr};
+    // Raw HWND of the most recently constructed window (see lastCreatedRawWindowId()).
+    inline static uintptr_t s_lastCreatedRaw = 0;
     HINSTANCE m_hInstance{nullptr};
     jf::JPlatformWindowStyle m_style;
     bool m_closeRequested;

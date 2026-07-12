@@ -18,6 +18,7 @@
 #include <j/core/Dialog.h>
 #include <j/core/JWindowControls.h>
 #include <j/core/JCloseButton.h>
+#include <j/core/JTitleBar.h>
 #include <j/graphics/GpuHal.h>
 #include <j/graphics/RenderPrimitive.h>
 
@@ -205,14 +206,11 @@ private:
 
         float contentY = 0.f;
 
-        // Title bar
+        // Title bar — the framework's ONE canonical styled bar (no custom chrome) + the canonical close button.
         if (opts.showTitleBar) {
-            buf.pushRectangle(0.f, 0.f, W, kTitleH, Colors::DialogTitleBg, 8.f);
-            buf.pushRectangle(0.f, 8.f, W, kTitleH - 8.f, Colors::DialogTitleBg, 0.f);
-
-            float titleMaxW = opts.showCloseButton ? W - kCloseW - 20.f : W - 20.f;
-            uint8_t tc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, tc);
-            JTextHelper::pushText(buf, 14.f, (kTitleH - lh) * 0.5f, m_req.title, tc, titleMaxW);
+            const JRect closeR2 = JCloseButton::rectFor({ 0.f, 0.f, W, kTitleH });
+            JTitleBar::draw(buf, 0.f, 0.f, W, kTitleH, m_req.title, JStyle::current().cornerRadius, 0, 14.f,
+                            opts.showCloseButton ? closeR2.width + 14.f : 0.f);
 
             // Close × button
             if (opts.showCloseButton) {
@@ -252,7 +250,7 @@ private:
         // Buttons — order driven by opts.okOnRight
         const auto& okLbl     = opts.okLabel;
         const auto& cancelLbl = opts.cancelLabel;
-        float btnW = 88.f, btnH = 30.f;
+        const float btnW = 88.f, btnH = JStyle::current().buttonHeight;   // height from JStyle (single source of truth)
         float btnY = H - btnH - 14.f;
         float okX, cancelX;
         if (opts.okOnRight) {
@@ -262,18 +260,17 @@ private:
             cancelX = hasCancel ? W - btnW - 12.f : 0.f;
             okX     = hasCancel ? W - btnW * 2.f - 20.f : (W - btnW) * 0.5f;
         }
-        uint8_t btnTc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, btnTc);
 
         bool hovOk = (m_mx >= okX && m_mx < okX + btnW && m_my >= btnY && m_my < btnY + btnH);
         bool kbOk  = !needsInput && (m_focusedBtn == 0);
-        uint8_t okBg[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2],
+        uint8_t okBg[4] = {Colors::PrimaryBtnBg[0], Colors::PrimaryBtnBg[1], Colors::PrimaryBtnBg[2],
                             static_cast<uint8_t>(hovOk ? 255 : 220)};
-        buf.pushRectangle(okX, btnY, btnW, btnH, okBg, 4.f);
+        buf.pushRectangle(okX, btnY, btnW, btnH, okBg, JStyle::current().cornerRadius, 1.f, Colors::PrimaryBtnBorder);
         if (kbOk) {
             buf.pushRectangle(okX-2.f, btnY-2.f, btnW+4.f, btnH+4.f, Colors::Transparent, 5.f, 2.f, Colors::CloseBtnMark);
         }
         JTextHelper::pushText(buf, okX + (btnW - JTextHelper::measureWidth(okLbl.c_str())) * 0.5f,
-                             btnY + (btnH - lh) * 0.5f, okLbl, btnTc);
+                             btnY + (btnH - lh) * 0.5f, okLbl, Colors::PrimaryBtnText);
         if (m_pressed && hovOk) {
             if (needsInput) { if (m_req.onInput) m_req.onInput(m_inputText); }
             else             { if (m_req.onOk)   m_req.onOk(); }
@@ -284,12 +281,12 @@ private:
             bool hovCancel = (m_mx >= cancelX && m_mx < cancelX + btnW && m_my >= btnY && m_my < btnY + btnH);
             bool kbCancel  = !needsInput && (m_focusedBtn == 1);
             uint8_t cBg[4] = {Colors::CancelBtnBg[0], Colors::CancelBtnBg[1], Colors::CancelBtnBg[2], static_cast<uint8_t>(hovCancel ? 255 : 220)};
-            buf.pushRectangle(cancelX, btnY, btnW, btnH, cBg, 4.f, 1.f, Colors::CancelBtnBorder);
+            buf.pushRectangle(cancelX, btnY, btnW, btnH, cBg, JStyle::current().cornerRadius, 1.f, Colors::CancelBtnBorder);
             if (kbCancel) {
                 buf.pushRectangle(cancelX-2.f, btnY-2.f, btnW+4.f, btnH+4.f, Colors::Transparent, 5.f, 2.f, Colors::CloseBtnMark);
             }
             JTextHelper::pushText(buf, cancelX + (btnW - JTextHelper::measureWidth(cancelLbl.c_str())) * 0.5f,
-                                 btnY + (btnH - lh) * 0.5f, cancelLbl, btnTc);
+                                 btnY + (btnH - lh) * 0.5f, cancelLbl, Colors::CancelBtnText);
             if (m_pressed && hovCancel) {
                 if (m_req.onCancel) m_req.onCancel();
                 _dismiss("cancel"); return;

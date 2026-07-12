@@ -173,23 +173,29 @@ public:
     // fonts; selecting one live-applies it (whole app re-renders); Cancel reverts to the font in effect when
     // it opened; Select commits and calls onCommit(path) so the caller can persist it (empty path = built-in
     // "Default"). Applies at the current app-font px, so the calibrated size is preserved.
-    void openAppFontPicker(std::function<void(std::string)> onCommit = {}) {
+    void openAppFontPicker(std::function<void(std::string,int)> onCommit = {}) {
         const std::string orig = m_font.path();          // revert target on Cancel
-        const float px = m_appFontPx;
         const std::string startFam = jReadFontFamilyName(orig);   // seed the list to the active family (best-effort)
+        const std::string startSpec = (startFam.empty() ? std::string("Default") : startFam)
+                                    + "|" + std::to_string(static_cast<int>(m_appFontPx)) + "|0|0";   // seed size = current app size
         const int cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(JFontPickerDialog::kW)) / 2;
         const int cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(JFontPickerDialog::kH)) / 2;
-        const auto parent = (JFontPickerDialog::NativeWinHandleType)(m_window->rawWindowId());
+        // Parent to the opener (e.g. the Preferences modal), not the main window, so the picker stacks
+        // ABOVE the dialog that opened it rather than as an arbitrarily-ordered sibling of it.
+        const auto parent = (JFontPickerDialog::NativeWinHandleType)(_parentForChildModal());
         auto dlg = std::make_shared<JFontPickerDialog>(
-            startFam.empty() ? std::string() : (startFam + "|12|0|0"), *m_hal, cx, cy, parent,
+            startSpec, *m_hal, cx, cy, parent,
             std::function<void(std::string)>{});          // spec-accept unused in app-font mode
-        auto apply = [this, px](const std::string& p) { if (p.empty()) setAppFontDefault(px); else setAppFont(p, px); };
-        dlg->setAppFontMode(
-            [apply](std::string p)             { apply(p); },                          // live preview
-            [onCommit](std::string p)          { if (onCommit) onCommit(p); },         // commit (already applied) + persist
-            [apply, orig]()                    { apply(orig); });                      // cancel → revert
+        const uintptr_t handle = _lastCreatedNativeId();   // the picker's own window id
+        // Browsing no longer touches the app font (the picker previews the highlighted face only in its own
+        // sample line). Select is the single commit point: apply the chosen face to the whole app, then persist.
+        dlg->setAppFontMode([this, onCommit](std::string p, int sizePx) {
+            const float fpx = static_cast<float>(sizePx);
+            if (p.empty()) setAppFontDefault(fpx); else setAppFont(p, fpx);   // apply the chosen SIZE, not a fixed one
+            if (onCommit) onCommit(p, sizePx);
+        });
         setModalDialog([dlg](JGpuHal& h, JPrimitiveBuffer& bf) { return dlg->pollAndRender(h, bf); },
-                       [dlg](JGpuHal& h) { dlg->destroySurface(h); });
+                       [dlg](JGpuHal& h) { dlg->destroySurface(h); }, handle);
     }
     int              windowX() const { return m_window->screenX(); }
     int              windowY() const { return m_window->screenY(); }
@@ -213,8 +219,40 @@ public:
     // Install a generic app-owned modal dialog: `poll` is pumped each frame (renders to its own
     // surface) and returns false once the dialog has closed, at which point `destroy` is called.
     // The app owns the dialog object/lifetime; this only drives it. Used for Preferences, etc.
-    void setModalDialog(std::function<bool(JGpuHal&, JPrimitiveBuffer&)> poll, std::function<void(JGpuHal&)> destroy) {
-        m_modalStack.push_back({ std::move(poll), std::move(destroy) });   // push: modals STACK, so a modal can open another (e.g. Axis Setup -> channel picker) without destroying its parent
+    void setModalDialog(std::function<bool(JGpuHal&, JPrimitiveBuffer&)> poll, std::function<void(JGpuHal&)> destroy,
+                        uintptr_t nativeHandle = 0) {
+        // The opener (main window, or a modal already on the stack) grabbed the pointer on the very
+        // button-press that is opening this dialog, and — because it is about to be frozen out of the
+        // pump (only the TOP of the stack polls) — will never see its own release to drop that grab.
+        // A stale grab steals every mouse event this new modal should get (keyboard is unaffected, so
+        // the modal would take keys but not the mouse). Release it here, at the single push choke point,
+        // so modality is "passed along" by the framework rather than patched per-dialog.
+#if defined(__linux__)
+        JLinuxPlatformWindow::releaseActivePointerGrab();
+#elif defined(_WIN32)
+        JWindowsPlatformWindow::releaseActivePointerGrab();
+#endif
+        // nativeHandle = this modal's OWN window id; a nested child pushed later parents to it (see
+        // _parentForChildModal) so the WM stacks the child above its opener rather than the root window.
+        m_modalStack.push_back({ std::move(poll), std::move(destroy), nativeHandle });   // push: modals STACK, so a modal can open another (e.g. Axis Setup -> channel picker) without destroying its parent
+    }
+
+    // The parent window for a NEW modal: the modal currently on top of the stack (its opener) so the WM
+    // stacks the child above it; or the main window when the stack is empty (a top-level modal). This is
+    // how the framework "passes modality along" — a nested dialog is a child of whoever opened it.
+    uintptr_t _parentForChildModal() const {
+        return m_modalStack.empty() ? m_window->rawWindowId() : m_modalStack.back().handle;
+    }
+    // Native id of the window just constructed (a dialog creates its window in its ctor), so the modal
+    // stack can remember each modal's own window for the parenting above. Platform-dispatched.
+    static uintptr_t _lastCreatedNativeId() {
+#if defined(__linux__)
+        return JLinuxPlatformWindow::lastCreatedRawWindowId();
+#elif defined(_WIN32)
+        return JWindowsPlatformWindow::lastCreatedRawWindowId();
+#else
+        return 0;
+#endif
     }
 
     // Construct an app modal dialog of type T, centred over this window, and drive it via the modal hook.
@@ -225,10 +263,12 @@ public:
     void openModal(Args&&... args) {
         const int cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(T::kW)) / 2;
         const int cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(T::kH)) / 2;
+        // Parent to the opener (top-of-stack modal, or the main window) so a nested modal stacks above it.
         auto dlg = std::make_shared<T>(std::forward<Args>(args)..., *m_hal, cx, cy,
-                                       (typename T::NativeWinHandleType)(m_window->rawWindowId()));
+                                       (typename T::NativeWinHandleType)(_parentForChildModal()));
+        const uintptr_t handle = _lastCreatedNativeId();   // dlg just created its window -> its own id
         setModalDialog([dlg](JGpuHal& h, JPrimitiveBuffer& b) { return dlg->pollAndRender(h, b); },
-                       [dlg](JGpuHal& h) { dlg->destroySurface(h); });
+                       [dlg](JGpuHal& h) { dlg->destroySurface(h); }, handle);
     }
 
     // The window's menu bar — built lazily on first call (reserves a 28px strip below the
@@ -877,7 +917,7 @@ private:
         const auto parent = host.set ? (JColorPickerDialog::NativeWinHandleType)(host.nativeHandle)
                                      : (JColorPickerDialog::NativeWinHandleType)(m_window->rawWindowId());
         // The dialog opens on its palette page; anchor against that height (it grows for the editor).
-        const int pw = static_cast<int>(JColorPickerDialog::kW), ph = static_cast<int>(JColorPickerDialog::kPaletteH);
+        const int pw = static_cast<int>(JColorPickerDialog::kW), ph = static_cast<int>(JColorPickerDialog::paletteH());
         const auto [sw, sh] = m_window->virtualDesktopSize();
         // Anchor below the button, flipping above if it would run off the bottom; clamp on-screen.
         const int btnBot = wsy + static_cast<int>(bb.y + bb.height);
@@ -911,8 +951,9 @@ private:
         JFontButton* target = b;
         auto dlg = std::make_shared<JFontPickerDialog>(b->fontSpec(), *m_hal, cx, cy, parent,
             [target](std::string spec) { target->pick(spec); });
+        const uintptr_t handle = _lastCreatedNativeId();   // the picker's own window id (for nested-modal parenting)
         setModalDialog([dlg](JGpuHal& h, JPrimitiveBuffer& bf) { return dlg->pollAndRender(h, bf); },
-                       [dlg](JGpuHal& h) { dlg->destroySurface(h); });
+                       [dlg](JGpuHal& h) { dlg->destroySurface(h); }, handle);
     }
 
     // Per-frame: poll/render the open combo dropdown, and drain the JDialogManager queue into
@@ -939,7 +980,7 @@ private:
         // free the std::function mid-invocation; guard the pop on the stack not having grown during the poll.
         if (!m_modalStack.empty()) {
             const size_t idx = m_modalStack.size() - 1;   // the top being pumped
-            auto poll = m_modalStack[idx].first;          // copy: poll() may push a child (realloc) and would
+            auto poll = m_modalStack[idx].poll;           // copy: poll() may push a child (realloc) and would
                                                           // otherwise free this std::function mid-invocation
             if (!poll(*m_hal, scratch)) {
                 // This modal is done — remove IT (idx), even if its poll opened a CHILD (sequential modals like
@@ -947,7 +988,7 @@ private:
                 // idx+1). Popping back() here would wrongly drop the child and leave the DONE parent lingering,
                 // re-polled next frame against a torn-down state (the intermittent Open-ECU crash).
                 if (idx < m_modalStack.size()) {
-                    if (m_modalStack[idx].second) m_modalStack[idx].second(*m_hal);
+                    if (m_modalStack[idx].destroy) m_modalStack[idx].destroy(*m_hal);
                     m_modalStack.erase(m_modalStack.begin() + idx);
                 }
             }
@@ -1101,9 +1142,15 @@ private:
     std::unique_ptr<JPopupWindow>    m_comboPopup;
     JComboBox*                       m_comboOwner{nullptr};
     std::unique_ptr<JColorPickerDialog> m_colorDialog;          // open colour dialog (own surface)
-    // Generic app-modal STACK (Preferences, pickers, Axis Setup…): {poll, destroy} pairs; only the top is
-    // pumped, so one modal can open another. Pushed by setModalDialog, popped when its poll returns false.
-    std::vector<std::pair<std::function<bool(JGpuHal&, JPrimitiveBuffer&)>, std::function<void(JGpuHal&)>>> m_modalStack;
+    // Generic app-modal STACK (Preferences, pickers, Axis Setup…): only the top is pumped, so one modal
+    // can open another. Pushed by setModalDialog, popped when its poll returns false. Each entry also
+    // carries the modal's own native window id so a nested child parents to its opener (_parentForChildModal).
+    struct JModalEntry {
+        std::function<bool(JGpuHal&, JPrimitiveBuffer&)> poll;
+        std::function<void(JGpuHal&)>                    destroy;
+        uintptr_t                                        handle{0};   // this modal's own native window id
+    };
+    std::vector<JModalEntry> m_modalStack;
     JPopupWindow*                    m_comboCloseReq{nullptr};
     std::vector<JNativeDialogWindow> m_dialogs;
     std::vector<JFileDialogWindow>   m_fileDialogs;

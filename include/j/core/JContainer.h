@@ -33,6 +33,10 @@ public:
     }
     const std::vector<JWidget*>& children() const { return m_children; }
 
+    // Detach all children (non-owning: the widgets live on) so the container can be rebuilt with a new set
+    // of rows. Used by the multi-select property form to show only the rows the selection has in common.
+    void clear() { m_graph.clearChildren(m_nodeId); m_children.clear(); }
+
     // Layout configuration — thin pass-throughs to this node's layout component (chainable).
     JContainer* setLayoutMode(JLayoutMode m)   { m_graph.getLayout(m_nodeId).mode = m; return this; }
     JContainer* setColumns(int n)              { m_graph.getLayout(m_nodeId).columns = n; return this; }

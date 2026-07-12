@@ -27,6 +27,7 @@
 // ============================================================================
 
 #include "JTextHelper.h"
+#include "JTitleBar.h"
 #include "KeyEvent.h"
 
 #include <algorithm>
@@ -192,7 +193,8 @@ public:
     // Button rectangles, right-aligned inside the box, first button leftmost.
     // Pure geometry — no GPU — so hit-testing is testable too.
     std::vector<JRect> buttonRects(float boxX, float boxY, float boxW, float boxH) const {
-        constexpr float kBtnH = 30.f, kGap = 10.f, kPadX = 12.f, kMinW = 84.f;
+        const float kBtnH = JStyle::current().buttonHeight;   // height from JStyle (single source of truth)
+        constexpr float kGap = 10.f, kPadX = 12.f, kMinW = 84.f;
         const float btnY = boxY + boxH - kBtnH - 14.f;
         std::vector<float> widths;
         widths.reserve(m_buttons.size());
@@ -223,13 +225,8 @@ public:
         buf.pushRectangle(0.f, 0.f, screenW, screenH, Colors::OverlayScrim, 0.f);
 
         buf.pushRectangle(boxX, boxY, boxW, boxH, Colors::DialogBg, kRadius, 1.f, Colors::Border);
-        buf.pushRectangle(boxX, boxY, boxW, kTitleH, Colors::DialogTitleBg, kRadius);
-        buf.pushRectangle(boxX, boxY + kRadius, boxW, kTitleH - kRadius, Colors::DialogTitleBg, 0.f);
-
-        if (JTextHelper::hasAtlas()) {
-            uint8_t tc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, tc);
-            JTextHelper::pushText(buf, boxX + 44.f, boxY + (kTitleH - lh) * 0.5f, m_title, tc, boxW - 56.f);
-        }
+        // Title bar — the framework's ONE canonical styled bar (no custom chrome); leftPad clears the icon.
+        JTitleBar::draw(buf, boxX, boxY, boxW, kTitleH, m_title, kRadius, 0, 44.f);
         _drawIcon(buf, boxX + 14.f, boxY + (kTitleH - 18.f) * 0.5f);
 
         if (JTextHelper::hasAtlas()) {
@@ -244,18 +241,17 @@ public:
             const bool  isDef = (m_buttons[i] == def);
             const bool  hov   = (mx >= r.x && mx < r.x + r.width && my >= r.y && my < r.y + r.height);
             if (isDef) {
-                uint8_t bg[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2],
+                uint8_t bg[4] = {Colors::PrimaryBtnBg[0], Colors::PrimaryBtnBg[1], Colors::PrimaryBtnBg[2],
                                  static_cast<uint8_t>(hov ? 255 : 220)};
-                buf.pushRectangle(r.x, r.y, r.width, r.height, bg, 4.f);
+                buf.pushRectangle(r.x, r.y, r.width, r.height, bg, JStyle::current().cornerRadius, 1.f, Colors::PrimaryBtnBorder);
             } else {
                 uint8_t bg[4] = {Colors::CancelBtnBg[0], Colors::CancelBtnBg[1], Colors::CancelBtnBg[2], static_cast<uint8_t>(hov ? 255 : 220)};
-                buf.pushRectangle(r.x, r.y, r.width, r.height, bg, 4.f, 1.f, Colors::CancelBtnBorder);
+                buf.pushRectangle(r.x, r.y, r.width, r.height, bg, JStyle::current().cornerRadius, 1.f, Colors::CancelBtnBorder);
             }
             if (JTextHelper::hasAtlas()) {
-                uint8_t tc[4]; std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, tc);
                 const char* lbl = jButtonLabel(m_buttons[i]);
                 JTextHelper::pushText(buf, r.x + (r.width - JTextHelper::measureWidth(lbl)) * 0.5f,
-                                      r.y + (r.height - lh) * 0.5f, lbl, tc);
+                                      r.y + (r.height - lh) * 0.5f, lbl, isDef ? Colors::PrimaryBtnText : Colors::CancelBtnText);
             }
         }
     }

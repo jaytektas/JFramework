@@ -92,8 +92,14 @@ struct JStyle {
     uint8_t OverlayScrim[4]    = {0,   0,   0,   160};   // modal backdrop dim
     uint8_t DialogShadow[4]    = {0,   0,   0,   60};    // dialog drop-shadow halo
     uint8_t InputFieldBg[4]    = {18,  18,  28,  255};   // dialog text-input field fill
-    uint8_t CancelBtnBg[4]     = {55,  55,  65,  255};   // secondary/cancel button fill (alpha varies at site)
-    uint8_t CancelBtnBorder[4] = {100, 100, 110, 255};   // secondary/cancel button outline
+    // Primary (default/OK/Select) button — the "primary action" role. Its own role, NOT the raw Accent/Success:
+    // defaults to the accent value, but themeable independently (mirrors the secondary/cancel roles below).
+    uint8_t PrimaryBtnBg[4]     = {10,  132, 255, 255};  // primary/default action button fill
+    uint8_t PrimaryBtnBorder[4] = {0,   100, 220, 255};  // primary button outline (slightly darker than fill)
+    uint8_t PrimaryBtnText[4]   = {255, 255, 255, 255};  // caption on the filled primary button (white — contrast on accent)
+    uint8_t CancelBtnBg[4]      = {55,  55,  65,  255};  // secondary/cancel button fill (alpha varies at site)
+    uint8_t CancelBtnBorder[4]  = {100, 100, 110, 255};  // secondary/cancel button outline
+    uint8_t CancelBtnText[4]    = {220, 220, 228, 255};  // caption on the secondary/cancel button (neutral)
     uint8_t DialogCloseHover[4]= {180, 50,  50,  200};   // dialog close-× hover fill
     uint8_t PopupBg[4]         = {22,  22,  26,  255};   // bordered popup / popup-list body fill
     uint8_t PopupInnerBg[4]    = {18,  18,  22,  250};   // borderless popup body fill
@@ -246,6 +252,8 @@ inline JStyle JStyle::light() {
     s(t.InputFieldBg,     255, 255, 255, 255);
     s(t.CancelBtnBg,      224, 224, 230, 255);
     s(t.CancelBtnBorder,  168, 168, 178, 255);
+    s(t.CancelBtnText,     30,  30,  36, 255);   // dark ink on the light-grey cancel button
+    // PrimaryBtn* keep their accent-blue fill + white text in both themes (blue reads on light and dark).
     s(t.DialogCloseHover, 220,  90,  90, 200);
     s(t.PopupBg,          248, 248, 250, 255);
     s(t.PopupInnerBg,     248, 248, 250, 250);
@@ -440,8 +448,12 @@ namespace Colors {
     inline const uint8_t* const OverlayScrim      = JStyle::current().OverlayScrim;
     inline const uint8_t* const DialogShadow      = JStyle::current().DialogShadow;
     inline const uint8_t* const InputFieldBg      = JStyle::current().InputFieldBg;
+    inline const uint8_t* const PrimaryBtnBg      = JStyle::current().PrimaryBtnBg;
+    inline const uint8_t* const PrimaryBtnBorder  = JStyle::current().PrimaryBtnBorder;
+    inline const uint8_t* const PrimaryBtnText    = JStyle::current().PrimaryBtnText;
     inline const uint8_t* const CancelBtnBg       = JStyle::current().CancelBtnBg;
     inline const uint8_t* const CancelBtnBorder   = JStyle::current().CancelBtnBorder;
+    inline const uint8_t* const CancelBtnText     = JStyle::current().CancelBtnText;
     inline const uint8_t* const DialogCloseHover  = JStyle::current().DialogCloseHover;
     inline const uint8_t* const PopupBg           = JStyle::current().PopupBg;
     inline const uint8_t* const PopupInnerBg      = JStyle::current().PopupInnerBg;
