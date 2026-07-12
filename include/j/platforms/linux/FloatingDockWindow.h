@@ -73,17 +73,22 @@ public:
     using NativeWinHandleType = xcb_window_t;
 #endif
 
-    // Construct from a JDockWidget extracted from a JDockHost (WantsFloat path).
-    JFloatingDockWindow(JDockWidget dock,
-                       int screenX, int screenY,
-                       uint32_t winW, uint32_t winH,
-                       int dragOffX, int dragOffY,
-                       JGpuHal& hal,
-                       bool initialDrag = false,
-                       JFloatingDockOptions options = {},
-                       NativeWinHandleType parentWindow = {})
+private:
+    // Bundles a dock's stable pointer with its optional owning smart pointer. Built in a helper so that
+    // get() is always sequenced before the move — a delegating constructor cannot introduce a local to
+    // do that safely, and passing `p.get(), std::move(p)` as two arguments has unspecified evaluation order.
+    struct JDockInit { JDockWidget* ptr{nullptr}; std::unique_ptr<JDockWidget> owned; };
+    static JDockInit _ownNew(std::unique_ptr<JDockWidget> d) { JDockWidget* raw = d.get(); return { raw, std::move(d) }; }
+
+    // The one real constructor. `init.ptr` is the dock's stable address — the object is never moved or
+    // copied, so this pointer is THE identity every host references. `init.owned` is non-null only when
+    // this float owns the dock (a framework tab tear-off); a borrowed dock's owner keeps it alive.
+    JFloatingDockWindow(JDockInit init,
+                       int screenX, int screenY, uint32_t winW, uint32_t winH,
+                       int dragOffX, int dragOffY, JGpuHal& hal,
+                       bool initialDrag, JFloatingDockOptions options, NativeWinHandleType parentWindow)
         : m_window(std::make_unique<PlatformWinType>(
-              dock.title().c_str(), winW, winH, screenX, screenY,
+              init.ptr->title().c_str(), winW, winH, screenX, screenY,
 #if defined(_WIN32)
               (parentWindow != nullptr) ? JPlatformWindowStyle::Borderless : JPlatformWindowStyle::Popup,
 #else
@@ -97,18 +102,16 @@ public:
         , m_dragOffY(dragOffY)
         , m_options(options)
     {
-
         m_dockHost = std::make_unique<JDockHost>();
         m_dockHost->setLivePreviewEnabled(m_options.livePreviewEnabled);
         m_dockHost->setRootSplit(JSplitDir::Horizontal);
         JDockNodeId leaf = m_dockHost->addLeaf(m_dockHost->rootId(), "floating-leaf", 1.0f);
 
-        auto d = std::make_unique<JDockWidget>(std::move(dock));
-        d->setPosition(0.f, 0.f);
-        d->setSize(static_cast<float>(winW), static_cast<float>(winH));
+        init.ptr->setPosition(0.f, 0.f);
+        init.ptr->setSize(static_cast<float>(winW), static_cast<float>(winH));
 
-        m_dockHost->insertDock(d.get(), leaf);
-        m_docks.push_back(std::move(d));
+        m_dockHost->insertDock(init.ptr, leaf);
+        m_docks.push_back({init.ptr, std::move(init.owned)});
 
         float topOffset = isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f;
         m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(winW), static_cast<float>(winH) - topOffset});
@@ -126,19 +129,25 @@ public:
         JDockRegistry::instance().registerHost(*m_dockHost, screenX, screenY, m_winW, m_winH);
     }
 
-    // Construct from a JTornTabState (JTabBar tear-off path).
-    JFloatingDockWindow(JTornTabState state,
-                       int screenX, int screenY,
-                       int dragOffX, int dragOffY,
-                       JGpuHal& hal,
-                       JFloatingDockOptions options = {},
+public:
+    // Tear-out (WantsFloat) path: BORROW a dock the caller owns. The dock must outlive this window; it is
+    // never moved, so the caller's pointer stays valid and single-identity holds across the float.
+    JFloatingDockWindow(JDockWidget* dock,
+                       int screenX, int screenY, uint32_t winW, uint32_t winH,
+                       int dragOffX, int dragOffY, JGpuHal& hal,
+                       bool initialDrag = false, JFloatingDockOptions options = {},
                        NativeWinHandleType parentWindow = {})
-        : JFloatingDockWindow(
-              JDockWidget(std::move(state), 0.f, 0.f,
-                         static_cast<float>(kDefaultW), static_cast<float>(kDefaultH)),
-              screenX, screenY, kDefaultW, kDefaultH,
-              dragOffX, dragOffY, hal, /*initialDrag=*/true, options, parentWindow)
-    {}
+        : JFloatingDockWindow(JDockInit{dock, nullptr}, screenX, screenY, winW, winH,
+                              dragOffX, dragOffY, hal, initialDrag, options, parentWindow) {}
+
+    // JTabBar tear-off path: OWN a framework-created dock born from the torn tab's state.
+    JFloatingDockWindow(JTornTabState state,
+                       int screenX, int screenY, int dragOffX, int dragOffY, JGpuHal& hal,
+                       JFloatingDockOptions options = {}, NativeWinHandleType parentWindow = {})
+        : JFloatingDockWindow(_ownNew(std::make_unique<JDockWidget>(std::move(state), 0.f, 0.f,
+                                          static_cast<float>(kDefaultW), static_cast<float>(kDefaultH))),
+                              screenX, screenY, kDefaultW, kDefaultH,
+                              dragOffX, dragOffY, hal, /*initialDrag=*/true, options, parentWindow) {}
 
     JFloatingDockWindow(const JFloatingDockWindow&)            = delete;
     JFloatingDockWindow& operator=(const JFloatingDockWindow&) = delete;
@@ -269,7 +278,7 @@ public:
             // it tears out / re-docks at). Docking and dock-splitter resizes never run this
             // path, so they don't disturb the floating size.
             if (!m_docks.empty())
-                m_docks[0]->setSize(static_cast<float>(m_winW), static_cast<float>(m_winH));
+                m_docks[0].ptr->setSize(static_cast<float>(m_winW), static_cast<float>(m_winH));
         }
 
         switch (m_state) {
@@ -593,7 +602,7 @@ public:
             if (JTextHelper::hasAtlas()) {
                 const uint8_t* tc = Colors::MutedText;
                 float ty = (kGlobalTitleH - JTextHelper::lineHeight()) * 0.5f;
-                std::string title = m_docks.empty() ? "Genesis JWindow" : m_docks[0]->title();
+                std::string title = m_docks.empty() ? "Genesis JWindow" : m_docks[0].ptr->title();
                 if (m_docks.size() > 1) {
                     title += " (+" + std::to_string(m_docks.size() - 1) + " panels)";
                 }
@@ -641,32 +650,18 @@ public:
     const JDockHost& dockHost() const { return *m_dockHost; }
 
     JDockWidget& dock() {
-        return *m_docks.at(0);
+        return *m_docks.at(0).ptr;
     }
 
-    JDockWidget takeDock() {
-        auto d = std::move(m_docks.at(0));
+    // Hand the primary dock off for re-docking elsewhere. The destination host has already been given
+    // this dock's (stable) pointer, so nothing to move: we just relinquish our hold. Returns the owning
+    // pointer if THIS float owned the dock — the caller keeps it alive at its unchanged address — or null
+    // for a borrowed dock, whose original owner still holds it. Clears this float's docks either way.
+    std::unique_ptr<JDockWidget> releasePrimary() {
+        std::unique_ptr<JDockWidget> owned;
+        if (!m_docks.empty()) owned = std::move(m_docks.front().owned);
         m_docks.clear();
-        return std::move(*d);
-    }
-
-    std::unique_ptr<JDockWidget> releaseDock(JDockWidget* ptr) {
-        for (auto it = m_docks.begin(); it != m_docks.end(); ++it) {
-            if (it->get() == ptr) {
-                auto d = std::move(*it);
-                m_docks.erase(it);
-                return d;
-            }
-        }
-        return nullptr;
-    }
-
-    void adoptDock(std::unique_ptr<JDockWidget> d, JDockWidget* oldPtr) {
-        JDockWidget* raw = d.get();
-        m_docks.push_back(std::move(d));
-        if (m_dockHost) {
-            m_dockHost->retargetDock(oldPtr, raw);
-        }
+        return owned;
     }
 
 private:
@@ -697,7 +692,16 @@ private:
     std::unique_ptr<PlatformWinType> m_window;
     GpuSurfaceId m_surface{kPrimarySurface};
     std::unique_ptr<JDockHost>            m_dockHost;
-    std::vector<std::unique_ptr<JDockWidget>> m_docks;
+    // A dock held by this float. `ptr` is its stable address — a JDockWidget is NEVER moved or copied
+    // once created, so this pointer is valid for the dock's whole life and is the single identity every
+    // host references. `owned` is non-null ONLY when this float itself created the dock (a tab tear-off);
+    // a dock torn from another window is BORROWED — `owned` is null and its original owner keeps it alive.
+    struct HeldDock {
+        JDockWidget*                 ptr{nullptr};
+        std::unique_ptr<JDockWidget> owned;    // null ⇒ borrowed (owned elsewhere)
+        JDockWidget* get() const { return ptr; }
+    };
+    std::vector<HeldDock> m_docks;
     uint32_t     m_winW{kDefaultW}, m_winH{kDefaultH};
 
     std::function<void(JPrimitiveBuffer&)> m_contentRenderHost;

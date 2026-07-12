@@ -765,12 +765,13 @@ private:
         // (button up), spawning a float would remove the dock into a window that can't be
         // dragged and instantly commits/closes — the dock just vanishes. Leave it docked.
         if (!m_window->isLeftButtonDown()) return;
-        m_revert = { true, host->saveTree(), dw, host };   // enable Escape-to-revert this drag
+        m_revert = { true, host->saveTree(), host };   // enable Escape-to-revert this drag
         host->removeDock(dw);
-        JDockWidget moved = std::move(*dw);
-        moved.setPosition(0.f, 0.f);
-        moved.setSize(fw, fh);
-        m_floating.emplace_back(std::move(moved), sx, sy,
+        // BORROW the app-owned dock into the float — the object is NOT moved, so &dw stays the one true
+        // dock. The saved revert tree references &dw and remains valid; no husk, no retarget.
+        dw->setPosition(0.f, 0.f);
+        dw->setSize(fw, fh);
+        m_floating.emplace_back(dw, sx, sy,
                                 static_cast<uint32_t>(fw), static_cast<uint32_t>(fh),
                                 offX, offY, *m_hal, /*initialDrag=*/true,
                                 JFloatingDockOptions{},
@@ -807,14 +808,15 @@ private:
         if (!m_revert.active) return;
         for (auto it = m_floating.begin(); it != m_floating.end(); ++it) {
             if (!it->isInInitialDrag()) continue;
-            m_ownedDocks.push_back(std::make_unique<JDockWidget>(it->takeDock()));
-            JDockWidget* back = m_ownedDocks.back().get();
+            // The float only BORROWED the dock — the object never moved — so the saved tree still points
+            // at the live dock. Relinquish the float's hold (keeping any framework-owned dock alive at its
+            // unchanged address), drop the float, then restore the source host's pre-drag tree verbatim.
+            // No retarget: nothing moved.
+            std::unique_ptr<JDockWidget> owned = it->releasePrimary();
             it->destroySurface(*m_hal);
             m_floating.erase(it);
-            if (m_revert.host) {
-                m_revert.host->restoreTree(m_revert.tree);
-                m_revert.host->retargetDock(m_revert.oldPtr, back);  // saved tree had the moved-from ptr
-            }
+            if (m_revert.host) m_revert.host->restoreTree(m_revert.tree);
+            if (owned) m_ownedDocks.push_back(std::move(owned));
             layoutDocks();
             break;
         }
@@ -852,10 +854,13 @@ private:
             auto pr = it->pollAndMove();
             if (pr.type == JFloatingDockWindow::JPollResult::JType::CommitDrop &&
                 pr.dropHost && pr.dropHost->tryCommitDrop()) {
+                // tryCommitDrop already inserted the dock's stable pointer into the drop host; the object
+                // never moved, so that pointer is correct — no retarget. Relinquish the float's hold: keep a
+                // framework-owned dock alive in our pool at its unchanged address; a borrowed app dock needs
+                // nothing (its owner still holds it).
                 it->destroySurface(*m_hal);
-                JDockWidget* oldPtr = &it->dock();                       // pointer the host re-inserted
-                m_ownedDocks.push_back(std::make_unique<JDockWidget>(it->takeDock()));
-                pr.dropHost->retargetDock(oldPtr, m_ownedDocks.back().get()); // fix host -> owned copy
+                if (std::unique_ptr<JDockWidget> owned = it->releasePrimary())
+                    m_ownedDocks.push_back(std::move(owned));
                 it = m_floating.erase(it);
                 continue;
             }
@@ -1131,7 +1136,7 @@ private:
     std::vector<JFloatingDockWindow> m_floating;
 #endif
     // Pre-drag tree snapshot for Escape-to-revert (active only during a tear-out drag).
-    struct { bool active{false}; JDockHost::JSavedTree tree; JDockWidget* oldPtr{nullptr};
+    struct { bool active{false}; JDockHost::JSavedTree tree;
              JDockHost* host{nullptr}; } m_revert;
 
     std::unique_ptr<JMenuBar> m_menuBar;     // lazily created on menuBar()

@@ -468,6 +468,13 @@ public:
         for (auto* t : leaf->tabs)
             if (!t->isTabifiable()) return false;
 
+        // Single-placement invariant: a JDockWidget lives in exactly one host. Detach it from any OTHER
+        // host still referencing it — re-docking from a float, or a layout restore re-homing it — before we
+        // take it. Without this, two hosts would reference and render the same widget (the duplicate-dock
+        // bug). removeDock is a no-op on a host that doesn't hold it, so this is cheap and safe.
+        for (const auto& e : JDockRegistry::instance().entries())
+            if (e.host && e.host != this) e.host->removeDock(dock);
+
         if (tabIdx < 0 || tabIdx > static_cast<int>(leaf->tabs.size()))
             tabIdx = static_cast<int>(leaf->tabs.size());
         leaf->tabs.insert(leaf->tabs.begin() + tabIdx, dock);
@@ -497,17 +504,6 @@ public:
             if (n.tabs.empty())
                 _pruneLeaf(n.id);
             return;
-        }
-    }
-
-    // Swap a tab pointer in-place — used when a dock's storage relocates
-    // (e.g. a FloatingDock's JDockWidget is moved into heap-owned storage after
-    // a drop has already inserted the old address into the tree).
-    void retargetDock(JDockWidget* oldPtr, JDockWidget* newPtr) {
-        for (auto& n : m_nodes) {
-            if (n.type != JDockNode::JType::Leaf) continue;
-            for (auto& t : n.tabs)
-                if (t == oldPtr) { t = newPtr; return; }
         }
     }
 
@@ -938,8 +934,8 @@ public:
     // --- Raw tree save/restore (deep copy of the node arena) ---
     // Preserves EVERYTHING — structure, weights, fixed-size constraints — unlike the
     // title-based snapshot below (which is for serialization). Used to revert a drag to
-    // its exact pre-drag state. Dock pointers are copied as-is; retargetDock() fixes any
-    // that moved (e.g. a torn-out dock that was re-homed).
+    // its exact pre-drag state. Dock pointers are copied as-is and stay valid: a JDockWidget is never
+    // moved once created, so a torn-out dock re-homes at the same address the saved tree already holds.
     struct JSavedTree { std::vector<JDockNode> nodes; uint32_t nextId{0}; };
     JSavedTree saveTree() const { return { m_nodes, m_nextId }; }
     void restoreTree(const JSavedTree& s) {
