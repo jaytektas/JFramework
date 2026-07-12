@@ -31,13 +31,19 @@ public:
     inline static JFocusManager* s_active = nullptr;
 
     JFocusManager() {
+        // Save the previous active target so managers NEST: a dialog constructs its own manager (becoming the
+        // active focus target while open) and restores the main window's on destruction. Without this, closing
+        // any dialog would null s_active and leave the main window unable to focus anything.
+        m_prevActive = s_active;
         s_active = this;
-        // Install the framework focus hook so a clicked control can claim focus authoritatively —
-        // focusing a clicked widget is the framework's job, wired here once, not by any app.
-        JWidget::s_focusHook = [](JWidget* w) { if (s_active) s_active->setFocus(w); };
+        // Install the framework focus hook ONCE so a clicked control can claim focus authoritatively — it reads
+        // s_active live, so it always routes to the currently-active (top-most) manager. Focusing a clicked
+        // widget is the framework's job, wired here, not by any app.
+        if (!JWidget::s_focusHook)
+            JWidget::s_focusHook = [](JWidget* w) { if (s_active) s_active->setFocus(w); };
     }
     ~JFocusManager() {
-        if (s_active == this) { s_active = nullptr; JWidget::s_focusHook = nullptr; }
+        if (s_active == this) s_active = m_prevActive;   // restore the manager we displaced (the hook follows s_active)
     }
 
     jf::JSignal<JWidget*> onFocusChanged; // nullptr = focus cleared
@@ -131,6 +137,7 @@ private:
 
     std::vector<JWidget*> m_order;
     JWidget*              m_focused{nullptr};
+    JFocusManager*        m_prevActive{nullptr};   // the manager this one displaced as s_active (restored on dtor)
 };
 
 } // inline namespace jf
