@@ -276,6 +276,10 @@ public:
 
     const std::vector<std::unique_ptr<JWidget>>& items() const noexcept { return m_items; }
 
+    // Drop all items — for a submenu whose entries are rebuilt on demand (e.g. a count-dependent list
+    // repopulated each time its parent menu opens). The owning JMenu keeps its identity/title.
+    void clear() noexcept { m_items.clear(); }
+
     void setTearOffEnabled(bool enable) noexcept { m_tearOffEnabled = enable; }
     bool isTearOffEnabled() const noexcept { return m_tearOffEnabled; }
 
