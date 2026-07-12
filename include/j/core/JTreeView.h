@@ -34,6 +34,11 @@ public:
     // setInternalReorder(true); then a node drag reorders IN the tree instead of firing onNodeDragStarted.
     jf::JSignal<JTreeViewNode*, JTreeViewNode*, int> onNodeMoved;
     void setInternalReorder(bool on) { m_internalReorder = on; }
+    // Whether a node drag may begin at all. Off makes the tree a pure navigator — press selects, but no
+    // drag (neither in-tree reorder nor an external node-placement payload) ever starts. Orthogonal to
+    // setInternalReorder, which only chooses WHICH drag a started gesture becomes.
+    void setDragEnabled(bool on) { m_dragEnabled = on; }
+    bool isDragEnabled() const { return m_dragEnabled; }
 
     // Begin an in-place rename of the selected node (context-menu "Rename"). Enter commits (fires
     // onNodeRenamed), Escape cancels; the row draws an edit field with a caret while active.
@@ -277,7 +282,7 @@ public:
         // Press-and-drag on a node past a small threshold starts a drag. With internal reorder enabled
         // it becomes an in-tree move (drop indicator + onNodeMoved); otherwise the app turns it into a
         // JDragDrop of the node payload (one-shot: clear the armed node so it fires once).
-        if (m_pressNode && !m_editNode) {
+        if (m_pressNode && !m_editNode && m_dragEnabled) {
             const float ddx = mx - m_pressX, ddy = my - m_pressY;
             if (ddx * ddx + ddy * ddy > 25.0f) {
                 if (m_internalReorder) {
@@ -780,6 +785,7 @@ private:
     JTreeViewNode* m_pressNode{nullptr};   // node pressed (candidate for a drag), cleared once the drag fires/ends
     float          m_pressX{0.0f}, m_pressY{0.0f};
     bool           m_internalReorder{false};   // drag = in-tree move (vs. onNodeDragStarted external DnD)
+    bool           m_dragEnabled{true};         // whether a node drag may start at all (off = a pure navigator, e.g. run mode)
     bool           m_dragging{false};          // an internal-reorder drag is live
     bool           m_externalLive{false};      // the drag's external payload has been observed active (drop-out guard)
     JTreeViewNode* m_dropTarget{nullptr};      // row under the cursor during a drag
