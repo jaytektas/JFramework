@@ -93,7 +93,12 @@ public:
         if (ke.key == K::Up)   { _commitEdit(); setValue(m_value + m_step); return true; }
         if (ke.key == K::Down) { _commitEdit(); setValue(m_value - m_step); return true; }
         if (ke.key == K::Return) { _commitEdit(); return true; }
-        if (ke.key == K::Escape) { if (m_editing) { m_editing = false; m_selectAll = false; invalidate(); return true; } return false; }
+        if (ke.key == K::Escape) {
+            // Restore the value captured when focus arrived — reverts wheel/arrow/typed changes made while
+            // focused. If nothing changed, let Escape bubble (so it can still close a dialog).
+            if (m_editing || m_value != m_focusValue) { m_editing = false; m_selectAll = false; setValue(m_focusValue); invalidate(); return true; }
+            return false;
+        }
         if (ke.key == K::Backspace) {
             if (!m_editing) return false;
             if (m_selectAll) { m_editBuf.clear(); m_selectAll = false; }   // delete the selection
@@ -121,7 +126,7 @@ public:
 
     // Commit a typed value the instant focus leaves (Tab / click-away), before any repaint or
     // properties-panel rebuild can discard the edit buffer.
-    void onFocusEvent(bool focused) override { if (!focused) _commitEdit(); }
+    void onFocusEvent(bool focused) override { if (focused) m_focusValue = m_value; else _commitEdit(); }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
@@ -199,6 +204,7 @@ private:
     }
 
     double      m_value, m_min, m_max, m_step;
+    double      m_focusValue{0.0};   // value captured on focus-in; Escape restores it
     int         m_decimals;
     std::string m_suffix;
     bool        m_editing{false};
