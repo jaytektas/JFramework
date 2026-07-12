@@ -27,6 +27,7 @@
 
 #include "DockWidget.h"    // DockWidget
 #include "DockRegistry.h"
+#include "Log.h"           // JLOGC — dock-tree healing diagnostics (category "dock.heal")
 #include "Style.h"         // JStyle/style() cascade — JTabBarEdge, JTabFill
 
 inline namespace jf {
@@ -498,13 +499,18 @@ public:
             if (n.type != JDockNode::JType::Leaf) continue;
             auto it = std::find(n.tabs.begin(), n.tabs.end(), dock);
             if (it == n.tabs.end()) continue;
+            const JDockNodeId leafId = n.id;
+            JLOGC("dock.heal", JLogLevel::Debug) << "removeDock '" << (dock ? dock->title() : "?")
+                << "' from L#" << leafId.v << "  BEFORE: " << _treeStr(rootId());
             n.tabs.erase(it);
             if (n.activeTab >= static_cast<int>(n.tabs.size()))
                 n.activeTab = std::max(0, static_cast<int>(n.tabs.size()) - 1);
             if (n.tabs.empty())
-                _pruneLeaf(n.id);
+                _pruneLeaf(leafId);   // n may dangle after realloc inside prune — use the saved id
+            JLOGC("dock.heal", JLogLevel::Debug) << "removeDock done            AFTER : " << _treeStr(rootId());
             return;
         }
+        JLOGC("dock.heal", JLogLevel::Debug) << "removeDock '" << (dock ? dock->title() : "?") << "' — not found in any leaf";
     }
 
     JDockNodeId findDock(const JDockWidget* dock) const {
@@ -1625,6 +1631,22 @@ private:
     // it ends up with only one child.
     // ----------------------------------------------------------------------
 
+    // Compact, legible dump of the live tree from a node down — for the "dock.heal" diagnostics. Leaves show
+    // their tab titles (L#id[a,b]); splits show direction + children (S#idH{ ... }). Orphaned tombstones are
+    // detached from root, so they never appear. Enable with JF_LOG=dock.heal=debug.
+    std::string _treeStr(JDockNodeId id) const {
+        const JDockNode* n = node(id);
+        if (!n) return "(null)";
+        if (n->type == JDockNode::JType::Leaf) {
+            std::string s = "L#" + std::to_string(id.v) + "[";
+            for (size_t i = 0; i < n->tabs.size(); ++i) { if (i) s += ","; s += (n->tabs[i] ? n->tabs[i]->title() : std::string("?")); }
+            return s + "]";
+        }
+        std::string s = "S#" + std::to_string(id.v) + (n->splitDir == JSplitDir::Horizontal ? "H{" : "V{");
+        for (size_t i = 0; i < n->children.size(); ++i) { if (i) s += ", "; s += _treeStr(n->children[i]); }
+        return s + "}";
+    }
+
     void _pruneLeaf(JDockNodeId leafId) {
         JDockNode* leaf = node(leafId);
         if (!leaf || leaf->type != JDockNode::JType::Leaf) return;
@@ -1651,6 +1673,9 @@ private:
         leaf->tabs.clear();
         leaf->handleRects.clear();
 
+        JLOGC("dock.heal", JLogLevel::Debug) << "  _pruneLeaf L#" << leafId.v << ": removed from split S#"
+            << parentId.v << ", it now has " << parent->children.size() << " child(ren)";
+
         // If the parent split now has only one child, lift that child up to
         // replace the parent in the grandparent, eliminating the redundant split.
         if (parent->children.size() == 1)
@@ -1674,6 +1699,7 @@ private:
                 root->children.push_back(ph);
                 root->weights.push_back(1.0f);
             }
+            JLOGC("dock.heal", JLogLevel::Debug) << "  _pruneLeaf: host emptied → planted placeholder leaf L#" << ph.v;
         }
 
         // Recompute layout so the surviving nodes fill the freed space with
@@ -1690,6 +1716,8 @@ private:
         JDockNodeId survivorId = split->children[0];
         JDockNodeId grandpaId  = split->parent;
 
+        JLOGC("dock.heal", JLogLevel::Debug) << "  _collapseSingleChildSplit: lifting sole child #" << survivorId.v
+            << " up through redundant split S#" << splitId.v << (grandpaId.valid() ? "" : " (split is root — left as-is)");
         if (!grandpaId.valid()) return;  // split is root — can't lift further
 
         JDockNode* granpa = node(grandpaId);
