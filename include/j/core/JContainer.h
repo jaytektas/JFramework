@@ -51,7 +51,12 @@ public:
         const JRect b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         m_graph.invalidateNode(m_nodeId, DirtySelf);
         m_graph.computeLayout(m_nodeId, JConstraints{b.width, b.width, b.height, b.height});
+        // Confine children to the container's box — a child cannot paint outside its parent (Qt/GTK clip
+        // children to the parent's geometry; overflow lives in separate top-level windows: menus, popups,
+        // tooltips). Nested containers intersect their clips, so the subtree stays within every ancestor.
+        buf.pushClip(b.x, b.y, b.width, b.height);
         for (JWidget* w : m_children) if (w->isVisible()) w->populateRenderPrimitives(buf);
+        buf.popClip();
     }
 
     void handleMouseMove(float mx, float my) override {
