@@ -541,6 +541,7 @@ public:
                         spawnFloat(res.host, res.ev->dock);   // framework owns tear-out
                     else if (res.ev->type == JDockHost::JDockEvent::JType::CloseRequested) {
                         JDockWidget* closed = res.ev->dock;
+                        if (closed == m_contentCapture) m_contentCapture = nullptr;   // don't keep capturing a gone dock
                         res.host->removeDock(closed);
                         if (onDockClosed) onDockClosed(closed);   // let the app sync its View-menu toggle, etc.
                     }
@@ -556,9 +557,16 @@ public:
             // Route content input (clicks / wheel / hover) to the dock under the cursor. The
             // framework hosts dock content, so a dock's onInputContent hook fires whether the
             // dock is inline here or torn into a float (spawnFloat bridges to the same hook).
-            if (!chromeAte && !menuAte)
-                if (JDockWidget* cd = m_space.contentDockAt(mx, my))
-                    cd->dispatchContentInput(mx, my, pressed, released, wheel);
+            // Content input routes to the dock under the cursor — but a content press CAPTURES the stream to
+            // that dock until the physical release, so a drag that leaves the dock (dragging a tree node onto a
+            // surface) keeps feeding the source its motion. Without the capture the source stops getting moves
+            // the instant the cursor exits its bounds, so it can never detect the leave to arm an external drag.
+            if (!chromeAte && !menuAte) {
+                JDockWidget* cd = m_contentCapture ? m_contentCapture : m_space.contentDockAt(mx, my);
+                if (pressed && !m_contentCapture && cd && !m_space.isResizing()) m_contentCapture = cd;   // arm on the press's dock
+                if (cd) cd->dispatchContentInput(mx, my, pressed, released, wheel);
+            }
+            if (releasedRaw) m_contentCapture = nullptr;   // physical release ends the content gesture
 
             // The centre is a plain widget (not a dock host), so route its input directly — but not
             // while a dock splitter is being dragged (its grab sits on the centre boundary, and would
@@ -1181,6 +1189,7 @@ private:
     float                            m_mx{-1.0f}, m_my{-1.0f};
     int64_t                          m_lastTitleMs{0};   // last title-bar press (double-click → maximize)
     bool                             m_leftHeld{false};   // app-tracked button state (press→release)
+    JDockWidget*                     m_contentCapture{nullptr};   // dock that owns the in-progress content press gesture
     float                            m_titleH{JStyle::current().titleBarHeight};   // one canonical title-bar height
     bool                             m_needRedraw{false};
     bool                             m_wasDragging{false};   // drag active last frame (repaint on drop)
