@@ -70,7 +70,11 @@ public:
     }
 
     bool handleScroll(float mx, float my, float wheel) override {
-        if (!isPointInside(mx, my)) return false;
+        // Only the FOCUSED spin box takes the wheel — so a box embedded in a scroll area (e.g. the properties
+        // panel) adjusts its value when focused, and lets the scroll area scroll when it isn't. Hover alone
+        // never steals the wheel from the surrounding list.
+        (void)mx; (void)my;
+        if (!isFocused()) return false;
         _commitEdit();
         setValue(m_value + (wheel > 0.0f ? 1 : -1));
         return true;
