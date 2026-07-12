@@ -47,6 +47,7 @@ inline namespace jf {
 struct JPropertyMeta {
     std::string category;          // editor grouping ("" => ungrouped / General)
     std::string label;             // human label ("" => use the property name)
+    std::string def;               // authored default VALUE (string form); "" => no default
     std::string tooltip;           // help text
     // Explicit editor kind. "" => the editor derives one from the value type
     // (Bool => checkbox, number => spin box, String => line edit, choices => combo).
