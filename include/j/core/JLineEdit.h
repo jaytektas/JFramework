@@ -346,7 +346,7 @@ private:
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         const float innerX = b.x + textPadding();
         if (!JTextHelper::hasAtlas() || m_text.empty()) return m_text.size();
-        const float target = mx - innerX;
+        const float target = mx - innerX + m_scrollX;   // the run is drawn at innerX - m_scrollX, so add it back
         if (target <= 0.f) return 0;
         float prevW = 0.f;
         for (size_t i = 0; i < m_text.size(); ) {
