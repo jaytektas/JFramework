@@ -10,6 +10,7 @@
 #include <j/graphics/GpuHal.h>
 #include <j/graphics/RenderPrimitive.h>
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -84,14 +85,25 @@ public:
             else for (auto& p : m_active) if (p->isViewable()) { JPrimitiveBuffer b; p->render(hal, b); }
         }
 
-        for (auto it = m_floating.begin(); it != m_floating.end(); ) {
-            if ((*it)->pollFloating() == JPopupWindow::JFloatPollResult::Close) {
-                (*it)->destroySurface(hal);
-                it = m_floating.erase(it);
-            } else {
-                JPrimitiveBuffer b; (*it)->render(hal, b);
-                ++it;
+        if (!m_floating.empty()) {
+            // Poll every floating popup (torn root or submenu child) for its own events. Hover fires the cascade
+            // via hoverItem → hoverFloating, DEFERRED (m_isPolling), so the m_floating list is never mutated mid-
+            // iteration; the deferred actions (open/close submenus) run afterwards, then closes are applied.
+            m_isPolling = true;
+            std::vector<JPopupWindow*> closing;
+            for (auto& fn : m_floating)
+                if (fn.win->pollFloating() == JPopupWindow::JFloatPollResult::Close) closing.push_back(fn.win.get());
+            m_isPolling = false;
+
+            if (!m_deferred.empty()) {
+                auto acts = std::move(m_deferred);
+                m_deferred.clear();
+                for (auto& a : acts) a();
             }
+            for (auto* w : closing) closeFloatingSubtree(w, /*includeRoot=*/true);   // a closed menu takes its submenus with it
+
+            for (auto& fn : m_floating)
+                if (fn.win->isViewable()) { JPrimitiveBuffer b; fn.win->render(hal, b); }
         }
     }
 
@@ -108,14 +120,20 @@ private:
             if (m_hal) for (auto& p : m_active) p->destroySurface(*m_hal);
             m_active.clear();
         }
+        m_active.push_back(buildMenuPopup(menu, sx, sy, /*tearOffHandle=*/true));
+    }
 
+    // Build a popup window for a menu: its items (with hover-cascade + trigger wiring) and, when asked, the
+    // tear-off grab-strip. Shared by the modal dropdown stack (openMenu) and torn-off submenu cascades
+    // (hoverFloating), so both behave identically — the only difference is which list owns the popup.
+    std::unique_ptr<JPopupWindow> buildMenuPopup(JMenu* menu, int sx, int sy, bool tearOffHandle) {
         auto popup = std::make_unique<JPopupWindow>(
             sx, sy, 180, 8, *m_hal, JPopupWindow::JStyle::Bordered, m_parent, nullptr);
 
-        // Tear-off handle (the grab-strip at the top): pressing it promotes this menu to a
-        // floating, draggable, closeable window — reusing JPopupWindow's floating mode and the
-        // m_floating servicing in updateAndRender (same mechanism a torn-out dock uses in spirit).
-        if (menu->isTearOffEnabled() && JMenuManager::instance().isTearOffEnabled()) {
+        // Tear-off handle (the grab-strip at the top): pressing it promotes this menu to a floating,
+        // draggable, closeable window. Only the modal stack offers it — a submenu of an already-floating menu
+        // is served floating already, and its handle would tear from the wrong (m_active) list.
+        if (tearOffHandle && menu->isTearOffEnabled() && JMenuManager::instance().isTearOffEnabled()) {
             JPopupWindow* self = popup.get();
             popup->add<JTearOffHandle>()->onTornOff.connect(
                 [this, self]() { m_deferred.push_back([this, self]() { _tearOff(self); }); });
@@ -162,7 +180,7 @@ private:
         }
 
         popup->computeNaturalHeight();
-        m_active.push_back(std::move(popup));
+        return popup;
     }
 
     // Hover handling for a menu item: collapse the cascade back to `parent` (destroying any sibling /
@@ -171,20 +189,55 @@ private:
     // (which grew GPU surface IDs without bound until the text-vertex buffer overran → SIGSEGV).
     void hoverItem(JPopupWindow* parent, JMenuItem* a, JMenu* sub) {
         if (m_isPolling) { m_deferred.push_back([this, parent, a, sub]() { hoverItem(parent, a, sub); }); return; }
+        // Modal dropdown cascade (the grabbed m_active stack).
         int pi = -1;
         for (size_t i = 0; i < m_active.size(); ++i) if (m_active[i].get() == parent) { pi = static_cast<int>(i); break; }
-        if (pi < 0) return;                                  // parent already closed
-        // Nothing to do if this item's submenu is already the child directly under the parent.
-        const bool alreadyOpen = sub && pi + 1 < static_cast<int>(m_active.size());
-        if (m_hal) for (size_t i = pi + 1; i < m_active.size(); ++i) m_active[i]->destroySurface(*m_hal);
-        m_active.erase(m_active.begin() + pi + 1, m_active.end());
-        (void)alreadyOpen;
-        if (sub) {
-            const auto& l = parent->graph().getLayoutConst(a->getNodeId());
-            const int ssx = parent->window().screenX() + static_cast<int>(l.boundingBox.x + l.boundingBox.width);
-            const int ssy = parent->window().screenY() + static_cast<int>(l.boundingBox.y);
-            openMenu(sub, ssx, ssy, true);
+        if (pi >= 0) {
+            if (m_hal) for (size_t i = pi + 1; i < m_active.size(); ++i) m_active[i]->destroySurface(*m_hal);
+            m_active.erase(m_active.begin() + pi + 1, m_active.end());
+            if (sub) {
+                const auto& l = parent->graph().getLayoutConst(a->getNodeId());
+                const int ssx = parent->window().screenX() + static_cast<int>(l.boundingBox.x + l.boundingBox.width);
+                const int ssy = parent->window().screenY() + static_cast<int>(l.boundingBox.y);
+                openMenu(sub, ssx, ssy, true);
+            }
+            return;
         }
+        // Torn-off (floating) cascade — the parent is a floating popup, not on the modal stack.
+        if (floatingContains(parent)) hoverFloating(parent, a, sub);
+    }
+
+    bool floatingContains(JPopupWindow* p) const {
+        for (const auto& fn : m_floating) if (fn.win.get() == p) return true;
+        return false;
+    }
+
+    // Hovering an item in a torn-off menu (or one of its submenus): collapse whatever submenu chain that popup
+    // had open, then — for a submenu parent — open this item's submenu as a floating child anchored to its right.
+    // Mirrors the m_active cascade, but on the owner-linked m_floating tree.
+    void hoverFloating(JPopupWindow* parent, JMenuItem* a, JMenu* sub) {
+        closeFloatingSubtree(parent, /*includeRoot=*/false);   // drop parent's currently-open submenu chain
+        if (!sub) return;
+        const auto& l = parent->graph().getLayoutConst(a->getNodeId());
+        const int ssx = parent->window().screenX() + static_cast<int>(l.boundingBox.x + l.boundingBox.width);
+        const int ssy = parent->window().screenY() + static_cast<int>(l.boundingBox.y);
+        m_floating.push_back({ buildMenuPopup(sub, ssx, ssy, /*tearOffHandle=*/false), parent, a });
+    }
+
+    // Destroy `root`'s floating submenu descendants (owner chain), optionally `root` itself. Used to collapse a
+    // submenu when the pointer moves to a sibling, and to close a whole torn-off menu (root + its open submenus).
+    void closeFloatingSubtree(JPopupWindow* root, bool includeRoot) {
+        std::vector<JPopupWindow*> kill, frontier{ root };
+        if (includeRoot) kill.push_back(root);
+        while (!frontier.empty()) {
+            JPopupWindow* cur = frontier.back(); frontier.pop_back();
+            for (auto& fn : m_floating) if (fn.owner == cur) { kill.push_back(fn.win.get()); frontier.push_back(fn.win.get()); }
+        }
+        if (kill.empty()) return;
+        if (m_hal) for (auto* w : kill) w->destroySurface(*m_hal);
+        m_floating.erase(std::remove_if(m_floating.begin(), m_floating.end(),
+            [&](FloatNode& fn) { return std::find(kill.begin(), kill.end(), fn.win.get()) != kill.end(); }),
+            m_floating.end());
     }
 
     // Promote a popup (the one whose tear-off handle was pressed — root OR a submenu) to a floating
@@ -198,15 +251,24 @@ private:
         m_active.clear();
         torn->releasePointerGrab();
         torn->enableCloseButton();
-        m_floating.push_back(std::move(torn));
+        m_floating.push_back({ std::move(torn), nullptr, nullptr });   // a torn-off root: no owner
         if (m_bar) m_bar->closeMenu();
     }
+
+    // A floating popup: a torn-off root (owner == nullptr) or one of its transient submenu children
+    // (owner = the floating popup that spawned it). The owner links form the cascade tree used to collapse a
+    // menu's open submenu when the pointer moves to a sibling — the floating-menu equivalent of the m_active stack.
+    struct FloatNode {
+        std::unique_ptr<JPopupWindow> win;
+        JPopupWindow*                 owner{nullptr};
+        JMenuItem*                    ownerItem{nullptr};
+    };
 
     JGpuHal*                          m_hal{nullptr};
     JPopupWindow::NativeWinHandleType m_parent{};
     JMenuBar*                         m_bar{nullptr};
     std::vector<std::unique_ptr<JPopupWindow>> m_active;     // modal dropdown stack
-    std::vector<std::unique_ptr<JPopupWindow>> m_floating;   // torn-off menus
+    std::vector<FloatNode>                     m_floating;   // torn-off menus + their submenu cascades
     std::vector<std::function<void()>>         m_deferred;   // run after polling
     bool                              m_isPolling{false};
 };
