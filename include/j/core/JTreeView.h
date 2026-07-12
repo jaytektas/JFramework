@@ -73,9 +73,22 @@ public:
     const JTreeViewNode& root() const { return m_root; }
 
     void setRootNode(JTreeViewNode rootNode) {
+        // A structural rebuild must not silently drop the selection: callers swap the whole tree on
+        // mode flips and filter changes, and losing the selected row each time is a bug, not a reset.
+        // Remember the selected node's stable identity (its userData path) and re-anchor to the node
+        // carrying that same identity if it survived the rebuild. Pure state restore — no
+        // onSelectionChanged (the selection didn't logically change), so panels driven off it don't churn.
+        std::string keepSel;
+        if (m_selectedNode) keepSel = m_selectedNode->userData;
         m_root = std::move(rootNode);
-        m_selectedNode = nullptr;
+        m_selectedNode = m_anchorNode = nullptr;   // old pointers dangle into the freed tree
         m_scrollY = 0.0f;
+        if (!keepSel.empty()) {
+            if (JTreeViewNode* n = _findByUserData(m_root, keepSel)) {
+                m_selectedNode = m_anchorNode = n;
+                n->selected = true;
+            }
+        }
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
@@ -599,6 +612,13 @@ private:
         m_selectedNode = target;
         m_graph.invalidateNode(m_nodeId, DirtySelf);
         onSelectionChanged.emit(target);
+    }
+
+    // Locate the node carrying a given userData path (stable identity across a tree rebuild).
+    JTreeViewNode* _findByUserData(JTreeViewNode& n, const std::string& ud) {
+        if (!n.userData.empty() && n.userData == ud) return &n;
+        for (auto& c : n.children) if (JTreeViewNode* f = _findByUserData(c, ud)) return f;
+        return nullptr;
     }
 
     JTreeViewNode* _findParent(JTreeViewNode* current, JTreeViewNode* target) {
