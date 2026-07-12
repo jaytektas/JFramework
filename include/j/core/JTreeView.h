@@ -6,6 +6,7 @@
 #include "JTextHelper.h"
 #include "KeyEvent.h"
 #include "DragDrop.h"
+#include "Log.h"
 #include "../graphics/VectorGraphics.h"
 
 inline namespace jf {
@@ -75,18 +76,23 @@ public:
     void setRootNode(JTreeViewNode rootNode) {
         // A structural rebuild must not silently drop the selection: callers swap the whole tree on
         // mode flips and filter changes, and losing the selected row each time is a bug, not a reset.
-        // Remember the selected node's stable identity (its userData path) and re-anchor to the node
-        // carrying that same identity if it survived the rebuild. Pure state restore — no
+        // Identity is the node's label-path (its chain of labels from the root) — the visible tree
+        // structure — NOT userData, which is app-opaque (conditions, binding sigils) and often empty.
+        // Re-anchor to the node at that same path if it survived the rebuild. Pure state restore — no
         // onSelectionChanged (the selection didn't logically change), so panels driven off it don't churn.
-        std::string keepSel;
-        if (m_selectedNode) keepSel = m_selectedNode->userData;
+        std::vector<std::string> keepPath;
+        if (m_selectedNode) _pathOf(m_root, m_selectedNode, keepPath);
         m_root = std::move(rootNode);
         m_selectedNode = m_anchorNode = nullptr;   // old pointers dangle into the freed tree
         m_scrollY = 0.0f;
-        if (!keepSel.empty()) {
-            if (JTreeViewNode* n = _findByUserData(m_root, keepSel)) {
+        if (!keepPath.empty()) {
+            if (JTreeViewNode* n = _nodeAtPath(m_root, keepPath, 0)) {
                 m_selectedNode = m_anchorNode = n;
                 n->selected = true;
+                JLOGC("treeview", jf::JLogLevel::Debug) << "setRootNode: kept selection '" << _joinPath(keepPath) << "'";
+            } else {
+                JLOGC("treeview", jf::JLogLevel::Warn) << "setRootNode: selected node '" << _joinPath(keepPath)
+                                                       << "' did not survive the rebuild — selection cleared";
             }
         }
         m_graph.invalidateNode(m_nodeId, DirtySelf);
@@ -614,11 +620,27 @@ private:
         onSelectionChanged.emit(target);
     }
 
-    // Locate the node carrying a given userData path (stable identity across a tree rebuild).
-    JTreeViewNode* _findByUserData(JTreeViewNode& n, const std::string& ud) {
-        if (!n.userData.empty() && n.userData == ud) return &n;
-        for (auto& c : n.children) if (JTreeViewNode* f = _findByUserData(c, ud)) return f;
+    // The label-path (chain of labels from root down to `target`) — a stable identity across a
+    // structural rebuild. Root is synthetic, so it contributes no path element.
+    static bool _pathOf(const JTreeViewNode& n, const JTreeViewNode* target, std::vector<std::string>& out) {
+        for (const auto& c : n.children) {
+            out.push_back(c.label);
+            if (&c == target || _pathOf(c, target, out)) return true;
+            out.pop_back();
+        }
+        return false;
+    }
+
+    // Descend a label-path to the node it addresses, or nullptr if any segment is gone.
+    static JTreeViewNode* _nodeAtPath(JTreeViewNode& n, const std::vector<std::string>& path, size_t depth) {
+        if (depth >= path.size()) return &n;
+        for (auto& c : n.children)
+            if (c.label == path[depth]) return _nodeAtPath(c, path, depth + 1);
         return nullptr;
+    }
+
+    static std::string _joinPath(const std::vector<std::string>& p) {
+        std::string s; for (const auto& seg : p) { s += '/'; s += seg; } return s.empty() ? "/" : s;
     }
 
     JTreeViewNode* _findParent(JTreeViewNode* current, JTreeViewNode* target) {
