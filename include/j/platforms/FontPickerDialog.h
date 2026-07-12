@@ -10,6 +10,7 @@
 
 #include <j/core/JSpinBox.h>
 #include <j/core/JSlider.h>
+#include <j/core/JToggleButton.h>    // compact B / I style toggles in the size row
 #include <j/core/JListView.h>
 #include <j/core/JLineEdit.h>
 #include <j/core/JTitleBar.h>       // shared styled title bar (JStyle) — same one every other window uses
@@ -80,6 +81,14 @@ public:
         m_size   = std::make_unique<JSpinBox>(m_graph, 6, 96, 96.f, kRowH); m_size->setValue(std::atoi(sz.c_str()));
         m_sizeSlider = std::make_unique<JSlider>(m_graph);
         m_sizeSlider->setValue(_sizeToNorm(m_size->value()));
+        // Bold / Italic style toggles: compact square controls placed in the size row (see setBounds below).
+        // Initial pressed state comes straight from the parsed spec, so opening on a bold/italic font shows it.
+        m_boldBtn = std::make_unique<JToggleButton>(m_graph, "B");
+        m_italBtn = std::make_unique<JToggleButton>(m_graph, "I");
+        m_boldBtn->setToggled(m_bold);
+        m_italBtn->setToggled(m_ital);
+        m_boldBtn->onToggled.connect([this](bool on) { m_bold = on; });   // preview re-bakes on the style change (guard tracks m_bold)
+        m_italBtn->onToggled.connect([this](bool on) { m_ital = on; });
         for (size_t i = 0; i < m_allFamilies.size(); ++i) if (m_allFamilies[i] == fam) m_list->setSelectedIndex(static_cast<int>(i));
         // Slider (0..1) and spin (6..96 px) mirror one size; a guard stops the mutual setValue from looping.
         m_sizeSlider->onValueChanged.connect([this](float v) { if (m_syncing) return; m_syncing = true; m_size->setValue(_normToSize(v)); m_syncing = false; });
@@ -144,12 +153,20 @@ public:
         const float prevY = sizeY - prevH - 8.f;
         m_search->setBounds({ kPad, hdr + kPad, W - 2.f * kPad, kRowH });
         m_list->setBounds({ kPad, listY, W - 2.f * kPad, prevY - listY - 8.f });
-        const float spinX = W - kPad - 96.f, slX = kPad + 44.f, slW = spinX - 8.f - slX;
-        m_size->setBounds({ spinX, sizeY, 96.f, 26.f });
+        // Size row (inside kSizeRowH): slider | B | I | spin, all sharing the row and never overlapping.
+        constexpr float kTogW = 26.f;   // compact square style toggle WIDTH (JStyle has no square-toggle metric)
+        const float togH  = 26.f;       // match the size spin's row height above
+        const float spinX = W - kPad - 96.f;
+        const float italX = spinX - 8.f - kTogW;         // Italic toggle, left of the spin
+        const float boldX = italX - 4.f - kTogW;         // Bold toggle, left of Italic
+        const float slX = kPad + 44.f, slW = boldX - 8.f - slX;
+        m_size->setBounds({ spinX, sizeY, 96.f, togH });
         m_sizeSlider->setBounds({ slX, sizeY + 2.f, slW, 24.f });   // slider at the top of the row; ticks sit beneath
-        m_search->handleMouseMove(mx, my); m_list->handleMouseMove(mx, my); m_size->handleMouseMove(mx, my); m_sizeSlider->handleMouseMove(mx, my);
-        if (pressed)  { m_search->handleMousePress(mx, my);   m_list->handleMousePress(mx, my);   m_size->handleMousePress(mx, my);   m_sizeSlider->handleMousePress(mx, my); }
-        if (released) { m_search->handleMouseRelease(mx, my); m_list->handleMouseRelease(mx, my); m_size->handleMouseRelease(mx, my); m_sizeSlider->handleMouseRelease(mx, my); }
+        m_boldBtn->setBounds({ boldX, sizeY, kTogW, togH });
+        m_italBtn->setBounds({ italX, sizeY, kTogW, togH });
+        m_search->handleMouseMove(mx, my); m_list->handleMouseMove(mx, my); m_size->handleMouseMove(mx, my); m_sizeSlider->handleMouseMove(mx, my); m_boldBtn->handleMouseMove(mx, my); m_italBtn->handleMouseMove(mx, my);
+        if (pressed)  { m_search->handleMousePress(mx, my);   m_list->handleMousePress(mx, my);   m_size->handleMousePress(mx, my);   m_sizeSlider->handleMousePress(mx, my);   m_boldBtn->handleMousePress(mx, my);   m_italBtn->handleMousePress(mx, my); }
+        if (released) { m_search->handleMouseRelease(mx, my); m_list->handleMouseRelease(mx, my); m_size->handleMouseRelease(mx, my); m_sizeSlider->handleMouseRelease(mx, my); m_boldBtn->handleMouseRelease(mx, my); m_italBtn->handleMouseRelease(mx, my); }
         if (const float wheel = m_window->consumeWheel(); wheel != 0.f) m_list->handleScroll(mx, my, wheel);
 
         // Footer buttons (bottom of the dialog): Select (accent) and Cancel.
@@ -198,7 +215,13 @@ private:
         return {};
     }
     void _accept() {
-        if (m_onAcceptPath) { m_onAcceptPath(_pathForFamily(_selectedFamily()), m_size->value()); return; }   // app-font: FILE PATH + size
+        if (m_onAcceptPath) {   // app-font: FILE PATH + size, honouring the chosen bold/italic style
+            const std::string fam = _selectedFamily();
+            std::string path = jf::jResolveFontFace(fam, m_bold, m_ital);
+            if (path.empty()) path = _pathForFamily(fam);
+            m_onAcceptPath(path, m_size->value());
+            return;
+        }
         const std::string fam = _selectedFamily();
         const std::string famSpec = (fam == "Default") ? std::string() : fam;   // Default = ""
         std::string spec = famSpec + "|" + std::to_string(m_size->value()) + "|" + (m_bold ? "1" : "0") + "|" + (m_ital ? "1" : "0");
@@ -212,11 +235,13 @@ private:
     void _refreshPreview(JGpuHal& hal) {
         const std::string fam = _selectedFamily();
         const int bakePx = std::clamp(m_size ? m_size->value() : 12, 6, 96);   // full size-spin range
-        if (fam == m_prevFamily && bakePx == m_prevPx) return;                 // unchanged
-        m_prevFamily = fam; m_prevPx = bakePx;
+        if (fam == m_prevFamily && bakePx == m_prevPx && m_bold == m_prevBold && m_ital == m_prevItal) return;   // unchanged
+        m_prevFamily = fam; m_prevPx = bakePx; m_prevBold = m_bold; m_prevItal = m_ital;
         if (m_prevId) { hal.freeFontAtlas(m_prevId); m_prevId = 0; }
         m_prevValid = false;
-        const std::string path = _pathForFamily(fam);
+        // Resolve the STYLED face (bold/italic) for the family; fall back to the family's representative face.
+        std::string path = jf::jResolveFontFace(fam, m_bold, m_ital);
+        if (path.empty()) path = _pathForFamily(fam);
         if (path.empty()) return;                                             // Default → base atlas (id 0)
         if (!m_prevEngine.loadFromFile(path)) return;
         // Size the atlas bitmap to the bake px — the default 512x256 only fits ~14px text, so a larger
@@ -262,10 +287,15 @@ private:
         }
         m_sizeSlider->populateRenderPrimitives(buf);
         m_size->populateRenderPrimitives(buf);
+        m_boldBtn->populateRenderPrimitives(buf);
+        m_italBtn->populateRenderPrimitives(buf);
 
         // Common-size ticks + a labelled subset beneath the slider track, as reference marks.
         if (JTextHelper::hasAtlas()) {
-            const float spinX = W - kPad - 96.f, slX = kPad + 44.f, slW = spinX - 8.f - slX;
+            // Mirror the slider geometry from pollAndRender so ticks stay under the (shrunk) track.
+            constexpr float kTogW = 26.f;
+            const float spinX = W - kPad - 96.f, boldX = spinX - 8.f - kTogW - 4.f - kTogW;
+            const float slX = kPad + 44.f, slW = boldX - 8.f - slX;
             const float tickY = sizeY + 28.f;
             uint8_t tk[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, tk);
             for (int s : kTickSizes) buf.pushRectangle(_sizeToX(s, slX, slW), tickY, 1.f, 5.f, tk, 0.f);
@@ -301,6 +331,7 @@ private:
     bool        m_prevValid{ false };
     std::string m_prevFamily{ "\x01" };   // sentinel: forces the first bake
     int         m_prevPx{ 0 };
+    bool        m_prevBold{ false }, m_prevItal{ false };   // last-baked style; re-bakes the preview on change
     std::vector<JSystemFont>         m_systemFonts;               // real installed fonts (name -> path)
     std::unique_ptr<PlatformWinType> m_window;
     GpuSurfaceId m_surface{ 0 };
@@ -311,6 +342,8 @@ private:
     std::unique_ptr<JListView> m_list;
     std::unique_ptr<JSlider>   m_sizeSlider;
     std::unique_ptr<JSpinBox>  m_size;
+    std::unique_ptr<JToggleButton> m_boldBtn;
+    std::unique_ptr<JToggleButton> m_italBtn;
     std::vector<std::string>   m_allFamilies;
     bool m_syncing{ false };   // re-entrancy guard for the slider <-> spin two-way sync
     bool m_bold{ false }, m_ital{ false };
