@@ -522,8 +522,10 @@ public:
             if (rightPressed && !menusOpen && !chromeAte) {
                 for (auto it = JWidget::s_activeWidgets.rbegin(); it != JWidget::s_activeWidgets.rend(); ++it) {
                     JWidget* w = *it;
+                    // prepareContextMenu FIRST so a widget can pick its menu from the click position (a surface
+                    // sets the table/curve menu for whatever control is under the cursor), THEN check contextMenu().
+                    if (w && w->isVisible() && w->hitTest(mx, my)) w->prepareContextMenu(mx, my);
                     if (w && w->isVisible() && w->contextMenu() && w->hitTest(mx, my)) {
-                        w->prepareContextMenu(mx, my);   // let the widget select-the-hit / refresh item states
                         if (JMenuManager::instance().onOpenMenu)
                             JMenuManager::instance().onOpenMenu(
                                 w->contextMenu(),
