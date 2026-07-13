@@ -480,6 +480,15 @@ public:
     uint32_t width()   const override { return m_width;   }
     uint32_t height()  const override { return m_height;  }
 
+    // Root-screen pixel size — for keeping popups (menus/submenus) on-screen.
+    std::pair<int,int> screenSize() const {
+        if (const xcb_setup_t* setup = xcb_get_setup(m_connection)) {
+            if (xcb_screen_t* s = xcb_setup_roots_iterator(setup).data)
+                return { int(s->width_in_pixels), int(s->height_in_pixels) };
+        }
+        return { 1920, 1080 };
+    }
+
     jf::JPlatformWindowStyle windowStyle() const override { return m_style; }
     bool        isAltDown()   const override { return m_altDown; }
     bool        isCtrlDown()  const override { return m_ctrlDown; }

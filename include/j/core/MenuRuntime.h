@@ -180,6 +180,16 @@ private:
         }
 
         popup->computeNaturalHeight();
+        // Keep it on-screen: once its natural size is known, shift a menu/submenu that opened near the right or
+        // bottom edge back inside the screen, so it never runs off (and never lands off-screen rendering black).
+        {
+            const auto [sw, sh] = popup->window().screenSize();
+            const int w = static_cast<int>(popup->width()), h = static_cast<int>(popup->height());
+            int x = sx, y = sy;
+            if (x + w > sw) x = std::max(0, sw - w);
+            if (y + h > sh) y = std::max(0, sh - h);
+            if (x != sx || y != sy) popup->window().setPosition(x, y);
+        }
         return popup;
     }
 
