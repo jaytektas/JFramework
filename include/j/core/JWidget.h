@@ -49,6 +49,14 @@ public:
     inline static std::function<void(JWidget*)> s_focusHook;
     void requestFocus() { if (s_focusHook) s_focusHook(this); }
 
+    // Redraw-request hook — installed by the app runner (JAppWindow). The presenter is EVENT-DRIVEN: it
+    // paints a short burst of frames after activity (input / drag / timers / animations) then idles. Marking
+    // a node dirty via invalidate() is NOT activity, so a change made from a non-input context — a menu
+    // action, a timer, a signal handler — would mark the node dirty but never get a frame, sitting unpainted
+    // until unrelated input happened to wake the loop. invalidate() therefore also pokes this hook to arm one
+    // redraw. Unset (headless / tests) → invalidate() just marks the node dirty.
+    inline static std::function<void()> s_redrawHook;
+
     // Screen-origin hook — the framework installs a callback returning the top-left of this UI's
     // host window in global (desktop) coordinates, so mapToGlobal/mapFromGlobal can translate a
     // widget-local screen-space point to/from the desktop. Unset → identity ({0,0}).
@@ -306,7 +314,7 @@ public:
     virtual void onFocusEvent(bool focused) { (void)focused; }
 
     // Schedule a repaint for this widget.
-    void invalidate() { m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    void invalidate() { m_graph.invalidateNode(m_nodeId, DirtySelf); if (s_redrawHook) s_redrawHook(); }
 
     virtual void setState(JWidgetState s) {
         if (m_state != s) {

@@ -156,6 +156,35 @@ public:
         if (!call.verts.empty()) buf.pushTextCall(std::move(call));
     }
 
+    /** Horizontal alignment for pushTextAligned. */
+    enum class Align : uint8_t { Left, Center, Right };
+
+    /** Draw one line of text aligned WITHIN a box (x,y,w,h): horizontally per `align`, vertically
+     *  centred on the line height, clipped to the interior (w - 2*padding). Center falls back to
+     *  left-align-and-clip when the text is wider than the interior, so a long string truncates
+     *  inside the box instead of spilling past it. This is the shared "label in a rect" primitive —
+     *  a button caption, a grid cell, a header — previously hand-rolled at each call site. */
+    static void pushTextAligned(JPrimitiveBuffer& buf,
+                                float x, float y, float w, float h,
+                                const std::string& text,
+                                const uint8_t color[4],
+                                Align align = Align::Center,
+                                float padding = 4.0f)
+    {
+        if (text.empty() || !hasAtlas()) return;
+        const float avail = w - 2.0f * padding;
+        if (avail <= 0.0f) return;
+        const float tw = measureWidth(text);
+        float tx;
+        switch (align) {
+            case Align::Left:   tx = x + padding; break;
+            case Align::Right:  tx = x + w - padding - std::min(tw, avail); break;
+            default:            tx = (tw <= avail) ? x + (w - tw) * 0.5f : x + padding; break;   // Center
+        }
+        const float ty = y + (h - lineHeight()) * 0.5f;
+        pushText(buf, tx, ty, text, color, avail);
+    }
+
     /** Push text using an EXPLICIT atlas (glyph metrics/UVs from `atl`, GPU texture selected by
      *  `atlasId`), instead of the global one. Lets a caller render a single run in a different font —
      *  e.g. the font picker's preview line in the chosen face — without swapping the whole-app atlas.

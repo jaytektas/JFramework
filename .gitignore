@@ -47,3 +47,4 @@ docs/architecture/*.html
 build-native/
 build/
 genesis.log
+build-win/

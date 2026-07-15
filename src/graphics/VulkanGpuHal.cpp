@@ -140,6 +140,19 @@ struct VulkanSurface {
     VkBuffer        screenshotBuf  {VK_NULL_HANDLE};
     VkDeviceMemory  screenshotMem  {VK_NULL_HANDLE};
     bool            alive{false};
+
+    // Per-surface, grow-on-demand vertex arenas (host-visible, persistently mapped). Replaces the old
+    // one-big-buffer-partitioned-into-16-fixed-slots scheme: that reserved MAX verts for every slot and
+    // silently dropped a surface's text once its id passed 16. Here EACH surface owns arenas sized to its
+    // OWN usage — a tiny popup keeps a tiny buffer, a full dashboard grows as needed, and there is no cap.
+    // Single-buffered is safe: beginFrame waits this surface's inFlight fence before it records again, so
+    // the arena can be overwritten (and reallocated) there with no in-flight GPU read. Text + images share
+    // the text arena; vector geometry uses the geom arena. want* = bytes the last frame asked for, used to
+    // grow at the next beginFrame (a size jump costs at most one clipped frame, then never clips again).
+    VkBuffer        textBuf {VK_NULL_HANDLE};  VkDeviceMemory textMem {VK_NULL_HANDLE};  void* textMapped{nullptr};
+    VkBuffer        geomBuf {VK_NULL_HANDLE};  VkDeviceMemory geomMem {VK_NULL_HANDLE};  void* geomMapped{nullptr};
+    VkDeviceSize    textCap {0}, geomCap {0};    // bytes currently allocated
+    VkDeviceSize    textWant{0}, geomWant{0};    // bytes requested last frame → grown at next beginFrame
 };
 
 // ============================================================================
@@ -162,23 +175,18 @@ public:
             }
             _destroySwapchain(s);
             _freeSurfaceCmdAndSync(s);
+            _destroyArenas(s);
             if (s.vkSurface) vkDestroySurfaceKHR(m_instance, s.vkSurface, nullptr);
         }
         m_surfaces.clear();
 
         // Text pipeline
-        if (m_textVertMapped)  vkUnmapMemory(m_device, m_textVertMemory);
-        if (m_textVertBuffer)  vkDestroyBuffer(m_device, m_textVertBuffer, nullptr);
-        if (m_textVertMemory)  vkFreeMemory(m_device, m_textVertMemory, nullptr);
         if (m_textPipeline)    vkDestroyPipeline(m_device, m_textPipeline, nullptr);
         if (m_textPipeLayout)  vkDestroyPipelineLayout(m_device, m_textPipeLayout, nullptr);
         if (m_textDescPool)    vkDestroyDescriptorPool(m_device, m_textDescPool, nullptr);
         if (m_textDescSetLayout) vkDestroyDescriptorSetLayout(m_device, m_textDescSetLayout, nullptr);
 
         // Vector pipeline
-        if (m_geomVertMapped) vkUnmapMemory(m_device, m_geomVertMemory);
-        if (m_geomVertBuffer) vkDestroyBuffer(m_device, m_geomVertBuffer, nullptr);
-        if (m_geomVertMemory) vkFreeMemory(m_device, m_geomVertMemory, nullptr);
         if (m_vectorPipeline)   vkDestroyPipeline(m_device, m_vectorPipeline, nullptr);
         if (m_vectorPipeLayout) vkDestroyPipelineLayout(m_device, m_vectorPipeLayout, nullptr);
 
@@ -229,10 +237,9 @@ public:
         createSdfPipeline();
         createTextDescriptorLayout();
         createTextPipeline();
-        createTextVertexBuffer();
         createImagePipeline();
         createVectorPipeline();
-        createGeomVertexBuffer();
+        // Vertex arenas are now per-surface (grown lazily at each surface's first beginFrame); no global buffers.
         // Primary surface gets cmd buffer + sync; swapchain built by resizeSurface later.
         _allocSurfaceCmdAndSync(m_surfaces[0]);
         m_surfaces[0].alive = true;
@@ -275,6 +282,7 @@ public:
         }
         _destroySwapchain(s);
         _freeSurfaceCmdAndSync(s);
+        _destroyArenas(s);
         vkDestroySurfaceKHR(m_instance, s.vkSurface, nullptr);
         s.vkSurface = VK_NULL_HANDLE;
         s.alive = false;
@@ -497,7 +505,6 @@ public:
     JGpuFrameContext beginFrame(GpuSurfaceId sid = kPrimarySurface) override {
         VulkanSurface& s = m_surfaces[sid];
         m_act = &s;
-        m_activeSurfaceId = sid;
 
         // Wait for the PREVIOUS frame's GPU work to finish first.  After this fence the
         // swapchain images/framebuffers are no longer referenced by any in-flight
@@ -507,6 +514,15 @@ public:
         // _buildSwapchain give the same safety far more cheaply.
         vkWaitForFences(m_device, 1, &s.inFlight, VK_TRUE, UINT64_MAX);
         vkResetFences(m_device, 1, &s.inFlight);
+
+        // Size this surface's vertex arenas to last frame's demand. Safe HERE and only here: the fence above
+        // proves the GPU has finished reading them (no in-flight use) and no command for THIS frame is recorded
+        // yet, so a destroy+reallocate can't invalidate a bound buffer. The min floor keeps a small working
+        // buffer so ordinary frames never reallocate; want* was set by last frame's draw calls.
+        _ensureArena(s.textBuf, s.textMem, s.textMapped, s.textCap, std::max<VkDeviceSize>(s.textWant, kArenaMinText));
+        _ensureArena(s.geomBuf, s.geomMem, s.geomMapped, s.geomCap, std::max<VkDeviceSize>(s.geomWant, kArenaMinGeom));
+        s.textWant = 0;
+        s.geomWant = 0;
 
         // If a screenshot copy was recorded in the previous frame's command buffer,
         // the fence above proves the GPU work (including the copy) is done.
@@ -709,24 +725,15 @@ private:
         }
         if (verts.empty()) return vertexCursor;
 
-        VkDeviceSize surfaceOffset = (VkDeviceSize)m_activeSurfaceId * MAX_TEXT_VERTS * 4 * sizeof(float);
-
         VkDeviceSize sliceBytes   = verts.size() * sizeof(float);
-        VkDeviceSize bufferOffset = surfaceOffset + (VkDeviceSize)vertexCursor * 4 * sizeof(float);
-        VkDeviceSize capacity     = (VkDeviceSize)MAX_TEXT_VERTS * 4 * sizeof(float);
-        if (vertexCursor * 4 * sizeof(float) + sliceBytes > capacity) {
-            VkDeviceSize remaining = (vertexCursor * 4 * sizeof(float) < capacity) ? capacity - vertexCursor * 4 * sizeof(float) : 0;
-            sliceBytes = (sliceBytes > remaining) ? remaining : sliceBytes;
-        }
+        VkDeviceSize bufferOffset = (VkDeviceSize)vertexCursor * 4 * sizeof(float);   // per-surface arena, no partition
+        // Record demand so beginFrame grows this surface's arena next frame; clip THIS frame to what fits.
+        m_act->textWant = std::max<VkDeviceSize>(m_act->textWant, bufferOffset + sliceBytes);
+        if (bufferOffset >= m_act->textCap) return vertexCursor;
+        if (bufferOffset + sliceBytes > m_act->textCap) sliceBytes = m_act->textCap - bufferOffset;
         if (sliceBytes == 0) return vertexCursor;
 
-        // Guard against a surface id beyond the 16-surface text buffer: never write past the mapped
-        // region (an OOB memcpy here was the segfault when popups piled up and surface ids climbed).
-        const VkDeviceSize totalTextBytes = (VkDeviceSize)16 * MAX_TEXT_VERTS * 4 * sizeof(float);
-        if (bufferOffset >= totalTextBytes) return vertexCursor;
-        if (bufferOffset + sliceBytes > totalTextBytes) sliceBytes = totalTextBytes - bufferOffset;
-
-        std::memcpy(static_cast<char*>(m_textVertMapped) + bufferOffset,
+        std::memcpy(static_cast<char*>(m_act->textMapped) + bufferOffset,
                     verts.data(), sliceBytes);
 
         vkCmdBindPipeline(m_act->cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_textPipeline);
@@ -735,7 +742,7 @@ private:
         // Scissor is set by the caller (drawPrimitives) from the batch's clip rect.
 
         VkDeviceSize bindOffset = bufferOffset;
-        vkCmdBindVertexBuffers(m_act->cmdBuf, 0, 1, &m_textVertBuffer, &bindOffset);
+        vkCmdBindVertexBuffers(m_act->cmdBuf, 0, 1, &m_act->textBuf, &bindOffset);
 
         // Bind the base font atlas by default; rebind to a size-specific atlas per range as needed
         // (crisp large text). Consecutive same-atlas ranges reuse the existing bind.
@@ -915,13 +922,12 @@ private:
         }
         if (verts.empty()) return vertexCursor;
 
-        VkDeviceSize surfaceOffset = (VkDeviceSize)m_activeSurfaceId * MAX_TEXT_VERTS * 4 * sizeof(float);
         VkDeviceSize sliceBytes   = verts.size() * sizeof(float);
-        VkDeviceSize bufferOffset = surfaceOffset + (VkDeviceSize)vertexCursor * 4 * sizeof(float);
-        VkDeviceSize capacity     = (VkDeviceSize)MAX_TEXT_VERTS * 4 * sizeof(float);
-        if (vertexCursor * 4 * sizeof(float) + sliceBytes > capacity) return vertexCursor;
+        VkDeviceSize bufferOffset = (VkDeviceSize)vertexCursor * 4 * sizeof(float);   // per-surface arena (shared with text)
+        m_act->textWant = std::max<VkDeviceSize>(m_act->textWant, bufferOffset + sliceBytes);
+        if (bufferOffset + sliceBytes > m_act->textCap) return vertexCursor;
 
-        std::memcpy(static_cast<char*>(m_textVertMapped) + bufferOffset,
+        std::memcpy(static_cast<char*>(m_act->textMapped) + bufferOffset,
                     verts.data(), sliceBytes);
 
         vkCmdBindPipeline(m_act->cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_imagePipeline);
@@ -929,7 +935,7 @@ private:
         vkCmdSetViewport(m_act->cmdBuf, 0, 1, &vp);
 
         VkDeviceSize bindOffset = bufferOffset;
-        vkCmdBindVertexBuffers(m_act->cmdBuf, 0, 1, &m_textVertBuffer, &bindOffset);
+        vkCmdBindVertexBuffers(m_act->cmdBuf, 0, 1, &m_act->textBuf, &bindOffset);
 
         for (auto& r : ranges) {
             if (r.count == 0) continue;
@@ -962,20 +968,19 @@ private:
         }
         if (verts.empty()) return vertexCursor;
 
-        VkDeviceSize surfaceOffset = (VkDeviceSize)m_activeSurfaceId * MAX_GEOM_VERTS * sizeof(JRenderVertex);
         VkDeviceSize sliceBytes    = verts.size() * sizeof(JRenderVertex);
-        VkDeviceSize bufferOffset  = surfaceOffset + (VkDeviceSize)vertexCursor * sizeof(JRenderVertex);
-        VkDeviceSize capacity      = (VkDeviceSize)MAX_GEOM_VERTS * sizeof(JRenderVertex);
-        if ((VkDeviceSize)vertexCursor * sizeof(JRenderVertex) + sliceBytes > capacity) return vertexCursor;
+        VkDeviceSize bufferOffset  = (VkDeviceSize)vertexCursor * sizeof(JRenderVertex);   // per-surface arena
+        m_act->geomWant = std::max<VkDeviceSize>(m_act->geomWant, bufferOffset + sliceBytes);
+        if (bufferOffset + sliceBytes > m_act->geomCap) return vertexCursor;
 
-        std::memcpy(static_cast<char*>(m_geomVertMapped) + bufferOffset, verts.data(), sliceBytes);
+        std::memcpy(static_cast<char*>(m_act->geomMapped) + bufferOffset, verts.data(), sliceBytes);
 
         vkCmdBindPipeline(m_act->cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_vectorPipeline);
         VkViewport vp{0, 0, (float)m_act->extent.width, (float)m_act->extent.height, 0, 1};
         vkCmdSetViewport(m_act->cmdBuf, 0, 1, &vp);
 
         VkDeviceSize bindOffset = bufferOffset;
-        vkCmdBindVertexBuffers(m_act->cmdBuf, 0, 1, &m_geomVertBuffer, &bindOffset);
+        vkCmdBindVertexBuffers(m_act->cmdBuf, 0, 1, &m_act->geomBuf, &bindOffset);
 
         struct VecPC { float vpW, vpH, p0, p1; } pc{
             (float)m_act->extent.width, (float)m_act->extent.height, 0.f, 0.f };
@@ -1390,13 +1395,35 @@ private:
         qCInfo(LogVulkan) << "Image pipeline created.\n";
     }
 
-    void createTextVertexBuffer() {
-        VkDeviceSize sz = (VkDeviceSize)16 * MAX_TEXT_VERTS * 4 * sizeof(float);
-        createBuffer(m_device, m_physicalDevice, sz,
+    // Grow one per-surface vertex arena to hold at least `needBytes`, never shrinking, host-visible +
+    // persistently mapped. MUST be called only when the owning surface's inFlight fence has been waited and
+    // before any command for the new frame is recorded (i.e. from beginFrame) — otherwise a reallocate would
+    // free a buffer the GPU is still reading or that this frame's commands have already bound.
+    void _ensureArena(VkBuffer& buf, VkDeviceMemory& mem, void*& mapped, VkDeviceSize& cap, VkDeviceSize needBytes) {
+        if (cap >= needBytes) return;
+        VkDeviceSize newCap = cap ? cap : needBytes;
+        while (newCap < needBytes) newCap += newCap / 2 + 4096;   // ~1.5x growth with headroom
+        if (mapped) { vkUnmapMemory(m_device, mem); mapped = nullptr; }
+        if (buf)    { vkDestroyBuffer(m_device, buf, nullptr); buf = VK_NULL_HANDLE; }
+        if (mem)    { vkFreeMemory(m_device, mem, nullptr); mem = VK_NULL_HANDLE; }
+        createBuffer(m_device, m_physicalDevice, newCap,
                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                     m_textVertBuffer, m_textVertMemory);
-        vkMapMemory(m_device, m_textVertMemory, 0, sz, 0, &m_textVertMapped);
+                     buf, mem);
+        vkMapMemory(m_device, mem, 0, newCap, 0, &mapped);
+        cap = newCap;
+    }
+
+    // Free a surface's vertex arenas (device must be idle w.r.t. this surface — called from destroySurface /
+    // the destructor, both of which waitIdle or hold no in-flight work).
+    void _destroyArenas(VulkanSurface& s) {
+        if (s.textMapped) { vkUnmapMemory(m_device, s.textMem); s.textMapped = nullptr; }
+        if (s.textBuf)    { vkDestroyBuffer(m_device, s.textBuf, nullptr); s.textBuf = VK_NULL_HANDLE; }
+        if (s.textMem)    { vkFreeMemory(m_device, s.textMem, nullptr); s.textMem = VK_NULL_HANDLE; }
+        if (s.geomMapped) { vkUnmapMemory(m_device, s.geomMem); s.geomMapped = nullptr; }
+        if (s.geomBuf)    { vkDestroyBuffer(m_device, s.geomBuf, nullptr); s.geomBuf = VK_NULL_HANDLE; }
+        if (s.geomMem)    { vkFreeMemory(m_device, s.geomMem, nullptr); s.geomMem = VK_NULL_HANDLE; }
+        s.textCap = s.geomCap = s.textWant = s.geomWant = 0;
     }
 
     // Vector geometry pipeline: per-vertex position/uv/colour, no descriptor set,
@@ -1426,15 +1453,6 @@ private:
         qCInfo(LogVulkan) << "Vector pipeline created.\n";
     }
 
-    void createGeomVertexBuffer() {
-        VkDeviceSize sz = (VkDeviceSize)16 * MAX_GEOM_VERTS * sizeof(JRenderVertex);
-        createBuffer(m_device, m_physicalDevice, sz,
-                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                     m_geomVertBuffer, m_geomVertMemory);
-        vkMapMemory(m_device, m_geomVertMemory, 0, sz, 0, &m_geomVertMapped);
-    }
-
     // ---------------------------------------------------------------- Members
     JNativeWindowHandle m_handle;
     VkInstance         m_instance{VK_NULL_HANDLE};
@@ -1447,7 +1465,6 @@ private:
 
     std::vector<VulkanSurface> m_surfaces;
     VulkanSurface*             m_act{nullptr};  // active surface, set in beginFrame
-    GpuSurfaceId               m_activeSurfaceId{kPrimarySurface};
 
     // SDF rect pipeline
     VkPipelineLayout   m_pipelineLayout{VK_NULL_HANDLE};
@@ -1466,10 +1483,8 @@ private:
     VkDescriptorSet       m_textDescSet{VK_NULL_HANDLE};
     VkPipelineLayout      m_textPipeLayout{VK_NULL_HANDLE};
     VkPipeline            m_textPipeline{VK_NULL_HANDLE};
-    static constexpr uint32_t MAX_TEXT_VERTS = 65536;
-    VkBuffer              m_textVertBuffer{VK_NULL_HANDLE};
-    VkDeviceMemory        m_textVertMemory{VK_NULL_HANDLE};
-    void*                 m_textVertMapped{nullptr};
+    // Minimum per-surface text arena (a floor so ordinary frames never reallocate); grows on demand from here.
+    static constexpr VkDeviceSize kArenaMinText = (VkDeviceSize)8192 * 4 * sizeof(float);   // 128 KB
 
     uint32_t m_frameCounter{0};
 
@@ -1484,10 +1499,8 @@ private:
     // Vector geometry pipeline (anti-aliased 2D paths, per-vertex colour)
     VkPipelineLayout      m_vectorPipeLayout{VK_NULL_HANDLE};
     VkPipeline            m_vectorPipeline{VK_NULL_HANDLE};
-    static constexpr uint32_t MAX_GEOM_VERTS = 1u << 16;  // per surface
-    VkBuffer              m_geomVertBuffer{VK_NULL_HANDLE};
-    VkDeviceMemory        m_geomVertMemory{VK_NULL_HANDLE};
-    void*                 m_geomVertMapped{nullptr};
+    // Minimum per-surface vector-geometry arena; grows on demand from here.
+    static constexpr VkDeviceSize kArenaMinGeom = (VkDeviceSize)8192 * sizeof(JRenderVertex);   // ~160 KB
 };
 
 

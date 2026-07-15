@@ -224,7 +224,7 @@ public:
         packRange(160, 255);  // Latin-1 supplement
         packRange(0x2013, 0x2022); // dashes, typographic quotes, dagger, bullet (•)
         packRange(0x2026, 0x2026); // ellipsis (…)
-        packRange(0x2190, 0x2194); // arrows ← ↑ → ↓ ↔ (the toolbar's "Verify ↔ ECU" etc.)
+        packRange(0x2190, 0x2195); // arrows ← ↑ → ↓ ↔ ↕ (↔/↕ = table axis-name bar; the toolbar's "Verify ↔ ECU" etc.)
         packRange(0x25CF, 0x25CF); // black circle (●) — present in DejaVu/Noto (absent in Ubuntu)
 
         atlas.valid = true;

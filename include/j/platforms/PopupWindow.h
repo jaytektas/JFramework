@@ -260,6 +260,13 @@ public:
     enum class JFloatPollResult { Alive, Close };
     JFloatPollResult pollFloating() {
         m_window->pollNativeEvents();
+        // A polled floating popup is live → mark it viewable so the render loop draws it. Mirrors
+        // pumpManaged() for modal children. Without this a floating menu's SUBMENU (created straight into
+        // m_floating, never via the modal stack) keeps m_focusSet=false, so isViewable() is false and its
+        // render() is never called — the window maps (and takes clicks) but its surface is never drawn: the
+        // "black submenu of a torn-off menu" bug. A torn-off ROOT only worked because it carried m_focusSet
+        // over from its modal life.
+        m_focusSet = true;
         if (m_window->shouldClose()) return JFloatPollResult::Close;
 
         float mx = m_window->mouseX();

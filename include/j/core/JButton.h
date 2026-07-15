@@ -46,16 +46,11 @@ protected:
     }
     virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b) {
         if (JTextHelper::hasAtlas()) {
-            std::string txt = tr(m_label);
-            const float pad   = 6.f;
-            const float avail = b.width - 2.f * pad;                 // interior width for the label
-            const float tw    = JTextHelper::measureWidth(txt);
-            // Centre when it fits; left-align and clip (maxWidth) when the label is too long, so a long
-            // label is truncated inside the button instead of spilling past its edges.
-            const float tx = (tw <= avail) ? b.x + (b.width - tw) * 0.5f : b.x + pad;
-            const float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
+            // Centre when it fits; left-align and clip when the label is too long, so a long label is
+            // truncated inside the button instead of spilling past its edges — see pushTextAligned.
             uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 230};
-            JTextHelper::pushText(buf, tx, ty, txt, tc, avail);
+            JTextHelper::pushTextAligned(buf, b.x, b.y, b.width, b.height, tr(m_label), tc,
+                                         JTextHelper::Align::Center, 6.f);
         } else {
             float tw = b.width * 0.5f;
             float tx = b.x + (b.width - tw) * 0.5f;

@@ -29,6 +29,7 @@
 #include <j/core/JCloseButton.h>         // JCloseButton::draw/rectFor (window close control)
 #include <j/core/DragDrop.h>             // JDragDrop — drag ghost overlay + drop-end repaint
 #include <j/core/DockManager.h>          // JDockHost (auto-managed dock layout)
+#include <j/core/JWindowControls.h>      // JWidget::renderTooltips (hover tips over main-window content)
 #include <j/core/DockSpace.h>            // JDockSpace (centre + 4 dock areas)
 #include <j/core/DockRegistry.h>         // host registration for floating re-dock
 #include <j/core/MenuSystem.h>           // JMenuBar, JMenuManager (accelerators)
@@ -96,6 +97,11 @@ public:
         JClipboard::s_getHook = [w]{ return w->getClipboardText(); };
         JWidget::s_clipboardSet = [](const std::string& s){ JClipboard::setText(s); };
         JWidget::s_clipboardGet = []{ return JClipboard::getText(); };
+
+        // Any widget's invalidate() wakes the event-driven presenter for one redraw burst, so a change made
+        // outside an input event (a menu action, timer, or signal handler calling invalidate()) actually paints
+        // instead of waiting for unrelated input to arm a frame.
+        JWidget::s_redrawHook = [this]{ m_needRedraw = true; };
 
         // AI bus: opt-in via env (JF_AI_BUS=1). Off by default → zero overhead. When on, the frame loop
         // publishes the widget snapshot + services actions over shared memory (see tick() below).
@@ -690,6 +696,7 @@ public:
                 m_space.render(buffer);                     // all areas: content + overlays
                 if (dragging) _drawDragGhost(buffer);       // floating "what you're holding" label
                 if (onRender) onRender(buffer);
+                JWidget::renderTooltips(buffer, m_window->mouseX(), m_window->mouseY());  // hover tips on top of all content
                 m_hal->drawPrimitives(buffer);
                 m_hal->submitAndPresentFrame(frame);
                 m_window->swapBuffers();   // frame presented -> echo _NET_WM_SYNC_REQUEST
