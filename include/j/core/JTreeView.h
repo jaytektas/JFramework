@@ -112,6 +112,11 @@ public:
         if (lo != m_filter) { m_filter = std::move(lo); m_scrollY = 0.f; m_graph.invalidateNode(m_nodeId, DirtySelf); }
     }
 
+    // Opt-in: also match a node's userData (the app payload — e.g. a binding path / raw signal id) against the
+    // filter, not only its displayed label. Off by default so trees whose userData holds opaque sigils/conditions
+    // don't match on hidden text. The signal picker enables this so typing a raw signal name finds it too.
+    void setFilterMatchesUserData(bool on) { m_filterUserData = on; }
+
     void expandAll()   { for (auto& c : m_root.children) _setExpandedRec(c, true);  m_root.expanded = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
     void collapseAll() { for (auto& c : m_root.children) _setExpandedRec(c, false); m_root.expanded = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
 
@@ -569,22 +574,37 @@ protected:
     }
 
 private:
-    void _flatten(JTreeViewNode& node, int depth, std::vector<JFlatNode>& result) {
+    void _flatten(JTreeViewNode& node, int depth, std::vector<JFlatNode>& result, bool ancestorMatch = false) {
         if (node.hidden) return;                                // run-mode condition filter (self + descendants)
-        if (!m_filter.empty() && !_nodeMatches(node)) return;   // filtered out (self + descendants)
+        // Once a node matches (or an ancestor did), its WHOLE subtree stays present — so a matched category
+        // reveals its signals and a matched sensor reveals its fields. Otherwise a node only survives as a path
+        // down to a deeper match. This mirrors the old studio's ancestorMatch propagation.
+        bool subtreeMatch = ancestorMatch;
+        if (!m_filter.empty() && !ancestorMatch) {
+            if (_selfMatches(node))            subtreeMatch = true;   // this node matched → keep its subtree
+            else if (!_descendantMatches(node)) return;               // neither self nor descendant → filtered out
+        }
         result.push_back({&node, depth, result.size()});
         // While filtering, force subtrees open so matches deep in the tree are revealed.
         if (node.expanded || !m_filter.empty()) {
             for (auto& child : node.children) {
-                _flatten(child, depth + 1, result);
+                _flatten(child, depth + 1, result, subtreeMatch);
             }
         }
     }
-    // A node is shown when its label — or any descendant's — contains the (lower-cased) filter.
-    bool _nodeMatches(const JTreeViewNode& n) const {
+    // A node matches on its own label — or, when enabled, its userData (raw id / binding path).
+    bool _selfMatches(const JTreeViewNode& n) const {
         std::string l = n.label; for (char& c : l) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         if (l.find(m_filter) != std::string::npos) return true;
-        for (const auto& c : n.children) if (_nodeMatches(c)) return true;
+        if (m_filterUserData && !n.userData.empty()) {
+            std::string u = n.userData; for (char& c : u) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (u.find(m_filter) != std::string::npos) return true;
+        }
+        return false;
+    }
+    // True when some descendant matches — the node is then shown as a path to that match (subtree NOT force-kept).
+    bool _descendantMatches(const JTreeViewNode& n) const {
+        for (const auto& c : n.children) if (_selfMatches(c) || _descendantMatches(c)) return true;
         return false;
     }
 
@@ -778,6 +798,7 @@ private:
     std::string    m_editBuf;             // working text during an in-place rename
     bool           m_editable{true};      // F2 / click-selected may start an in-place rename
     std::string    m_filter;              // lower-cased row filter ("" = show all)
+    bool           m_filterUserData{false}; // also match userData (raw id / binding path), not just the label
     float         m_scrollY{0.0f};
     float         m_rowHeight{-1.0f};
     bool          m_draggingScroll{false};
