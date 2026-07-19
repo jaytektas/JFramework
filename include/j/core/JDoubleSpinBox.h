@@ -118,8 +118,12 @@ public:
                 if (_acceptChar(c)) { m_selectAll = false; m_editBuf += c; invalidate(); return true; }
                 m_editBuf = prev; return true;              // reject but consume (selection stays)
             }
+            // A fresh edit starts from an EMPTY buffer, so a stale display value ("1.00", left in m_editBuf
+            // after a prior commit/escape) can't veto the first char via _acceptChar's dup checks — which is
+            // exactly what rejected a leading '.' because the old text already contained one.
+            if (!m_editing) m_editBuf.clear();
             if (_acceptChar(c)) {
-                if (!m_editing) { m_editing = true; m_editBuf.clear(); }
+                m_editing = true;
                 m_editBuf += c;
                 invalidate();
                 return true;
