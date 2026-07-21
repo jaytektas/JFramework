@@ -89,14 +89,17 @@ void test_window_transient_layering() {
     xcb_atom_t queried_type = *static_cast<xcb_atom_t*>(xcb_get_property_value(prop_reply));
     free(prop_reply);
 
-    // Get the _NET_WM_WINDOW_TYPE_NORMAL atom to verify
-    xcb_intern_atom_cookie_t normal_cookie = xcb_intern_atom(conn, 0, 26, "_NET_WM_WINDOW_TYPE_NORMAL");
-    auto* normal_reply = xcb_intern_atom_reply(conn, normal_cookie, nullptr);
-    assert(normal_reply != nullptr);
-    xcb_atom_t normal_atom = normal_reply->atom;
-    free(normal_reply);
+    // A TRANSIENT child is typed DIALOG, not NORMAL — that is the whole point of the hint this test
+    // checks: LinuxPlatformWindow sets it so the WM stacks the child above its parent and still grants
+    // it keyboard focus. (A parentless borderless window keeps NORMAL so the WM continues to handle
+    // _NET_WM_MOVERESIZE / maximize / snap.) The test asserted NORMAL, predating that.
+    xcb_intern_atom_cookie_t dialog_cookie = xcb_intern_atom(conn, 0, 26, "_NET_WM_WINDOW_TYPE_DIALOG");
+    auto* dialog_reply = xcb_intern_atom_reply(conn, dialog_cookie, nullptr);
+    assert(dialog_reply != nullptr);
+    xcb_atom_t dialog_atom = dialog_reply->atom;
+    free(dialog_reply);
 
-    assert(queried_type == normal_atom);
+    assert(queried_type == dialog_atom);
 
     std::cout << "[GENESIS] JWindow Transient Layering Hint Verification: PASSED" << std::endl;
 }

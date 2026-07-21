@@ -72,7 +72,9 @@ void test_combobox_logic() {
     JSceneGraph graph;
     JComboBox cb(graph, {"OptA", "OptB", "OptC"});
     
-    assert(cb.mode() == JComboBoxMode::Cycling);
+    // Popup is the DEFAULT mode (JComboBox.h: "dropdown list by default") — the test predated that
+    // change and still asserted the old Cycling default.
+    assert(cb.mode() == JComboBoxMode::Popup);
     cb.setCurrentIndex(0);
     assert(cb.currentText() == "OptA");
     
@@ -80,7 +82,9 @@ void test_combobox_logic() {
     auto& layout = graph.getLayout(cb.getNodeId());
     layout.boundingBox = {0, 0, 100, 30};
     
-    // Cycling mode test
+    // Cycling mode test — opted into explicitly, since it is no longer the default
+    cb.setMode(JComboBoxMode::Cycling);
+    assert(cb.mode() == JComboBoxMode::Cycling);
     cb.handleMousePress(10.f, 10.f);
     assert(cb.currentIndex() == 1);
     assert(cb.currentText() == "OptB");

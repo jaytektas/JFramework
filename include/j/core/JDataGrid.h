@@ -398,11 +398,14 @@ public:
             }
         }
 
-        int startIdx = static_cast<int>(m_scrollY / rowH);
-        int endIdx = static_cast<int>((m_scrollY + visibleH - headerH) / rowH) + 1;
-        const int lastView = (int)m_order.size() - 1;
-        startIdx = std::clamp(startIdx, 0, lastView);
-        endIdx = std::clamp(endIdx, 0, lastView);
+        // An EMPTY grid has no valid row range: clamping into [0, size-1] would be [0, -1], i.e. hi < lo,
+        // which is undefined (and aborts outright under _GLIBCXX_ASSERTIONS). Draw the header and stop.
+        const int lastView = static_cast<int>(m_order.size()) - 1;
+        int startIdx = 0, endIdx = -1;
+        if (lastView >= 0) {
+            startIdx = std::clamp(static_cast<int>(m_scrollY / rowH), 0, lastView);
+            endIdx   = std::clamp(static_cast<int>((m_scrollY + visibleH - headerH) / rowH) + 1, 0, lastView);
+        }
 
         for (int v = startIdx; v <= endIdx; ++v) {
             const int r = sourceRowAt(v);            // v = position on screen, r = caller's row index

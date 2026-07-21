@@ -366,7 +366,18 @@ public:
     // layout box.
     virtual JVariant getRef(const std::string& key) const {
         if (key == "id")      return static_cast<int64_t>(m_nodeId);
-        if (key == "label" || key == "name") return m_debugName;
+        // role  = what KIND of widget this is. Every constructor passes its class name as the debug
+        //         name (JButton -> "JButton"), so that is the type identity a reference asks for.
+        // name  = this instance's identity (the debug name; editable via the property model).
+        // label = the user-VISIBLE text. The base cannot know it — JButton keeps its caption in
+        //         m_label, JCheckBox in its own — but every interactive widget already reports it as
+        //         its accessible name, so read that rather than making each widget override getRef.
+        if (key == "role")    return m_debugName;
+        if (key == "name")    return m_debugName;
+        if (key == "label") {
+            const std::string n = a11yNode().name;
+            return n.empty() ? m_debugName : n;
+        }
         if (key == "enabled") return isEnabled();
         if (key == "visible") return isVisible();
         if (key == "focused") return isFocused();
