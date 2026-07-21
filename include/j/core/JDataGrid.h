@@ -249,8 +249,16 @@ public:
 
     void handleMouseMove(float mx, float my) override {
         if (m_resizeCol >= 0) {
+            JWidget::s_hoverCursor = JPlatformCursor::ResizeLeftRight;   // hold it for the whole drag
             setColumnWidth(m_resizeCol, m_resizeStartW + (mx - m_resizeStartX));
             return;
+        }
+        // Over a header divider: show the resize cursor so the grab target is discoverable rather than
+        // something you have to already know is there.
+        {
+            const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+            if (my >= b.y && my < b.y + m_headerHeight && _dividerAt(mx, b) >= 0)
+                JWidget::s_hoverCursor = JPlatformCursor::ResizeLeftRight;
         }
         if (m_draggingVScroll) {
             const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;

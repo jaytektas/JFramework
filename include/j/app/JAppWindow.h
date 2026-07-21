@@ -437,7 +437,9 @@ public:
                     default: break;
                 }
             }
-            m_window->setCursor(c);
+            // Applied AFTER the widget dispatch below, so a widget that raises JWidget::s_hoverCursor
+            // from its handleMouseMove takes effect on this frame rather than the next one.
+            JWidget::s_hoverCursor = JPlatformCursor::Default;
             const bool pressed     = m_window->consumePress();
             const bool releasedRaw = m_window->consumeRelease();
             // Classify this press as single or double ONCE, here, and publish it on JWidget for the
@@ -618,6 +620,11 @@ public:
             // state — independent of the JDragDrop typed-payload/ghost path handled elsewhere — and
             // consumes nothing from the runner, so it does not disturb focus/click routing.
             jDragTick(mx, my, pressed, released);
+
+            // Chrome and dock splitters outrank a widget: an edge/splitter grab must not be masked by
+            // whatever sits under it. Otherwise honour what the hovered widget asked for.
+            if (c == JPlatformCursor::Default) c = JWidget::s_hoverCursor;
+            m_window->setCursor(c);
 
             // Keyboard: the runner owns focus routing. Re-sync the tab order from the live
             // widget set (so newly created / destroyed widgets are tracked without app

@@ -18,6 +18,7 @@
 #include "SceneGraph.h"
 #include "TranslationEngine.h"
 #include "KeyEvent.h"
+#include "PlatformCommon.h"   // JPlatformCursor — a toolkit enum, no platform types
 #include "DragDrop.h"
 #include "JStyle.h"          // JWidgetState / JFocusPolicy / JStyle / Colors (pulls Style/JStyleEngine/VectorGraphics)
 #include "../graphics/RenderPrimitive.h"
@@ -45,6 +46,11 @@ public:
     // runner, and published the same way the modifiers are — so no widget keeps a private clock, and a
     // double click means the same thing everywhere. Read it from handleMousePress.
     inline static bool s_doubleClick = false;
+    // Cursor a widget wants while the pointer is over an interactive part of it (a grid's column
+    // divider, a splitter…). The runner clears this each frame, dispatches the move, then applies it if
+    // nothing higher-priority (a window edge, a dock splitter) already claimed the cursor. A widget just
+    // states its intent from handleMouseMove; it never touches the platform window.
+    inline static JPlatformCursor s_hoverCursor = JPlatformCursor::Default;
 
     // Focus-request hook — installed by the framework's JFocusManager. A control claims keyboard
     // focus by calling requestFocus() from its own handleMousePress: because the press is only
