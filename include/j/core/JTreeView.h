@@ -3,6 +3,7 @@
 // JTreeView (+ JTreeViewNode).
 
 #include "JControl.h"
+#include "JArrow.h"
 #include "JTextHelper.h"
 #include "KeyEvent.h"
 #include "DragDrop.h"
@@ -548,14 +549,10 @@ protected:
     }
 
     virtual void drawNodeChevron(JPrimitiveBuffer& buf, JTreeViewNode* /*node*/, float ax, float ay, float /*size*/, bool expanded) {
-        // A filled triangle disclosure arrow (▶ collapsed / ▼ expanded), matching the original studio's tree
-        // branch indicators — not the old crude split-bar (which read as vertical dots).
-        const JColor col = jf::rgba(Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 230);
-        const float s = 4.0f;
-        JVectorCanvas vg; vg.setAntiAlias(1.2f);
-        if (expanded) vg.fillConvex({ {ax - s, ay - s * 0.55f}, {ax + s, ay - s * 0.55f}, {ax, ay + s * 0.85f} }, JPaint::solid(col));   // ▼
-        else          vg.fillConvex({ {ax - s * 0.55f, ay - s}, {ax + s * 0.85f, ay}, {ax - s * 0.55f, ay + s} }, JPaint::solid(col));   // ▶
-        vg.flush(buf);
+        // Disclosure indicator (▶ collapsed / ▼ expanded) — drawn by JArrow, the one triangle in the
+        // toolkit, so the tree and the data grid's sort mark cannot drift apart.
+        const uint8_t col[4] = { Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 230 };
+        JArrow::draw(buf, ax, ay, expanded ? JArrow::Direction::Down : JArrow::Direction::Right, col);
     }
 
     virtual void drawNodeText(JPrimitiveBuffer& buf, JTreeViewNode* node, float tx, float ty, float maxW) {

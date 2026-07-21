@@ -24,7 +24,7 @@ enum class JEasing {
     InOutSine,
     OutBack,
     OutElastic,
-    OutBounce,
+    InBounce, OutBounce,
 };
 
 namespace detail {
@@ -87,6 +87,9 @@ inline float ease(JEasing e, float t) {
             constexpr float c4 = (2.0f * kPi) / 3.0f;
             return std::pow(2.0f, -10.0f * t) * std::sin((t * 10.0f - 0.75f) * c4) + 1.0f;
         }
+
+        case JEasing::InBounce:
+            return 1.0f - detail::outBounce(1.0f - t);
 
         case JEasing::OutBounce:
             return detail::outBounce(t);

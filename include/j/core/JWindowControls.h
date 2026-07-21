@@ -56,18 +56,6 @@ inline void JWidget::renderTooltips(JPrimitiveBuffer& buf, float mouseX, float m
     }
 }
 
-inline void JWidget::drawFocusRing(JPrimitiveBuffer& buf) const {
-    if (m_state != JWidgetState::Focused) return;
-    const auto& bb  = m_graph.getLayoutConst(m_nodeId).boundingBox;
-    const auto& th  = JStyle::current();
-    float p = th.focusRingWidth * 0.5f + 1.f;
-    uint8_t ring[4] = {th.Accent[0], th.Accent[1], th.Accent[2], 210};
-    uint8_t none[4] = {0, 0, 0, 0};
-    buf.pushRectangle(bb.x - p, bb.y - p, bb.width + p * 2.f, bb.height + p * 2.f,
-                      none, th.cornerRadius + 1.f, th.focusRingWidth, ring);
-}
-
-
 // ---- Drag & drop driver (declared in DragDrop.h; defined here where JWidget is
 // complete and its hooks + s_activeWidgets are visible). Routes the active drag
 // session to the top-most visible widget that canDrop() the payload. ----------

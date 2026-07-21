@@ -40,6 +40,11 @@ public:
     // carries no modifier args) can honour Ctrl/Shift — e.g. additive/toggle multi-select.
     inline static bool s_ctrlDown = false;
     inline static bool s_shiftDown = false;
+    // True for the duration of a press dispatch that the runner classified as a DOUBLE click (a second
+    // press inside JStyle::doubleClickMs and within doubleClickSlop of the first). Detected once, in the
+    // runner, and published the same way the modifiers are — so no widget keeps a private clock, and a
+    // double click means the same thing everywhere. Read it from handleMousePress.
+    inline static bool s_doubleClick = false;
 
     // Focus-request hook — installed by the framework's JFocusManager. A control claims keyboard
     // focus by calling requestFocus() from its own handleMousePress: because the press is only
@@ -466,7 +471,18 @@ protected:
 
     // Call at the end of populateRenderPrimitives to draw a keyboard-focus ring.
     // Defined out-of-line (after JStyle) — see below.
-    void drawFocusRing(JPrimitiveBuffer& buf) const;
+    // Focus ring, drawn by every focusable widget. Defined HERE, with its class: living in
+    // JWindowControls.h made it a link error for any TU that used it without that header.
+    void drawFocusRing(JPrimitiveBuffer& buf) const {
+        if (m_state != JWidgetState::Focused) return;
+        const auto& bb  = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const auto& th  = JStyle::current();
+        float p = th.focusRingWidth * 0.5f + 1.f;
+        uint8_t ring[4] = {th.Accent[0], th.Accent[1], th.Accent[2], 210};
+        uint8_t none[4] = {0, 0, 0, 0};
+        buf.pushRectangle(bb.x - p, bb.y - p, bb.width + p * 2.f, bb.height + p * 2.f,
+                          none, th.cornerRadius + 1.f, th.focusRingWidth, ring);
+    }
 
     JSceneGraph& m_graph;
     NodeId      m_nodeId;

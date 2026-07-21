@@ -175,6 +175,23 @@ struct JStyle {
     float titleBarHeight = 30.f;
     float focusRingWidth = 1.5f;
     float animSpeed      = 1.0f;
+    float scrollBarWidth = 10.f;   // scrollbar track/thumb thickness (grid, scroll area, tree)
+    float arrowSize      = 4.f;    // half-extent of a disclosure / sort triangle (JArrow)
+
+    // Data grid. A grid's row and header bands are their own rhythm — not a control height — so they
+    // carry their own scheme values rather than borrowing menuItemHeight and drifting apart from it.
+    float gridRowHeight         = 24.f;
+    float gridHeaderHeight      = 28.f;
+    float gridCellPadding       = 8.f;
+    float gridMinColumnWidth    = 24.f;   // floor for an interactive column resize
+    float gridDefaultColumnWidth = 100.f; // width for a column with no explicit or computable size
+    float gridResizeGrab        = 4.f;    // pointer distance to a header divider that starts a resize
+    float gridSortGlyphWidth    = 14.f;   // header space reserved for the sort arrow
+
+    // Interaction timing. A second press within this window AND slop counts as a double click; the
+    // runner detects it once and publishes it, so no widget keeps its own clock.
+    float doubleClickMs   = 400.f;
+    float doubleClickSlop = 4.f;
 
     // Dock tabs (formerly JStyle — unified here as the one stylesheet).
     JTabBarEdge tabEdge{JTabBarEdge::Top};

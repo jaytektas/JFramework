@@ -94,6 +94,12 @@ inline JStyle parseStyleSheet(const std::string& text) {
         {"itempadding", &t.itemPadding}, {"spacing", &t.spacing}, {"borderwidth", &t.borderWidth},
         {"titlebarheight", &t.titleBarHeight}, {"focusringwidth", &t.focusRingWidth},
         {"animspeed", &t.animSpeed}, {"tabbarsize", &t.tabBarSize},
+        {"scrollbarwidth", &t.scrollBarWidth}, {"arrowsize", &t.arrowSize},
+        {"gridrowheight", &t.gridRowHeight}, {"gridheaderheight", &t.gridHeaderHeight},
+        {"gridcellpadding", &t.gridCellPadding}, {"gridmincolumnwidth", &t.gridMinColumnWidth},
+        {"griddefaultcolumnwidth", &t.gridDefaultColumnWidth}, {"gridresizegrab", &t.gridResizeGrab},
+        {"gridsortglyphwidth", &t.gridSortGlyphWidth},
+        {"doubleclickms", &t.doubleClickMs}, {"doubleclickslop", &t.doubleClickSlop},
     };
 
     std::istringstream in(text);

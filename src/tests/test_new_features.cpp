@@ -74,11 +74,11 @@ void test_animator_snap() {
 
 void test_animator_easing_values() {
     // Test key easing properties: t=0 → 0, t=1 → 1
-    for (auto e : {JEasing::Linear, JEasing::EaseIn, JEasing::EaseOut, JEasing::EaseInOut,
-                   JEasing::EaseInCubic, JEasing::EaseOutCubic, JEasing::EaseInOutCubic,
-                   JEasing::EaseOutElastic, JEasing::EaseInBounce, JEasing::EaseOutBounce}) {
-        float v0 = applyEasing(0.0f, e);
-        float v1 = applyEasing(1.0f, e);
+    for (auto e : {JEasing::Linear, JEasing::InQuad, JEasing::OutQuad, JEasing::InOutQuad,
+                   JEasing::InCubic, JEasing::OutCubic, JEasing::InOutCubic,
+                   JEasing::OutElastic, JEasing::InBounce, JEasing::OutBounce}) {
+        float v0 = ease(e, 0.0f);
+        float v1 = ease(e, 1.0f);
         assert(std::abs(v0) < 0.001f);
         assert(std::abs(v1 - 1.0f) < 0.001f);
     }
@@ -100,24 +100,23 @@ void test_animated_color() {
 }
 
 void test_animator_manager() {
-    JAnimator anim;
-    size_t a = anim.add(0.0f);
-    size_t b = anim.add(100.0f);
+    // Independent tweens: the slot-array JAnimator this used to exercise was a duplicate of
+    // Animation.h's JAnimator and has been deleted. A caller that wants N values holds N of these.
+    JAnimatedFloat a(0.0f);
+    JAnimatedFloat b(100.0f);
 
-    anim.animateTo(a, 50.0f, 100.0f);
-    anim.animateTo(b, 0.0f, 100.0f);
+    a.animateTo(50.0f, 100.0f);
+    b.animateTo(0.0f, 100.0f);
 
-    anim.advance(0.05f);
-    assert(anim.value(a) > 0.0f && anim.value(a) < 50.0f);
-    assert(anim.value(b) > 0.0f && anim.value(b) < 100.0f);
-    assert(!anim.isDone());
+    a.advance(0.05f); b.advance(0.05f);
+    assert(a.current() > 0.0f && a.current() < 50.0f);
+    assert(b.current() > 0.0f && b.current() < 100.0f);
+    assert(!a.isDone() && !b.isDone());
 
-    anim.advance(0.1f);
-    assert(anim.isDone());
-    assert(anim.value(a) == 50.0f);
-    assert(anim.value(b) == 0.0f);
-
-    assert(anim.value(999) == 0.0f); // out of range → 0
+    a.advance(0.1f); b.advance(0.1f);
+    assert(a.isDone() && b.isDone());
+    assert(a.current() == 50.0f);
+    assert(b.current() == 0.0f);
     std::cout << "test_animator_manager passed\n";
 }
 

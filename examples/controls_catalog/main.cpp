@@ -77,23 +77,23 @@ public:
         if (m_progressBar)
             m_progressBar->setProgress(0.5f + 0.5f * std::sin(m_elapsed * 0.8f));
 
-        m_demoAnimator.advance(dt);
-        if (m_animBar0) m_animBar0->setProgress(m_demoAnimator.value(m_animSlot0));
-        if (m_animBar1) m_animBar1->setProgress(m_demoAnimator.value(m_animSlot1));
-        if (m_animBar2) m_animBar2->setProgress(m_demoAnimator.value(m_animSlot2));
-        if (m_demoAnimator.isDone() && m_animBar0) {
+        m_anim0.advance(dt); m_anim1.advance(dt); m_anim2.advance(dt);
+        if (m_animBar0) m_animBar0->setProgress(m_anim0.current());
+        if (m_animBar1) m_animBar1->setProgress(m_anim1.current());
+        if (m_animBar2) m_animBar2->setProgress(m_anim2.current());
+        if (m_anim0.isDone() && m_anim1.isDone() && m_anim2.isDone() && m_animBar0) {
             m_animForward = !m_animForward;
             float tgt = m_animForward ? 1.0f : 0.0f;
-            m_demoAnimator.animateTo(m_animSlot0, tgt, 1200.0f, jf::JEasing::EaseInOut);
-            m_demoAnimator.animateTo(m_animSlot1, tgt, 1800.0f, jf::JEasing::EaseOutElastic);
-            m_demoAnimator.animateTo(m_animSlot2, tgt, 2400.0f, jf::JEasing::EaseOutBounce);
+            m_anim0.animateTo(tgt, 1200.0f, jf::JEasing::InOutQuad);
+            m_anim1.animateTo(tgt, 1800.0f, jf::JEasing::OutElastic);
+            m_anim2.animateTo(tgt, 2400.0f, jf::JEasing::OutBounce);
         }
     }
 
     // True while something is visually animating and the frame must be redrawn
     // continuously.  Here only the demo progress bar animates; a real app would OR
     // together all active animators / transitions.
-    bool isAnimating() const { return !m_animPaused && (m_progressBar != nullptr || !m_demoAnimator.isDone()); }
+    bool isAnimating() const { return !m_animPaused && (m_progressBar != nullptr || !(m_anim0.isDone() && m_anim1.isDone() && m_anim2.isDone())); }
     void toggleAnimation()    { m_animPaused = !m_animPaused; }
     bool showPanelScrollbars() const { return m_showPanelScrollbars; }
     void setShowPanelScrollbars(bool show) {
@@ -435,12 +435,9 @@ private:
         m_animBar0 = add<JProgressBar>(m_graph, 340.0f, 12.0f);
         m_animBar1 = add<JProgressBar>(m_graph, 340.0f, 12.0f);
         m_animBar2 = add<JProgressBar>(m_graph, 340.0f, 12.0f);
-        m_animSlot0 = m_demoAnimator.add(0.0f);
-        m_animSlot1 = m_demoAnimator.add(0.0f);
-        m_animSlot2 = m_demoAnimator.add(0.0f);
-        m_demoAnimator.animateTo(m_animSlot0, 1.0f, 1200.0f, jf::JEasing::EaseInOut);
-        m_demoAnimator.animateTo(m_animSlot1, 1.0f, 1800.0f, jf::JEasing::EaseOutElastic);
-        m_demoAnimator.animateTo(m_animSlot2, 1.0f, 2400.0f, jf::JEasing::EaseOutBounce);
+        m_anim0.animateTo(1.0f, 1200.0f, jf::JEasing::InOutQuad);
+        m_anim1.animateTo(1.0f, 1800.0f, jf::JEasing::OutElastic);
+        m_anim2.animateTo(1.0f, 2400.0f, jf::JEasing::OutBounce);
 
         section("JTextArea — Shift+Arrow selects, Ctrl+C/V/X/A");
         {
@@ -762,8 +759,7 @@ public:
     std::vector<std::unique_ptr<jf::JMenu>> m_submenus;
 
     // ---- New-feature demos ----
-    jf::JAnimator m_demoAnimator;
-    size_t         m_animSlot0{0}, m_animSlot1{0}, m_animSlot2{0};
+    jf::JAnimatedFloat m_anim0, m_anim1, m_anim2;
     JProgressBar*   m_animBar0{nullptr};
     JProgressBar*   m_animBar1{nullptr};
     JProgressBar*   m_animBar2{nullptr};

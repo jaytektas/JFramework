@@ -5,81 +5,16 @@
 #include <cstdint>
 #include <algorithm>
 
+#include "Easing.h"   // the toolkit's ONE easing enum + curve set
+
+// JAnimatedFloat / JAnimatedColor — self-contained tweens a widget can own directly.
+//
+// The slot-array JAnimator that used to live here was a SECOND class of that name: Animation.h:235
+// already defines JAnimator over JAnimatable/JAnimation/JAnimationGroup, and two classes with one name
+// is an ODR clash, not a convenience. Callers that just want a tween hold a JAnimatedFloat; callers
+// composing timelines use Animation.h's JAnimator. There is one of each.
+
 inline namespace jf {
-
-enum class JEasing {
-    Linear,
-    EaseIn,
-    EaseOut,
-    EaseInOut,
-    EaseInCubic,
-    EaseOutCubic,
-    EaseInOutCubic,
-    EaseOutElastic,
-    EaseInBounce,
-    EaseOutBounce
-};
-
-inline float applyEasing(float t, JEasing e) {
-    t = std::clamp(t, 0.0f, 1.0f);
-
-    switch (e) {
-        case JEasing::Linear:
-            return t;
-
-        case JEasing::EaseIn:
-            return t * t;
-
-        case JEasing::EaseOut:
-            return t * (2.0f - t);
-
-        case JEasing::EaseInOut:
-            return t < 0.5f ? 2.0f * t * t : -1.0f + (4.0f - 2.0f * t) * t;
-
-        case JEasing::EaseInCubic:
-            return t * t * t;
-
-        case JEasing::EaseOutCubic: {
-            float s = 1.0f - t;
-            return 1.0f - s * s * s;
-        }
-
-        case JEasing::EaseInOutCubic:
-            return t < 0.5f
-                ? 4.0f * t * t * t
-                : 1.0f - std::pow(-2.0f * t + 2.0f, 3.0f) / 2.0f;
-
-        case JEasing::EaseOutElastic: {
-            if (t == 0.0f) return 0.0f;
-            if (t == 1.0f) return 1.0f;
-            constexpr float pi = 3.14159265358979323846f;
-            return std::pow(2.0f, -10.0f * t) * std::sin((t * 10.0f - 0.75f) * (2.0f * pi / 3.0f)) + 1.0f;
-        }
-
-        case JEasing::EaseInBounce:
-            return 1.0f - applyEasing(1.0f - t, JEasing::EaseOutBounce);
-
-        case JEasing::EaseOutBounce: {
-            constexpr float n1 = 7.5625f;
-            constexpr float d1 = 2.75f;
-            if (t < 1.0f / d1) {
-                return n1 * t * t;
-            } else if (t < 2.0f / d1) {
-                t -= 1.5f / d1;
-                return n1 * t * t + 0.75f;
-            } else if (t < 2.5f / d1) {
-                t -= 2.25f / d1;
-                return n1 * t * t + 0.9375f;
-            } else {
-                t -= 2.625f / d1;
-                return n1 * t * t + 0.984375f;
-            }
-        }
-
-        default:
-            return t;
-    }
-}
 
 class JAnimatedFloat {
 public:
@@ -88,7 +23,7 @@ public:
     JAnimatedFloat(float initial)
         : m_current(initial), m_from(initial), m_to(initial) {}
 
-    void animateTo(float target, float durationMs, JEasing e = JEasing::EaseOut) {
+    void animateTo(float target, float durationMs, JEasing e = JEasing::OutQuad) {
         if (durationMs <= 0.0f) {
             m_current = target;
             m_from    = target;
@@ -126,7 +61,7 @@ public:
         }
 
         float prev    = m_current;
-        m_current     = m_from + (m_to - m_from) * applyEasing(t, m_easing);
+        m_current     = m_from + (m_to - m_from) * ease(m_easing, t);
         return m_current != prev;
     }
 
@@ -141,7 +76,7 @@ private:
     float  m_elapsed{0.0f};
     float  m_duration{0.0f};
     bool   m_done{true};
-    JEasing m_easing{JEasing::EaseOut};
+    JEasing m_easing{JEasing::OutQuad};
 };
 
 struct JAnimatedColor {
@@ -152,7 +87,7 @@ struct JAnimatedColor {
     JAnimatedColor(uint8_t R, uint8_t G, uint8_t B, uint8_t A)
         : r(R / 255.0f), g(G / 255.0f), b(B / 255.0f), a(A / 255.0f) {}
 
-    void animateTo(const uint8_t col[4], float durationMs, JEasing e = JEasing::EaseOut) {
+    void animateTo(const uint8_t col[4], float durationMs, JEasing e = JEasing::OutQuad) {
         r.animateTo(col[0] / 255.0f, durationMs, e);
         g.animateTo(col[1] / 255.0f, durationMs, e);
         b.animateTo(col[2] / 255.0f, durationMs, e);
@@ -181,50 +116,6 @@ struct JAnimatedColor {
     bool isDone() const {
         return r.isDone() && g.isDone() && b.isDone() && a.isDone();
     }
-};
-
-class JAnimator {
-public:
-    size_t add(float initial = 0.0f) {
-        m_values.emplace_back(initial);
-        return m_values.size() - 1;
-    }
-
-    void animateTo(size_t idx, float target, float durationMs, JEasing e = JEasing::EaseOut) {
-        if (idx < m_values.size()) {
-            m_values[idx].animateTo(target, durationMs, e);
-        }
-    }
-
-    void set(size_t idx, float v) {
-        if (idx < m_values.size()) {
-            m_values[idx].set(v);
-        }
-    }
-
-    float value(size_t idx) const {
-        if (idx >= m_values.size()) return 0.0f;
-        return m_values[idx].current();
-    }
-
-    bool advance(float dt) {
-        bool anyActive = false;
-        for (auto& af : m_values) {
-            af.advance(dt);
-            if (!af.isDone()) anyActive = true;
-        }
-        return anyActive;
-    }
-
-    bool isDone() const {
-        for (const auto& af : m_values) {
-            if (!af.isDone()) return false;
-        }
-        return true;
-    }
-
-private:
-    std::vector<JAnimatedFloat> m_values;
 };
 
 } // inline namespace jf

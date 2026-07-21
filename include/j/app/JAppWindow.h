@@ -440,6 +440,27 @@ public:
             m_window->setCursor(c);
             const bool pressed     = m_window->consumePress();
             const bool releasedRaw = m_window->consumeRelease();
+            // Classify this press as single or double ONCE, here, and publish it on JWidget for the
+            // dispatch below — the same channel the modifier state uses. Widgets that care (a grid header
+            // divider auto-fitting a column, a tree row opening) just read the flag from their
+            // handleMousePress; none of them keeps its own clock, so the interval and slop are one
+            // scheme value rather than a different guess per widget.
+            if (pressed) {
+                const JStyle& st = JStyle::current();
+                const auto now = std::chrono::steady_clock::now();
+                const double sinceMs =
+                    std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(now - m_lastPressAt).count();
+                JWidget::s_doubleClick = (sinceMs <= st.doubleClickMs) &&
+                                         (std::fabs(mx - m_lastPressX) <= st.doubleClickSlop) &&
+                                         (std::fabs(my - m_lastPressY) <= st.doubleClickSlop);
+                // A double click closes the pair: the third press of a rapid triple starts a new one
+                // rather than reporting double a second time.
+                m_lastPressAt = JWidget::s_doubleClick ? std::chrono::steady_clock::time_point{} : now;
+                m_lastPressX  = mx;
+                m_lastPressY  = my;
+            } else {
+                JWidget::s_doubleClick = false;
+            }
             // Fundamental drag-release routing. While a JDragDrop is active, the button-release belongs to
             // drop resolution ALONE. Resolve it here — deliver to the drop target under the cursor (the
             // central surface), else cancel — and then WITHHOLD the release from every downstream handler
@@ -1084,6 +1105,10 @@ private:
     }
 
     // Hit-test the chrome on a fresh press; act on it. Returns true if it consumed the press.
+    // Double-click classification state (see the press site above).
+    std::chrono::steady_clock::time_point m_lastPressAt{};
+    float m_lastPressX{0.f}, m_lastPressY{0.f};
+
     bool handleChrome(float mx, float my, bool pressed) {
         if (!pressed) return false;
         const float W = static_cast<float>(m_w);

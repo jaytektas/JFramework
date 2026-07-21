@@ -5,6 +5,7 @@
 #include <j/graphics/RenderPrimitive.h>
 #include <j/graphics/VectorGraphics.h>
 #include <j/graphics/FontEngine.h>
+#include <j/core/JTextHelper.h>
 #if defined(_WIN32)
 #include <j/platforms/windows/WindowsPlatformWindow.h>
 using PlatformWindowImpl = jf::JWindowsPlatformWindow;

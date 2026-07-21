@@ -6,6 +6,9 @@
 #include <j/core/ReferenceResolver.h>
 #include <j/core/ReferenceEvaluator.h>
 #include <j/core/SceneGraph.h>
+#include <j/core/JButton.h>
+#include <j/core/JSlider.h>
+#include <j/core/JCheckBox.h>
 
 #include <cassert>
 #include <cmath>
