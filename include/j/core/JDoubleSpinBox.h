@@ -94,6 +94,17 @@ public:
     bool handleKeyEvent(const JKeyEvent& ke) override {
         if (!ke.pressed) return false;
         using K = JKeyEvent::JKey;
+        // App-defined value-nudge bindings (e.g. "." = increase) — suppressed while typing so a bound
+        // "." can still serve as the decimal point. Applies this box's own step (×10 for the "large" step).
+        if (!m_editing) {
+            switch (valueKeyAction(ke)) {
+                case JValueKeyAction::Increase:      _commitEdit(); setValue(m_value + m_step);        return true;
+                case JValueKeyAction::Decrease:      _commitEdit(); setValue(m_value - m_step);        return true;
+                case JValueKeyAction::IncreaseLarge: _commitEdit(); setValue(m_value + m_step * 10.0); return true;
+                case JValueKeyAction::DecreaseLarge: _commitEdit(); setValue(m_value - m_step * 10.0); return true;
+                case JValueKeyAction::None:          break;
+            }
+        }
         if (ke.key == K::Up)   { _commitEdit(); setValue(m_value + m_step); return true; }
         if (ke.key == K::Down) { _commitEdit(); setValue(m_value - m_step); return true; }
         if (ke.key == K::Return) { _commitEdit(); return true; }

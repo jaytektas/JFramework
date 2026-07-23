@@ -60,6 +60,18 @@ public:
     inline static std::function<void(JWidget*)> s_focusHook;
     void requestFocus() { if (s_focusHook) s_focusHook(this); }
 
+    // Value-nudge keymap hook — lets the app route a key event to a "step this numeric value" action
+    // WITHOUT the framework knowing the app's keybindings. A numeric control (spin box, slider, etc.)
+    // asks valueKeyAction(ke) whether the key means increase/decrease (optionally the ×10 "large" step)
+    // and applies its own step; the app installs s_valueKeyHook once (e.g. wired to its keymap) so a
+    // single user-set binding like "." = increase works across every numeric editor. Unset → None, so
+    // controls keep their built-in arrow-key stepping. Mirrors s_focusHook: app policy, framework plumbing.
+    enum class JValueKeyAction : uint8_t { None, Increase, Decrease, IncreaseLarge, DecreaseLarge };
+    inline static std::function<JValueKeyAction(const JKeyEvent&)> s_valueKeyHook;
+    static JValueKeyAction valueKeyAction(const JKeyEvent& ke) {
+        return s_valueKeyHook ? s_valueKeyHook(ke) : JValueKeyAction::None;
+    }
+
     // Redraw-request hook — installed by the app runner (JAppWindow). The presenter is EVENT-DRIVEN: it
     // paints a short burst of frames after activity (input / drag / timers / animations) then idles. Marking
     // a node dirty via invalidate() is NOT activity, so a change made from a non-input context — a menu
