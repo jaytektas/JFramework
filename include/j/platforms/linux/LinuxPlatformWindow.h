@@ -1092,7 +1092,8 @@ private:
 
         using K = JKeyEvent::JKey;
         switch (ks) {
-            case 0xFF09: ev.key = ev.shift ? K::BackTab : K::Tab; break;
+            case 0xFE20: ev.key = K::BackTab; break;               // XK_ISO_Left_Tab — X11 sends this for Shift+Tab
+            case 0xFF09: ev.key = ev.shift ? K::BackTab : K::Tab; break;   // XK_Tab (some servers keep it on Shift+Tab)
             case 0xFF0D:                         // XK_Return (main Enter)
             case 0xFF8D: ev.key = K::Return;    break;  // XK_KP_Enter (numpad Enter)
             case 0x0020:
