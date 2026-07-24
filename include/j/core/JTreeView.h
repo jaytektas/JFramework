@@ -90,6 +90,7 @@ public:
         if (m_selectedNode) _pathOf(m_root, m_selectedNode, keepPath);
         m_root = std::move(rootNode);
         m_selectedNode = m_anchorNode = nullptr;   // old pointers dangle into the freed tree
+        m_pressNode = m_pendingSelect = m_pendingCollapse = nullptr;   // gesture pointers into the freed tree
         m_scrollY = 0.0f;
         if (!keepPath.empty()) {
             if (JTreeViewNode* n = _nodeAtPath(m_root, keepPath, 0)) {
@@ -204,10 +205,18 @@ public:
                             // node on release only if the press turns out to be a click (no drag).
                             m_selectedNode = flat.node; m_pendingCollapse = flat.node;
                         } else {
-                            if (m_multiSelect) _selectSingle(flat.node); else _selectNode(flat.node);
                             m_pendingCollapse = nullptr;
-                            if (dbl) beginRename();
-                            else     onNodeActivated.emit(flat.node);
+                            if (dbl) {                       // double-click: select now, then rename in place
+                                if (m_multiSelect) _selectSingle(flat.node); else _selectNode(flat.node);
+                                beginRename();
+                            } else {
+                                // Defer select + activate to RELEASE. Selecting on press fires
+                                // onSelectionChanged (which switches the view) the instant a drag begins, so a
+                                // node could never be dragged out as a link / onto a surface without the view
+                                // jumping away first. A drag clears this (handleMouseMove); a plain click commits
+                                // it (handleMouseRelease). Mouse-up on the node == the user's intent to view it.
+                                m_pendingSelect = flat.node;
+                            }
                         }
                     }
                 }
@@ -246,6 +255,13 @@ public:
             return;
         }
         m_pressNode = nullptr;
+        // A plain click (no drag intervened, so m_pendingSelect survived): NOW select + activate. This is the
+        // deferred single-click selection — mouse-up on the node commits it as the view.
+        if (m_pendingSelect) {
+            JTreeViewNode* n = m_pendingSelect; m_pendingSelect = nullptr;
+            if (m_multiSelect) _selectSingle(n); else _selectNode(n);
+            onNodeActivated.emit(n);
+        }
         JControl::handleMouseRelease(mx, my);
     }
 
@@ -291,6 +307,7 @@ public:
         if (m_pressNode && !m_editNode && m_dragEnabled) {
             const float ddx = mx - m_pressX, ddy = my - m_pressY;
             if (ddx * ddx + ddy * ddy > 25.0f) {
+                m_pendingSelect = nullptr;   // moved past the threshold → this is a drag, not a view-select click
                 if (m_internalReorder) {
                     // Begin an IN-TREE reorder. The external node-placement payload is armed lazily (in the
                     // m_dragging branch above) only once the cursor leaves the tree — NOT here — so a drag
@@ -791,6 +808,7 @@ private:
     bool           m_multiSelect{false};        // Ctrl/Shift multi-select (opt-in)
     JTreeViewNode* m_anchorNode{nullptr};       // range-select anchor
     JTreeViewNode* m_pendingCollapse{nullptr};  // click-on-selected: collapse to this on release-without-drag
+    JTreeViewNode* m_pendingSelect{nullptr};    // single-click candidate: select+activate on release IF no drag intervened
     JTreeViewNode* m_editNode{nullptr};   // node whose label is being edited in place
     std::string    m_editBuf;             // working text during an in-place rename
     bool           m_editable{true};      // F2 / click-selected may start an in-place rename
