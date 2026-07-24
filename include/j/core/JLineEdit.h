@@ -1,9 +1,13 @@
 #pragma once
 
-// JLineEdit.
+// JLineEdit — a single-line text field: chrome (box/border/focus ring), horizontal scroll, echo modes,
+// a validator, and rendering. The EDITING itself (buffer, caret, selection, word/char nav, clipboard, the
+// key map) lives in the shared JTextEditCore, so JLineEdit, the canvas caption editor, and the tree rename
+// all behave identically and improve together.
 
 #include "JControl.h"
 #include "JTextHelper.h"
+#include "JTextEditCore.h"
 #include "KeyEvent.h"
 #include "Validator.h"
 
@@ -26,80 +30,65 @@ public:
         l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().controlHeight;
         l.minWidth = 60.0f;
         l.minHeight = h;
+        // The core consults this to reject a keystroke/paste that a validator would make Invalid.
+        m_core.setAcceptFn([this](const std::string& cand) { return _acceptsText(cand); });
     }
 
     void setText(const std::string& t) {
-        if (m_text != t) {
-            m_text = t;
-            m_caret = m_anchor = m_text.size();               // caret to end + collapse selection on set
+        if (m_core.text() != t) {
+            m_core.setText(t);
             m_graph.invalidateNode(m_nodeId, DirtySelf);
-            onTextChanged.emit(t);
+            onTextChanged.emit(m_core.text());
             notifyAccessibility();
         }
     }
-    const std::string& text()        const { return m_text; }
+    const std::string& text()        const { return m_core.text(); }
     const std::string& placeholder() const { return m_placeholder; }
     void setPlaceholderText(const std::string& p) { m_placeholder = p; m_graph.invalidateNode(m_nodeId, DirtySelf); }
 
     // ---- Echo mode -------------------------------------------------------------------------------------
-    // Normal              — show the text verbatim.
-    // Password            — every character rendered as a bullet ('•').
-    // NoEcho              — render nothing (blank field), text still held.
-    // PasswordEchoOnEdit  — plain while focused (being edited), bullets otherwise.
+    // Normal / Password (bullets) / NoEcho (blank) / PasswordEchoOnEdit (plain while focused).
     enum EchoMode { Normal, Password, NoEcho, PasswordEchoOnEdit };
     void     setEchoMode(EchoMode m) { m_echo = m; m_graph.invalidateNode(m_nodeId, DirtySelf); }
     EchoMode echoMode() const { return m_echo; }
-    // The string as it is drawn (post-echo). Exposed so callers/tests can see the masked form
-    // without scraping the render buffer.
-    std::string displayText() const { return _echo(m_text); }
+    std::string displayText() const { return _echo(m_core.text()); }
 
     JA11yNode a11yNode() const override {
-        // A masked field (Password/NoEcho) must never leak its text through the
-        // accessibility value: report it Protected+Editable with an empty value.
         const bool masked = _masked();
         const std::string name = !m_placeholder.empty() ? m_placeholder : m_debugName;
-        JA11yNode n; _a11yFillCommon(n, JA11yRole::TextField, name, masked ? "" : m_text);
+        JA11yNode n; _a11yFillCommon(n, JA11yRole::TextField, name, masked ? "" : m_core.text());
         n.stateFlags |= JA11yEditable;
-        if (masked)     n.stateFlags |= JA11yProtected;
-        if (m_readOnly) n.stateFlags |= JA11yReadOnly;
+        if (masked)                 n.stateFlags |= JA11yProtected;
+        if (m_core.isReadOnly())    n.stateFlags |= JA11yReadOnly;
         return n;
     }
 
     // ---- Length limit / read-only / validator ----------------------------------------------------------
-    // 0 == unlimited. Truncates the current text and gates future inserts/pastes.
-    void   setMaxLength(int n) { m_maxLength = n < 0 ? 0 : (size_t)n;
-                                 if (m_maxLength && m_text.size() > m_maxLength) { m_text.resize(m_maxLength); m_caret = m_anchor = m_text.size(); m_graph.invalidateNode(m_nodeId, DirtySelf); } }
-    int    maxLength() const { return (int)m_maxLength; }
-    void   setReadOnly(bool ro) { m_readOnly = ro; }
-    bool   isReadOnly() const { return m_readOnly; }
-    // Non-owning. A keystroke that would make the text Invalid is rejected; on commit/focus-out a
-    // non-Acceptable value is fixup()'d (clamped) and, failing that, reverted to the last acceptable text.
-    void         setValidator(JValidator* v) { m_validator = v; m_committed = m_text; }
+    void   setMaxLength(int n) { m_core.setMaxLength(n < 0 ? 0 : (size_t)n); m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    int    maxLength() const { return (int)m_core.maxLength(); }
+    void   setReadOnly(bool ro) { m_core.setReadOnly(ro); }
+    bool   isReadOnly() const { return m_core.isReadOnly(); }
+    void         setValidator(JValidator* v) { m_validator = v; m_committed = m_core.text(); }
     JValidator*  validator() const { return m_validator; }
-    // Force a commit-time validation now (also invoked on Return and focus-out).
     void commit() { _enforceValidatorOnCommit(); }
 
-    // ---- Selection model -------------------------------------------------------------------------------
-    // A selection is the byte range [anchor, caret) (either end may be the larger). anchor==caret ⇒ none.
-    bool        hasSelection() const { return m_anchor != m_caret; }
-    size_t      selectionStart() const { return std::min(m_anchor, m_caret); }
-    size_t      selectionEnd()   const { return std::max(m_anchor, m_caret); }
-    std::string selectedText()   const {
-        return hasSelection() ? m_text.substr(selectionStart(), selectionEnd() - selectionStart()) : std::string();
-    }
-    void selectAll() { m_anchor = 0; m_caret = m_text.size(); m_graph.invalidateNode(m_nodeId, DirtySelf); }
-    void clearSelection() { m_anchor = m_caret; m_graph.invalidateNode(m_nodeId, DirtySelf); }
-    size_t caret() const { return m_caret; }
+    // ---- Selection model (delegated to the core) -------------------------------------------------------
+    bool        hasSelection() const { return m_core.hasSelection(); }
+    size_t      selectionStart() const { return m_core.selectionStart(); }
+    size_t      selectionEnd()   const { return m_core.selectionEnd(); }
+    std::string selectedText()   const { return m_core.selectedText(); }
+    void selectAll()      { m_core.selectAll();      m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    void clearSelection() { m_core.clearSelection(); m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    size_t caret() const { return m_core.caret(); }
 
     void handleMousePress(float mx, float my) override {
         if (!isPointInside(mx, my)) return;
-        requestFocus();   // clicking the field focuses it, so typed characters route here (framework focus)
+        requestFocus();
         onClicked.emit();
-        // Multi-click detection (single → caret + drag-select, double → word, triple → all). Two presses count
-        // as a double-click when they land close together in space and within 400 ms — the same test path the
-        // platform's real click stream drives.
+        // Multi-click detection (single → caret + drag-select, double → word, triple → all). Timing lives
+        // here (widget), the selection ops in the core.
         const auto now  = std::chrono::steady_clock::now();
-        const bool nearby = std::abs(mx - m_lastClickX) < 4.0f;   // NB: 'near' is a legacy windows.h macro
+        const bool nearby = std::abs(mx - m_lastClickX) < 4.0f;
         const bool quick = m_clickCount > 0 &&
             std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastClick).count() < 400;
         m_clickCount = (quick && nearby) ? m_clickCount + 1 : 1;
@@ -107,19 +96,15 @@ public:
         m_lastClickX = mx;
 
         const size_t idx = _caretFromX(mx);
-        if (m_clickCount >= 3) {            // triple-click → select the whole field
-            m_anchor = 0; m_caret = m_text.size(); m_selecting = false;
-        } else if (m_clickCount == 2) {     // double-click → select the word (or whitespace run) under the cursor
-            _selectWordAt(idx); m_selecting = false;
-        } else {                            // single-click → place caret, begin a drag-select
-            m_caret = idx; m_anchor = idx; m_selecting = true;
-        }
+        if (m_clickCount >= 3)      { m_core.selectAll();      m_selecting = false; }   // triple → whole field
+        else if (m_clickCount == 2) { m_core.selectWordAt(idx); m_selecting = false; }  // double → word
+        else                        { m_core.setCaret(idx, false); m_selecting = true; } // single → caret + drag
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
     void handleMouseMove(float mx, float my) override {
         JControl::handleMouseMove(mx, my);
-        if (m_selecting) { m_caret = _caretFromX(mx); m_graph.invalidateNode(m_nodeId, DirtySelf); }   // extend, keep anchor
+        if (m_selecting) { m_core.setCaret(_caretFromX(mx), /*extend=*/true); m_graph.invalidateNode(m_nodeId, DirtySelf); }
     }
     void handleMouseRelease(float mx, float my) override {
         m_selecting = false;
@@ -128,110 +113,21 @@ public:
 
     bool handleKeyEvent(const JKeyEvent& ke) override {
         if (!ke.pressed) return false;
-        using K = JKeyEvent::JKey;
-        if (m_caret  > m_text.size()) m_caret  = m_text.size();
-        if (m_anchor > m_text.size()) m_anchor = m_text.size();
-        auto changed = [&]{
-            m_graph.invalidateNode(m_nodeId, DirtySelf);
-            onTextChanged.emit(m_text);
-        };
-        auto moved = [&]{ m_graph.invalidateNode(m_nodeId, DirtySelf); };
-
-        // ---- Clipboard + select-all (Ctrl). Match on both the JKey and the folded printable, since a
-        //      Ctrl-chord may arrive as a named key or as a control-code utf8 byte depending on platform. ----
-        if (ke.ctrl && !ke.alt) {
-            const char lc = static_cast<char>(ke.utf8[0] | 0x20);   // case-fold the printable, if any
-            if (ke.key == K::A || lc == 'a') { selectAll(); return true; }
-            // Copy is disabled while masked so a password can't be lifted verbatim.
-            if (ke.key == K::C || lc == 'c') { if (hasSelection() && !_masked()) clipboardSet(selectedText()); return true; }
-            if (ke.key == K::X || lc == 'x') {
-                if (m_readOnly) return true;
-                if (hasSelection()) { if (!_masked()) clipboardSet(selectedText()); _deleteSelection(); changed(); }
-                return true;
-            }
-            if (ke.key == K::V || lc == 'v') {
-                if (m_readOnly) return true;
-                std::string clip = clipboardGet();
-                clip.erase(std::remove(clip.begin(), clip.end(), '\n'), clip.end());   // single-line field: drop newlines
-                clip.erase(std::remove(clip.begin(), clip.end(), '\r'), clip.end());
-                if (!clip.empty()) {
-                    // Build the candidate (selection replaced by clip), enforce max length + validator.
-                    std::string cand = m_text;
-                    const size_t lo = selectionStart(), hi = selectionEnd();
-                    cand.replace(lo, hi - lo, clip);
-                    if (m_maxLength && cand.size() > m_maxLength) {          // trim the paste to fit
-                        const size_t room = m_maxLength > (m_text.size() - (hi - lo)) ? m_maxLength - (m_text.size() - (hi - lo)) : 0;
-                        clip.resize(std::min(clip.size(), room));
-                        cand = m_text; cand.replace(lo, hi - lo, clip);
-                    }
-                    if (!clip.empty() && _acceptsText(cand)) {
-                        _deleteSelection();                              // paste replaces the active selection
-                        m_text.insert(m_caret, clip);
-                        m_caret += clip.size();
-                        m_anchor = m_caret;
-                        changed();
-                    }
-                }
-                return true;
-            }
-        }
-
-        switch (ke.key) {
-            case K::Backspace:
-                if (m_readOnly) return true;
-                if (hasSelection())      { _deleteSelection(); changed(); }
-                else if (ke.ctrl)        { const size_t p = _prevWord(m_caret); if (p < m_caret) { m_text.erase(p, m_caret - p); m_caret = m_anchor = p; changed(); } }
-                else if (m_caret > 0)    { const size_t p = _prevCharStart(m_caret); m_text.erase(p, m_caret - p); m_caret = m_anchor = p; changed(); }
-                return true;
-            case K::Delete:
-                if (m_readOnly) return true;
-                if (hasSelection())              { _deleteSelection(); changed(); }
-                else if (ke.ctrl)                { const size_t e = _nextWord(m_caret); if (e > m_caret) { m_text.erase(m_caret, e - m_caret); m_anchor = m_caret; changed(); } }
-                else if (m_caret < m_text.size()){ m_text.erase(m_caret, _nextCharStart(m_caret) - m_caret); m_anchor = m_caret; changed(); }
-                return true;
-            case K::Left: {
-                size_t pos = ke.ctrl ? _prevWord(m_caret) : _prevCharStart(m_caret);
-                if (!ke.shift && !ke.ctrl && hasSelection()) pos = selectionStart();   // plain arrow collapses to edge
-                m_caret = pos; if (!ke.shift) m_anchor = pos; moved(); return true;
-            }
-            case K::Right: {
-                size_t pos = ke.ctrl ? _nextWord(m_caret) : _nextCharStart(m_caret);
-                if (!ke.shift && !ke.ctrl && hasSelection()) pos = selectionEnd();
-                m_caret = pos; if (!ke.shift) m_anchor = pos; moved(); return true;
-            }
-            case K::Home: m_caret = 0;             if (!ke.shift) m_anchor = m_caret; moved(); return true;
-            case K::End:  m_caret = m_text.size(); if (!ke.shift) m_anchor = m_caret; moved(); return true;
-            case K::Return: _enforceValidatorOnCommit(); onReturnPressed.emit(); return true;
-            default: break;
-        }
-        if (!ke.ctrl && !ke.alt && ke.utf8[0] != '\0' && static_cast<uint8_t>(ke.utf8[0]) >= 32) {   // printable → replace selection + insert
-            if (m_readOnly) return true;
-            const std::string ch = ke.utf8;
-            // Build the resulting text and gate it on max length + validator (reject → consume, no change).
-            std::string cand = m_text;
-            const size_t lo = selectionStart(), hi = selectionEnd();
-            cand.replace(lo, hi - lo, ch);
-            if (m_maxLength && cand.size() > m_maxLength) return true;
-            if (!_acceptsText(cand)) return true;
-            _deleteSelection();
-            m_text.insert(m_caret, ch);
-            m_caret += ch.size();
-            m_anchor = m_caret;
-            changed();
-            return true;
-        }
-        return false;
+        m_core.setCopyEnabled(!_masked());   // masked field: don't lift the text to the clipboard
+        const auto res = m_core.handleKey(ke);
+        if (res.returnPressed) { _enforceValidatorOnCommit(); onReturnPressed.emit(); return true; }
+        if (res.changed)       { m_graph.invalidateNode(m_nodeId, DirtySelf); onTextChanged.emit(m_core.text()); notifyAccessibility(); }
+        else if (res.consumed) { m_graph.invalidateNode(m_nodeId, DirtySelf); }   // caret / selection moved
+        return res.consumed;
     }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         bool focused = isFocused();
-        // Losing focus commits: clamp/revert a non-Acceptable value via the validator.
-        if (m_wasFocused && !focused) _enforceValidatorOnCommit();
+        if (m_wasFocused && !focused) _enforceValidatorOnCommit();   // focus-out commits (clamp/revert)
         m_wasFocused = focused;
         JStyleOption o = jstyle::option(m_state, focused);
 
-        // Background = Base role, border = Accent ring when focused else Border (by role).
         buf.pushRectangle(b.x, b.y, b.width, b.height, jstyle::fieldFill(o).data(),
                           JStyle::current().hint(JStyleHint::ControlRadius),
                           jstyle::borderW(focused), jstyle::border(o).data());
@@ -241,43 +137,39 @@ public:
         float innerW = b.width - 2.0f * pad;
         float midY   = b.y + (b.height - 7.0f) * 0.5f;
 
-        // Echo-aware display string (verbatim / bullets / blank). Selection + caret measure against it.
-        const std::string disp = _echo(m_text);
+        const std::string& raw = m_core.text();
+        const std::string disp = _echo(raw);
 
-        // Horizontal scroll: as the text grows past the field width, shift the whole run left so the CARET
-        // stays visible — standard single-line text-entry behaviour. Recomputed each frame from the caret;
-        // the run + caret + selection are drawn shifted by -m_scrollX and clipped to the inner rect so
-        // nothing spills past the border.
-        const size_t caret = m_caret > m_text.size() ? m_text.size() : m_caret;
-        const float caretW = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(_echo(m_text.substr(0, caret))) : 0.0f;
+        // Horizontal scroll so the caret stays visible (single-line behaviour).
+        const size_t caret = m_core.caret() > raw.size() ? raw.size() : m_core.caret();
+        const float caretW = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(_echo(raw.substr(0, caret))) : 0.0f;
         const float fullW  = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(disp) : 0.0f;
-        if (caretW - m_scrollX > innerW) m_scrollX = caretW - innerW;   // caret past the right edge → scroll right
-        if (caretW - m_scrollX < 0.0f)   m_scrollX = caretW;            // caret past the left edge  → scroll left
-        if (m_scrollX > fullW - innerW)  m_scrollX = fullW - innerW;    // don't scroll past the end of the text
-        if (m_scrollX < 0.0f)            m_scrollX = 0.0f;              // (also collapses to 0 when text fits)
-        const float ox = innerX - m_scrollX;                            // text origin, scrolled
+        if (caretW - m_scrollX > innerW) m_scrollX = caretW - innerW;
+        if (caretW - m_scrollX < 0.0f)   m_scrollX = caretW;
+        if (m_scrollX > fullW - innerW)  m_scrollX = fullW - innerW;
+        if (m_scrollX < 0.0f)            m_scrollX = 0.0f;
+        const float ox = innerX - m_scrollX;
 
-        buf.pushClip(innerX, b.y, innerW, b.height);   // scissor text/caret/selection to the field
+        buf.pushClip(innerX, b.y, innerW, b.height);
 
-        // Selection highlight — a translucent rectangle behind the selected glyph run (drawn before the text).
-        if (hasSelection() && JTextHelper::hasAtlas() && !disp.empty()) {
-            const float xLo = ox + JTextHelper::measureWidth(_echo(m_text.substr(0, selectionStart())));
-            const float xHi = ox + JTextHelper::measureWidth(_echo(m_text.substr(0, selectionEnd())));
-            const JColor sc = withAlpha(jstyle::role(JColorRole::Highlight, o), 90);   // Accent @ 90
+        if (m_core.hasSelection() && JTextHelper::hasAtlas() && !disp.empty()) {
+            const float xLo = ox + JTextHelper::measureWidth(_echo(raw.substr(0, m_core.selectionStart())));
+            const float xHi = ox + JTextHelper::measureWidth(_echo(raw.substr(0, m_core.selectionEnd())));
+            const JColor sc = withAlpha(jstyle::role(JColorRole::Highlight, o), 90);
             buf.pushRectangle(xLo, b.y + 4.0f, std::max(1.0f, xHi - xLo), b.height - 8.0f, sc.data(), 2.0f);
         }
 
         if (JTextHelper::hasAtlas()) {
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
-            if (m_text.empty()) {
+            if (raw.empty()) {
                 uint8_t pc[4] = {Colors::FieldPlaceholder[0], Colors::FieldPlaceholder[1], Colors::FieldPlaceholder[2], 160};
                 JTextHelper::pushText(buf, innerX, ty, m_placeholder, pc, innerW);
             } else {
                 uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 220};
-                JTextHelper::pushText(buf, ox, ty, disp, tc, 0.0f);   // clip (not maxWidth) bounds the run
+                JTextHelper::pushText(buf, ox, ty, disp, tc, 0.0f);
             }
         } else {
-            if (m_text.empty()) {
+            if (raw.empty()) {
                 uint8_t pc[4] = {Colors::FieldPlaceholder[0], Colors::FieldPlaceholder[1], Colors::FieldPlaceholder[2], 120};
                 buf.pushRectangle(innerX, midY, innerW * 0.55f, 7.0f, pc, 2.0f);
             } else {
@@ -286,10 +178,9 @@ public:
             }
         }
 
-        // Caret at the actual insertion point (scrolled with the run, kept in view by m_scrollX above).
         if (focused) {
             const float cx = JTextHelper::hasAtlas() ? ox + caretW
-                                                     : innerX + innerW * 0.65f * (float)caret / (float)std::max<size_t>(1, m_text.size());
+                                                     : innerX + innerW * 0.65f * (float)caret / (float)std::max<size_t>(1, raw.size());
             buf.pushRectangle(cx, b.y + 6.0f, 1.5f, b.height - 12.0f, jstyle::role(JColorRole::Accent, o).data());
         }
 
@@ -298,86 +189,29 @@ public:
 
 
 private:
-    // UTF-8 char-boundary navigation: skip continuation bytes (0b10xxxxxx) so the caret lands on whole chars.
-    size_t _nextCharStart(size_t i) const {
-        if (i >= m_text.size()) return m_text.size();
-        ++i;
-        while (i < m_text.size() && (static_cast<uint8_t>(m_text[i]) & 0xC0) == 0x80) ++i;
-        return i;
-    }
-    size_t _prevCharStart(size_t i) const {
-        if (i == 0) return 0;
-        --i;
-        while (i > 0 && (static_cast<uint8_t>(m_text[i]) & 0xC0) == 0x80) --i;
-        return i;
-    }
-
-    // A "word" character for navigation: ASCII alphanumerics, '_' and any UTF-8 lead/continuation byte
-    // (so multibyte glyphs count as word content). Everything else (space, punctuation) is a separator.
-    static bool _isWordChar(unsigned char c) {
-        return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || c >= 0x80;
-    }
-    // Start of the next word: skip the current word run, then the following separators (Qt/GTK semantics).
-    size_t _nextWord(size_t i) const {
-        const size_t n = m_text.size();
-        while (i < n &&  _isWordChar(static_cast<unsigned char>(m_text[i]))) ++i;
-        while (i < n && !_isWordChar(static_cast<unsigned char>(m_text[i]))) ++i;
-        return i;
-    }
-    // Start of the current/previous word: skip separators to the left, then the word run.
-    size_t _prevWord(size_t i) const {
-        while (i > 0 && !_isWordChar(static_cast<unsigned char>(m_text[i - 1]))) --i;
-        while (i > 0 &&  _isWordChar(static_cast<unsigned char>(m_text[i - 1]))) --i;
-        return i;
-    }
-    // Select the contiguous run (word OR whitespace/punct) of the same class as the char at/under `i`.
-    void _selectWordAt(size_t i) {
-        const size_t n = m_text.size();
-        if (n == 0) { m_anchor = m_caret = 0; return; }
-        if (i >= n) i = n - 1;
-        const bool w = _isWordChar(static_cast<unsigned char>(m_text[i]));
-        size_t s = i, e = i;
-        while (s > 0 && _isWordChar(static_cast<unsigned char>(m_text[s - 1])) == w) --s;
-        while (e < n && _isWordChar(static_cast<unsigned char>(m_text[e]))     == w) ++e;
-        m_anchor = s; m_caret = e;
-    }
-    // Nearest character boundary to a screen x — used by click and drag-select.
+    // Nearest character boundary to a screen x — click + drag-select. Delegates the scan to the core with a
+    // measure that applies the echo, so bullets and plain text hit-test correctly.
     size_t _caretFromX(float mx) const {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         const float innerX = b.x + textPadding();
-        if (!JTextHelper::hasAtlas() || m_text.empty()) return m_text.size();
-        const float target = mx - innerX + m_scrollX;   // the run is drawn at innerX - m_scrollX, so add it back
-        if (target <= 0.f) return 0;
-        float prevW = 0.f;
-        for (size_t i = 0; i < m_text.size(); ) {
-            const size_t nxt = _nextCharStart(i);
-            const float w = JTextHelper::measureWidth(m_text.substr(0, nxt));
-            if (target < (prevW + w) * 0.5f) return i;
-            prevW = w; i = nxt;
-        }
-        return m_text.size();
-    }
-    void _deleteSelection() {
-        if (!hasSelection()) return;
-        const size_t lo = selectionStart(), hi = selectionEnd();
-        m_text.erase(lo, hi - lo);
-        m_caret = m_anchor = lo;
+        if (!JTextHelper::hasAtlas() || m_core.text().empty()) return m_core.text().size();
+        const float target = mx - innerX + m_scrollX;   // the run is drawn at innerX - m_scrollX; add it back
+        return m_core.caretAtX(target, [this](size_t end) {
+            return JTextHelper::measureWidth(_echo(m_core.text().substr(0, end)));
+        });
     }
 
     // ---- Echo / validator plumbing --------------------------------------------------------------------
-    // True when characters are currently masked (so copy is suppressed / caret metrics use bullets).
     bool _masked() const {
         return m_echo == Password || m_echo == NoEcho ||
                (m_echo == PasswordEchoOnEdit && !isFocused());
     }
-    // Number of UTF-8 codepoints (glyph cells) in s.
     static size_t _cpCount(const std::string& s) {
         size_t n = 0;
         for (size_t i = 0; i < s.size(); ++i)
             if ((static_cast<uint8_t>(s[i]) & 0xC0) != 0x80) ++n;
         return n;
     }
-    // Map a plaintext run to its rendered form per the echo mode (one bullet per codepoint).
     std::string _echo(const std::string& s) const {
         switch (m_echo) {
             case Normal: return s;
@@ -389,37 +223,31 @@ private:
         for (size_t i = 0, n = _cpCount(s); i < n; ++i) out += "\xE2\x80\xA2";   // U+2022 BULLET
         return out;
     }
-    // A candidate string is acceptable to type when there is no validator, or it is not Invalid.
     bool _acceptsText(const std::string& cand) const {
         if (!m_validator) return true;
-        int pos = (int)m_caret;
+        int pos = (int)m_core.caret();
         return m_validator->validate(cand, pos) != JValidator::Invalid;
     }
-    // Commit-time gate: keep an Acceptable value, else fixup() (clamp) toward Acceptable, else revert.
     void _enforceValidatorOnCommit() {
-        if (!m_validator) { m_committed = m_text; return; }
-        int pos = (int)m_caret;
-        if (m_validator->validate(m_text, pos) == JValidator::Acceptable) { m_committed = m_text; return; }
-        std::string t = m_text; m_validator->fixup(t); pos = (int)t.size();
+        if (!m_validator) { m_committed = m_core.text(); return; }
+        int pos = (int)m_core.caret();
+        if (m_validator->validate(m_core.text(), pos) == JValidator::Acceptable) { m_committed = m_core.text(); return; }
+        std::string t = m_core.text(); m_validator->fixup(t); pos = (int)t.size();
         if (m_validator->validate(t, pos) == JValidator::Acceptable) { setText(t); m_committed = t; }
-        else { setText(m_committed); }   // unrecoverable → restore the last good value
+        else { setText(m_committed); }
     }
 
-    std::string m_text;
+    JTextEditCore m_core;              // the shared text-editing model (buffer/caret/selection/keys)
     std::string m_placeholder;
-    size_t      m_caret  = 0;   // insertion index into m_text (bytes; on a UTF-8 char boundary)
-    size_t      m_anchor = 0;   // selection anchor (== m_caret ⇒ no selection)
-    float       m_scrollX = 0.f; // horizontal scroll offset (px) so the caret stays visible past the width
-    bool        m_selecting = false;                                 // mouse drag-select in progress
-    int         m_clickCount = 0;                                    // 1/2/3 = single/double/triple within the window
+    float       m_scrollX = 0.f;
+    bool        m_selecting = false;
+    int         m_clickCount = 0;
     std::chrono::steady_clock::time_point m_lastClick{};
     float       m_lastClickX = 0.f;
     EchoMode    m_echo{Normal};
-    size_t      m_maxLength{0};        // 0 = unlimited
-    bool        m_readOnly{false};
-    bool        m_wasFocused{false};   // focus-out edge → commit
-    JValidator* m_validator{nullptr};  // non-owning
-    std::string m_committed;           // last Acceptable text (revert target)
+    bool        m_wasFocused{false};
+    JValidator* m_validator{nullptr};
+    std::string m_committed;
 };
 
 } // inline namespace jf
