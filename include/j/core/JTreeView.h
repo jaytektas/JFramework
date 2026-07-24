@@ -122,6 +122,31 @@ public:
     void expandAll()   { for (auto& c : m_root.children) _setExpandedRec(c, true);  m_root.expanded = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
     void collapseAll() { for (auto& c : m_root.children) _setExpandedRec(c, false); m_root.expanded = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
 
+    // Select the node at a "/"-joined label path, expanding its ancestors so the highlight is visible, and
+    // emit onSelectionChanged exactly as a user click would. Lets an app drive the selection to match a
+    // programmatic view change (e.g. following a hyperlink) so the tree highlight stays in sync. No-op if the
+    // path doesn't resolve.
+    void selectByPath(const std::string& path) {
+        if (path.empty()) return;
+        std::vector<std::string> parts;
+        for (size_t start = 0; start <= path.size(); ) {
+            const size_t sep = path.find('/', start);
+            if (sep == std::string::npos) { parts.push_back(path.substr(start)); break; }
+            parts.push_back(path.substr(start, sep - start));
+            start = sep + 1;
+        }
+        JTreeViewNode* cur = &m_root;
+        for (size_t d = 0; d < parts.size(); ++d) {
+            JTreeViewNode* next = nullptr;
+            for (auto& c : cur->children) if (c.label == parts[d]) { next = &c; break; }
+            if (!next) return;                                   // path doesn't resolve → leave selection as-is
+            if (d + 1 < parts.size()) next->expanded = true;     // reveal ancestors (not the leaf itself)
+            cur = next;
+        }
+        _selectNode(cur);                                        // highlight + onSelectionChanged (drives the view)
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+
     // Run-mode condition filtering (mirrors the original EditTree::applyConditions): hide every node whose
     // predicate returns false — and its whole subtree — in place, so selection + scroll survive. Re-run each
     // telemetry frame; only invalidates when the visible set actually changes (no per-frame flicker/rebuild).
