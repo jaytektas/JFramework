@@ -487,8 +487,15 @@ public:
     // there is one, otherwise creates a leaf (with optional affinity, e.g. to restrict who
     // may dock here). Lets callers just declare "this dock lives here" — no leaf plumbing.
     JDockNodeId addDock(JDockWidget* dock, JDockAffinityRule affinity = {}) {
+        // Tabify into the first non-empty leaf if there is one.
         for (auto& n : m_nodes)
             if (n.type == JDockNode::JType::Leaf && !n.tabs.empty()) { insertDock(dock, n.id); return n.id; }
+        // Otherwise reuse an existing EMPTY leaf — the placeholder _pruneLeaf plants when the host is emptied
+        // by closing its last dock. Without this, re-adding a dock would addLeaf a NEW sibling beside that
+        // placeholder, splitting the host in two (empty half + the dock) instead of refilling it full-size.
+        for (auto& n : m_nodes)
+            if (n.type == JDockNode::JType::Leaf && n.tabs.empty())
+                if (insertDock(dock, n.id)) return n.id;
         JDockNodeId leaf = addLeaf(rootId(), "", 1.0f, std::move(affinity));
         insertDock(dock, leaf);
         return leaf;
