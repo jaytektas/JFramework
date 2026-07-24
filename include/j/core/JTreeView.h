@@ -31,6 +31,10 @@ public:
     jf::JSignal<JTreeViewNode*> onNodeDragStarted; // press-and-drag on a node past a threshold (app starts a JDragDrop)
     jf::JSignal<> onDeleteKey;   // Delete/Backspace pressed with a node selected (app removes it)
     jf::JSignal<> onEnterKey;    // Return pressed with a node selected and not renaming (app adds a sibling)
+    // Optional: mark a node as a "hyperlink" (e.g. it owns a viewport/page). When set, hovering such a node
+    // underlines its label like a web link — a hint that clicking it navigates somewhere. App supplies the
+    // predicate (it knows what backs each node); left unset, no node underlines.
+    std::function<bool(const JTreeViewNode*)> onIsHyperlink;
     // Internal drag-reorder: fires on drop with (moved node, new parent, insert index). Enable with
     // setInternalReorder(true); then a node drag reorders IN the tree instead of firing onNodeDragStarted.
     jf::JSignal<JTreeViewNode*, JTreeViewNode*, int> onNodeMoved;
@@ -90,7 +94,7 @@ public:
         if (m_selectedNode) _pathOf(m_root, m_selectedNode, keepPath);
         m_root = std::move(rootNode);
         m_selectedNode = m_anchorNode = nullptr;   // old pointers dangle into the freed tree
-        m_pressNode = m_pendingSelect = m_pendingCollapse = nullptr;   // gesture pointers into the freed tree
+        m_pressNode = m_pendingSelect = m_pendingCollapse = m_hoverNode = nullptr;   // gesture pointers into the freed tree
         m_scrollY = 0.0f;
         if (!keepPath.empty()) {
             if (JTreeViewNode* n = _nodeAtPath(m_root, keepPath, 0)) {
@@ -290,7 +294,21 @@ public:
         JControl::handleMouseRelease(mx, my);
     }
 
+    // The flat node whose row is under (mx,my), or null if outside the tree / on the scrollbar / past the rows.
+    JTreeViewNode* _nodeAtPoint(float mx, float my) {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        if (mx < b.x || mx > b.x + b.width - 10.0f || my < b.y || my > b.y + b.height) return nullptr;  // -10: scrollbar col
+        auto flatNodes = getFlatNodes();
+        const float itemH = getItemHeight();
+        const int idx = static_cast<int>((my - b.y + m_scrollY - 4.0f) / itemH);
+        return (idx >= 0 && idx < static_cast<int>(flatNodes.size())) ? flatNodes[idx].node : nullptr;
+    }
+
     void handleMouseMove(float mx, float my) override {
+        // Hyperlink-hover underline: track the row under the cursor (none while a drag/press gesture is live)
+        // and repaint when it changes, so the underline follows the mouse.
+        JTreeViewNode* hov = (m_dragging || m_draggingScroll || m_pressNode) ? nullptr : _nodeAtPoint(mx, my);
+        if (hov != m_hoverNode) { m_hoverNode = hov; m_graph.invalidateNode(m_nodeId, DirtySelf); }
         if (m_draggingScroll) {
             const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
             auto flatNodes = getFlatNodes();
@@ -513,7 +531,17 @@ public:
             } else {
                 float tx = textX;
                 if (flat.node->icon != 0) { _drawTreeIcon(buf, textX + 1.0f, itemY + itemH * 0.5f, flat.node->icon); tx += 15.0f; }
-                drawNodeText(buf, flat.node, tx, ty, b.width - (tx - b.x) - 14.0f);
+                const float maxW = b.width - (tx - b.x) - 14.0f;
+                drawNodeText(buf, flat.node, tx, ty, maxW);
+                // Hyperlink-hover underline: while the cursor is over a node the app marks as a link, underline
+                // its label like a web link (a hint that clicking navigates there).
+                if (flat.node == m_hoverNode && onIsHyperlink && onIsHyperlink(flat.node) && JTextHelper::hasAtlas()) {
+                    const float lw = std::min(JTextHelper::measureWidth(tr(flat.node->label)), maxW);
+                    const JStyleOption o = jstyle::option(m_state, isFocused());
+                    const uint8_t* uc = jstyle::role(flat.node->selected ? JColorRole::HighlightedText : JColorRole::Text, o).data();
+                    uint8_t line[4] = { uc[0], uc[1], uc[2], 230 };
+                    buf.pushRectangle(tx, ty + JTextHelper::lineHeight() - 1.0f, lw, 1.0f, line, 0.0f);
+                }
             }
         }
 
@@ -834,6 +862,7 @@ private:
     JTreeViewNode* m_anchorNode{nullptr};       // range-select anchor
     JTreeViewNode* m_pendingCollapse{nullptr};  // click-on-selected: collapse to this on release-without-drag
     JTreeViewNode* m_pendingSelect{nullptr};    // single-click candidate: select+activate on release IF no drag intervened
+    JTreeViewNode* m_hoverNode{nullptr};        // row under the cursor (for the hyperlink-hover underline)
     JTreeViewNode* m_editNode{nullptr};   // node whose label is being edited in place
     std::string    m_editBuf;             // working text during an in-place rename
     bool           m_editable{true};      // F2 / click-selected may start an in-place rename
