@@ -158,6 +158,15 @@ public:
     }
 
     void render(JPrimitiveBuffer& buf) {
+        // Reconcile dock-content visibility once per frame. A dock that was closed or dropped by a
+        // restored layout is no longer in any host's tree, yet its content widget stays registered
+        // (JWidget::s_activeWidgets) with isVisible()==true and a stale bounding box — so it keeps
+        // intercepting hit-tests and FocusManager::focusAt (the tree focus-ring bug: an orphaned
+        // dictionary tree at (0,0) stealing clicks from the navigation tree). Hide every non-floating
+        // dock's content here; each host's _renderLeaf re-shows its ACTIVE tab below, so only live,
+        // visible tabs stay focusable. Floating (torn) docks self-heal in their own float host.
+        for (JDockWidget* d : JDockWidget::s_activeDocks)
+            if (d && !d->hasTornState() && d->content()) d->content()->setVisible(false);
         for (int a = 0; a < AreaCount; ++a) if (a != Center && active(Area(a))) m_host[a].populateRenderPrimitives(buf);
         if (m_central) m_central->populateRenderPrimitives(buf);   // centre content (not a host)
 

@@ -1289,7 +1289,18 @@ private:
 
     void _renderLeaf(const JDockNode& leaf, JPrimitiveBuffer& buf) const {
         const JRect& r = leaf.rect;
-        if (r.width < 1.f || r.height < 1.f) return;
+        const bool tooSmall = (r.width < 1.f || r.height < 1.f);
+        // Content visibility follows the tab, and MUST be reconciled even for a zero-size (collapsed
+        // / hidden) leaf — otherwise a tabbed-away or collapsed dock's content keeps isVisible()==true
+        // with a stale bounding box and still intercepts hit-tests / FocusManager::focusAt (the tree
+        // focus-ring bug: the hidden dictionary tree at (0,0) stealing clicks from the nav tree).
+        {
+            const int vt = tooSmall ? -1 : leaf.activeTab;   // tooSmall → hide every tab's content
+            for (int i = 0; i < static_cast<int>(leaf.tabs.size()); ++i)
+                if (leaf.tabs[i] && leaf.tabs[i]->content())
+                    leaf.tabs[i]->content()->setVisible(i == vt);
+        }
+        if (tooSmall) return;
 
         // Body background.
         buf.pushRectangle(r.x, r.y, r.width, r.height, Colors::PopupBg, 0.0f, 1.0f, Colors::Border);
@@ -1303,7 +1314,9 @@ private:
         // the onRenderContent paint hook — JDockWidget::renderContent picks whichever it holds.
         // This same path serves an inline leaf (main window) and a torn-out float (its internal
         // host runs the same _renderLeaf), so there is no per-context wiring.
-        if (int at = leaf.activeTab; at >= 0 && at < static_cast<int>(leaf.tabs.size()) && leaf.tabs[at])
+        // Render the active tab's content (renderContent also re-bounds the widget). Inactive-tab
+        // visibility was already reconciled at the top of this function.
+        if (const int at = leaf.activeTab; at >= 0 && at < static_cast<int>(leaf.tabs.size()) && leaf.tabs[at])
             leaf.tabs[at]->renderContent(buf, content);
 
         if (_leafHeaderless(leaf)) return;   // no host chrome — the content is the whole leaf
