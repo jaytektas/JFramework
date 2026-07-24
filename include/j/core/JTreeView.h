@@ -5,6 +5,7 @@
 #include "JControl.h"
 #include "JArrow.h"
 #include "JTextHelper.h"
+#include "JLineEdit.h"
 #include "KeyEvent.h"
 #include "DragDrop.h"
 #include "Log.h"
@@ -45,23 +46,29 @@ public:
     void setDragEnabled(bool on) { m_dragEnabled = on; }
     bool isDragEnabled() const { return m_dragEnabled; }
 
-    // Begin an in-place rename of the selected node (context-menu "Rename"). Enter commits (fires
-    // onNodeRenamed), Escape cancels; the row draws an edit field with a caret while active.
+    // Begin an in-place rename of the selected node (context-menu "Rename" / F2 / double-click). A real
+    // JLineEdit is mounted over the row so the rename is a FULL text editor — click to place the caret,
+    // double-click to select, arrows/Home/End, drag-select — not a bare append/backspace buffer. The whole
+    // label starts SELECTED, so the first keystroke replaces it (typing a name over "New node" just works).
+    // Enter commits (fires onNodeRenamed), Escape cancels.
     void beginRename() {
         if (!m_selectedNode) return;
         m_editNode = m_selectedNode;
-        m_editBuf  = m_selectedNode->label;
+        m_editField.setText(m_selectedNode->label);
+        m_editField.selectAll();       // first keystroke replaces the whole label
+        m_editField.setFocused(true);  // render caret/selection (the tree keeps keyboard focus + forwards keys)
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
     bool isEditing() const { return m_editNode != nullptr; }
 
-    // Commit an in-place rename (Enter, click elsewhere, or focus loss): apply the buffer + fire
+    // Commit an in-place rename (Enter, click elsewhere, or focus loss): apply the field text + fire
     // onNodeRenamed. Cancel (Escape) just clears m_editNode without applying.
     void commitRename() {
         if (!m_editNode) return;
-        m_editNode->label = m_editBuf;
+        m_editNode->label = m_editField.text();
         JTreeViewNode* n = m_editNode;
         m_editNode = nullptr;
+        m_editField.setFocused(false);
         m_graph.invalidateNode(m_nodeId, DirtySelf);
         onNodeRenamed.emit(n);
     }
@@ -72,12 +79,16 @@ public:
     bool isEditable() const { return m_editable; }
 
     JTreeView(JSceneGraph& graph, float w = 240.0f, float h = 300.0f)
-        : JControl(graph, "JTreeView"), m_root{"Root", true, false, {}}
+        : JControl(graph, "JTreeView"), m_root{"Root", true, false, {}}, m_editField(graph)
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().menuItemHeight;
         l.minWidth = 80.0f;
         l.minHeight = 40.0f;
+        // The rename field is driven entirely BY THE TREE (keys/mouse forwarded, caret shown via the visual
+        // focus flag). It must never be a focus-manager target itself, or a click would steal keyboard focus
+        // from the tree and the forwarding would stop. NoFocus keeps focusAt from ever picking it.
+        m_editField.setFocusPolicy(JFocusPolicy::NoFocus);
     }
 
     JTreeViewNode& root() { return m_root; }
@@ -147,8 +158,17 @@ public:
             if (d + 1 < parts.size()) next->expanded = true;     // reveal ancestors (not the leaf itself)
             cur = next;
         }
-        _selectNode(cur);                                        // highlight + onSelectionChanged (drives the view)
+        // Update the selected pointer/flag if it changed, then ALWAYS emit onSelectionChanged. selectByPath's
+        // job is to drive the view to `cur`; the app's view (e.g. the surface's active node) can be out of sync
+        // with the tree's selection — notably right after setRootNode re-anchored the selection to this same
+        // node — so a plain _selectNode() would no-op and the view would never follow. Force the notify.
+        if (m_selectedNode != cur) {
+            if (m_selectedNode) m_selectedNode->selected = false;
+            m_selectedNode = cur;
+            m_selectedNode->selected = true;
+        }
         m_graph.invalidateNode(m_nodeId, DirtySelf);
+        onSelectionChanged.emit(cur);
     }
 
     // Run-mode condition filtering (mirrors the original EditTree::applyConditions): hide every node whose
@@ -186,12 +206,36 @@ public:
         return flat;
     }
 
+    // Screen rect of the mounted rename field (empty if not editing / the row is scrolled off).
+    JRect _editRect() {
+        if (!m_editNode) return {};
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        auto flat = getFlatNodes();
+        const float itemH = getItemHeight();
+        for (int i = 0; i < static_cast<int>(flat.size()); ++i) if (flat[i].node == m_editNode) {
+            const float itemY = b.y + 4.0f + i * itemH - m_scrollY;
+            const float textX = b.x + (flat[i].depth * 16.0f + 6.0f) + 16.0f;
+            const float ex = textX - 3.0f;
+            return { ex, itemY + 2.0f, b.x + b.width - 16.0f - ex, itemH - 4.0f };
+        }
+        return {};
+    }
+
     void handleMousePress(float mx, float my) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        // A press anywhere commits an in-place rename in progress (clicking another node, the same node,
-        // or empty tree space all end editing) before the click is handled.
+        // A press INSIDE the rename field positions the caret / selects (double-click) — route it to the
+        // field and stop. A press anywhere else commits the rename before the click is handled as a normal
+        // tree interaction (clicking another node, the same node, or empty space all end editing).
         const bool wasEditing = (m_editNode != nullptr);
-        if (wasEditing) commitRename();
+        if (wasEditing) {
+            const JRect er = _editRect();
+            if (mx >= er.x && mx < er.x + er.width && my >= er.y && my < er.y + er.height) {
+                m_editField.handleMousePress(mx, my);
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+                return;
+            }
+            commitRename();
+        }
         if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
             onClicked.emit();
             float trackW = 10.0f;
@@ -254,6 +298,7 @@ public:
     }
 
     void handleMouseRelease(float mx, float my) override {
+        if (m_editNode) { m_editField.handleMouseRelease(mx, my); return; }   // end a drag-select in the rename field
         m_draggingScroll = false;
         // A click (no drag) on an already-multi-selected node collapses the set to just that node. A drag
         // cleared m_pressNode (external) or set m_dragging (reorder), so either of those means "not a click".
@@ -305,6 +350,7 @@ public:
     }
 
     void handleMouseMove(float mx, float my) override {
+        if (m_editNode) { m_editField.handleMouseMove(mx, my); m_graph.invalidateNode(m_nodeId, DirtySelf); return; }   // drag-select in the rename field
         // Hyperlink-hover underline: track the row under the cursor (none while a drag/press gesture is live)
         // and repaint when it changes, so the underline follows the mouse.
         JTreeViewNode* hov = (m_dragging || m_draggingScroll || m_pressNode) ? nullptr : _nodeAtPoint(mx, my);
@@ -382,13 +428,16 @@ public:
         if (!ke.pressed) return false;
         using EK = JKeyEvent::JKey;
 
-        // In-place rename: the tree owns keyboard while editing a label.
+        // In-place rename: the tree owns keyboard while editing a label. Return/Escape commit/cancel; every
+        // other key (text, caret motion, selection, backspace/delete) goes to the mounted JLineEdit, which
+        // is the real editor. m_editField holds the visual focus flag so it renders its caret; the tree stays
+        // the focus-manager target and forwards here.
         if (m_editNode) {
             if (ke.key == EK::Return) { commitRename(); return true; }
-            if (ke.key == EK::Escape) { m_editNode = nullptr; m_graph.invalidateNode(m_nodeId, DirtySelf); return true; }
-            if (ke.key == EK::Backspace) { if (!m_editBuf.empty()) m_editBuf.pop_back(); m_graph.invalidateNode(m_nodeId, DirtySelf); return true; }
-            if (static_cast<unsigned char>(ke.utf8[0]) >= 32) { m_editBuf += ke.utf8; m_graph.invalidateNode(m_nodeId, DirtySelf); return true; }
-            return true;   // swallow other keys while editing
+            if (ke.key == EK::Escape) { m_editNode = nullptr; m_editField.setFocused(false); m_graph.invalidateNode(m_nodeId, DirtySelf); return true; }
+            m_editField.handleKeyEvent(ke);
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            return true;   // swallow all keys while editing
         }
 
         // F2 begins an in-place rename of the selected node (standard rename shortcut).
@@ -520,14 +569,10 @@ public:
             float textX = b.x + indent + 16.0f;
             float ty = itemY + (itemH - (JTextHelper::hasAtlas() ? JTextHelper::lineHeight() : 8.0f)) * 0.5f;
             if (flat.node == m_editNode) {
-                // In-place edit field: boxed buffer + caret over the row.
+                // In-place edit field: the mounted JLineEdit draws its own box, text, selection + caret.
                 const float ex = textX - 3.0f, ew = b.x + b.width - 16.0f - ex;
-                buf.pushRectangle(ex, itemY + 2.0f, ew, itemH - 4.0f, Colors::Surface0, 3.0f, 1.5f, Colors::Accent);
-                if (JTextHelper::hasAtlas()) {
-                    uint8_t tc[4] = {Colors::TreeEditText[0], Colors::TreeEditText[1], Colors::TreeEditText[2], 230};
-                    JTextHelper::pushText(buf, textX, ty, m_editBuf, tc, ew - 10.0f);
-                    buf.pushRectangle(textX + JTextHelper::measureWidth(m_editBuf) + 1.0f, itemY + 4.0f, 1.5f, itemH - 8.0f, Colors::Accent);
-                }
+                m_editField.setBounds({ ex, itemY + 2.0f, ew, itemH - 4.0f });
+                m_editField.populateRenderPrimitives(buf);
             } else {
                 float tx = textX;
                 if (flat.node->icon != 0) { _drawTreeIcon(buf, textX + 1.0f, itemY + itemH * 0.5f, flat.node->icon); tx += 15.0f; }
@@ -864,7 +909,7 @@ private:
     JTreeViewNode* m_pendingSelect{nullptr};    // single-click candidate: select+activate on release IF no drag intervened
     JTreeViewNode* m_hoverNode{nullptr};        // row under the cursor (for the hyperlink-hover underline)
     JTreeViewNode* m_editNode{nullptr};   // node whose label is being edited in place
-    std::string    m_editBuf;             // working text during an in-place rename
+    JLineEdit      m_editField;           // the real text editor mounted over a row during an in-place rename
     bool           m_editable{true};      // F2 / click-selected may start an in-place rename
     std::string    m_filter;              // lower-cased row filter ("" = show all)
     bool           m_filterUserData{false}; // also match userData (raw id / binding path), not just the label
