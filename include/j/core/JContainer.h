@@ -36,8 +36,11 @@ public:
         m_graph.addChild(m_nodeId, p->getNodeId());
         return p;
     }
-    // Non-owning add (legacy): the caller retains ownership of `w`. Kept for existing call sites during the
-    // ownership migration; prefer add(std::unique_ptr<T>) for anything new.
+    // Non-owning add: register a widget OWNED ELSEWHERE (an adopt()-ed child, or a member) into this layout.
+    // The container arranges + paints it but does NOT own its lifetime. This is the right tool for re-addable
+    // content — a form that clear()s and re-adds the SAME widgets each relayout (clear() destroys the OWNED
+    // children, so re-added widgets must be owned elsewhere and registered here non-owning). For
+    // create-and-forget children, prefer the owning add(std::unique_ptr<T>) above.
     JContainer* add(JWidget* w) {
         if (!w) return this;
         m_children.push_back(w);

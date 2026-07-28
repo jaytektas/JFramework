@@ -30,7 +30,9 @@ public:
         m_children.push_back(p);
         return p;
     }
-    // Non-owning add (legacy): the caller retains ownership. Kept for existing call sites during migration.
+    // Non-owning add: register a widget OWNED ELSEWHERE (an adopt()-ed child, or a member) into this scroll
+    // area. It is laid out + painted here but its lifetime is the caller's — for re-addable content that
+    // survives clearChildren(). For create-and-forget content, prefer the owning addChildWidget above.
     void addChildWidget(JWidget* w) {
         m_children.push_back(w);
     }
