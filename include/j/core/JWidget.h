@@ -10,6 +10,7 @@
 #include <cmath>
 #include <optional>
 #include <vector>
+#include <memory>
 #include <functional>
 #include "Signal.h"
 #include "Variant.h"
@@ -117,6 +118,28 @@ public:
     }
     JWidget(const JWidget&)            = delete;
     JWidget& operator=(const JWidget&) = delete;
+
+    // --- Child ownership (Qt QObject model) ------------------------------------------------------------
+    // Take ownership of a child widget: it lives exactly as long as this widget and is destroyed with it
+    // (RAII, recursively — an owned child destroys ITS owned children in turn). Returns the raw pointer for
+    // wiring. THE framework ownership primitive: containers, dialogs and custom widgets adopt their children
+    // through this instead of each re-implementing an owned std::unique_ptr vector + hand-rolled own() helper.
+    // A widget with no parent (a top-level window/dialog) is still owned by whoever holds it, exactly like a
+    // parentless QObject — adopt() only expresses the parent->child edge.
+    template <class T>
+    T* adopt(std::unique_ptr<T> child) {
+        T* p = child.get();
+        m_ownedChildren.push_back(std::move(child));
+        return p;
+    }
+    // Destroy an adopted child early (before this widget dies). No-op if `child` is not owned here.
+    void disown(JWidget* child) {
+        for (auto it = m_ownedChildren.begin(); it != m_ownedChildren.end(); ++it)
+            if (it->get() == child) { m_ownedChildren.erase(it); return; }
+    }
+    // Destroy every adopted child now (e.g. rebuilding a form's rows).
+    void disownAll() { m_ownedChildren.clear(); }
+    const std::vector<std::unique_ptr<JWidget>>& ownedChildren() const { return m_ownedChildren; }
 
     std::string m_tooltipText;
     JMenu*       m_contextMenu{nullptr};
@@ -519,6 +542,7 @@ protected:
     std::string m_debugName;
     bool        m_visible{true};
     bool        m_focused{false};
+    std::vector<std::unique_ptr<JWidget>> m_ownedChildren;   // Qt-model ownership: destroyed (RAII) with this widget
 
     // Core-API state added for Qt/GTK-class completeness.
     JFocusPolicy m_focusPolicy{JFocusPolicy::NoFocus};  // plain JWidget: not focusable

@@ -12,7 +12,8 @@ inline namespace jf {
 // scene-graph layout engine (Flex / Grid / Form via its JLayoutComponent), renders it, and
 // routes input to it. No chrome of its own. The reusable building block for panels, property
 // forms, toolbars, and dock content (JDockWidget::setContent) — the app composes it instead of
-// hand-drawing. Non-owning children (the app owns the widgets, as it owns the container).
+// hand-drawing. A container OWNS the children added via add(std::unique_ptr<T>) (Qt QObject model)
+// and destroys them with itself; the legacy add(JWidget*) is non-owning for existing call sites.
 // ============================================================================
 class JContainer : public JWidget {
 public:
@@ -24,7 +25,19 @@ public:
         l.boundingBox.height = h;
     }
 
-    // Add a child to the tree; registers it with the layout engine so it's arranged/measured.
+    // Owning add (PREFERRED — Qt QObject model): the container takes ownership of the child and destroys it
+    // with itself, so callers no longer keep a parallel std::unique_ptr vector. Registers it with the layout
+    // engine and returns the raw pointer for wiring.
+    template <class T>
+    T* add(std::unique_ptr<T> child) {
+        if (!child) return nullptr;
+        T* p = adopt(std::move(child));                 // JWidget owns the lifetime (RAII)
+        m_children.push_back(p);                        // layout/paint child list
+        m_graph.addChild(m_nodeId, p->getNodeId());
+        return p;
+    }
+    // Non-owning add (legacy): the caller retains ownership of `w`. Kept for existing call sites during the
+    // ownership migration; prefer add(std::unique_ptr<T>) for anything new.
     JContainer* add(JWidget* w) {
         if (!w) return this;
         m_children.push_back(w);
@@ -33,9 +46,9 @@ public:
     }
     const std::vector<JWidget*>& children() const { return m_children; }
 
-    // Detach all children (non-owning: the widgets live on) so the container can be rebuilt with a new set
-    // of rows. Used by the multi-select property form to show only the rows the selection has in common.
-    void clear() { m_graph.clearChildren(m_nodeId); m_children.clear(); }
+    // Detach all children and DESTROY the ones this container owns (adopted via add(unique_ptr)); non-owned
+    // children live on. Used to rebuild a form with a new set of rows.
+    void clear() { m_graph.clearChildren(m_nodeId); m_children.clear(); disownAll(); }
 
     // Layout configuration — thin pass-throughs to this node's layout component (chainable).
     JContainer* setLayoutMode(JLayoutMode m)   { m_graph.getLayout(m_nodeId).mode = m; return this; }
@@ -76,7 +89,7 @@ public:
 
 
 private:
-    std::vector<JWidget*> m_children;   // non-owning
+    std::vector<JWidget*> m_children;   // layout/paint list (raw); lifetime of owned children is JWidget::m_ownedChildren
 };
 
 } // inline namespace jf
