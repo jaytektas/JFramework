@@ -145,10 +145,10 @@ public:
         float arrowW = b.height * 0.75f;
         bool focused = isFocused();
         JStyleOption o = jstyle::option(m_state, focused);
-        // Box fill by role: hovered => ToolTipBase (old Surface3), else Button (old Surface2).
-        const JColor fill = (m_state == JWidgetState::Hovered)
-                              ? jstyle::role(JColorRole::ToolTipBase, o)
-                              : jstyle::role(JColorRole::Button, o);
+        // Box fill = the Base field surface (fieldFill), same as JSpinBox/JDoubleSpinBox/JLineEdit: a combo
+        // is a selection FIELD, not a button, so its body stays recessed like the other inputs (and no hover
+        // lift on the body). The drop-arrow area below keeps the lifted ToolTipBase to read as clickable.
+        const JColor fill = jstyle::fieldFill(o);
         // Main box
         buf.pushRectangle(b.x, b.y, b.width, b.height, fill.data(),
                           JStyle::current().hint(JStyleHint::ControlRadius),
