@@ -21,10 +21,21 @@ public:
         l.boundingBox.height = h;
     }
 
+    // Owning add (PREFERRED — Qt model): the scroll area owns the child and destroys it with itself / on
+    // clearChildren(), so callers drop their parallel unique_ptr vectors. Returns the raw pointer for wiring.
+    template <class T>
+    T* addChildWidget(std::unique_ptr<T> child) {
+        if (!child) return nullptr;
+        T* p = adopt(std::move(child));
+        m_children.push_back(p);
+        return p;
+    }
+    // Non-owning add (legacy): the caller retains ownership. Kept for existing call sites during migration.
     void addChildWidget(JWidget* w) {
         m_children.push_back(w);
     }
-    void clearChildren() { m_children.clear(); m_scrollY = 0.0f; }   // for rebuildable content (e.g. a per-selection form)
+    // Detach all children and DESTROY the ones this scroll area owns; non-owned children live on.
+    void clearChildren() { m_children.clear(); m_scrollY = 0.0f; disownAll(); }   // rebuildable content (per-selection form)
 
     const std::vector<JWidget*>& children() const { return m_children; }
 
