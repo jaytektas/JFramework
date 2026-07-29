@@ -755,6 +755,15 @@ public:
             }
         }
         m_hal->waitIdle();
+        // Close any modal still open before we unwind. Its surface belongs to OUR device and its window to
+        // our connection, so letting the dialog outlive the runner means its destructor destroys a surface
+        // against a dead device -- which aborts (glibc "buffer overflow detected" from inside the Vulkan/XCB
+        // teardown). Closing the main window with Preferences open did exactly that. Destroy top-down while
+        // the HAL is still alive, THEN release the dialogs (clearing the stack drops the last shared_ptr).
+        for (auto it = m_modalStack.rbegin(); it != m_modalStack.rend(); ++it)
+            if (it->destroy) it->destroy(*m_hal);
+        m_hal->waitIdle();
+        m_modalStack.clear();
         return 0;
     }
 
