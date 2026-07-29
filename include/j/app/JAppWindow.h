@@ -628,15 +628,14 @@ public:
 
             // Keyboard: the runner owns focus routing. Re-sync the tab order from the live
             // widget set (so newly created / destroyed widgets are tracked without app
-            // registration), then for each pressed key: menu accelerators first, then the
-            // focused widget, then Tab/Shift-Tab focus cycling, then the app's onKey hook.
-            // An open menu popup grabs the keyboard at the OS level, so its keys never arrive
-            // here — no special-casing needed.
+            // registration), then for each pressed key: the focused widget first, then the
+            // centre, then the accelerators (menu chords + registered actions), then
+            // Tab/Shift-Tab focus cycling, then the app's onKey hook. An open menu popup grabs
+            // the keyboard at the OS level, so its keys never arrive here — no special-casing.
             m_focus.syncOrder(JWidget::s_activeWidgets);
             for (const auto& ke : frameKeys) {
                 if (!ke.pressed) continue;
                 activity = true;
-                if (JMenuManager::instance().processAccelerator(ke)) continue;
                 if (JWidget* f = m_focus.focused(); f && f->handleKeyEvent(ke)) continue;
                 // The centre is a plain central widget (not in the focus order), so give it a shot at
                 // keys nothing else consumed — e.g. the surface editor's Delete / arrows / Ctrl+Z. But
@@ -645,10 +644,11 @@ public:
                 // and those must NOT bleed onto the canvas and nudge/delete the selection behind the user.
                 if (!m_focus.focused())
                     if (JWidget* cw = m_space.centralWidget(); cw && cw->handleKeyEvent(ke)) continue;
-                // Global action/shortcut accelerators: a focused widget (e.g. a text field) has
-                // already had first refusal above, so typing still works; anything it didn't
-                // consume is offered to registered JActions / standalone chords (like the menu
-                // accelerator pass, but for the shared command registry). Consumed = stop routing.
+                // Accelerators — menu chords (Ctrl+C/X/V/Z…) and registered JActions. Both run AFTER
+                // the focused widget has had first refusal, so Ctrl+C/V inside a text field edits the
+                // text instead of firing Edit▸Copy. (Menu chords used to run before focus, which stole
+                // every clipboard key from every JLineEdit in the app.) Consumed = stop routing.
+                if (JMenuManager::instance().processAccelerator(ke)) continue;
                 if (jShortcuts().dispatch(ke)) continue;
                 if (ke.key == JKeyEvent::JKey::Tab)     { m_focus.nextFocus(); continue; }
                 if (ke.key == JKeyEvent::JKey::BackTab) { m_focus.prevFocus(); continue; }
