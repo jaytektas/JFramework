@@ -129,13 +129,14 @@ public:
     template <class T>
     T* adopt(std::unique_ptr<T> child) {
         T* p = child.get();
+        p->m_parent = this;                    // parent edge — drives EFFECTIVE visibility (see isVisible)
         m_ownedChildren.push_back(std::move(child));
         return p;
     }
     // Destroy an adopted child early (before this widget dies). No-op if `child` is not owned here.
     void disown(JWidget* child) {
         for (auto it = m_ownedChildren.begin(); it != m_ownedChildren.end(); ++it)
-            if (it->get() == child) { m_ownedChildren.erase(it); return; }
+            if (it->get() == child) { (*it)->m_parent = nullptr; m_ownedChildren.erase(it); return; }
     }
     // Destroy every adopted child now (e.g. rebuilding a form's rows).
     void disownAll() { m_ownedChildren.clear(); }
@@ -158,7 +159,19 @@ public:
 
     NodeId      getNodeId()  const noexcept { return m_nodeId; }
     JWidgetState getState()   const noexcept { return m_state;  }
-    bool        isVisible()  const noexcept { return m_visible; }
+    // EFFECTIVE visibility: this widget's own flag AND every ancestor's. Hiding a container hides
+    // everything inside it without touching the children — which is what callers already assume.
+    // Focus traversal (JFocusManager::syncOrder) and click hit-testing (focusAt) filter on this, so a
+    // control on a hidden page can no longer take Tab focus or swallow a click while off-screen.
+    bool        isVisible()  const noexcept {
+        if (!m_visible) return false;
+        for (const JWidget* p = m_parent; p; p = p->m_parent)
+            if (!p->m_visible) return false;
+        return true;
+    }
+    // This widget's OWN flag, ignoring ancestors (for code that manages the flag itself).
+    bool        isVisibleSelf() const noexcept { return m_visible; }
+    JWidget*    parentWidget() const noexcept { return m_parent; }
     bool        isEnabled()  const noexcept { return m_state != JWidgetState::Disabled; }
     bool        isFocused()  const noexcept { return m_focused; }
 
@@ -541,6 +554,7 @@ protected:
     JWidgetState m_state;
     std::string m_debugName;
     bool        m_visible{true};
+    JWidget*    m_parent{nullptr};   // set by adopt(); drives effective visibility
     bool        m_focused{false};
     std::vector<std::unique_ptr<JWidget>> m_ownedChildren;   // Qt-model ownership: destroyed (RAII) with this widget
 

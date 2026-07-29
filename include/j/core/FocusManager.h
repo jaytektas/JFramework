@@ -91,10 +91,14 @@ public:
     // not the order widgets happened to be constructed in. Widgets whose top edges fall within one
     // row band (kRowBand px) are treated as the same row and ordered left-to-right, so a horizontal
     // row of fields tabs across before dropping to the next row, matching every commercial toolkit.
-    void syncOrder(const std::vector<JWidget*>& widgets) {
+    // `only` scopes the order to one scene graph — a modal dialog owns its own graph, and
+    // JWidget::s_activeWidgets is app-global, so without it Tab would walk out of the dialog and
+    // into the window behind. nullptr = every widget (the main runner's case).
+    void syncOrder(const std::vector<JWidget*>& widgets, const JSceneGraph* only = nullptr) {
         m_order.clear();
         for (auto* w : widgets)
-            if (w && w->isFocusable() && w->isVisible() && w->isEnabled())
+            if (w && w->isFocusable() && w->isVisible() && w->isEnabled() &&
+                (!only || &w->sceneGraph() == only))
                 m_order.push_back(w);
         constexpr float kRowBand = 6.0f;
         std::stable_sort(m_order.begin(), m_order.end(), [](JWidget* a, JWidget* b) {
@@ -120,18 +124,26 @@ public:
         setFocus(hit);
     }
 
+    // Give a freshly-opened window its initial focus: the first widget in reading order. Every toolkit
+    // focuses something when a window opens — without it the keyboard does nothing until the user clicks.
+    void focusFirst(const std::vector<JWidget*>& widgets, const JSceneGraph* only = nullptr) {
+        syncOrder(widgets, only);
+        if (!m_order.empty()) setFocus(m_order.front());
+    }
+
     void clear() { m_order.clear(); m_focused = nullptr; }
 
 private:
     void _shift(int dir) {
         if (m_order.empty()) return;
-        int sz  = static_cast<int>(m_order.size());
-        int cur = 0;
-        if (m_focused) {
-            auto it = std::find(m_order.begin(), m_order.end(), m_focused);
-            if (it != m_order.end()) cur = static_cast<int>(it - m_order.begin());
-        }
-        int next = ((cur + dir) % sz + sz) % sz;
+        const int sz = static_cast<int>(m_order.size());
+        // Nothing focused yet (fresh window, or the focused widget dropped out of the order): Tab starts
+        // at the FIRST widget and Shift-Tab at the last. Previously cur defaulted to 0 and Tab moved to
+        // index 1, silently skipping the first control.
+        auto it = m_focused ? std::find(m_order.begin(), m_order.end(), m_focused) : m_order.end();
+        if (it == m_order.end()) { setFocus(m_order[dir >= 0 ? 0 : sz - 1]); return; }
+        const int cur  = static_cast<int>(it - m_order.begin());
+        const int next = ((cur + dir) % sz + sz) % sz;      // wraps last -> first and first -> last
         setFocus(m_order[next]);
     }
 
@@ -139,5 +151,41 @@ private:
     JWidget*              m_focused{nullptr};
     JFocusManager*        m_prevActive{nullptr};   // the manager this one displaced as s_active (restored on dtor)
 };
+
+// ---- jRouteMouse ------------------------------------------------------------------------------
+// Click-to-focus, for any window that hosts widgets. Call on a mouse PRESS, before dispatching the
+// press to whatever is under the cursor: the topmost focusable, visible widget there takes focus,
+// and clicking empty space clears it. The main runner already does this (JAppWindow), so controls
+// focus on click there; a modal dialog that routes its own mouse must call this or NOTHING in it
+// will ever focus by clicking — no control should have to request focus for itself.
+//
+// `graph` scopes the hit-test to one dialog's widgets, exactly as in jRouteKey.
+inline void jRouteMouse(float mx, float my, JFocusManager& focus, const JSceneGraph* graph = nullptr) {
+    if (!graph) { focus.focusAt(JWidget::s_activeWidgets, mx, my); return; }
+    std::vector<JWidget*> scoped;
+    scoped.reserve(JWidget::s_activeWidgets.size());
+    for (auto* w : JWidget::s_activeWidgets)
+        if (w && &w->sceneGraph() == graph) scoped.push_back(w);
+    focus.focusAt(scoped, mx, my);
+}
+
+// ---- jRouteKey --------------------------------------------------------------------------------
+// THE standard keyboard routing for any window that hosts widgets: refresh the tab order from the
+// live widget set, give the focused widget first refusal, then honour Tab / Shift-Tab focus
+// traversal. Tab moving between controls is a toolkit fundamental, not per-window behaviour — so it
+// lives here and every host (the main runner AND every modal dialog) routes through this one
+// function rather than reimplementing a key loop. Returns true when the key was consumed.
+//
+// `graph` scopes traversal to one dialog's widgets (see syncOrder); pass nullptr for the main window.
+// The caller keeps whatever else it needs (Escape to dismiss, accelerators) AFTER this returns false.
+inline bool jRouteKey(const JKeyEvent& ke, JFocusManager& focus, const JSceneGraph* graph = nullptr) {
+    if (!ke.pressed) return false;
+    focus.syncOrder(JWidget::s_activeWidgets, graph);
+
+    if (JWidget* f = focus.focused(); f && f->handleKeyEvent(ke)) return true;
+    if (ke.key == JKeyEvent::JKey::Tab)     { focus.nextFocus(); return true; }
+    if (ke.key == JKeyEvent::JKey::BackTab) { focus.prevFocus(); return true; }
+    return false;
+}
 
 } // inline namespace jf
