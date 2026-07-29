@@ -71,6 +71,11 @@ public:
         if (m_focused) {
             m_focused->setFocused(true);
             m_focused->setState(JWidgetState::Focused);
+            // Bring it into view: every ancestor gets the chance to reveal it (a scroll area scrolls to
+            // it). Without this, Tab can move focus onto a control clipped outside its viewport and the
+            // focus ring simply disappears off the form.
+            for (JWidget* p = m_focused->parentWidget(); p; p = p->parentWidget())
+                p->revealChild(m_focused);
         }
         onFocusChanged.emit(w);
     }
@@ -97,7 +102,7 @@ public:
     void syncOrder(const std::vector<JWidget*>& widgets, const JSceneGraph* only = nullptr) {
         m_order.clear();
         for (auto* w : widgets)
-            if (w && w->isFocusable() && w->isVisible() && w->isEnabled() &&
+            if (w && w->isFocusable() && w->isVisible() && w->isEnabled() && !w->isScanExcluded() &&
                 (!only || &w->sceneGraph() == only))
                 m_order.push_back(w);
         constexpr float kRowBand = 6.0f;
@@ -119,7 +124,7 @@ public:
         JWidget* hit = nullptr;
         for (auto it = widgets.rbegin(); it != widgets.rend(); ++it) {
             JWidget* w = *it;
-            if (w && w->isVisible() && w->isFocusable() && w->hitTest(mx, my)) { hit = w; break; }
+            if (w && w->isVisible() && w->isFocusable() && !w->isScanExcluded() && w->hitTest(mx, my)) { hit = w; break; }
         }
         setFocus(hit);
     }

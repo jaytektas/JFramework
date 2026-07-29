@@ -61,6 +61,12 @@ public:
     inline static std::function<void(JWidget*)> s_focusHook;
     void requestFocus() { if (s_focusHook) s_focusHook(this); }
 
+    // Ask this widget to bring a descendant into view (a scroll area scrolls to it). The focus manager
+    // walks the parent chain calling this whenever focus moves, so a focused control is never left
+    // clipped out of its viewport -- the standard "scroll the focused widget into view" behaviour.
+    // Default: nothing to do (a plain container shows all its children).
+    virtual void revealChild(JWidget* /*descendant*/) {}
+
     // Value-nudge keymap hook — lets the app route a key event to a "step this numeric value" action
     // WITHOUT the framework knowing the app's keybindings. A numeric control (spin box, slider, etc.)
     // asks valueKeyAction(ke) whether the key means increase/decrease (optionally the ×10 "large" step)
@@ -171,6 +177,20 @@ public:
     }
     // This widget's OWN flag, ignoring ancestors (for code that manages the flag itself).
     bool        isVisibleSelf() const noexcept { return m_visible; }
+
+    // Scan exclusion: keep this widget (and its subtree) out of the framework's GLOBAL widget scans --
+    // focus traversal and click hit-testing -- while it still paints normally. For content a host drives
+    // itself (the studio's surface canvas paints and hit-tests its own elements). This used to be done by
+    // marking the host setVisible(false), which worked only while visibility was per-widget; now that
+    // visibility is effective, hiding a host would hide everything inside it.
+    void        setScanExcluded(bool v) noexcept { m_scanExcluded = v; }
+    bool        isScanExcludedSelf() const noexcept { return m_scanExcluded; }
+    bool        isScanExcluded() const noexcept {
+        if (m_scanExcluded) return true;
+        for (const JWidget* p = m_parent; p; p = p->m_parent)
+            if (p->m_scanExcluded) return true;
+        return false;
+    }
     JWidget*    parentWidget() const noexcept { return m_parent; }
     bool        isEnabled()  const noexcept { return m_state != JWidgetState::Disabled; }
     bool        isFocused()  const noexcept { return m_focused; }
@@ -555,6 +575,7 @@ protected:
     std::string m_debugName;
     bool        m_visible{true};
     JWidget*    m_parent{nullptr};   // set by adopt(); drives effective visibility
+    bool        m_scanExcluded{false};   // out of global focus/hit scans, still painted
     bool        m_focused{false};
     std::vector<std::unique_ptr<JWidget>> m_ownedChildren;   // Qt-model ownership: destroyed (RAII) with this widget
 

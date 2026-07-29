@@ -41,6 +41,28 @@ public:
 
     const std::vector<JWidget*>& children() const { return m_children; }
 
+    // Scroll `w` (a direct or nested child) into view. Called by the focus manager when focus moves, so
+    // tabbing to a control that is scrolled off simply brings it on screen instead of the focus ring
+    // vanishing somewhere below the fold.
+    void revealChild(JWidget* w) override {
+        if (!w || m_children.empty()) return;
+        const auto& b  = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const auto& wb = m_graph.getLayoutConst(w->getNodeId()).boundingBox;
+        if (wb.height <= 0.f || b.height <= 0.f) return;
+        const float pad    = 6.0f;
+        const float topGap = wb.y - (b.y + pad);                       // <0 => above the viewport
+        const float botGap = (wb.y + wb.height) - (b.y + b.height - pad);  // >0 => below it
+        float delta = 0.f;
+        if (topGap < 0.f)      delta = topGap;      // scroll up to reveal
+        else if (botGap > 0.f) delta = botGap;      // scroll down to reveal
+        if (delta == 0.f) return;
+        float totalH = 12.0f;
+        for (JWidget* c : m_children) totalH += m_graph.getLayoutConst(c->getNodeId()).boundingBox.height + 6.0f;
+        const float maxScrollY = std::max(0.0f, totalH - b.height);
+        m_scrollY = std::clamp(m_scrollY + delta, 0.0f, maxScrollY);
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+
     void handleMouseMove(float mx, float my) override {
         if (m_draggingScroll) {
             const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
