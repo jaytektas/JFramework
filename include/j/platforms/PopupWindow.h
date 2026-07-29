@@ -87,6 +87,12 @@ public:
         float h = m_graph.getLayoutConst(m_root).minHeight;
         if (m_style == JStyle::Bordered) h += m_kBorderPad * 2.f;
         m_winH = static_cast<uint32_t>(std::max(1.f, h));
+        // WIDTH from content too: the popup was created at a caller-chosen width (menus: a flat 180px) and
+        // only ever had its height fitted, so any item wider than that guess was clipped. Grow to the
+        // widest child; never shrink below the requested width.
+        float w = m_graph.getLayoutConst(m_root).minWidth;
+        if (m_style == JStyle::Bordered) w += m_kBorderPad * 2.f;
+        m_winW = std::max(m_winW, static_cast<uint32_t>(std::max(1.f, w)));
         m_window->setSize(m_winW, m_winH);
 
         auto& l = m_graph.getLayout(m_root);

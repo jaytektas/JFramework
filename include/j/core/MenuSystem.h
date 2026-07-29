@@ -81,7 +81,22 @@ public:
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.minHeight = 28.f;
-        l.minWidth = 160.f;
+        _updateMinWidth();
+    }
+
+    // Natural width = exactly what populateRenderPrimitives lays out, so a label or shortcut can never be
+    // clipped. Was a flat 160px, which silently cut off any longer entry.
+    void _updateMinWidth() {
+        auto& l = m_graph.getLayout(m_nodeId);
+        if (!JTextHelper::hasAtlas()) { l.minWidth = 160.f; return; }
+        float w = 8.f;                                        // leading pad (textX = bb.x + 8)
+        if (m_checkable)                       w += 20.f;     // check column
+        w += JTextHelper::measureWidth(m_label);
+        if (m_shortcut.key != JKeyEvent::JKey::Unknown)
+            w += 24.f + JTextHelper::measureWidth(m_shortcut.toString());   // gap + shortcut column
+        w += m_submenu ? 16.f + 8.f : 12.f;                   // submenu arrow, else right pad
+        l.minWidth = std::max(160.f, w);
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
 
@@ -90,7 +105,7 @@ public:
     const JMenuShortcut& shortcut() const noexcept { return m_shortcut; }
     JMenu* submenu() const noexcept { return m_submenu; }
 
-    void setCheckable(bool c) noexcept { m_checkable = c; }
+    void setCheckable(bool c) noexcept { m_checkable = c; _updateMinWidth(); }   // check column changes the width
     bool isCheckable() const noexcept { return m_checkable; }
     void setChecked(bool c) noexcept { m_checked = c; }
     bool isChecked() const noexcept { return m_checked; }
