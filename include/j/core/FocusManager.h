@@ -103,7 +103,7 @@ public:
         m_order.clear();
         for (auto* w : widgets)
             if (w && w->isFocusable() && w->isVisible() && w->isEnabled() && !w->isScanExcluded() &&
-                (!only || &w->sceneGraph() == only))
+                _isReachable(w) && (!only || &w->sceneGraph() == only))
                 m_order.push_back(w);
         constexpr float kRowBand = 6.0f;
         std::stable_sort(m_order.begin(), m_order.end(), [](JWidget* a, JWidget* b) {
@@ -139,6 +139,16 @@ public:
     void clear() { m_order.clear(); m_focused = nullptr; }
 
 private:
+    // A widget you cannot see is not a tab stop. Visible+enabled is not enough: a collapsed panel, a
+    // closed menu's items, or a control laid out to nothing all keep their flags and would otherwise take
+    // focus, so Tab appeared to jump into nowhere and needed several more presses to escape. Anything
+    // smaller than a few pixels in either axis cannot be seen, focused deliberately, or clicked.
+    static bool _isReachable(const JWidget* w) {
+        const auto bb = w->getBoundingBox();
+        constexpr float kMin = 6.0f;      // below this a control cannot be perceived or hit
+        return bb.width >= kMin && bb.height >= kMin;
+    }
+
     void _shift(int dir) {
         if (m_order.empty()) return;
         const int sz = static_cast<int>(m_order.size());

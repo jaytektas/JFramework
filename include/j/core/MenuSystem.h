@@ -281,6 +281,10 @@ public:
     JMenuItem* add(JSceneGraph& graph, const std::string& label, JMenuShortcut shortcut = {}, JMenu* submenu = nullptr) {
         auto item = std::make_unique<JMenuItem>(graph, label, shortcut, submenu);
         JMenuItem* ptr = item.get();
+        // A menu's items are MODEL entries: never laid out, never painted (MenuRuntime builds separate
+        // copies inside the popup window). They are still JWidgets, so without this they sit in the global
+        // widget set at 0x0 and -- being JControls, hence StrongFocus -- become invisible Tab stops.
+        ptr->setScanExcluded(true);
         m_items.push_back(std::move(item));
         return ptr;
     }
