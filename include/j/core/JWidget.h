@@ -171,9 +171,9 @@ public:
     // control on a hidden page can no longer take Tab focus or swallow a click while off-screen.
     bool        isVisible()  const noexcept {
         if (!m_visible) return false;
-        for (const JWidget* p = m_parent; p; p = p->m_parent)
-            if (!p->m_visible) return false;
-        return true;
+        // Ancestors via the SCENE GRAPH, so both owning (adopt) and non-owning (JContainer::add) edges
+        // propagate -- a row added non-owningly to a hidden form is hidden too.
+        return m_graph.isChainVisible(m_nodeId);
     }
     // This widget's OWN flag, ignoring ancestors (for code that manages the flag itself).
     bool        isVisibleSelf() const noexcept { return m_visible; }
@@ -219,7 +219,7 @@ public:
     jf::JSignal<bool> onEnabledChanged;     // enabled (true) / disabled (false)
     void emitModified() { onModified.emit(); }
 
-    void setVisible(bool v) { if (m_visible == v) return; m_visible = v; onVisibilityChanged.emit(v); }
+    void setVisible(bool v) { if (m_visible == v) return; m_visible = v; m_graph.setNodeVisible(m_nodeId, v); onVisibilityChanged.emit(v); }
 
     // Position/size this widget's layout box directly — for host-driven placement (e.g. a dock
     // laying its content widget into the leaf's content rect). Marks the node dirty so the

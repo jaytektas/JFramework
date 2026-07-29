@@ -208,6 +208,23 @@ public:
     /**
      * @brief Declares a strict Parent-Child layout ownership rule.
      */
+    // Per-node visibility, mirrored from the owning widget's setVisible(). Kept on the HIERARCHY rather
+    // than the widget so it works for every parent/child edge -- including the non-owning container adds
+    // (JContainer::add / JScrollArea::addChildWidget(JWidget*)), which wire the graph but transfer no
+    // ownership. Hiding a container therefore hides its rows whichever way they were added.
+    void setNodeVisible(NodeId id, bool v) { if (id < m_hierarchy.size()) m_hierarchy[id].visible = v; }
+    bool isNodeVisible(NodeId id) const { return id < m_hierarchy.size() ? m_hierarchy[id].visible : true; }
+    // True only if this node AND every ancestor is visible.
+    bool isChainVisible(NodeId id) const {
+        for (NodeId n = id; n < m_hierarchy.size(); ) {
+            if (!m_hierarchy[n].visible) return false;
+            const NodeId p = m_hierarchy[n].parentId;
+            if (p == InvalidNodeId || p == n) break;
+            n = p;
+        }
+        return true;
+    }
+
     void addChild(NodeId parentId, NodeId childId) {
         if (parentId >= m_hierarchy.size() || childId >= m_hierarchy.size()) {
             qCWarning(LogLayoutEngine) << "Malformed NodeId layout assignment attempted." << std::endl;
@@ -710,6 +727,7 @@ private:
         NodeId parentId{InvalidNodeId};
         std::vector<NodeId> childrenIds;
         std::string name;
+        bool   visible{true};   // owning widget's own flag; ancestors consulted by isChainVisible()
     };
 
     JHostWindow                   m_host{};            // host window for popups anchored in this graph's space
