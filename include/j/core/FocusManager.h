@@ -83,6 +83,7 @@ public:
     }
 
     JWidget* focused() const { return m_focused; }
+    const std::vector<JWidget*>& order() const { return m_order; }   // the live chain (introspection)
 
     bool isFocused(const JWidget* w) const { return m_focused == w; }
 

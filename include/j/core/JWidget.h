@@ -381,8 +381,12 @@ public:
 
     void setEnabled(bool e) {
         const bool was = (m_state != JWidgetState::Disabled);
+        // A redundant call must not touch the state. Callers commonly re-assert enablement every frame
+        // (a dialog gating its accept button on validity), and resetting to Normal each time wiped
+        // Hovered and -- worse -- Focused, so a focused control silently lost its focus ring.
+        if (was == e) return;
         setState(e ? JWidgetState::Normal : JWidgetState::Disabled);
-        if (was != e) onEnabledChanged.emit(e);
+        onEnabledChanged.emit(e);
     }
     void setFocused(bool f) {
         if (m_focused != f) {
