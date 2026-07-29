@@ -64,6 +64,25 @@ public:
         }
     }
     int         currentIndex() const { return m_currentIndex; }
+
+protected:
+    // What Space does: open the list (or advance, for a Cycling combo) — the same thing a click does.
+    void activate() override {
+        if (m_items.empty()) return;
+        if (m_mode == JComboBoxMode::Cycling && !m_editable)
+            setCurrentIndex((m_currentIndex + 1) % static_cast<int>(m_items.size()));
+        else if (onOpenPopupHook)
+            onOpenPopupHook(this);
+    }
+    // What the arrows do: move the selection, wrapping like the click-cycle does.
+    bool step(int dir) override {
+        if (m_items.empty()) return false;
+        const int n = static_cast<int>(m_items.size());
+        const int cur = m_currentIndex < 0 ? 0 : m_currentIndex;
+        setCurrentIndex(((cur - dir) % n + n) % n);   // Down/-1 advances, matching list convention
+        return true;
+    }
+public:
     std::string currentText()  const {
         if (m_editable && m_edited) return m_editText;           // free-typed value wins in an editable combo
         return (m_currentIndex >= 0 && m_currentIndex < (int)m_items.size())
@@ -101,6 +120,7 @@ public:
 
     void handleMousePress(float mx, float my) override {
         if (!isPointInside(mx, my)) return;
+        if (acceptsClickFocus()) requestFocus();   // clicking a combo focuses it — every toolkit does this
         onClicked.emit();
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         const float arrowW = b.height * 0.75f;
@@ -120,7 +140,11 @@ public:
     }
 
     bool handleKeyEvent(const JKeyEvent& ke) override {
-        if (!m_editable || !ke.pressed) return false;
+        // A NON-editable combo owns no text keys — hand it straight to the base contract so Space opens
+        // the list and Up/Down step the selection. (Previously this returned false for every key, leaving
+        // a focused combo completely dead to the keyboard.)
+        if (!m_editable) return JControl::handleKeyEvent(ke);
+        if (!ke.pressed) return false;
         using K = JKeyEvent::JKey;
         if (ke.key == K::Return) { onTextChanged.emit(m_editText); _syncIndexToText(); return true; }
         if (ke.key == K::Backspace) {
@@ -137,7 +161,7 @@ public:
             onEditTextChanged.emit(m_editText);
             return true;
         }
-        return false;
+        return JControl::handleKeyEvent(ke);   // arrows/Space it didn't type → base contract
     }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {

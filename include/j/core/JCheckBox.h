@@ -56,6 +56,11 @@ public:
     void setChecked(bool v) { setCheckState(v ? Checked : Unchecked); }
     bool isChecked() const { return m_state_cb == Checked; }
 
+protected:
+    // Space toggles the box (JControl routes the key; this says only what the action IS).
+    void activate() override { _cycle(); }   // same cycle a click performs (handles tri-state)
+public:
+
     JVariant getRef(const std::string& key) const override {
         if (key == "checked")   return m_state_cb == Checked;
         if (key == "value" || key == "checkState") return static_cast<int64_t>(m_state_cb);

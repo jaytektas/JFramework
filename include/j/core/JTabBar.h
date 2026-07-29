@@ -50,6 +50,17 @@ public:
         _updateMinSize();
     }
 
+protected:
+    // Left/Right (and Up/Down) move between tabs — the standard tab-bar keyboard. JControl routes the
+    // keys; this only says what a step means here.
+    bool step(int dir) override {
+        if (m_tabs.size() < 2) return false;
+        const int n = static_cast<int>(m_tabs.size());
+        setActiveTab(((m_activeIndex + dir) % n + n) % n);
+        return true;
+    }
+public:
+
     void setActiveTab(int i) {
         if (i < 0 || i >= (int)m_tabs.size() || i == m_activeIndex) return;
         m_activeIndex = i;

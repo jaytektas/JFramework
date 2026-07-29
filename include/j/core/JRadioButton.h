@@ -30,6 +30,10 @@ public:
     }
     bool isSelected() const { return m_selected; }
 
+protected:
+    void activate() override { setSelected(true); }          // Space selects (radios don't un-select)
+public:
+
     JA11yNode a11yNode() const override {
         JA11yNode n; _a11yFillCommon(n, JA11yRole::RadioButton, m_label, m_selected ? "selected" : "");
         if (m_selected) n.stateFlags |= (JA11yChecked | JA11ySelected);

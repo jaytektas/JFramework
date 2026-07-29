@@ -34,6 +34,10 @@ public:
         }
     }
     bool isToggled() const { return m_toggled; }
+
+protected:
+    void activate() override { setToggled(!isToggled()); }   // Space toggles
+public:
     void setLabel(const std::string& l) { m_label = l; m_graph.invalidateNode(m_nodeId, DirtySelf); notifyAccessibility(); }
     const std::string& label() const { return m_label; }
 

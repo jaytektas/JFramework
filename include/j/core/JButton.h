@@ -10,6 +10,10 @@ inline namespace jf {
 // ============================================================================
 class JButton : public JControl {
 public:
+    // A button is activated by Space AND Return (the base handles Space for every control).
+protected:
+    bool activatesOnReturn() const override { return true; }
+public:
     JButton(JSceneGraph& graph, const std::string& label,
            float w = 160.0f, float h = 0.0f)
         : JControl(graph, "JButton"), m_label(label)

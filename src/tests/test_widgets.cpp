@@ -27,10 +27,27 @@ void test_button_interaction() {
         clicked = true;
     });
     
-    // Press inside
+    // A click completes on RELEASE INSIDE (Qt semantics), not on press.
     btn.handleMousePress(50, 30);
-    assert(clicked == true);
+    assert(clicked == false);                       // press only arms it
     assert(btn.getState() == JWidgetState::Pressed);
+    btn.handleMouseRelease(50, 30);
+    assert(clicked == true);
+
+    // Press, drag OUTSIDE, release -> cancelled: no clicked().
+    clicked = false;
+    btn.handleMousePress(50, 30);
+    btn.handleMouseMove(500, 500);
+    btn.handleMouseRelease(500, 500);
+    assert(clicked == false);
+
+    // Press, drag out, drag back IN, release -> fires.
+    clicked = false;
+    btn.handleMousePress(50, 30);
+    btn.handleMouseMove(500, 500);
+    btn.handleMouseMove(50, 30);
+    btn.handleMouseRelease(50, 30);
+    assert(clicked == true);
     
     std::cout << "test_button_interaction passed" << std::endl;
 }
