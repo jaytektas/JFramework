@@ -148,6 +148,14 @@ public:
     void disownAll() { m_ownedChildren.clear(); }
     const std::vector<std::unique_ptr<JWidget>>& ownedChildren() const { return m_ownedChildren; }
 
+    // The widget TREE used for focus traversal — the analogue of Qt's QObject::children(). Defaults to the
+    // adopted children; a container that also holds NON-OWNED children (JContainer::add(JWidget*),
+    // JScrollArea::addChildWidget(JWidget*)) overrides this to include them. Traversal must not use the
+    // scene-graph hierarchy: only some containers wire graph edges, so that tree is incomplete.
+    virtual void collectChildren(std::vector<JWidget*>& out) const {
+        for (const auto& c : m_ownedChildren) if (c) out.push_back(c.get());
+    }
+
     std::string m_tooltipText;
     JMenu*       m_contextMenu{nullptr};
     void setTooltip(const std::string& text) { m_tooltipText = text; }

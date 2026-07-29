@@ -41,6 +41,12 @@ public:
 
     const std::vector<JWidget*>& children() const { return m_children; }
 
+    // Non-owned children participate in focus traversal exactly like owned ones.
+    void collectChildren(std::vector<JWidget*>& out) const override {
+        JWidget::collectChildren(out);
+        for (JWidget* c : m_children) if (c) out.push_back(c);
+    }
+
     // Scroll `w` (a direct or nested child) into view. Called by the focus manager when focus moves, so
     // tabbing to a control that is scrolled off simply brings it on screen instead of the focus ring
     // vanishing somewhere below the fold.

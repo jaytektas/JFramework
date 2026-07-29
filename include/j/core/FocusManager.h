@@ -4,6 +4,8 @@
 // Focus state is driven by keyboard and mouse events on the render thread.
 
 #include <vector>
+#include <unordered_map>
+#include <unordered_set>
 #include <algorithm>
 #include "Signal.h"
 
@@ -87,66 +89,74 @@ public:
     void nextFocus() { _shift(+1); }
     void prevFocus() { _shift(-1); }
 
-    // Rebuild the tab order from a live widget set (e.g. JWidget::s_activeWidgets), keeping
-    // only focusable, visible, enabled entries and preserving the current focus. Lets a runner
-    // own focus without the app registering widgets by hand; a focused widget that has since been
-    // removed / destroyed / hidden is dropped safely (no dangling pointer in the order).
+    // ---- Tab order: a WALK OF THE WIDGET TREE ------------------------------------------------------
+    // The focus chain belongs to a WINDOW and is derived from that window's widget tree, exactly as Qt
+    // (nextInFocusChain walks parent->child) and GTK do. The host declares its tree roots once; traversal
+    // descends the scene-graph hierarchy from them.
     //
-    // Tab traverses in READING ORDER — top-to-bottom, then left-to-right by on-screen geometry —
-    // not the order widgets happened to be constructed in. Widgets whose top edges fall within one
-    // row band (kRowBand px) are treated as the same row and ordered left-to-right, so a horizontal
-    // row of fields tabs across before dropping to the next row, matching every commercial toolkit.
-    // `only` scopes the order to one scene graph — a modal dialog owns its own graph, and
-    // JWidget::s_activeWidgets is app-global, so without it Tab would walk out of the dialog and
-    // into the window behind. nullptr = every widget (the main runner's case).
-    void syncOrder(const std::vector<JWidget*>& widgets, const JSceneGraph* only = nullptr) {
+    // This replaced filtering a global registry. JWidget::s_activeWidgets holds every JWidget ever
+    // CONSTRUCTED -- which in a real app includes objects that are not UI: a JMenu stores its entries as
+    // JMenuItem widgets, the widget registry caches a prototype per type, and a hosted control is a member
+    // created lazily. None is ever parented into a window, yet all are focusable and sit at (0,0) with
+    // their constructor size. Subtracting them needs an ever-growing pile of predicates (big enough? ever
+    // laid out? excluded?), and each new kind of non-UI widget reintroduces the bug. Membership by TREE
+    // needs none of it: never parented into the window, never in the chain.
+    void setFocusRoots(std::vector<JWidget*> roots) { m_roots = std::move(roots); }
+    const std::vector<JWidget*>& focusRoots() const { return m_roots; }
+
+    // Rebuild the order by descending from the roots. Inside the tree the usual rules still apply:
+    // focusable policy, visibility (a hidden node prunes its subtree), enabled, and the explicit
+    // scan-exclusion a host sets on content it drives itself.
+    void syncOrder() {
         m_order.clear();
-        for (auto* w : widgets)
-            if (w && w->isFocusable() && w->isVisible() && w->isEnabled() && !w->isScanExcluded() &&
-                _isReachable(w) && (!only || &w->sceneGraph() == only))
-                m_order.push_back(w);
+        std::unordered_set<const JWidget*> seen;
+        for (JWidget* root : m_roots) if (root) _collect(root, seen);
         constexpr float kRowBand = 6.0f;
         std::stable_sort(m_order.begin(), m_order.end(), [](JWidget* a, JWidget* b) {
             const auto ba = a->getBoundingBox(), bb = b->getBoundingBox();
             const float dy = ba.y - bb.y;
-            if (dy < -kRowBand) return true;    // a clearly above b
-            if (dy >  kRowBand) return false;   // a clearly below b
-            return ba.x < bb.x;                 // same row band → left-to-right
+            if (dy < -kRowBand) return true;
+            if (dy >  kRowBand) return false;
+            return ba.x < bb.x;
         });
+        // The focused widget left the order (its page hid, its dock tabbed behind, it was destroyed).
+        // Clear it PROPERLY -- nulling the pointer alone leaves the widget flagged focused, so it keeps
+        // painting a focus ring for ever and the next focus produces a second one.
         if (m_focused && std::find(m_order.begin(), m_order.end(), m_focused) == m_order.end())
-            m_focused = nullptr;
+            setFocus(nullptr);
     }
 
-    // Focus the topmost focusable+visible widget under (mx,my) from `widgets` (paint order,
-    // so scanned back-to-front), or clear focus if none is hit. Lets a runner do click-to-focus
-    // without itself walking the widget set / hit-testing.
-    void focusAt(const std::vector<JWidget*>& widgets, float mx, float my) {
+    // Click-to-focus over the tree: the same membership rule as Tab, so a click can never focus
+    // something outside this window. Scanned back-to-front (topmost wins).
+    void focusAt(float mx, float my) {
+        syncOrder();
         JWidget* hit = nullptr;
-        for (auto it = widgets.rbegin(); it != widgets.rend(); ++it) {
-            JWidget* w = *it;
-            if (w && w->isVisible() && w->isFocusable() && !w->isScanExcluded() && w->hitTest(mx, my)) { hit = w; break; }
-        }
+        for (auto it = m_order.rbegin(); it != m_order.rend(); ++it)
+            if ((*it)->hitTest(mx, my)) { hit = *it; break; }
         setFocus(hit);
     }
 
     // Give a freshly-opened window its initial focus: the first widget in reading order. Every toolkit
     // focuses something when a window opens — without it the keyboard does nothing until the user clicks.
-    void focusFirst(const std::vector<JWidget*>& widgets, const JSceneGraph* only = nullptr) {
-        syncOrder(widgets, only);
+    void focusFirst() {
+        syncOrder();
         if (!m_order.empty()) setFocus(m_order.front());
     }
 
     void clear() { m_order.clear(); m_focused = nullptr; }
 
 private:
-    // A widget you cannot see is not a tab stop. Visible+enabled is not enough: a collapsed panel, a
-    // closed menu's items, or a control laid out to nothing all keep their flags and would otherwise take
-    // focus, so Tab appeared to jump into nowhere and needed several more presses to escape. Anything
-    // smaller than a few pixels in either axis cannot be seen, focused deliberately, or clicked.
-    static bool _isReachable(const JWidget* w) {
-        const auto bb = w->getBoundingBox();
-        constexpr float kMin = 6.0f;      // below this a control cannot be perceived or hit
-        return bb.width >= kMin && bb.height >= kMin;
+    // Depth-first descent of the WIDGET tree (JWidget::collectChildren). A hidden or scan-excluded node
+    // prunes its whole subtree: nothing inside something the user cannot see, or that the host paints and
+    // hit-tests itself, is a tab stop. `seen` guards against a widget reachable by two edges (owned AND
+    // registered non-owningly in a container).
+    void _collect(JWidget* w, std::unordered_set<const JWidget*>& seen) {
+        if (!w || !seen.insert(w).second) return;
+        if (!w->isVisibleSelf() || w->isScanExcludedSelf()) return;
+        if (w->isFocusable() && w->isEnabled()) m_order.push_back(w);
+        std::vector<JWidget*> kids;
+        w->collectChildren(kids);
+        for (JWidget* k : kids) _collect(k, seen);
     }
 
     void _shift(int dir) {
@@ -162,6 +172,7 @@ private:
         setFocus(m_order[next]);
     }
 
+    std::vector<JWidget*> m_roots;   // this window's tree roots, declared by the host
     std::vector<JWidget*> m_order;
     JWidget*              m_focused{nullptr};
     JFocusManager*        m_prevActive{nullptr};   // the manager this one displaced as s_active (restored on dtor)
@@ -175,13 +186,8 @@ private:
 // will ever focus by clicking — no control should have to request focus for itself.
 //
 // `graph` scopes the hit-test to one dialog's widgets, exactly as in jRouteKey.
-inline void jRouteMouse(float mx, float my, JFocusManager& focus, const JSceneGraph* graph = nullptr) {
-    if (!graph) { focus.focusAt(JWidget::s_activeWidgets, mx, my); return; }
-    std::vector<JWidget*> scoped;
-    scoped.reserve(JWidget::s_activeWidgets.size());
-    for (auto* w : JWidget::s_activeWidgets)
-        if (w && &w->sceneGraph() == graph) scoped.push_back(w);
-    focus.focusAt(scoped, mx, my);
+inline void jRouteMouse(float mx, float my, JFocusManager& focus) {
+    focus.focusAt(mx, my);
 }
 
 // ---- jRouteKey --------------------------------------------------------------------------------
@@ -193,9 +199,9 @@ inline void jRouteMouse(float mx, float my, JFocusManager& focus, const JSceneGr
 //
 // `graph` scopes traversal to one dialog's widgets (see syncOrder); pass nullptr for the main window.
 // The caller keeps whatever else it needs (Escape to dismiss, accelerators) AFTER this returns false.
-inline bool jRouteKey(const JKeyEvent& ke, JFocusManager& focus, const JSceneGraph* graph = nullptr) {
+inline bool jRouteKey(const JKeyEvent& ke, JFocusManager& focus) {
     if (!ke.pressed) return false;
-    focus.syncOrder(JWidget::s_activeWidgets, graph);
+    focus.syncOrder();
 
     if (JWidget* f = focus.focused(); f && f->handleKeyEvent(ke)) return true;
     if (ke.key == JKeyEvent::JKey::Tab)     { focus.nextFocus(); return true; }

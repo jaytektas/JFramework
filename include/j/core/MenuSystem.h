@@ -366,6 +366,10 @@ public:
     std::function<std::pair<int, int>(float, float)> onQueryScreenPos;
 
     JMenuBar(JSceneGraph& graph) : JControl(graph, "JMenuBar") {
+        // A menu bar is NOT part of the Tab chain -- no toolkit puts it there (Qt and GTK reach it with
+        // F10/Alt). It inherits JControl's StrongFocus otherwise, and being a full-width strip that paints
+        // no focus ring, Tab landing on it simply looks like focus vanishing.
+        m_focusPolicy = JFocusPolicy::NoFocus;
         auto& l = m_graph.getLayout(m_nodeId);
         l.direction = JFlexDirection::JRow;
         l.minHeight = 32.f;

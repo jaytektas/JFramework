@@ -109,6 +109,25 @@ public:
             JAiBus::instance().enable();
     }
 
+    // This window's focus tree roots: the menu bar, the dock space (every docked panel hangs off it) and
+    // the central widget. Traversal descends from these, so only widgets actually parented into this
+    // window are tab stops -- no global registry, nothing to subtract. Refreshed each frame because the
+    // central widget is swapped at runtime (landing view <-> surface tabs) and the menu bar is lazy.
+    void _refreshFocusRoots() {
+        std::vector<JWidget*> roots;
+        if (m_menuBar) roots.push_back(m_menuBar.get());
+        // One root per docked panel, and only the ACTIVE tab of each leaf: a panel tabbed behind another
+        // is not on screen, so its widgets are not in the chain. Floating docks own their own windows and
+        // run their own focus, so they are not roots here.
+        for (int a = 0; a < JDockSpace::AreaCount; ++a)
+            m_space.host(static_cast<JDockSpace::Area>(a)).forEachDockPanel(
+                [&roots](JDockWidget* d, const JRect&, bool activeTab, int) {
+                    if (d && activeTab && d->content()) roots.push_back(d->content());
+                });
+        if (JWidget* cw = m_space.centralWidget()) roots.push_back(cw);
+        m_focus.setFocusRoots(std::move(roots));
+    }
+
     bool valid() const { return m_window && m_hal; }
 
     JPlatformWindow& window() { return *m_window; }
@@ -581,8 +600,10 @@ public:
             // Focus-on-click: pressing a focusable widget focuses it (keyboard then routes
             // there); pressing empty space / non-focusable chrome clears focus. The app
             // registers nothing.
-            if (pressed && !chromeAte && !menuAte)
-                m_focus.focusAt(JWidget::s_activeWidgets, mx, my);
+            if (pressed && !chromeAte && !menuAte) {
+                _refreshFocusRoots();
+                m_focus.focusAt(mx, my);
+            }
             if (onInput) onInput(mx, my, (chromeAte || menuAte) ? false : pressed, released);
 
             // Route content input (clicks / wheel / hover) to the dock under the cursor. The
@@ -632,7 +653,8 @@ public:
             // centre, then the accelerators (menu chords + registered actions), then
             // Tab/Shift-Tab focus cycling, then the app's onKey hook. An open menu popup grabs
             // the keyboard at the OS level, so its keys never arrive here — no special-casing.
-            m_focus.syncOrder(JWidget::s_activeWidgets);
+            _refreshFocusRoots();
+            m_focus.syncOrder();
             for (const auto& ke : frameKeys) {
                 if (!ke.pressed) continue;
                 activity = true;

@@ -49,6 +49,12 @@ public:
     }
     const std::vector<JWidget*>& children() const { return m_children; }
 
+    // Non-owned children participate in focus traversal exactly like owned ones.
+    void collectChildren(std::vector<JWidget*>& out) const override {
+        JWidget::collectChildren(out);
+        for (JWidget* c : m_children) if (c) out.push_back(c);
+    }
+
     // Detach all children and DESTROY the ones this container owns (adopted via add(unique_ptr)); non-owned
     // children live on. Used to rebuild a form with a new set of rows.
     void clear() { m_graph.clearChildren(m_nodeId); m_children.clear(); disownAll(); }
