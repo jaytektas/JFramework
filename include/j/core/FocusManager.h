@@ -61,6 +61,18 @@ public:
     }
 
     void setFocus(JWidget* w) {
+        // A NoFocus widget can never OWN focus -- it is not a tab stop and no tree walk yields it, so accepting
+        // it here would make syncOrder() clear it a frame later and take every visual state keyed on focus with
+        // it. Its request goes to its nearest focusable ancestor instead: that is Qt's focus-proxy rule, and it
+        // is what makes a composed control work -- clicking the JLineEdit inside a spin box focuses the SPIN
+        // BOX, the single tab stop, while the field keeps the caret the click just placed. Without this, a
+        // clicked spin box lost its caret and its focus ring on the very next frame.
+        if (w && !w->isFocusable()) {
+            JWidget* p = w->parentWidget();
+            while (p && !p->isFocusable()) p = p->parentWidget();
+            if (!p) return;                  // nothing focusable above it: leave focus where it is
+            w = p;
+        }
         if (m_focused == w) return;
         JWidget* old = m_focused;
         m_focused = w;
@@ -86,6 +98,22 @@ public:
     const std::vector<JWidget*>& order() const { return m_order; }   // the live chain (introspection)
 
     bool isFocused(const JWidget* w) const { return m_focused == w; }
+
+    // Is `w` part of the live focus chain? A widget a HOST drives itself is not: the studio canvas paints and
+    // routes input to hosted controls that no tree walk can reach, and syncOrder() therefore clears their focus
+    // on the next frame (it must, since that same check is what releases focus held by a destroyed widget).
+    // A control can consult this to tell a REAL blur -- the user moved focus elsewhere -- from that bookkeeping,
+    // and so keep an edit alive instead of tearing it down one frame after a click.
+    bool isInOrder(const JWidget* w) const {
+        return std::find(m_order.begin(), m_order.end(), w) != m_order.end();
+    }
+    static bool reachable(const JWidget* w) { return s_active ? s_active->isInOrder(w) : false; }
+
+    // Which way the last Tab traversal was going (+1 forward, -1 backward). A widget that contains its own
+    // focus domain — a canvas whose controls the framework cannot see — reads this when focus ARRIVES, so it
+    // can enter at the near end: Tab lands on its first control, Shift-Tab on its last. Entering at the first
+    // control either way makes Shift-Tab walk straight back out, which reads as focus refusing to move.
+    int lastTraversalDir() const { return m_lastDir; }
 
     void nextFocus() { _shift(+1); }
     void prevFocus() { _shift(-1); }
@@ -161,6 +189,7 @@ private:
     }
 
     void _shift(int dir) {
+        m_lastDir = dir >= 0 ? 1 : -1;   // a widget that is a NESTED focus domain reads this on focus-in
         if (m_order.empty()) return;
         const int sz = static_cast<int>(m_order.size());
         // Nothing focused yet (fresh window, or the focused widget dropped out of the order): Tab starts
@@ -175,6 +204,7 @@ private:
 
     std::vector<JWidget*> m_roots;   // this window's tree roots, declared by the host
     std::vector<JWidget*> m_order;
+    int                   m_lastDir{1};      // direction of the last Tab traversal (see lastTraversalDir)
     JWidget*              m_focused{nullptr};
     JFocusManager*        m_prevActive{nullptr};   // the manager this one displaced as s_active (restored on dtor)
 };
@@ -205,8 +235,7 @@ inline bool jRouteKey(const JKeyEvent& ke, JFocusManager& focus) {
     focus.syncOrder();
 
     if (JWidget* f = focus.focused(); f && f->handleKeyEvent(ke)) return true;
-    if (ke.key == JKeyEvent::JKey::Tab)     { focus.nextFocus(); return true; }
-    if (ke.key == JKeyEvent::JKey::BackTab) { focus.prevFocus(); return true; }
+    if (jIsTabNav(ke)) { jTabNavDir(ke) < 0 ? focus.prevFocus() : focus.nextFocus(); return true; }
     return false;
 }
 
