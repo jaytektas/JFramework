@@ -5,6 +5,8 @@
 #include <j/core/JTextArea.h>
 #include <j/core/JComboBox.h>
 #include <j/core/JSlider.h>
+#include <j/core/JSpinBox.h>
+#include <j/core/JDoubleSpinBox.h>
 #include <j/core/JButton.h>
 #include <j/core/MenuSystem.h>
 #include <j/core/SceneGraph.h>
@@ -416,10 +418,117 @@ void test_tooltips() {
     std::cout << "test_tooltips passed" << std::endl;
 }
 
+// The spin box's value field is a REAL text field (JNumericField over JTextEditCore), so the value can be
+// edited in PART: caret placement, selection, clipboard, Home/End, and a commit/revert model. This guards the
+// behaviour that the old private edit buffer could not provide — it pinned the caret to the end of the text and
+// replaced the whole value on the first keystroke.
+void test_spinbox_text_editing() {
+    JSceneGraph graph;
+    JDoubleSpinBox spin(graph, -100.0, 100.0, /*step=*/1.0, /*decimals=*/1);
+    auto& layout = graph.getLayout(spin.getNodeId());
+    layout.boundingBox = {0, 0, 120, 24};
+    spin.setValue(12.5);
+
+    JKeyEvent ke; ke.pressed = true;
+    auto press = [&](JKeyEvent::JKey k, char c = '\0', bool ctrl = false) {
+        ke.key = k; ke.ctrl = ctrl; ke.utf8[0] = c; ke.utf8[1] = '\0';
+        return spin.handleKeyEvent(ke);
+    };
+    auto ch = [&](char c) { return press(JKeyEvent::JKey::Unknown, c); };
+
+    // Focus arrives -> the field is live with the value in it, selected: Tab in and type to replace.
+    spin.setFocused(true);
+    assert(spin.hasSelection());
+    assert(spin.selectedText() == "12.5");
+
+    // EDIT PART OF THE VALUE: End, then backspace one digit and type another -> 12.7, not 7.
+    assert(press(JKeyEvent::JKey::End));
+    assert(!spin.hasSelection());
+    assert(press(JKeyEvent::JKey::Backspace));
+    assert(ch('7'));
+    assert(press(JKeyEvent::JKey::Return));
+    assert(spin.value() == 12.7);
+
+    // Return keeps the box editable (it still holds focus) with the committed value selected.
+    assert(spin.selectedText() == "12.7");
+    // Home + type inserts at the FRONT of the value rather than replacing it.
+    assert(press(JKeyEvent::JKey::Home));
+    assert(ch('9'));                       // "912.7"
+    assert(press(JKeyEvent::JKey::Return));
+    assert(spin.value() == 100.0);         // committed and CLAMPED to the range
+
+    // Escape restores the value focus arrived with, whatever was typed since.
+    spin.setFocused(false);
+    spin.setValue(4.0);
+    spin.setFocused(true);
+    assert(ch('8'));                       // replaces the selection -> "8"
+    assert(press(JKeyEvent::JKey::Escape));
+    assert(spin.value() == 4.0);
+
+    // The numeric grammar refuses what cannot build a number. An ACTIVE field still consumes the keystroke
+    // (it is a text field with the caret in it, exactly like JLineEdit) but rejects the character...
+    assert(ch('x'));
+    assert(spin.text() == "4.0");   // Escape above restored the value; 'x' changed nothing
+    // ...while an INACTIVE field lets it bubble, so a host's own shortcuts still work over a spin box that
+    // nobody is typing into — which is how a canvas-hosted control keeps its authoring keys.
+    spin.setFocused(false);
+    assert(!ch('x'));
+    assert(spin.value() == 4.0);
+
+    // A second decimal point is refused, and the partial states typing passes through ("1", "1.") are not.
+    assert(ch('1')); assert(ch('.')); assert(ch('5'));   // the first char re-activates the field
+    assert(ch('.'));                                     // consumed by the field...
+    assert(press(JKeyEvent::JKey::Return));
+    assert(spin.value() == 1.5);                         // ...but rejected, so the value is 1.5, not garbage
+
+    // Ctrl+C lifts the selected text to the clipboard — this is what copying a value out of a properties
+    // panel depends on.
+    spin.setFocused(true);
+    spin.selectAll();
+    assert(press(JKeyEvent::JKey::C, 'c', /*ctrl=*/true));
+    assert(JWidget::clipboardGet() == "1.5");
+
+    // Up/Down step the value and re-select it, so the next keystroke replaces the stepped number.
+    assert(press(JKeyEvent::JKey::Up));
+    assert(spin.value() == 2.5);
+    assert(spin.selectedText() == "2.5");
+    assert(press(JKeyEvent::JKey::Down));
+    assert(spin.value() == 1.5);
+
+    // A value pushed from elsewhere refreshes an untouched field, but NEVER overwrites an edit in progress.
+    spin.setValue(7.5);
+    assert(spin.selectedText() == "7.5" || spin.text() == "7.5");
+    assert(ch('3'));                       // now dirty
+    spin.setValue(9.5);                    // e.g. a data source repainting underneath
+    assert(spin.text() == "3");            // the typing survived
+    spin.setFocused(false);              // focus-out commits it
+    assert(spin.value() == 3.0);
+
+    // Integer boxes get the same field, with no decimal point in the grammar.
+    JSpinBox ispin(graph, 0, 500);
+    auto& il = graph.getLayout(ispin.getNodeId());
+    il.boundingBox = {0, 0, 120, 24};
+    ispin.setValue(42);
+    ispin.setFocused(true);
+    ke.key = JKeyEvent::JKey::End; ke.ctrl = false; ke.utf8[0] = '\0';
+    assert(ispin.handleKeyEvent(ke));
+    ke.key = JKeyEvent::JKey::Unknown; ke.utf8[0] = '.'; ke.utf8[1] = '\0';
+    assert(ispin.handleKeyEvent(ke));      // consumed by the field...
+    assert(ispin.text() == "42");           // ...and rejected: integers have no decimal point
+    ke.utf8[0] = '7';
+    assert(ispin.handleKeyEvent(ke));
+    ke.key = JKeyEvent::JKey::Return; ke.utf8[0] = '\0';
+    assert(ispin.handleKeyEvent(ke));
+    assert(ispin.value() == 427);          // appended a digit instead of replacing the value
+
+    std::cout << "test_spinbox_text_editing passed" << std::endl;
+}
+
 int main() {
     test_button_interaction();
     test_widget_rendering();
     test_slider_logic();
+    test_spinbox_text_editing();
     test_combobox_logic();
     test_textarea_logic();
     test_scrollarea_logic();
