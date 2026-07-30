@@ -32,7 +32,12 @@ public:
     // requests (JWidget::requestFocus). The main window owns one for the app's lifetime.
     inline static JFocusManager* s_active = nullptr;
 
+    // Every live manager: the main window's, plus one per open dialog. A dying widget must be forgotten by ALL
+    // of them, not just the active one -- a dialog's manager outlives its own widgets in exactly the same way.
+    inline static std::vector<JFocusManager*> s_instances;
+
     JFocusManager() {
+        s_instances.push_back(this);
         // Save the previous active target so managers NEST: a dialog constructs its own manager (becoming the
         // active focus target while open) and restores the main window's on destruction. Without this, closing
         // any dialog would null s_active and leave the main window unable to focus anything.
@@ -43,9 +48,16 @@ public:
         // widget is the framework's job, wired here, not by any app.
         if (!JWidget::s_focusHook)
             JWidget::s_focusHook = [](JWidget* w) { if (s_active) s_active->setFocus(w); };
+        // A widget being destroyed drops out of every manager's bookkeeping, BEFORE anything can dereference
+        // it. syncOrder() used to be where a destroyed widget's focus was released -- and releasing it calls
+        // setFocused(false) ON THE DEAD WIDGET, which is a use-after-free: a rebuilt properties form or a
+        // swapped dialog page left m_focused dangling, and the next mouse move crashed the app.
+        if (!JWidget::s_widgetDestroyedHook)
+            JWidget::s_widgetDestroyedHook = [](JWidget* w) { for (auto* m : s_instances) m->_forget(w); };
     }
     ~JFocusManager() {
         if (s_active == this) s_active = m_prevActive;   // restore the manager we displaced (the hook follows s_active)
+        s_instances.erase(std::remove(s_instances.begin(), s_instances.end(), this), s_instances.end());
     }
 
     jf::JSignal<JWidget*> onFocusChanged; // nullptr = focus cleared
@@ -148,9 +160,10 @@ public:
             if (dy >  kRowBand) return false;
             return ba.x < bb.x;
         });
-        // The focused widget left the order (its page hid, its dock tabbed behind, it was destroyed).
-        // Clear it PROPERLY -- nulling the pointer alone leaves the widget flagged focused, so it keeps
-        // painting a focus ring for ever and the next focus produces a second one.
+        // The focused widget left the order: its page hid, or its dock tabbed behind. Clear it PROPERLY --
+        // nulling the pointer alone leaves the widget flagged focused, so it keeps painting a focus ring for
+        // ever and the next focus produces a second one. A DESTROYED widget never reaches here: it is dropped
+        // by _forget() as it dies, because this path would call setFocused(false) on freed memory.
         if (m_focused && std::find(m_order.begin(), m_order.end(), m_focused) == m_order.end())
             setFocus(nullptr);
     }
@@ -186,6 +199,14 @@ private:
         std::vector<JWidget*> kids;
         w->collectChildren(kids);
         for (JWidget* k : kids) _collect(k, seen);
+    }
+
+    // Forget a widget that is being destroyed. Pointers only -- the widget is mid-destruction, so nothing may
+    // call into it (no setFocused(false), no state change): it is already partly gone.
+    void _forget(const JWidget* w) {
+        m_order.erase(std::remove(m_order.begin(), m_order.end(), w), m_order.end());
+        m_roots.erase(std::remove(m_roots.begin(), m_roots.end(), w), m_roots.end());
+        if (m_focused == w) m_focused = nullptr;
     }
 
     void _shift(int dir) {

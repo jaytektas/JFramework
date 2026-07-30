@@ -12,6 +12,7 @@
 #include <j/core/SceneGraph.h>
 #include <j/graphics/RenderPrimitive.h>
 #include <cassert>
+#include <memory>
 #include <iostream>
 
 using namespace jf;
@@ -625,6 +626,32 @@ void test_tab_nav_is_portable() {
     std::cout << "test_tab_nav_is_portable passed" << std::endl;
 }
 
+// Destroying a focused widget must not leave the focus manager holding it. A properties form rebuilt on a new
+// selection, or a dialog page swapped out, destroys widgets that may hold focus; the manager kept raw pointers
+// and released the focus LATER -- by calling setFocused(false) on freed memory. That crashed the studio on the
+// next mouse move.
+void test_focus_released_when_widget_dies() {
+    JSceneGraph graph;
+    JFocusManager focus;
+
+    auto btn = std::make_unique<JButton>(graph, "Doomed");
+    graph.getLayout(btn->getNodeId()).boundingBox = {0, 0, 80, 24};
+    focus.registerWidget(btn.get());
+    focus.setFocus(btn.get());
+    assert(focus.focused() == btn.get());
+    assert(focus.isInOrder(btn.get()));
+
+    btn.reset();                       // destroyed while focused AND while in the order
+    assert(focus.focused() == nullptr);
+    assert(focus.order().empty());
+
+    focus.syncOrder();                 // the path that used to dereference the dead widget
+    focus.focusAt(10.f, 10.f);
+    assert(focus.focused() == nullptr);
+
+    std::cout << "test_focus_released_when_widget_dies passed" << std::endl;
+}
+
 int main() {
     test_button_interaction();
     test_widget_rendering();
@@ -633,6 +660,7 @@ int main() {
     test_focus_proxy_and_edit_survival();
     test_spinbox_paints_caret();
     test_tab_nav_is_portable();
+    test_focus_released_when_widget_dies();
     test_combobox_logic();
     test_textarea_logic();
     test_scrollarea_logic();

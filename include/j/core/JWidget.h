@@ -61,6 +61,11 @@ public:
     inline static std::function<void(JWidget*)> s_focusHook;
     void requestFocus() { if (s_focusHook) s_focusHook(this); }
 
+    // Destruction hook — installed by JFocusManager. A focus manager holds RAW pointers (its focused widget,
+    // its order, its roots); a widget that dies without saying so leaves them dangling, and the manager then
+    // dereferences the corpse the next time it tidies up. Any bookkeeping that outlives a widget hangs here.
+    inline static std::function<void(JWidget*)> s_widgetDestroyedHook;
+
     // Ask this widget to bring a descendant into view (a scroll area scrolls to it). The focus manager
     // walks the parent chain calling this whenever focus moves, so a focused control is never left
     // clipped out of its viewport -- the standard "scroll the focused widget into view" behaviour.
@@ -121,6 +126,7 @@ public:
         if (it != s_activeWidgets.end()) {
             s_activeWidgets.erase(it);
         }
+        if (s_widgetDestroyedHook) s_widgetDestroyedHook(this);   // drop every raw pointer held to us
     }
     JWidget(const JWidget&)            = delete;
     JWidget& operator=(const JWidget&) = delete;
