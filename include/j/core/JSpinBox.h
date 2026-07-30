@@ -1,22 +1,21 @@
 #pragma once
 
-// JSpinBox.
+// JSpinBox — integer spin box: a JLineEdit plus two small stepper buttons.
+//
+// The integer twin of JDoubleSpinBox (see that header for the reasoning). The value field is a real JLineEdit,
+// adopted as a child, so caret placement, selection, drag-select, Home/End, Backspace/Delete and Ctrl+A/C/X/V
+// all come from the one text implementation the toolkit already has. A JIntValidator carrying this box's range
+// keeps the field to digits and a sign — no decimal point, because the value is an int.
 
 #include "JControl.h"
+#include "FocusManager.h"
+#include "JLineEdit.h"
 #include "JTextHelper.h"
-#include "JNumericField.h"
 #include "KeyEvent.h"
 #include "SpinRepeat.h"
+#include "Validator.h"
 
 inline namespace jf {
-
-// ============================================================================
-// JSpinBox — integer spin box.
-//
-// The value field is a REAL text field (JNumericField over the shared JTextEditCore), so it edits like one:
-// click places the caret, drag selects, double-click takes the number, Ctrl+C copies it, and a digit can be
-// changed without retyping the value. Return / focus-out commits, Escape restores the value focus arrived with.
-// ============================================================================
 
 class JSpinBox : public JControl {
 public:
@@ -30,13 +29,23 @@ public:
         l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().controlHeight;
         l.minWidth = 60.0f;
         l.minHeight = h;
-        m_field.setGrammar(/*decimal=*/false, /*negative=*/minVal < 0);
-        m_repeat.onStep = [this](int units) { _stepBy(units); };   // hold up/down → accelerating repeat
+
+        m_edit = adopt(std::make_unique<JLineEdit>(m_graph, "", w, l.boundingBox.height));
+        m_edit->setFocusPolicy(JFocusPolicy::NoFocus);   // the SPIN BOX is the tab stop; this is its field
+        m_validator.setRange(minVal, maxVal);
+        m_edit->setValidator(&m_validator);              // digits, and a '-' only when the range allows it
+        m_edit->setText(std::to_string(m_value));
+        m_edit->onReturnPressed.connect([this] { _commitText(); });
+        // Only text the USER typed may be committed. Without this, blurring a box whose value was changed by
+        // its data source while focused would push the stale displayed text straight back over the new value.
+        m_edit->onTextChanged.connect([this](const std::string&) { if (!m_pushing) m_dirty = true; });
+
+        m_repeat.onStep = [this](int units) { _stepBy(units); };   // hold a stepper → accelerating repeat
         m_repeat.timer.onTick.connect([this] { m_repeat.tick(); });
     }
 
-    // Auto-repeat tuning (press-and-hold on the up/down button): initial delay, repeat interval, when the step
-    // starts accelerating, how fast it grows, and the max step — all in ms except maxStep.
+    // Auto-repeat tuning (press-and-hold on a stepper): initial delay, repeat interval, when the step starts
+    // accelerating, how fast it grows, and the max step — all in ms except maxStep.
     void setRepeatConfig(int delayMs, int intervalMs, int accelAfterMs, int accelEveryMs, int maxStep) {
         m_repeat.configure(delayMs, intervalMs, accelAfterMs, accelEveryMs, maxStep);
     }
@@ -45,9 +54,12 @@ public:
         int c = std::clamp(v, m_min, m_max);
         if (m_value == c) return;
         m_value = c;
-        // A value pushed from elsewhere refreshes the text ONLY while the user has not typed into it.
-        if (m_field.active() && !m_field.dirty()) m_field.reseed(std::to_string(m_value));   // fresh value, selected
-        m_graph.invalidateNode(m_nodeId, DirtySelf); onValueChanged.emit(c); notifyAccessibility();
+        // The text follows the value ONLY when nobody is editing it — a box bound to a live source is re-pushed
+        // its value every frame, and refreshing mid-edit would wipe the caret under the user's hands.
+        if (!_editing()) _setText(std::to_string(m_value));
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+        onValueChanged.emit(c);
+        notifyAccessibility();
     }
     int  value() const { return m_value; }
 
@@ -58,37 +70,47 @@ public:
         return n;
     }
 
-    // The field's selection model, exposed like JLineEdit's so a host can act on it.
-    bool        hasSelection() const { return m_field.core().hasSelection(); }
-    std::string selectedText() const { return m_field.core().selectedText(); }
-    const std::string& text() const  { return m_field.text(); }   // what the field is showing/editing
-    void        selectAll()          { m_field.core().selectAll(); invalidate(); }
+    void setRange(int minVal, int maxVal) {
+        m_min = minVal; m_max = maxVal;
+        m_validator.setRange(minVal, maxVal);
+        setValue(m_value);                               // re-clamp
+    }
+
+    // The field, for a host that wants the text or the selection.
+    JLineEdit*         lineEdit()           { return m_edit; }
+    const std::string& text() const         { return m_edit->text(); }
+    bool               hasSelection() const { return m_edit->hasSelection(); }
+    std::string        selectedText() const { return m_edit->selectedText(); }
+    void               selectAll()          { m_edit->selectAll(); invalidate(); }
 
     void handleMousePress(float mx, float my) override {
-        if (!isPointInside(mx, my)) { _commitEdit(); return; }
-        requestFocus();   // clicking the box focuses it, so typed digits route here (framework focus)
+        if (!isPointInside(mx, my)) { endEdit(); return; }
+        requestFocus();
+        _layout();
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        float btnW = b.height * 0.7f;
-        if (mx >= b.x + b.width - btnW) {
+        if (mx >= b.x + b.width - _btnW()) {             // a stepper — fires on press, then auto-repeats
+            _commitText();
             const int dir = (my < b.y + b.height * 0.5f) ? 1 : -1;
-            _stepBy(dir);              // first click steps once; holding then auto-repeats with acceleration
+            _stepBy(dir);
             m_repeat.begin(dir);
-        } else {                       // the value field — put a caret where the click landed
+        } else {                                         // the field — the line edit places the caret
             setState(JWidgetState::Pressed);
-            m_field.begin(std::to_string(m_value), /*selectAll=*/false);
-            m_field.press(mx, _textX());
+            _enterEdit();
+            m_edit->handleMousePress(mx, my);
             invalidate();
         }
     }
 
     void handleMouseMove(float mx, float my) override {
         JControl::handleMouseMove(mx, my);
-        if (m_field.drag(mx, _textX())) invalidate();   // drag-select inside the value
+        _layout();
+        m_edit->handleMouseMove(mx, my);                 // drag-select inside the value
     }
 
     void handleMouseRelease(float mx, float my) override {
-        m_repeat.end();   // releasing the button stops the auto-repeat (wherever the release lands)
-        m_field.release();
+        m_repeat.end();                                  // releasing a stepper stops the auto-repeat
+        _layout();
+        m_edit->handleMouseRelease(mx, my);
         JControl::handleMouseRelease(mx, my);
     }
 
@@ -104,114 +126,161 @@ public:
 
     bool handleKeyEvent(const JKeyEvent& ke) override {
         if (!ke.pressed) return false;
-        // The text field gets first refusal — caret/selection movement, Backspace/Delete, Ctrl+A/C/X/V and any
-        // digit are EDITS. Up/Down/Return/Escape come back as an Outcome for this box to apply.
-        if (!m_field.active() && !ke.ctrl && !ke.alt && m_field.wouldAccept(ke.utf8[0]))
-            m_field.begin(std::to_string(m_value), /*selectAll=*/true);   // type-to-edit replaces the value
-        const auto out = m_field.handleKey(ke);
-        if (out.step != 0) { _stepBy(out.step); return true; }
-        // Return interprets the text and keeps the field live with the result selected (Qt's behaviour), so the
-        // box stays editable while it still holds focus. A canvas-hosted control is NoFocus and nothing will
-        // blur it, so there Return closes the edit instead of leaving an orphaned caret.
-        if (out.commit)    { _commitEdit(/*keepField=*/isFocused()); return true; }
-        if (out.revert) {
+        using K = JKeyEvent::JKey;
+
+        if (ke.key == K::Up)   { _stepBy(1);  return true; }
+        if (ke.key == K::Down) { _stepBy(-1); return true; }
+        if (ke.key == K::Escape) {
             // Restore the value focus arrived with. If nothing changed, let Escape bubble (it can still close a
             // dialog).
-            if (m_field.dirty() || m_value != m_focusValue) {
+            if (m_value != m_focusValue || m_edit->text() != std::to_string(m_value)) {
                 setValue(m_focusValue);
-                m_field.reseed(std::to_string(m_value));
+                _setText(std::to_string(m_value));
+                m_edit->selectAll();
                 invalidate();
                 return true;
             }
             return false;
         }
-        if (out.consumed) { if (out.changed) notifyAccessibility(); invalidate(); return true; }
 
-        // App-defined value-nudge bindings apply only to keys the field did not take.
-        switch (valueKeyAction(ke)) {
-            case JValueKeyAction::Increase:      _stepBy(1);   return true;
-            case JValueKeyAction::Decrease:      _stepBy(-1);  return true;
-            case JValueKeyAction::IncreaseLarge: _stepBy(10);  return true;
-            case JValueKeyAction::DecreaseLarge: _stepBy(-10); return true;
-            case JValueKeyAction::None:          break;
+        // Give the field the keystroke: caret/selection movement, Backspace/Delete, Ctrl+A/C/X/V and any digit.
+        // A printable the grammar cannot use is NOT offered, so a host's own shortcuts keep working.
+        const char c = ke.utf8[0];
+        const bool printable = !ke.ctrl && !ke.alt && (uint8_t)c >= 32;
+        if (!printable || _isValueChar(c)) {
+            if (m_edit->handleKeyEvent(ke)) {
+                _enterEdit();                            // typing into an unfocused box still shows its caret
+                notifyAccessibility();
+                invalidate();
+                return true;
+            }
+        }
+
+        // App-defined value-nudge bindings (e.g. "." = increase) apply only when the field is NOT being edited.
+        // An active edit owns the keyboard: Tab must leave the field, not step the value, and "." must type a
+        // decimal point. Keying this on the EDIT rather than on focus matters for a host whose controls can
+        // never hold framework focus (the studio canvas) -- there, gating on focus let a Tab bound to
+        // IncreaseValue swallow every Tab press.
+        if (!_editing()) {
+            switch (valueKeyAction(ke)) {
+                case JValueKeyAction::Increase:      _stepBy(1);   return true;
+                case JValueKeyAction::Decrease:      _stepBy(-1);  return true;
+                case JValueKeyAction::IncreaseLarge: _stepBy(10);  return true;
+                case JValueKeyAction::DecreaseLarge: _stepBy(-10); return true;
+                case JValueKeyAction::None:          break;
+            }
         }
         return false;
     }
 
-    // Commit a typed value the instant focus leaves (Tab / click-away), before any repaint or
-    // properties-panel rebuild can discard the edit buffer.
+    // Focus arrives: the field becomes editable with the value in it, selected. Focus leaves: commit at once,
+    // before any repaint or properties-panel rebuild can discard the text.
     void onFocusEvent(bool focused) override {
         if (focused) {
-            m_focusValue = m_value;
-            // Focus makes the field editable with the value already in it and selected.
-            m_field.begin(std::to_string(m_value), /*selectAll=*/true);
-        } else {
-            _commitEdit();
+            beginEdit();
+        } else if (JFocusManager::reachable(this)) {
+            endEdit();          // a real blur: the user moved focus elsewhere
         }
+        // Otherwise this is focus BOOKKEEPING, not a user action: a host that drives its own controls (the
+        // studio canvas) keeps them out of the focus chain, so syncOrder() clears their focus a frame after
+        // the click that set it. Tearing the edit down there is exactly what left a clicked spin box with no
+        // caret. The host ends the edit explicitly instead, via endEdit().
         invalidate();
     }
+
+    // Show the caret with the value selected, as tabbing into a field does. Called by the framework on
+    // focus-in, and by a host that drives its own focus notion (the studio canvas) when its keyboard moves here.
+    void beginEdit() override {
+        m_focusValue = m_value;
+        _enterEdit();
+        _setText(std::to_string(m_value));
+        m_edit->selectAll();
+        invalidate();
+    }
+
+    // Commit and drop the caret. Called by the framework on a real blur, and by a host that drives its own
+    // controls when its focused control moves on.
+    void endEdit() override { _commitText(); _leaveEdit(); }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
+        _layout();
+        m_edit->populateRenderPrimitives(buf);           // field surface, border, focus ring, text, caret
+
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        float btnW = b.height * 0.7f;
-        float fieldW = b.width - btnW;
+        const float btnW = _btnW();
+        JStyleOption o = jstyle::option(m_state, isFocused() || _editing());
 
-        bool focused = isFocused();
-        // Field surface + border by role; focus takes the Accent ring.
-        // Focused OR editing takes the Accent ring: a canvas-hosted control is NoFocus by design, so the
-        // ring is what tells you the field is taking your keystrokes.
-        const bool ring = focused || m_field.active();
-        JStyleOption o = jstyle::option(m_state, ring);
-        // Value field
-        buf.pushRectangle(b.x, b.y, fieldW, b.height, jstyle::fieldFill(o).data(),
-                          JStyle::current().hint(JStyleHint::ControlRadius),
-                          jstyle::borderW(ring), jstyle::border(o).data());
-        // Value text, caret and selection — the field owns all of it.
-        if (!m_field.active()) m_field.syncDisplay(std::to_string(m_value));
-        m_field.draw(buf, {b.x, b.y, fieldW, b.height}, o, textPadding(), /*suffix=*/"");
-
-        // Up/down button area — Button role fill, Border-role outline.
-        float halfH = b.height * 0.5f;
+        // The two steppers — Button role fill, Border-role outline, tiny arrow marks.
+        const float halfH = b.height * 0.5f;
         const JColor btnFill = jstyle::role(JColorRole::Button, o);
         const JColor btnBd   = jstyle::role(JColorRole::Border, o);
-        buf.pushRectangle(b.x + fieldW, b.y,          btnW, halfH, btnFill.data(), 0.0f, 1.0f, btnBd.data());
-        buf.pushRectangle(b.x + fieldW, b.y + halfH,  btnW, halfH, btnFill.data(), 0.0f, 1.0f, btnBd.data());
-        // Arrow marks (tiny rects)
-        float ax = b.x + fieldW + btnW * 0.3f, aw = btnW * 0.4f;
+        buf.pushRectangle(b.x + b.width - btnW, b.y,         btnW, halfH, btnFill.data(), 0.0f, 1.0f, btnBd.data());
+        buf.pushRectangle(b.x + b.width - btnW, b.y + halfH, btnW, halfH, btnFill.data(), 0.0f, 1.0f, btnBd.data());
+        const float ax = b.x + b.width - btnW + btnW * 0.3f, aw = btnW * 0.4f;
         uint8_t ac[4] = {Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 200};
-        buf.pushRectangle(ax, b.y + halfH * 0.35f,        aw, 2.0f, ac);  // up mark
-        buf.pushRectangle(ax, b.y + halfH + halfH * 0.55f, aw, 2.0f, ac); // down mark
+        buf.pushRectangle(ax, b.y + halfH * 0.35f,          aw, 2.0f, ac);   // up mark
+        buf.pushRectangle(ax, b.y + halfH + halfH * 0.55f,  aw, 2.0f, ac);   // down mark
     }
-
 
 private:
-    SpinRepeat m_repeat;   // press-and-hold up/down auto-repeat with acceleration
+    SpinRepeat m_repeat;   // press-and-hold stepper auto-repeat with acceleration
 
-    // Where the value text starts on screen — the field hit-tests against exactly what draw() rendered.
-    float _textX() const { return m_graph.getLayoutConst(m_nodeId).boundingBox.x + textPadding(); }
-
-    // Step the value: commit whatever is typed first, then re-seed the field with the result, selected.
-    void _stepBy(int units) {
-        _commitEdit(/*keepField=*/true);
-        setValue(m_value + units);
-        if (m_field.active()) m_field.reseed(std::to_string(m_value));
-        invalidate();
+    float _btnW() const { return m_graph.getLayoutConst(m_nodeId).boundingBox.height * 0.7f; }
+    // The field fills everything left of the steppers. Run before any hit-test as well as every paint, so a
+    // click maps to exactly the text the user can see even on the frame the box was moved.
+    void _layout() {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        m_edit->setBounds({ b.x, b.y, std::max(8.0f, b.width - _btnW()), b.height });
     }
 
-    // Parse the typed text into the value. An empty or sign-only field keeps the current value.
-    void _commitEdit(bool keepField = false) {
-        if (!m_field.active()) return;
-        if (m_field.dirty()) {
-            try { setValue(std::stoi(m_field.text())); } catch (...) {}
+    // No decimal point: the value is an int. The validator has the final say.
+    bool _isValueChar(char c) const {
+        if (c >= '0' && c <= '9') return true;
+        if (c == '-' || c == '+') return m_min < 0;
+        return false;
+    }
+
+    // Push text into the field ourselves: not a user edit, so it clears the dirty flag rather than setting it.
+    void _setText(const std::string& t) {
+        m_pushing = true;
+        m_edit->setText(t);
+        m_pushing = false;
+        m_dirty = false;
+    }
+
+    bool _editing() const { return m_editing; }
+    void _enterEdit() { if (!m_editing) { m_editing = true; m_edit->setFocused(true); invalidate(); } }
+    void _leaveEdit() { if (m_editing) { m_editing = false; m_edit->setFocused(false); invalidate(); } }
+
+    // Parse the field into the value, then normalise the text. The caret goes to the END with no selection:
+    // after Return you are still in the field, and re-selecting the value would let the next keystroke wipe it.
+    void _commitText() {
+        const std::string t = m_edit->text();
+        if (m_dirty && !t.empty() && t != "-" && t != "+") {
+            try { setValue(std::stoi(t)); } catch (...) {}      // out-of-range text was already refused as you typed
         }
-        if (keepField) m_field.reseed(std::to_string(m_value));
-        else           m_field.end();
+        _setText(std::to_string(m_value));
+        m_edit->clearSelection();
         invalidate();
     }
+
+    void _stepBy(int units) {
+        _commitText();
+        setValue(m_value + units);
+        _setText(std::to_string(m_value));
+        m_edit->clearSelection();
+        invalidate();
+    }
+
+    bool m_editing{false};   // the field is showing a caret and owns its text (OUR state, see _enterEdit)
+    bool m_pushing{false};   // true while WE are setting the text (suppresses the dirty flag)
+    bool m_dirty{false};     // the user has typed into the field since it was last seeded
+
+    JLineEdit*    m_edit{nullptr};   // adopted: the value field. All text behaviour lives here.
+    JIntValidator m_validator{0, 100};
 
     int m_min, m_max, m_value;
     int m_focusValue{0};   // value captured on focus-in; Escape restores it
-    JNumericField m_field;   // the real text field: caret, selection, clipboard, digit grammar
 };
 
 } // inline namespace jf

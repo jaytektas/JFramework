@@ -16,6 +16,18 @@ inline float _jStyleFieldPadding();
 
 class JControl : public JWidget {
 public:
+    // Begin editing without a click: the host's keyboard focus arrived (Tab). A text-editing control shows its
+    // caret and selects its value, so typing replaces it -- the standard "tab into a field" behaviour. Paired
+    // with endEdit() so a host that owns its own focus notion can drive both ends.
+    virtual void beginEdit() {}
+
+    // End any in-progress text edit: commit what was typed and drop the caret. A control that edits text
+    // (the spin boxes) overrides this so a HOST that keeps its controls outside the framework's focus tree --
+    // the studio canvas routes input to whatever the user last clicked -- can still say "you are done" when
+    // its own notion of the focused control moves on. The framework calls it on a real blur too, so there is
+    // exactly one teardown path.
+    virtual void endEdit() {}
+
     jf::JSignal<>     onHoverEntered;
     jf::JSignal<>     onHoverExited;
     jf::JSignal<>     onClicked;    // fired on RELEASE INSIDE (a completed click)
