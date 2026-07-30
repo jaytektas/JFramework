@@ -672,8 +672,7 @@ public:
                 // every clipboard key from every JLineEdit in the app.) Consumed = stop routing.
                 if (JMenuManager::instance().processAccelerator(ke)) continue;
                 if (jShortcuts().dispatch(ke)) continue;
-                if (ke.key == JKeyEvent::JKey::Tab)     { m_focus.nextFocus(); continue; }
-                if (ke.key == JKeyEvent::JKey::BackTab) { m_focus.prevFocus(); continue; }
+                if (jIsTabNav(ke)) { jTabNavDir(ke) < 0 ? m_focus.prevFocus() : m_focus.nextFocus(); continue; }
                 if (onKey) onKey(ke);
             }
 

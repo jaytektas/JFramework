@@ -26,4 +26,17 @@ struct JKeyEvent {
     bool     pressed{true}; // false on release
 };
 
+// ---- Tab navigation, spelled ONCE ----------------------------------------------------------------------
+// Shift+Tab does not arrive the same way on every platform: X11 sends its own keysym (XK_ISO_Left_Tab, mapped
+// to JKey::BackTab), while Win32 (VK_TAB) and macOS (kVK_Tab) send plain Tab with the shift modifier set. Code
+// that implements a focus domain must accept BOTH spellings, or backward navigation works on one platform and
+// silently walks FORWARD on the others. Testing on Linux alone will not reveal it.
+inline bool jIsTabNav(const JKeyEvent& ke) {
+    return ke.key == JKeyEvent::JKey::Tab || ke.key == JKeyEvent::JKey::BackTab;
+}
+// +1 forward, -1 backward.
+inline int jTabNavDir(const JKeyEvent& ke) {
+    return (ke.key == JKeyEvent::JKey::BackTab || ke.shift) ? -1 : 1;
+}
+
 } // inline namespace jf
