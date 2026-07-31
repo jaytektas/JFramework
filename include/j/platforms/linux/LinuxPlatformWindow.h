@@ -157,6 +157,14 @@ public:
             _applyWindowType("_NET_WM_WINDOW_TYPE_DIALOG");
         }
 
+        // Declare the position we asked for as USER-specified (WM_NORMAL_HINTS / USPosition|PPosition).
+        // The x,y passed to xcb_create_window is only a REQUEST: without these flags the ICCCM lets the
+        // window manager place the window however it likes, and most place a new dialog under the pointer
+        // or by "smart placement". That is why a dialog the framework had carefully centred on its parent
+        // opened with its top-left at wherever the menu was clicked — the arithmetic was right and the WM
+        // simply ignored it. Set before the window is mapped, since placement is decided at map time.
+        _setPositionHint(screenX, screenY, static_cast<int32_t>(width), static_cast<int32_t>(height));
+
         // Wire up WM_DELETE_WINDOW (irrelevant for Popup but harmless).
         xcb_intern_atom_reply_t* protocols_r = xcb_intern_atom_reply(
             m_connection,
@@ -572,6 +580,41 @@ public:
         xcb_flush(m_connection);
     }
 
+    // WM_NORMAL_HINTS, accumulated. ICCCM has ONE property for min-size, position and size hints, so they
+    // must be written together — a second setter that rebuilt the struct from scratch would silently drop
+    // whatever the first one declared.
+    struct JXSizeHints {
+        uint32_t flags{0};
+        int32_t  x{0}, y{0}, width{0}, height{0};
+        int32_t  min_width{0}, min_height{0};
+        int32_t  max_width{0}, max_height{0};
+        int32_t  width_inc{0}, height_inc{0};
+        int32_t  min_aspect_num{0}, min_aspect_den{0};
+        int32_t  max_aspect_num{0}, max_aspect_den{0};
+        int32_t  base_width{0}, base_height{0};
+        uint32_t win_gravity{0};
+    };
+    static constexpr uint32_t kUSPosition = 1u << 0;
+    static constexpr uint32_t kUSSize     = 1u << 1;
+    static constexpr uint32_t kPPosition  = 1u << 2;
+    static constexpr uint32_t kPSize      = 1u << 3;
+    static constexpr uint32_t kPMinSize   = 1u << 4;
+
+    void _writeSizeHints() {
+        xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
+                            XCB_ATOM_WM_NORMAL_HINTS, XCB_ATOM_WM_SIZE_HINTS,
+                            32, sizeof(m_sizeHints) / 4, &m_sizeHints);
+        xcb_flush(m_connection);
+    }
+
+    // "This position is deliberate, not a default" — the only way to stop a WM placing the window itself.
+    void _setPositionHint(int px, int py, int32_t pw, int32_t ph) {
+        m_sizeHints.flags |= kUSPosition | kPPosition | kUSSize | kPSize;
+        m_sizeHints.x = px; m_sizeHints.y = py;
+        m_sizeHints.width = pw; m_sizeHints.height = ph;
+        _writeSizeHints();
+    }
+
     // Inform the WM of our minimum window size via WM_NORMAL_HINTS so the
     // WM enforces it during interactive resize and never sends us a
     // ConfigureNotify below this threshold.
@@ -585,27 +628,10 @@ public:
     // minimum; the small extra margin is harmless.
     void setMinSize(uint32_t minW, uint32_t minH) override {
         minH += _frameTop();
-
-        struct JXSizeHints {
-            uint32_t flags{0};
-            int32_t  x{0}, y{0}, width{0}, height{0};
-            int32_t  min_width{0}, min_height{0};
-            int32_t  max_width{0}, max_height{0};
-            int32_t  width_inc{0}, height_inc{0};
-            int32_t  min_aspect_num{0}, min_aspect_den{0};
-            int32_t  max_aspect_num{0}, max_aspect_den{0};
-            int32_t  base_width{0}, base_height{0};
-            uint32_t win_gravity{0};
-        };
-        static constexpr uint32_t PMinSize = 1u << 4;
-        JXSizeHints hints{};
-        hints.flags      = PMinSize;
-        hints.min_width  = static_cast<int32_t>(minW);
-        hints.min_height = static_cast<int32_t>(minH);
-        xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
-                            XCB_ATOM_WM_NORMAL_HINTS, XCB_ATOM_WM_SIZE_HINTS,
-                            32, sizeof(hints) / 4, &hints);
-        xcb_flush(m_connection);
+        m_sizeHints.flags     |= kPMinSize;
+        m_sizeHints.min_width  = static_cast<int32_t>(minW);
+        m_sizeHints.min_height = static_cast<int32_t>(minH);
+        _writeSizeHints();
     }
 
     // Framework-managed edge resize (opt-in). When enabled, the window itself detects edge/corner grabs,
@@ -1208,6 +1234,7 @@ private:
     bool  m_closeRequested{false};
     bool  m_wasResized{false};
     bool  m_focusLost{false};
+    JXSizeHints m_sizeHints{};   // accumulated WM_NORMAL_HINTS (position + min size)
     bool  m_mouseLeft{false};
     bool  m_altDown{false};
     bool  m_ctrlDown{false};
