@@ -203,9 +203,23 @@ public:
 
     // Root popup: pump native events + ensure the single pointer grab. Returns true if this
     // popup should dismiss the whole stack (window closed / focus lost).
+    // Pump the ROOT popup of a menu stack and hold the pointer grab. Returns true only when the WINDOW
+    // MANAGER closed it.
+    //
+    // Focus is deliberately NOT a dismissal signal here. A menu stack is many X11 windows but ONE input
+    // domain: this popup grabs the pointer and the runtime drives every popup from that single stream. Under
+    // a grab, X focus says nothing about what the user meant -- and it actively lies, because opening a
+    // SUBMENU moves focus off this window. Treating that as "the user clicked away" made a cascade eat
+    // itself: parent opens, child opens, parent sees focus loss, the stack closes, hover reopens it, forever.
+    // The menu bar was then unusable, because an open menu makes the runtime swallow all main-window input.
+    //
+    // Every real dismissal already reaches the runtime through the grab: a press outside every popup (which
+    // is also how clicking ANOTHER APPLICATION arrives, since the grab routes it to us), Escape, or this
+    // shouldClose. The flag is still consumed so it cannot pile up.
     bool pumpAndGrab() {
         m_window->pollNativeEvents();
-        if (m_window->shouldClose() || m_window->consumeFocusLost()) return true;
+        (void)m_window->consumeFocusLost();          // consumed, never acted on -- see above
+        if (m_window->shouldClose()) return true;
         _ensureGrab();
         return false;
     }
