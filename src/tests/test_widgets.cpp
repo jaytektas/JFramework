@@ -13,6 +13,7 @@
 #include <j/graphics/RenderPrimitive.h>
 #include <cassert>
 #include <memory>
+#include <cstdio>
 #include <iostream>
 
 using namespace jf;
@@ -652,6 +653,39 @@ void test_focus_released_when_widget_dies() {
     std::cout << "test_focus_released_when_widget_dies passed" << std::endl;
 }
 
+// A rebuild must not move the reader. setRootNode is called for a mode flip, a filter change or a
+// one-row edit, and it already keeps the SELECTION across one; the scroll position deserves the same,
+// or renaming a node in a long tree scrolls every other row out from under the user.
+void test_treeview_keeps_scroll_on_rebuild() {
+    JSceneGraph graph;
+    JTreeView tv(graph);
+    graph.getLayout(tv.getNodeId()).boundingBox = {0, 0, 240, 200};   // ~8 rows visible
+
+    auto build = [] {
+        JTreeViewNode root{"Root", true, false, {}};
+        for (int i = 0; i < 60; ++i)
+            root.children.push_back(JTreeViewNode{"row_" + std::to_string(i), false, false, {}});
+        return root;
+    };
+    tv.setRootNode(build());
+    assert(tv.scrollY() == 0.0f);
+
+    tv.handleScroll(10.f, 10.f, -20.f);          // wheel down
+    const float scrolled = tv.scrollY();
+    assert(scrolled > 0.0f);
+
+    tv.setRootNode(build());                      // same shape: the position must survive
+    assert(tv.scrollY() == scrolled);
+
+    // A tree that got SHORTER clamps into range rather than leaving the view past the end.
+    JTreeViewNode small{"Root", true, false, {}};
+    small.children.push_back(JTreeViewNode{"only", false, false, {}});
+    tv.setRootNode(std::move(small));
+    assert(tv.scrollY() == 0.0f);
+
+    std::cout << "test_treeview_keeps_scroll_on_rebuild passed" << std::endl;
+}
+
 int main() {
     test_button_interaction();
     test_widget_rendering();
@@ -666,6 +700,7 @@ int main() {
     test_scrollarea_logic();
     test_listview_logic();
     test_treeview_logic();
+    test_treeview_keeps_scroll_on_rebuild();
     test_datagrid_logic();
     test_menu_and_shortcuts();
     test_tooltips();

@@ -78,12 +78,14 @@ public:
     // Hold m_scrollY inside what the CURRENT tree can scroll to. Called after a rebuild, since keeping the
     // position is only right while the position still exists.
     void _clampScroll() {
-        const auto  b     = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        const float itemH = rowHeight();
-        std::vector<JFlatNode> flat;
-        _flatten(m_root, 0, flat);
-        const float content = float(flat.size()) * itemH;
-        const float maxY    = std::max(0.0f, content - (b.height - 8.0f));
+        // getItemHeight(), NOT rowHeight(): m_rowHeight is -1 until a host overrides it, meaning "take the
+        // style's". Using the raw member made the content height negative, so every rebuild clamped the
+        // position to 0 — the very reset this was added to prevent. Same two helpers the wheel handler uses,
+        // so the bounds agree.
+        const auto  b      = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const auto  flat   = getFlatNodes();
+        const float totalH = flat.size() * getItemHeight() + 8.0f;
+        const float maxY   = std::max(0.0f, totalH - b.height);
         m_scrollY = std::clamp(m_scrollY, 0.0f, maxY);
     }
 
@@ -202,6 +204,7 @@ public:
     }
 
     float rowHeight() const { return m_rowHeight; }
+    float scrollY()   const { return m_scrollY; }   // vertical offset, for tests/hosts that persist it
     void setRowHeight(float h) { m_rowHeight = h; m_graph.invalidateNode(m_nodeId, DirtySelf); }
 
     float getItemHeight() const {
