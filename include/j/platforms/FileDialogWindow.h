@@ -123,6 +123,7 @@ private:
 
     static constexpr float kPad     = 12.f;   // uniform layout gutter for this window
     static constexpr float kRowIcon = 8.f;    // dir/file marker square edge
+    static constexpr float kScrollBarW = 10.f;  // list scroll-bar gutter (wide enough to grab)
     static constexpr int   kDblMs   = 400;    // double-click window
 
     static std::string s_lastDir;             // remembered across opens
@@ -312,16 +313,39 @@ private:
         const int maxScroll = std::max(0, (int)m_entries.size() - kVisibleRows);
         m_scroll = std::clamp(m_scroll, 0, maxScroll);
 
+        // ---- Scroll bar: a real one you can DRAG --------------------------
+        // It used to be four decorative pixels: drawn when the list overflowed, with no press handling at
+        // all, so grabbing it did nothing and the click selected whatever row sat behind it. A list you can
+        // only reach with the wheel is a list most people believe is stuck.
+        const bool  overflow = maxScroll > 0;
+        const float barW     = overflow ? kScrollBarW : 0.f;      // gutter, reserved so rows never run under it
+        const float rowsW    = listW - barW;
+        const float barX     = listX + listW - barW;
+        const float thumbH   = overflow ? std::max(24.f, listH * kVisibleRows / (float)m_entries.size()) : 0.f;
+        const float travel   = listH - thumbH;
+        const float thumbY   = overflow ? listY + travel * (float)m_scroll / (float)maxScroll : listY;
+        bool pressInBar = false;
+        if (overflow) {
+            if (m_pressed && _hit(barX, listY, barW, listH)) {
+                pressInBar = true;
+                if (m_my >= thumbY && m_my < thumbY + thumbH) { m_barDrag = true; m_barGrab = m_my - thumbY; }
+                else m_scroll = std::clamp(m_scroll + (m_my < thumbY ? -kVisibleRows : kVisibleRows), 0, maxScroll);
+            }
+            if (m_barDrag && m_held && travel > 0.f)
+                m_scroll = (int)std::lround(std::clamp((m_my - m_barGrab - listY) / travel, 0.f, 1.f) * maxScroll);
+        }
+        if (!m_held) m_barDrag = false;
+
         for (int row = 0; row < kVisibleRows; ++row) {
             int idx = m_scroll + row;
             if (idx >= (int)m_entries.size()) break;
             const Entry& e = m_entries[idx];
             float ry = listY + row * rowH;
-            bool hov = _hit(listX, ry, listW, rowH);
+            bool hov = _hit(listX, ry, rowsW, rowH);
             if (idx == m_selected)
-                buf.pushRectangle(listX + 1.f, ry, listW - 2.f, rowH, Colors::SelectionFill, 0.f);
+                buf.pushRectangle(listX + 1.f, ry, rowsW - 2.f, rowH, Colors::SelectionFill, 0.f);
             else if (hov)
-                buf.pushRectangle(listX + 1.f, ry, listW - 2.f, rowH, Colors::RowAltBg, 0.f);
+                buf.pushRectangle(listX + 1.f, ry, rowsW - 2.f, rowH, Colors::RowAltBg, 0.f);
 
             // dir/file marker square: dirs accented, files muted.
             float iconY = ry + (rowH - kRowIcon) * 0.5f;
@@ -330,9 +354,9 @@ private:
             const uint8_t* tc = (idx == m_selected) ? Colors::TextPrimary
                               : e.isDir ? Colors::ControlText : Colors::TextPrimary;
             std::string label = e.isDir ? (e.name + "/") : e.name;
-            JTextHelper::pushText(buf, listX + 26.f, ry + (rowH - lh) * 0.5f, label, tc, listW - 36.f);
+            JTextHelper::pushText(buf, listX + 26.f, ry + (rowH - lh) * 0.5f, label, tc, rowsW - 36.f);
 
-            if (m_pressed && hov) {
+            if (m_pressed && hov && !pressInBar) {
                 int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
                                   std::chrono::steady_clock::now().time_since_epoch()).count();
                 bool dbl = (idx == m_lastClickIdx) && (now - m_lastClickMs < kDblMs);
@@ -342,12 +366,11 @@ private:
             }
         }
 
-        // Scroll thumb (only when the list overflows).
-        if (maxScroll > 0) {
-            float trackH = listH;
-            float thumbH = std::max(24.f, trackH * kVisibleRows / (float)m_entries.size());
-            float thumbY = listY + (trackH - thumbH) * (float)m_scroll / (float)maxScroll;
-            buf.pushRectangle(listX + listW - 6.f, thumbY, 4.f, thumbH, Colors::ScrollThumb, 2.f);
+        // The bar, with the SAME geometry the drag above used — so the thumb you press is the thumb you see.
+        if (overflow) {
+            const float ty = listY + travel * (float)m_scroll / (float)maxScroll;   // after any drag this frame
+            buf.pushRectangle(barX, listY, barW, listH, Colors::InputFieldBg, 0.f);
+            buf.pushRectangle(barX + 1.f, ty, barW - 2.f, thumbH, Colors::ScrollThumb, 3.f);
         }
         y = listY + listH + kPad;
 
@@ -417,6 +440,8 @@ private:
 
     float m_mx{0}, m_my{0};
     bool  m_pressed{false}, m_held{false};
+    bool  m_barDrag{false};                   // dragging the list's scroll thumb
+    float m_barGrab{0.f};                     // cursor offset within the thumb when the drag began
     float m_wheel{0};
     std::vector<JKeyEvent> m_keys;
 };
