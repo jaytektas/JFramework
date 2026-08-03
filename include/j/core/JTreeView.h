@@ -75,6 +75,18 @@ public:
 
     // Whether F2 / double-activate may start an in-place rename (default on). Apps with read-only
     // trees (e.g. a fixed config navigator) can disable it.
+    // Hold m_scrollY inside what the CURRENT tree can scroll to. Called after a rebuild, since keeping the
+    // position is only right while the position still exists.
+    void _clampScroll() {
+        const auto  b     = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const float itemH = rowHeight();
+        std::vector<JFlatNode> flat;
+        _flatten(m_root, 0, flat);
+        const float content = float(flat.size()) * itemH;
+        const float maxY    = std::max(0.0f, content - (b.height - 8.0f));
+        m_scrollY = std::clamp(m_scrollY, 0.0f, maxY);
+    }
+
     void setEditable(bool e) { m_editable = e; }
     bool isEditable() const { return m_editable; }
 
@@ -106,7 +118,10 @@ public:
         m_root = std::move(rootNode);
         m_selectedNode = m_anchorNode = nullptr;   // old pointers dangle into the freed tree
         m_pressNode = m_pendingSelect = m_pendingCollapse = m_hoverNode = nullptr;   // gesture pointers into the freed tree
-        m_scrollY = 0.0f;
+        // KEEP the scroll position, for the same reason the selection is kept: callers swap the whole tree
+        // for a mode flip, a filter change or a one-row edit, and none of those mean "take the reader back
+        // to the top". Renaming one node in a long tree scrolled the other three hundred rows away from
+        // them. It is clamped after the rebuild (below), so a tree that got shorter still lands in range.
         if (!keepPath.empty()) {
             if (JTreeViewNode* n = _nodeAtPath(m_root, keepPath, 0)) {
                 m_selectedNode = m_anchorNode = n;
@@ -117,6 +132,7 @@ public:
                                                        << "' did not survive the rebuild — selection cleared";
             }
         }
+        _clampScroll();   // the new tree may be shorter — keep the kept position inside it
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
