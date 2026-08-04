@@ -22,6 +22,7 @@ struct JTreeViewNode {
     int         icon{0};    // small type glyph drawn before the label (0 = none; app-defined kinds)
     bool        hidden{false};   // transient: run-mode visibility filter hides the row + its subtree (not persisted)
     bool        placeholder{false};  // transient edit-mode "New node…" add-affordance row: drawn dimmed, never persisted (app owns promotion)
+    bool        separator{false};    // a RULE between groups, not an entry: drawn as a line, never selectable
 };
 
 class JTreeView : public JControl {
@@ -272,6 +273,7 @@ public:
                     auto& flat = flatNodes[clickedIndex];
                     float indent = flat.depth * 16.0f + 6.0f;
                     float arrowW = 16.0f;
+                    if (flat.node->separator) return;   // a rule is not a row you can select or rename
                     if (!flat.node->children.empty() && mx >= b.x + indent && mx <= b.x + indent + arrowW) {
                         flat.node->expanded = !flat.node->expanded;
                         m_graph.invalidateNode(m_nodeId, DirtySelf);
@@ -690,6 +692,12 @@ protected:
     }
 
     virtual void drawNodeText(JPrimitiveBuffer& buf, JTreeViewNode* node, float tx, float ty, float maxW) {
+        if (node->separator) {   // a group RULE — a menu's own grouping, carried through as a line
+            const uint8_t* b = Colors::Border;
+            const uint8_t col[4] = { b[0], b[1], b[2], 160 };
+            buf.pushRectangle(tx, ty + JTextHelper::lineHeight() * 0.5f, maxW, 1.0f, col);
+            return;
+        }
         // Resolve the theme's TEXT role (so a custom global palette applies), not a raw shade. Selected rows
         // take HighlightedText for contrast on the selection fill. A placeholder ("New node…") add-affordance
         // row draws dimmed so it reads as a ghost hint, not a real node (still selectable/renamable).
