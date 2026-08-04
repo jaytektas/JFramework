@@ -358,6 +358,11 @@ public:
 
     // App hooks.
     std::function<void(JPrimitiveBuffer&)>              onRender;  // draw content (below contentTop())
+    // Per-presented-frame timing, for profiling: BUILD (walking the widget tree to fill the primitive
+    // buffer — the app's own code) vs SUBMIT (handing it to the GPU and presenting). "The UI feels slow" is
+    // one or the other, and they are fixed in different places. Unset = not measured, not even clocked.
+    struct JFrameTiming { double buildMs = 0, submitMs = 0, totalMs = 0; size_t drawCommands = 0; };
+    std::function<void(const JFrameTiming&)>            onFrameTiming;
     std::function<void(float,float,bool,bool)>          onInput;   // mx,my,pressed,released (chrome-filtered)
     std::function<void(uint32_t,uint32_t)>              onResize;  // new client size (px)
     std::function<void(const JKeyEvent&)>               onKey;     // key events not consumed by menu/focus/Tab
@@ -738,6 +743,12 @@ public:
             // own loop renders in bursts and stays solid, so we do the same.
             if (redraw > 0) {
                 --redraw;
+                // Frame timing, split where the answer usually is: BUILD (walking the widget tree to fill
+                // the primitive buffer — the app's own code) versus SUBMIT (handing it to the GPU and
+                // presenting). "The UI feels slow" is one or the other, and they are fixed in different
+                // places. Costs a clock read per phase, and only when a listener is attached.
+                const bool timing = static_cast<bool>(onFrameTiming);
+                const auto tFrame0 = timing ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
                 JPrimitiveBuffer buffer;
                 auto frame = m_hal->beginFrame();
                 drawChrome(buffer);
@@ -746,9 +757,18 @@ public:
                 if (dragging) _drawDragGhost(buffer);       // floating "what you're holding" label
                 if (onRender) onRender(buffer);
                 JWidget::renderTooltips(buffer, m_window->mouseX(), m_window->mouseY());  // hover tips on top of all content
+                const auto tBuilt = timing ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
                 m_hal->drawPrimitives(buffer);
                 m_hal->submitAndPresentFrame(frame);
                 m_window->swapBuffers();   // frame presented -> echo _NET_WM_SYNC_REQUEST
+                if (timing) {
+                    const auto tEnd = std::chrono::steady_clock::now();
+                    using ms = std::chrono::duration<double, std::milli>;
+                    onFrameTiming(JFrameTiming{ ms(tBuilt - tFrame0).count(),
+                                                ms(tEnd - tBuilt).count(),
+                                                ms(tEnd - tFrame0).count(),
+                                                buffer.getCommands().size() });
+                }
             } else {
                 std::this_thread::sleep_for(std::chrono::milliseconds(8));
             }
