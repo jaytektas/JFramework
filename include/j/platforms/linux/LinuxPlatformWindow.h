@@ -500,6 +500,7 @@ public:
     }
 
     // ---- Screen position and current size (updated from ConfigureNotify) ----
+    void     refreshScreenPosition() override { _updateRootPosition(); }
     int      screenX() const override { return m_screenX; }
     int      screenY() const override { return m_screenY; }
     uint32_t width()   const override { return m_width;   }

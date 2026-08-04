@@ -297,6 +297,7 @@ public:
     // static kW/kH + pollAndRender + destroySurface. The dialog lives for as long as it's open.
     template <typename T, typename... Args>
     void openModal(Args&&... args) {
+        m_window->refreshScreenPosition();   // see the dialog-placement note: the cached origin can be stale
         const int cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(T::kW)) / 2;
         const int cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(T::kH)) / 2;
         // Parent to the opener (top-of-stack modal, or the main window) so a nested modal stacks above it.
@@ -1115,6 +1116,10 @@ private:
             const int dlgH = static_cast<int>(isFile ? JFileDialogWindow::calcHeight()
                                                      : JNativeDialogWindow::calcHeight(req->kind, opts));
             const int cW = static_cast<int>(m_w), cH = static_cast<int>(m_h);
+            // Ask the windowing system where we ARE, not where we last heard we were: on a fresh session no
+            // configure event has arrived yet, the cached origin is still 0, and "centre on the parent"
+            // quietly becomes "centre on the screen's top-left corner".
+            m_window->refreshScreenPosition();
             const int wx = m_window->screenX(), wy = m_window->screenY();
             int dlgX, dlgY;
             using Pos = JDialogOptions::JPosition;

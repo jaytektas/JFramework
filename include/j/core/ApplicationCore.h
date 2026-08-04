@@ -62,6 +62,11 @@ public:
     virtual std::vector<jf::JKeyEvent> consumeAllKeys() { return {}; }
 
     // JWindow dimensions and state
+    // Re-read this window's position from the windowing system. screenX()/screenY() are CACHED from
+    // configure events, and before the first one arrives they are still 0 — so anything placed relative to
+    // the window early in a session (a dialog centred on it) lands relative to the top-left of the SCREEN
+    // instead. Call this before using the position for placement; it is a round trip, so not per frame.
+    virtual void     refreshScreenPosition() {}
     virtual int      screenX() const { return 0; }
     virtual int      screenY() const { return 0; }
     virtual uint32_t width()   const { return 0; }

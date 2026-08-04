@@ -138,6 +138,10 @@ public:
         return out;
     }
 
+    void     refreshScreenPosition() override {
+        RECT r{};
+        if (m_hwnd && ::GetWindowRect(m_hwnd, &r)) { m_screenX = r.left; m_screenY = r.top; }
+    }
     int      screenX() const override { return m_screenX; }
     int      screenY() const override { return m_screenY; }
     uint32_t width()   const override { return m_width; }
