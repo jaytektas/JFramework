@@ -9,6 +9,7 @@
 #include <xcb/sync.h>
 #include <stdexcept>
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 #include <string>
@@ -351,6 +352,22 @@ public:
                         // offsets floated docks from the cursor.  Translate the window
                         // origin to root coordinates to get the true screen position.
                         _updateRootPosition();
+                        // WHERE THE WM ACTUALLY PUT IT. WM_NORMAL_HINTS with USPosition is a request, and a
+                        // window manager is free to ignore it: several centre a dialog on its transient
+                        // parent when they can work out where that is, and fall back to placing it under the
+                        // pointer when they cannot. Both happen, which is why the same dialog opened
+                        // centred one time and at the mouse the next. Once mapped we can simply MOVE it —
+                        // a client-initiated move after map is honoured — so the position the app asked for
+                        // is the position it gets. Done once: a WM that insists must not be argued with.
+                        if (!m_placementLogged) {
+                            m_placementLogged = true;
+                            const bool moved = std::abs(m_screenX - m_requestedX) > 4 ||
+                                               std::abs(m_screenY - m_requestedY) > 4;
+                            qCDebug(jf::Log::Platform) << "window placed at" << m_screenX << m_screenY
+                                                       << "(requested" << m_requestedX << m_requestedY
+                                                       << (moved ? "— correcting)" : ")");
+                            if (moved && m_placementRequested) setPosition(m_requestedX, m_requestedY);
+                        }
                         bool wChanged = cfg->width  > 0 && cfg->width  != m_width;
                         bool hChanged = cfg->height > 0 && cfg->height != m_height;
                         if (wChanged || hChanged) {
@@ -608,7 +625,11 @@ public:
     }
 
     // "This position is deliberate, not a default" — the only way to stop a WM placing the window itself.
+    bool m_placementLogged = false, m_placementRequested = false;
+    int  m_requestedX = 0, m_requestedY = 0;
+
     void _setPositionHint(int px, int py, int32_t pw, int32_t ph) {
+        m_requestedX = px; m_requestedY = py; m_placementRequested = true;
         m_sizeHints.flags |= kUSPosition | kPPosition | kUSSize | kPSize;
         m_sizeHints.x = px; m_sizeHints.y = py;
         m_sizeHints.width = pw; m_sizeHints.height = ph;

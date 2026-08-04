@@ -1131,6 +1131,12 @@ private:
             case Pos::CenterOnParent:
             default:                  dlgX = wx + (cW - dlgW) / 2;    dlgY = wy + (cH - dlgH) / 2; break;
             }
+            // Where we ASKED for it, so a window manager that places it somewhere else is visible as such:
+            // the position we compute is only a request until the WM honours WM_NORMAL_HINTS at map time,
+            // and several place dialogs under the pointer or by their own "smart" policy instead.
+            qCDebug(jf::Log::Platform) << "dialog placement: requested" << dlgX << dlgY
+                                       << "size" << dlgW << dlgH
+                                       << "parent at" << wx << wy << "size" << cW << cH;
             if (isFile)
                 m_fileDialogs.emplace_back(*req, *m_hal, dlgX, dlgY,
                     (JFileDialogWindow::NativeWinHandleType)(m_window->rawWindowId()));
