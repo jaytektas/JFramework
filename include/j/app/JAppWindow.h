@@ -775,6 +775,12 @@ public:
             }
         }
         m_hal->waitIdle();
+        // Close any open POPUP MENU first, for the same reason the modals are closed below: a menu popup is
+        // a real window with its own swapchain on OUR device. Quitting with one open (a context menu still
+        // up) tore its swapchain down against a dead device — the same "buffer overflow detected" abort out
+        // of the Vulkan/XCB teardown that the modal case already guards against.
+        m_menuRuntime.closeAll();
+        m_hal->waitIdle();
         // Close any modal still open before we unwind. Its surface belongs to OUR device and its window to
         // our connection, so letting the dialog outlive the runner means its destructor destroys a surface
         // against a dead device -- which aborts (glibc "buffer overflow detected" from inside the Vulkan/XCB
