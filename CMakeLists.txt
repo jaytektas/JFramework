@@ -129,6 +129,25 @@ target_sources(j_platform PRIVATE src/platforms/PlatformFactory.cpp)
 target_sources(j_platform PRIVATE src/io/SerialPort.cpp)
 # Clipboard backend (JClipboard) — Win32/X11 impl behind the interface; header stays platform-free.
 target_sources(j_platform PRIVATE src/platform/Clipboard.cpp)
+# HTTP backend (JHttpClient) — POSIX sockets / Win32 impl behind the pimpl; header stays platform-free.
+# TLS comes from OpenSSL on POSIX and from WinHTTP (an OS component) on Windows. Without OpenSSL the
+# client still builds and still serves http://, and answers an https:// request with an error saying so —
+# it never silently downgrades a secure request to a plaintext one.
+target_sources(j_platform PRIVATE src/io/HttpClient.cpp)
+if(WIN32)
+    target_link_libraries(j_platform PRIVATE winhttp ws2_32)
+    target_compile_definitions(j_platform PRIVATE JF_HAVE_OPENSSL=0)
+else()
+    find_package(OpenSSL QUIET)
+    if(OpenSSL_FOUND)
+        target_link_libraries(j_platform PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+        target_compile_definitions(j_platform PRIVATE JF_HAVE_OPENSSL=1)
+        message(STATUS "JHttpClient: TLS via OpenSSL ${OPENSSL_VERSION}")
+    else()
+        target_compile_definitions(j_platform PRIVATE JF_HAVE_OPENSSL=0)
+        message(WARNING "JHttpClient: OpenSSL not found — https:// will be refused at runtime")
+    endif()
+endif()
 
 if(UNIX AND NOT APPLE)
     target_sources(j_platform PRIVATE
@@ -244,6 +263,7 @@ if(GENESIS_BUILD_TESTS)
     add_genesis_test(test_database         src/tests/test_database.cpp)
     target_link_libraries(test_database PRIVATE j_db)
     add_genesis_test(test_serial           src/tests/test_serial.cpp)
+    add_genesis_test(test_http             src/tests/test_http.cpp)
     add_genesis_test(test_dialog           src/tests/test_dialog.cpp)
     add_genesis_test(test_aibus            src/tests/test_aibus.cpp)
 
