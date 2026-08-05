@@ -812,10 +812,18 @@ public:
             if (pressed && _inRect(closeR, mx, my))
                 return JDockEvent{active, JDockEvent::JType::CloseRequested};
 
-            // Title/tab bar drag → float.
+            // Title/tab bar drag → float. The dock that travels is THE ONE UNDER THE CURSOR, not
+            // whichever tab happened to be active: pressing an inactive tab and dragging it out used to
+            // tear off the active one instead, so you got a different dock than the one you grabbed.
+            // (The press activates the pressed tab too, but that happens further down, after this.)
             if (pressed && _inRect(barRect, mx, my) && !_inRect(closeR, mx, my)) {
+                JDockWidget* grabbed = active;
+                if (n.tabs.size() >= 2) {
+                    const int hit = _tabSlotHit(n, mx, my);
+                    if (hit >= 0) grabbed = n.tabs[hit];
+                }
                 m_titleDrag.active = true;
-                m_titleDrag.dock   = active;
+                m_titleDrag.dock   = grabbed;
                 m_titleDrag.startX = mx;
                 m_titleDrag.startY = my;
             }
@@ -838,7 +846,11 @@ public:
                         leaf->tabs.insert(leaf->tabs.begin() + to, moving);
                         leaf->activeTab = to;          // the dragged tab stays the active one, at its new home
                     }
-                    m_titleDrag = {};                  // in-strip motion is never a tear-out
+                    // Return WITHOUT touching m_titleDrag: the early return is what stops the
+                    // tear-out threshold from firing while we are in the strip. Clearing it here
+                    // instead broke dragging a dock out altogether — every real drag starts with a
+                    // few pixels of in-strip motion, so the title drag was destroyed before the
+                    // cursor ever reached the edge, and nothing was left to promote to a float.
                     return std::nullopt;
                 }
                 m_tabDrag = {};                        // left the strip: the tear-out below takes over
@@ -1295,6 +1307,16 @@ private:
     int _tabIndexOf(const JDockNode& leaf, const JDockWidget* dock) const {
         for (int i = 0; i < static_cast<int>(leaf.tabs.size()); ++i)
             if (leaf.tabs[i] == dock) return i;
+        return -1;
+    }
+
+    // The tab whose slot actually contains (mx,my), or -1. Unlike _tabSlotAt this does NOT clamp to an
+    // end: a press on empty strip past the last tab grabs nothing in particular, and should fall back to
+    // the active tab rather than silently pick the nearest.
+    int _tabSlotHit(const JDockNode& leaf, float mx, float my) const {
+        const auto slots = _tabSlots(leaf);
+        for (int i = 0; i < static_cast<int>(slots.size()); ++i)
+            if (_inRect(slots[i], mx, my)) return i;
         return -1;
     }
 

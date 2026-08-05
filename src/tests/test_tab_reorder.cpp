@@ -114,12 +114,34 @@ static void test_leaving_the_strip_still_floats() {
     std::printf("  leaving the strip still requests a float\n");
 }
 
+// The regression the first version of these tests walked straight past: a real drag moves in small
+// steps, so it travels through the strip before leaving it. Tearing out has to survive that.
+static void test_incremental_drag_out_still_floats() {
+    JDockHost host;
+    host.setTabEdge(JTabBarEdge::Top);
+    JDockWidget a("A", 0,0,300,300), b("B", 0,0,300,300), c("C", 0,0,300,300);
+    const JDockNodeId leaf = threeTabbedDocks(host, &a, &b, &c);
+    host.computeLayout({ 0.f, 0.f, 600.f, 400.f });
+
+    float mx, my;
+    tabCentre(host, leaf, 0, false, mx, my);
+    host.handleMouse(mx, my, true, false);                     // press
+    bool floated = false;
+    for (float step = 2.f; step <= 240.f && !floated; step += 6.f) {   // creep out, a few px at a time
+        const auto ev = host.handleMouse(mx, my + step, false, false);
+        floated = ev.has_value() && ev->type == JDockHost::JDockEvent::JType::WantsFloat;
+    }
+    CHECK(floated);
+    std::printf("  incremental drag out of the strip still floats\n");
+}
+
 int main() {
     std::cout << "JDockHost tab reorder tests\n";
     test_reorder_along_a_horizontal_strip();
     test_reorder_along_a_vertical_strip();
     test_in_strip_motion_does_not_float();
     test_leaving_the_strip_still_floats();
+    test_incremental_drag_out_still_floats();
     std::printf(g_fails ? "tab reorder: FAILED (%d)\n" : "tab reorder: OK\n", g_fails);
     return g_fails ? 1 : 0;
 }
