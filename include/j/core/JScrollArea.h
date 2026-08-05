@@ -114,7 +114,13 @@ public:
     }
 
     void handleMouseRelease(float mx, float my) override {
+        // A release that ENDS A SCROLLBAR DRAG belongs to the scrollbar, not to whatever is underneath it.
+        // Forwarding it anyway handed the release to the child behind the track — and a control that
+        // activates on release (a popup list item) treated dragging the scrollbar as picking it: the combo
+        // box closed, having quietly selected whichever entry the thumb happened to be over.
+        const bool wasScrollDrag = m_draggingScroll;
         m_draggingScroll = false;
+        if (wasScrollDrag) return;
         for (JWidget* w : m_children) {
             if (w->isVisible()) w->handleMouseRelease(mx, my);
         }

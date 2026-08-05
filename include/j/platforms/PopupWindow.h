@@ -102,6 +102,20 @@ public:
         m_graph.computeLayout(m_root, { static_cast<float>(m_winW), static_cast<float>(m_winW), 0.0f, 100000.f });
     }
 
+    // Size the popup EXPLICITLY, for content that is deliberately taller than its window — a list clamped
+    // to the room on screen, scrolling inside. computeNaturalHeight() is the other case: fit the window to
+    // the content. Same bookkeeping either way, so the root lays out against the real window size.
+    void setSize(uint32_t w, uint32_t h) {
+        m_winW = std::max(1u, w);
+        m_winH = std::max(1u, h);
+        m_window->setSize(m_winW, m_winH);
+        auto& l = m_graph.getLayout(m_root);
+        l.boundingBox.width  = static_cast<float>(m_winW);
+        l.boundingBox.height = static_cast<float>(m_winH);
+        m_graph.invalidateNode(m_root, DirtySelf);
+        m_graph.computeLayout(m_root, { static_cast<float>(m_winW), static_cast<float>(m_winW), 0.0f, 100000.f });
+    }
+
     JSceneGraph& graph()  { return m_graph; }
     NodeId      root()   const { return m_root; }
     uint32_t    width()  const { return m_winW; }
@@ -142,6 +156,13 @@ public:
         uint32_t clickedId = 0;
         std::string clickedLabel;
 
+        // The wheel, as in poll() above.
+        if (const float wheel = m_window->consumeWheel();
+            wheel != 0.f && mx >= 0.f && mx < static_cast<float>(m_winW)
+                         && my >= 0.f && my < static_cast<float>(m_winH))
+            for (auto& w : m_widgets)
+                if (w->isVisible() && w->handleScroll(mx, my, wheel)) break;
+
         for (auto& w : m_widgets) {
             if (!w->isVisible()) continue;
             w->handleMouseMove(mx, my);
@@ -178,6 +199,16 @@ public:
             if (ke.key == K::Down) { _navStep(1);  continue; }
             if (ke.key != K::Return && ke.key != K::Space) {
                 for (auto& w : m_widgets) { if (w->isVisible() && w->handleKeyEvent(ke)) break; }
+                continue;
+            }
+            if ((ke.key == K::Return || ke.key == K::Space) && !m_navItems.empty()) {
+                // Choose the highlighted entry. JPopupItem activates on RELEASE while pressed, so a
+                // synthesised press alone would highlight and never choose.
+                if (m_keyNavIdx >= 0 && m_keyNavIdx < static_cast<int>(m_navItems.size()))
+                    if (auto* pi = dynamic_cast<JPopupItem*>(m_navItems[m_keyNavIdx])) {
+                        pi->onActivated.emit();
+                        out.activatedNodeId = pi->getNodeId();
+                    }
                 continue;
             }
             if (ke.key == K::Return || ke.key == K::Space) {
@@ -246,6 +277,13 @@ public:
         JPollResult out{};
         uint32_t    clickedId = 0;
         std::string clickedLabel;
+        // The wheel, as in poll() above.
+        if (const float wheel = m_window->consumeWheel();
+            wheel != 0.f && mx >= 0.f && mx < static_cast<float>(m_winW)
+                         && my >= 0.f && my < static_cast<float>(m_winH))
+            for (auto& w : m_widgets)
+                if (w->isVisible() && w->handleScroll(mx, my, wheel)) break;
+
         for (auto& w : m_widgets) {
             if (!w->isVisible()) continue;
             w->handleMouseMove(mx, my);
@@ -273,6 +311,18 @@ public:
     }
 
     int keyNavIdx() const { return m_keyNavIdx; }
+
+    // THE LIST THE KEYBOARD WALKS, when it is not simply this popup's top-level widgets — a combo box's
+    // entries live inside a scroll area, so stepping over the popup's children would step over exactly one
+    // thing. `current` is the entry to open on (a combo opens on its selection, not on the top of the
+    // list), and `reveal` scrolls an entry into view as the keyboard reaches it.
+    void setKeyNavList(std::vector<JWidget*> items, int current, std::function<void(JWidget*)> reveal = {}) {
+        m_navItems = std::move(items);
+        m_navReveal = std::move(reveal);
+        m_keyNavIdx = (current >= 0 && current < static_cast<int>(m_navItems.size())) ? current : -1;
+        _applyNavHighlight();
+        if (m_keyNavIdx >= 0 && m_navReveal) m_navReveal(m_navItems[m_keyNavIdx]);
+    }
 
     // Poll in floating mode: no grab, no dismiss-on-outside, JTearOffHandle
     // area (top kFloatHandleH pixels) drags the window using xcb_query_pointer
@@ -452,6 +502,8 @@ private:
     int   m_floatDragStartX{0}, m_floatDragStartY{0};
     int   m_floatWinStartX{0},  m_floatWinStartY{0};
     int   m_keyNavIdx{-1};
+    std::vector<JWidget*>          m_navItems;    // explicit keyboard list (combo entries), else m_widgets
+    std::function<void(JWidget*)>  m_navReveal;   // scroll an entry into view as the keyboard reaches it
     float m_lastPollMx{-1.f}, m_lastPollMy{-1.f};
 
     // Move the keyboard selection by dir (+1 = down, -1 = up), skipping
@@ -480,7 +532,20 @@ private:
         m_focusSet = m_hasPointerGrab;
     }
 
+    void _applyNavHighlight() {
+        for (int i = 0; i < static_cast<int>(m_navItems.size()); ++i)
+            if (auto* pi = dynamic_cast<JPopupItem*>(m_navItems[i])) pi->setHighlighted(i == m_keyNavIdx);
+    }
+
     void _navStep(int dir) {
+        if (!m_navItems.empty()) {                       // an explicit list: walk THAT
+            const int n = static_cast<int>(m_navItems.size());
+            m_keyNavIdx = m_keyNavIdx < 0 ? (dir > 0 ? 0 : n - 1)
+                                          : ((m_keyNavIdx + dir) % n + n) % n;
+            _applyNavHighlight();
+            if (m_navReveal) m_navReveal(m_navItems[m_keyNavIdx]);
+            return;
+        }
         int n = static_cast<int>(m_widgets.size());
         if (n == 0) return;
         int next = m_keyNavIdx < 0 ? (dir > 0 ? -1 : n) : m_keyNavIdx;

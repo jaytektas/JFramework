@@ -22,7 +22,8 @@
 #include <j/core/ApplicationCore.h>      // JPlatformWindow
 #include <j/core/PlatformCommon.h>       // JPlatformWindowStyle
 #include <j/core/GenesisComponents.h>    // JGuiApplication
-#include <j/core/JComboBox.h>            // JComboBox (managed combo-dropdown popup)
+#include <j/core/JComboBox.h>
+#include <j/core/JScrollArea.h>            // JComboBox (managed combo-dropdown popup)
 #include <j/core/JColorButton.h>         // JColorButton (opens the colour picker dialog)
 #include <j/core/JFontButton.h>          // JFontButton (opens the font picker dialog)
 #include <j/core/JTitleBar.h>            // JTitleBar::draw (window title bar)
@@ -1007,15 +1008,68 @@ private:
         auto popup = std::make_unique<JPopupWindow>(sx, sy, popupW, 8, *m_hal,
                         JPopupWindow::JStyle::Borderless, parent);
         const auto& items = cb->items();
-        for (int i = 0; i < static_cast<int>(items.size()); ++i) {
-            auto* pi = popup->add<JPopupItem>(items[i], static_cast<float>(popupW), 28.f);
+        constexpr float kItemH = 28.f;
+        constexpr int   kEdgePad = 8;      // never touch the screen edge
+
+        // HOW TALL THE LIST MAY BE. A definition's enum can be enormous — 176 pin names on a rusEFI
+        // channel — and a popup sized to its content simply ran off the bottom of the screen: the items
+        // past the fold could not be seen, scrolled to, or picked. Fit it to the room actually available,
+        // opening upward when there is more room up there, and scroll whatever still does not fit.
+        const auto [scrW, scrH] = popup->window().screenSize();
+        const int roomBelow = scrH - sy - kEdgePad;
+        const int roomAbove = (wsy + static_cast<int>(bb.y)) - kEdgePad;
+        const bool upward   = roomBelow < roomAbove && roomBelow < static_cast<int>(items.size() * kItemH);
+        const int  maxH     = std::max(kItemH * 3.f, static_cast<float>(upward ? roomAbove : roomBelow));
+        const bool scrolls  = items.size() * kItemH > static_cast<float>(maxH);
+
+        auto wire = [this, cb](JPopupItem* pi, int i) {
             pi->onActivated.connect([this, cb, i]() {
                 cb->setCurrentIndex(i);
                 m_comboCloseReq = m_comboPopup.get();   // defer close until after pollEvents returns
                 m_comboOwner = nullptr;
             });
+        };
+
+        std::vector<JWidget*> nav;                 // the entries, for the keyboard
+        JScrollArea* scroller = nullptr;
+        if (!scrolls) {
+            for (int i = 0; i < static_cast<int>(items.size()); ++i) {
+                auto* pi = popup->add<JPopupItem>(items[i], static_cast<float>(popupW), kItemH);
+                wire(pi, i);
+                nav.push_back(pi);
+            }
+            popup->computeNaturalHeight();
+        } else {
+            // The list lives in a scroll area sized to the room available; the popup is that size exactly,
+            // so computeNaturalHeight is deliberately not used here — the content is taller than the window
+            // by design.
+            auto* area = popup->add<JScrollArea>(static_cast<float>(popupW), static_cast<float>(maxH));
+            scroller = area;
+            JPopupItem* current = nullptr;
+            for (int i = 0; i < static_cast<int>(items.size()); ++i) {
+                auto* pi = area->addChildWidget(std::make_unique<JPopupItem>(
+                                popup->graph(), items[i], static_cast<float>(popupW), kItemH));
+                wire(pi, i);
+                nav.push_back(pi);
+                if (i == cb->currentIndex()) current = pi;
+            }
+            popup->setSize(popupW, static_cast<uint32_t>(maxH));
+            // Open showing the current selection rather than the top of the list: with 176 entries, the one
+            // you are changing is otherwise somewhere off the fold.
+            if (current) area->revealChild(current);
         }
-        popup->computeNaturalHeight();
+        // Upward: the popup hangs above the control, its BOTTOM edge on the control's top.
+        if (upward)
+            popup->window().setPosition(sx, std::max(kEdgePad, (wsy + static_cast<int>(bb.y))
+                                                               - static_cast<int>(popup->height())));
+        else if (sy + static_cast<int>(popup->height()) > scrH - kEdgePad)
+            popup->window().setPosition(sx, std::max(kEdgePad, scrH - kEdgePad - static_cast<int>(popup->height())));
+
+        // Standard combo-box keys: the list opens on the CURRENT selection (highlighted, and scrolled to if
+        // the list is long), up/down move that highlight, Enter chooses it. Clicking still works as before.
+        popup->setKeyNavList(nav, cb->currentIndex(),
+                             scroller ? std::function<void(JWidget*)>([scroller](JWidget* w) { scroller->revealChild(w); })
+                                      : std::function<void(JWidget*)>{});
         m_comboPopup = std::move(popup);
         m_comboOwner = cb;
     }

@@ -45,6 +45,11 @@ public:
     }
     const std::string& label() const { return m_label; }
 
+    // The KEYBOARD's current item, which is not the same as the mouse's hover: a list opened on its current
+    // selection has to show which entry that is before the pointer has been anywhere near it.
+    void setHighlighted(bool on) { if (m_highlighted != on) { m_highlighted = on; m_graph.invalidateNode(m_nodeId, DirtySelf); } }
+    bool isHighlighted() const   { return m_highlighted; }
+
     void handleMouseRelease(float mx, float my) override {
         if (m_state == JWidgetState::Pressed && isPointInside(mx, my)) {
             onClicked.emit();
@@ -56,6 +61,12 @@ public:
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
 
+        // The keyboard's item reads as SELECTED — an accent wash, stronger than the hover tint, so the
+        // entry a list opened on is obvious without the pointer.
+        if (m_highlighted) {
+            uint8_t sel[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 70};
+            buf.pushRectangle(b.x, b.y, b.width, b.height, sel, 3.0f);
+        }
         // Hover highlight — subtle tint only; no border, no solid fill at rest.
         if (m_state == JWidgetState::Hovered || m_state == JWidgetState::Pressed) {
             uint8_t hi[4] = {Colors::White[0], Colors::White[1], Colors::White[2], 18};
@@ -81,6 +92,7 @@ public:
 
 
 private:
+    bool m_highlighted{false};
     std::string m_label;
 };
 
