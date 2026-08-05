@@ -781,6 +781,11 @@ public:
         // up) tore its swapchain down against a dead device — the same "buffer overflow detected" abort out
         // of the Vulkan/XCB teardown that the modal case already guards against.
         m_menuRuntime.closeAll();
+        // The same applies to the OTHER popup windows the runner owns — a combo box's dropdown and the
+        // colour picker are equally real windows with their own swapchains. Quitting with a dropdown open
+        // aborted exactly as a menu did.
+        if (m_comboPopup)  { m_comboPopup->destroySurface(*m_hal);  m_comboPopup.reset();  m_comboOwner = nullptr; }
+        if (m_colorDialog) { m_colorDialog->destroySurface(*m_hal); m_colorDialog.reset(); }
         m_hal->waitIdle();
         // Close any modal still open before we unwind. Its surface belongs to OUR device and its window to
         // our connection, so letting the dialog outlive the runner means its destructor destroys a surface
@@ -1054,9 +1059,14 @@ private:
                 if (i == cb->currentIndex()) current = pi;
             }
             popup->setSize(popupW, static_cast<uint32_t>(maxH));
-            // Open showing the current selection rather than the top of the list: with 176 entries, the one
-            // you are changing is otherwise somewhere off the fold.
-            if (current) area->revealChild(current);
+            // OPEN ON THE CURRENT SELECTION. Computed from the index rather than asked of the layout: a
+            // scroll area positions its children while painting, so at this point they have no geometry to
+            // aim at and the list would open at the top with the selected entry 57 rows out of sight.
+            if (current) {
+                const float stride = kItemH + JScrollArea::kChildGap;
+                const float centre = (cb->currentIndex() + 0.5f) * stride + JScrollArea::kTopPad;
+                area->setScrollY(centre - maxH * 0.5f);
+            }
         }
         // Upward: the popup hangs above the control, its BOTTOM edge on the control's top.
         if (upward)

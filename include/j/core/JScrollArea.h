@@ -41,6 +41,15 @@ public:
 
     const std::vector<JWidget*>& children() const { return m_children; }
 
+    // Scroll to an offset WITHOUT needing a layout pass first. Children are positioned during painting, so
+    // before the first paint there are no boxes for revealChild() to aim at — which is why a list opened on
+    // an entry 57 rows down still opened at the top. Clamped on the next pass, like every other scroll.
+    void setScrollY(float y) { m_scrollY = std::max(0.0f, y); }
+    float scrollY() const    { return m_scrollY; }
+    // The vertical stride this area lays children out on: their own height plus the gap between them.
+    static constexpr float kChildGap = 6.0f;
+    static constexpr float kTopPad   = 6.0f;
+
     // Non-owned children participate in focus traversal exactly like owned ones.
     void collectChildren(std::vector<JWidget*>& out) const override {
         JWidget::collectChildren(out);

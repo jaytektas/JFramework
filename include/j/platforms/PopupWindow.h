@@ -138,9 +138,25 @@ public:
         bool  pressed  = m_window->consumePress();
         bool  released = m_window->consumeRelease();
 
-        // Mouse movement cancels keyboard selection
+        // Mouse movement cancels keyboard selection — for a MENU. A list with an explicit nav list (a combo
+        // box) behaves the way every other combo box does instead: the pointer MOVES the highlight to
+        // whatever it is over, and leaves it alone when it is over nothing. Clearing it outright meant the
+        // cursor resting on the list at open — where the click that opened it left the pointer — threw away
+        // the selection the list had just opened on, so the first Down key started from the top.
         if (mx != m_lastPollMx || my != m_lastPollMy) {
-            m_keyNavIdx = -1;
+            if (m_navItems.empty()) {
+                m_keyNavIdx = -1;
+            } else {
+                for (int i = 0; i < static_cast<int>(m_navItems.size()); ++i) {
+                    JWidget* w = m_navItems[i];
+                    if (!w || !w->isVisible()) continue;
+                    const auto& bb = m_graph.getLayoutConst(w->getNodeId()).boundingBox;
+                    if (mx >= bb.x && mx < bb.x + bb.width && my >= bb.y && my < bb.y + bb.height) {
+                        if (m_keyNavIdx != i) { m_keyNavIdx = i; _applyNavHighlight(); }
+                        break;
+                    }
+                }
+            }
             m_lastPollMx = mx;
             m_lastPollMy = my;
         }
