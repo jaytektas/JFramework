@@ -1792,11 +1792,19 @@ private:
                                                         : m_draggedDock->width()) : 0.f;
         // Clamp the dropped dock's size so the target keeps at least its min — otherwise a
         // dock as large as the target takes everything and squishes the target to zero.
+        //
+        // And when the region cannot hold both minimums, the retained size is ABANDONED
+        // (dockDim = 0 → an even weighted split below) rather than left at its full value.
+        // Leaving it was the bug: the guard skipped the clamp in exactly the case that
+        // needed it most, so a dock dropped into a column narrower than the two minimums
+        // pinned itself to the whole width and flexed the target to nothing. With the
+        // default 120 px minimum that is any column under 240 px — which is most of them.
         if (m_draggedDock) {
             const float tdim = wantVertical ? leaf->rect.height : leaf->rect.width;
             const float tmin = wantVertical ? _minHeightOfNode(leafId) : _minWidthOfNode(leafId);
             const float dmin = wantVertical ? m_draggedDock->minH() : m_draggedDock->minW();
-            if (tdim - tmin > dmin) dockDim = std::clamp(dockDim, dmin, tdim - tmin);
+            if (tdim - tmin >= dmin) dockDim = std::clamp(dockDim, dmin, tdim - tmin);
+            else                     dockDim = 0.f;   // no room to honour it: split the space evenly
         }
         bool  fixedNew = (dockDim > 0.f);
         // Target's fixed sizes, captured before any _allocNode invalidates `leaf` — a
