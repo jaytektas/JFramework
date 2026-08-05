@@ -821,6 +821,32 @@ public:
             }
         }
 
+        // 2a. A tab dragged along its own strip REORDERS. Runs before the tear-out threshold below,
+        // and consumes the motion while the cursor is still in the strip, so the two gestures never
+        // fight: in the strip you are arranging tabs, out of it you are moving the dock.
+        if (m_tabDrag.active) {
+            if (released) {
+                m_tabDrag = {};                        // dropped where it stands — already in place
+            } else if (JDockNode* leaf = node(m_tabDrag.leaf);
+                       leaf && leaf->type == JDockNode::JType::Leaf && leaf->tabs.size() >= 2) {
+                if (_inRect(_tabBarRect(*leaf), mx, my)) {
+                    const int from = _tabIndexOf(*leaf, m_tabDrag.dock);
+                    const int to   = _tabSlotAt(*leaf, mx, my);
+                    if (from >= 0 && to >= 0 && to != from) {
+                        JDockWidget* moving = leaf->tabs[from];
+                        leaf->tabs.erase(leaf->tabs.begin() + from);
+                        leaf->tabs.insert(leaf->tabs.begin() + to, moving);
+                        leaf->activeTab = to;          // the dragged tab stays the active one, at its new home
+                    }
+                    m_titleDrag = {};                  // in-strip motion is never a tear-out
+                    return std::nullopt;
+                }
+                m_tabDrag = {};                        // left the strip: the tear-out below takes over
+            } else {
+                m_tabDrag = {};
+            }
+        }
+
         if (m_titleDrag.active) {
             // A release ends the gesture FIRST: if the button-up event is polled in the same
             // frame as the threshold-crossing motion, this is a click that happened to drift —
@@ -843,14 +869,18 @@ public:
             }
         }
 
-        // 3. Route tab clicks to switch the active tab.
+        // 3. Route tab clicks to switch the active tab, and arm a reorder drag on the tab pressed.
         if (pressed) {
             for (auto& n : m_nodes) {
                 if (n.type != JDockNode::JType::Leaf || n.tabs.size() < 2) continue;
                 if (!_inRect(_tabBarRect(n), mx, my)) continue;
                 const auto slots = _tabSlots(n);
                 for (int i = 0; i < static_cast<int>(slots.size()); ++i)
-                    if (_inRect(slots[i], mx, my)) { n.activeTab = i; break; }
+                    if (_inRect(slots[i], mx, my)) {
+                        n.activeTab = i;
+                        m_tabDrag = { n.id, n.tabs[i], true };   // reorder while the cursor stays in the strip
+                        break;
+                    }
             }
         }
 
@@ -924,6 +954,14 @@ public:
     JRect contentArea(JDockNodeId leafId) const {
         const JDockNode* leaf = node(leafId);
         return leaf ? contentArea(leafId, leaf->activeTab) : JRect{};
+    }
+
+    // Where each of a leaf's tabs sits, in leaf order, along whichever edge the strip runs. Empty for a
+    // split node or a headerless leaf. The companion to contentArea(): that gives the region a dock draws
+    // into, this gives the strip above/below/beside it, for chrome or hit-testing of an individual tab.
+    std::vector<JRect> tabSlots(JDockNodeId leafId) const {
+        const JDockNode* leaf = node(leafId);
+        return (leaf && leaf->type == JDockNode::JType::Leaf) ? _tabSlots(*leaf) : std::vector<JRect>{};
     }
 
     // The active-tab dock whose content area contains (mx,my), or nullptr. Used to route
@@ -1251,6 +1289,31 @@ private:
             off += ext[i];
         }
         return out;
+    }
+
+    // Which tab holds this dock right now (its index moves as a reorder proceeds). -1 if absent.
+    int _tabIndexOf(const JDockNode& leaf, const JDockWidget* dock) const {
+        for (int i = 0; i < static_cast<int>(leaf.tabs.size()); ++i)
+            if (leaf.tabs[i] == dock) return i;
+        return -1;
+    }
+
+    // The slot a cursor position falls in, along whichever axis the strip runs — a vertical strip
+    // (Left/Right edges) orders top-to-bottom exactly as a horizontal one orders left-to-right.
+    // Past either end clamps to that end, so dragging beyond the last tab parks it last rather than
+    // doing nothing.
+    int _tabSlotAt(const JDockNode& leaf, float mx, float my) const {
+        const auto slots = _tabSlots(leaf);
+        if (slots.empty()) return -1;
+        const JTabBarEdge edge = effectiveTabEdge();
+        const bool vert = (edge == JTabBarEdge::Left || edge == JTabBarEdge::Right);
+        const float p = vert ? my : mx;
+        for (int i = 0; i < static_cast<int>(slots.size()); ++i) {
+            const float lo = vert ? slots[i].y : slots[i].x;
+            const float hi = lo + (vert ? slots[i].height : slots[i].width);
+            if (p < hi) return (p < lo && i == 0) ? 0 : i;
+        }
+        return static_cast<int>(slots.size()) - 1;
     }
 
     JRect _leafContentRect(const JDockNode& leaf) const {
@@ -1986,6 +2049,16 @@ private:
         float       startX{0.f}, startY{0.f};
         bool        active{false};
     } m_titleDrag{};
+
+    // A tab dragged WITHIN its own strip reorders rather than tears out. Live: the tabs shift as the
+    // cursor passes each one, so what you see during the drag is the arrangement you get on release.
+    // The moment the cursor leaves the strip the gesture becomes the ordinary tear-out, so one press
+    // still serves both — no modifier, no separate grip.
+    struct JTabDrag {
+        JDockNodeId  leaf{InvalidDockNodeId};
+        JDockWidget* dock{nullptr};       // the tab being dragged, identified by pointer: its INDEX moves
+        bool         active{false};
+    } m_tabDrag{};
 
     JDockOptions m_options;
 };

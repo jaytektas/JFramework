@@ -265,6 +265,7 @@ if(GENESIS_BUILD_TESTS)
     add_genesis_test(test_serial           src/tests/test_serial.cpp)
     add_genesis_test(test_http             src/tests/test_http.cpp)
     add_genesis_test(test_dock_split       src/tests/test_dock_split.cpp)
+    add_genesis_test(test_tab_reorder      src/tests/test_tab_reorder.cpp)
     add_genesis_test(test_dialog           src/tests/test_dialog.cpp)
     add_genesis_test(test_aibus            src/tests/test_aibus.cpp)
 
