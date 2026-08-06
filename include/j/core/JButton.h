@@ -53,6 +53,13 @@ protected:
             // Centre when it fits; left-align and clip when the label is too long, so a long label is
             // truncated inside the button instead of spilling past its edges — see pushTextAligned.
             uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 230};
+            // A DISABLED button says so with its CAPTION. The fill's disabled shade differs by a handful
+            // of levels on a dark theme — true to the palette and all but invisible — so a greyed-out
+            // button read as a live one, which is exactly the state a button must never be caught in.
+            if (m_state == JWidgetState::Disabled) {
+                const JColor t = jstyle::pal().color(JColorRole::ButtonText, JColorGroup::Disabled);
+                tc[0] = t.r; tc[1] = t.g; tc[2] = t.b; tc[3] = 230;
+            }
             JTextHelper::pushTextAligned(buf, b.x, b.y, b.width, b.height, tr(m_label), tc,
                                          JTextHelper::Align::Center, 6.f);
         } else {

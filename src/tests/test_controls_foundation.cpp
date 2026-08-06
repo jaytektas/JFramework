@@ -26,9 +26,10 @@ void test_button_interaction() {
     
     btn.handleMousePress(50, 20);
     assert(btn.getState() == JWidgetState::Pressed);
-    assert(clicked == true);
+    assert(clicked == false);      // press ARMS; the click fires on release inside (see JControl)
     
     btn.handleMouseRelease(50, 20);
+    assert(clicked == true);
     assert(btn.getState() == JWidgetState::Hovered);
     
     std::cout << "test_button_interaction passed" << std::endl;

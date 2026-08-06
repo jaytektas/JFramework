@@ -54,9 +54,9 @@ public:
         int c = std::clamp(v, m_min, m_max);
         if (m_value == c) return;
         m_value = c;
-        // The text follows the value ONLY when nobody is editing it — a box bound to a live source is re-pushed
-        // its value every frame, and refreshing mid-edit would wipe the caret under the user's hands.
-        if (!_editing()) _setText(std::to_string(m_value));
+        // The text follows the value unless the user has TYPED something not yet committed (see JDoubleSpinBox):
+        // holding focus alone must not stop a value changed underneath the box from being shown.
+        if (!_editing() || !m_dirty) _setText(std::to_string(m_value));
         m_graph.invalidateNode(m_nodeId, DirtySelf);
         onValueChanged.emit(c);
         notifyAccessibility();

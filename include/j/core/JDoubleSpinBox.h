@@ -73,10 +73,11 @@ public:
         double c = std::clamp(v, m_min, m_max);
         if (m_value == c) return;
         m_value = c;
-        // The text follows the value ONLY when nobody is editing it. A spin box bound to a live source is
-        // re-pushed its value every frame; refreshing the text mid-edit would wipe the caret and re-select the
-        // field under the user's hands.
-        if (!_editing()) _setText(_numberText());
+        // The text follows the value unless the user has TYPED something not yet committed — refreshing then
+        // would wipe the caret and the half-typed number under their hands. Merely holding focus is not that:
+        // a focused, untouched box that refuses to show a value changed underneath it (an undo, a re-read from
+        // the device, a value the controller itself moved) is simply displaying something untrue.
+        if (!_editing() || !m_dirty) _setText(_numberText());
         m_graph.invalidateNode(m_nodeId, DirtySelf);
         onValueChanged.emit(c);
         notifyAccessibility();

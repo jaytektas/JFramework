@@ -392,6 +392,11 @@ namespace jstyle {
 inline JStyleOption option(JWidgetState st, bool focused,
                            bool on = false, bool selected = false) {
     JStyleOption o;                              // state defaults to State_Enabled
+    // DISABLED HAS TO SURVIVE THE TRIP. Every control that styles itself through this helper asks the
+    // palette for a colour GROUP, and the group is Disabled only while State_Enabled is off — so dropping
+    // it here made a disabled control paint pixel-for-pixel like a live one. It still ignored input, which
+    // is the worst of both: a button that looks clickable and does nothing when clicked.
+    if (st == JWidgetState::Disabled) o.set(State_Enabled, false);
     if (focused)                     o.set(State_Focused, true);
     if (st == JWidgetState::Hovered) o.set(State_Hovered, true);
     if (st == JWidgetState::Pressed) o.set(State_Pressed, true);
