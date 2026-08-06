@@ -3,6 +3,7 @@
 #include <j/core/JWindowControls.h>
 #include <j/core/JCloseButton.h>
 #include <j/core/JPopupItem.h>
+#include <j/core/JScrollArea.h>
 #include <j/graphics/GpuHal.h>
 
 #if defined(_WIN32)
@@ -143,7 +144,10 @@ public:
         // whatever it is over, and leaves it alone when it is over nothing. Clearing it outright meant the
         // cursor resting on the list at open — where the click that opened it left the pointer — threw away
         // the selection the list had just opened on, so the first Down key started from the top.
-        if (mx != m_lastPollMx || my != m_lastPollMy) {
+        // …but NOT while the pointer is on the scrollbar, or dragging it. The row behind the bar is not the
+        // row you are pointing at, and in a combo list that highlight is the selection Enter commits — so a
+        // click on the scrollbar looked exactly like picking whatever entry happened to sit behind it.
+        if ((mx != m_lastPollMx || my != m_lastPollMy) && !_pointerOnScrollbar(mx, my)) {
             if (m_navItems.empty()) {
                 m_keyNavIdx = -1;
             } else {
@@ -546,6 +550,15 @@ private:
         free(grabReply);
 #endif
         m_focusSet = m_hasPointerGrab;
+    }
+
+    // True while the pointer is over (or dragging) a scroll area's scrollbar.
+    bool _pointerOnScrollbar(float mx, float my) const {
+        for (const auto& w : m_widgets) {
+            if (const auto* sa = dynamic_cast<const JScrollArea*>(w.get()))
+                if (sa->isDraggingScroll() || sa->pointInScrollbar(mx, my)) return true;
+        }
+        return false;
     }
 
     void _applyNavHighlight() {

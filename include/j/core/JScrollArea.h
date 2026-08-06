@@ -83,6 +83,16 @@ public:
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
+    float _contentHeight() const {
+        float totalH = 12.0f;
+        for (JWidget* w : m_children) totalH += m_graph.getLayoutConst(w->getNodeId()).boundingBox.height + 6.0f;
+        return totalH;
+    }
+    bool _scrolls() const {
+        return _contentHeight() > m_graph.getLayoutConst(m_nodeId).boundingBox.height;
+    }
+
+public:
     void handleMouseMove(float mx, float my) override {
         if (m_draggingScroll) {
             const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
@@ -102,23 +112,54 @@ public:
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
             m_hovered = true;
+            // On the SCROLLBAR, the rows underneath are not what you are pointing at. Lighting one up there
+            // reads as "this is the entry you are about to get" — which, in a combo list where the pointer
+            // also moves the keyboard highlight, it very nearly was. Move them out of hover instead.
+            const bool onBar = pointInScrollbar(mx, my);
             for (JWidget* w : m_children) {
-                if (w->isVisible()) w->handleMouseMove(mx, my);
+                if (w->isVisible()) w->handleMouseMove(onBar ? -1.f : mx, onBar ? -1.f : my);
             }
         } else {
             m_hovered = false;
         }
     }
 
+    // Is the pointer over the scrollbar column? Public because a HOST needs to know: a popup that moves its
+    // highlight to whatever the pointer is over must not do that while the pointer is on the scrollbar —
+    // the row behind the bar is not what you are pointing at, and in a combo list that highlight IS the
+    // selection Enter will commit.
+    bool pointInScrollbar(float mx, float my) const {
+        if (!_scrolls()) return false;                 // no bar drawn, no dead column
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        return my >= b.y && my <= b.y + b.height && mx >= b.x + b.width - 16.0f && mx <= b.x + b.width;
+    }
+    bool isDraggingScroll() const { return m_draggingScroll; }
+
     void handleMousePress(float mx, float my) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
             float trackW = 10.0f;
             float trackX = b.x + b.width - trackW - 6.0f;
-            if (mx >= trackX) {
+            if (mx >= trackX && _scrolls()) {
+                // ON the thumb: drag it. Above or below it: PAGE, as every scrollbar does — clicking the
+                // empty track used to arm a drag that never moved, so the list sat there doing nothing
+                // while the row behind the bar took the highlight.
+                const float trackY = b.y + 2.0f, trackH = b.height - 4.0f;
+                const float totalH = _contentHeight();
+                const float maxScrollY = std::max(0.0f, totalH - b.height);
+                const float thumbH = std::max(20.0f, trackH * (b.height / totalH));
+                const float thumbY = trackY + (maxScrollY > 0.f ? (m_scrollY / maxScrollY) : 0.f) * (trackH - thumbH);
+                if (my < thumbY || my > thumbY + thumbH) {
+                    const float page = b.height * 0.9f;              // a page, less a sliver of overlap
+                    m_scrollY = std::clamp(m_scrollY + (my < thumbY ? -page : page), 0.0f, maxScrollY);
+                    m_graph.invalidateNode(m_nodeId, DirtySelf);
+                }
                 m_draggingScroll = true;
                 m_dragStartY = my;
                 m_dragStartScrollY = m_scrollY;
+            } else if (mx >= trackX && !_scrolls()) {
+                // Nothing to scroll: the right-hand strip is ordinary content, not a dead margin.
+                for (JWidget* w : m_children) if (w->isVisible()) w->handleMousePress(mx, my);
             } else {
                 for (JWidget* w : m_children) {
                     if (w->isVisible()) w->handleMousePress(mx, my);
