@@ -576,8 +576,21 @@ public:
             float itemY = b.y + 4.0f + i * itemH - m_scrollY;
             float indent = flat.depth * 16.0f + 6.0f;
 
-            if (flat.node == m_selectedNode) {
+            // EVERY selected row is drawn as selected. This used to paint only m_selectedNode — the row
+            // that happens to be current — so in a multi-selection the other rows looked untouched: the
+            // only other cue is the label colour, and Text vs HighlightedText differ by five levels on the
+            // dark theme, which is no cue at all. You could not tell what you had picked, or what a drag
+            // was about to carry.
+            if (flat.node->selected || flat.node == m_selectedNode) {
                 drawNodeBackground(buf, flat.node, {b.x + 4.0f, itemY, b.width - 18.0f, itemH});
+                // The CURRENT row (the anchor a Shift-range extends from, the one the keyboard moves) is
+                // outlined on top of the same fill, so "selected" and "current" stay distinguishable.
+                if (flat.node == m_selectedNode && _selectedCount() > 1) {
+                    const JColor a = jstyle::pal().color(JColorRole::Accent, JColorGroup::Active);
+                    const uint8_t ring[4] = { a.r, a.g, a.b, 200 };
+                    buf.pushRectangle(b.x + 4.0f, itemY, b.width - 18.0f, itemH,
+                                      Colors::Transparent, 4.0f, 1.0f, ring);
+                }
             }
 
             if (!flat.node->children.empty()) {
