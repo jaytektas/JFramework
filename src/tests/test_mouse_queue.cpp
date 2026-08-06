@@ -17,7 +17,7 @@ static int g_fails = 0;
 #define CHECK(cond) do { if (!(cond)) { std::printf("  FAIL (line %d): %s\n", __LINE__, #cond); ++g_fails; } } while (0)
 
 // The platform windows' queue, verbatim in shape and rules.
-struct JButtonEvent { bool press; float x, y; };
+struct JButtonEvent { bool press; float x, y; bool ctrl, shift, alt; };
 struct Window {
     std::deque<JButtonEvent> q;
     float mouseX{0.f}, mouseY{0.f};
@@ -33,14 +33,16 @@ struct Window {
         had = !q.empty();
     }
 
-    void onPress(float x, float y)   { q.push_back({ true,  x, y }); }
-    void onRelease(float x, float y) { q.push_back({ false, x, y }); }
+    bool ctrlDown{false};   // what the window reports for the event being handled
+    void onPress(float x, float y, bool ctrl = false)   { q.push_back({ true,  x, y, ctrl, false, false }); }
+    void onRelease(float x, float y, bool ctrl = false) { q.push_back({ false, x, y, ctrl, false, false }); }
+    void onKey()                     { ctrlDown = false; }   // a key event moves the live modifier state on
     void onMotion(float x, float y)  { mouseX = x; mouseY = y; }     // live position, as motion is
 
     bool take(bool wantPress) {
         if (q.empty() || q.front().press != wantPress) return false;
         ++taken;
-        mouseX = q.front().x; mouseY = q.front().y;
+        mouseX = q.front().x; mouseY = q.front().y; ctrlDown = q.front().ctrl;
         q.pop_front();
         return true;
     }
@@ -156,12 +158,26 @@ static void test_expiry_never_touches_a_well_behaved_consumer() {
     CHECK(r == 2);
 }
 
+// A press carries the modifiers it HAPPENED under. The queue can hold it into a later frame, and any key
+// event in between rewrites the window's live modifier state — a modifier key's own press reports the state
+// BEFORE itself, so pressing Ctrl writes ctrl=false. Read the live state at consume time and a Ctrl-click
+// becomes a plain click: no multi-select, no multi-entry drag.
+static void test_modifiers_travel_with_the_event() {
+    Window w;
+    w.onPress(10.f, 10.f, /*ctrl=*/true);      // clicked WITH ctrl held
+    w.onKey();                                 // …then a key event moves the live state on
+    CHECK(w.consumePress());
+    std::printf("  press made with ctrl, consumed after a key event -> ctrl=%d\n", (int)w.ctrlDown);
+    CHECK(w.ctrlDown);                         // the bug: false, so the click lost its modifier
+}
+
 int main() {
     std::cout << "platform mouse queue tests\n";
     test_two_clicks_in_one_frame_are_both_delivered();
     test_press_position_survives_later_motion();
     test_order_is_preserved();
     test_empty_queue_reports_nothing();
+    test_modifiers_travel_with_the_event();
     test_a_press_only_consumer_still_gets_every_click();
     test_expiry_never_touches_a_well_behaved_consumer();
     test_a_press_only_consumer_goes_deaf();

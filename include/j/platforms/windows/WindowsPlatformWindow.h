@@ -188,7 +188,12 @@ public:
     static uintptr_t lastCreatedRawWindowId() { return s_lastCreatedRaw; }
 
     bool consumeFocusLost() override { bool v = m_focusLost; m_focusLost = false; return v; }
-    bool isAltDown() const override { return m_altDown; }
+    // Reported from the EVENT being handled, not the live keyboard: with a queue, a press consumed a frame
+    // later must still say what it happened under. (Ctrl and Shift had no override here at all, so they
+    // answered the base's false — ctrl-click and shift-click could never work on this backend.)
+    bool isAltDown()   const override { return m_evAlt || m_altDown; }
+    bool isCtrlDown()  const override { return m_evCtrl; }
+    bool isShiftDown() const override { return m_evShift; }
 
     std::pair<int,int> globalCursorPos() const override {
         POINT pt;
@@ -261,7 +266,7 @@ private:
             case WM_LBUTTONDOWN: {
                 m_mouseX = static_cast<float>(GET_X_LPARAM(lParam));
                 m_mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
-                m_leftQueue.push_back({ true, m_mouseX, m_mouseY });
+                m_leftQueue.push_back({ true, m_mouseX, m_mouseY, _modCtrl(), _modShift(), _modAlt() });
                 m_altDown = (GetKeyState(VK_MENU) & 0x8000) != 0;
                 SetCapture(hwnd);
                 qCDebug(LogWin32Backend) << "WM_LBUTTONDOWN: " << m_mouseX << ", " << m_mouseY << "\n";
@@ -269,7 +274,7 @@ private:
             }
             case WM_LBUTTONUP: {
                 m_leftQueue.push_back({ false, static_cast<float>(GET_X_LPARAM(lParam)),
-                                               static_cast<float>(GET_Y_LPARAM(lParam)) });
+                                               static_cast<float>(GET_Y_LPARAM(lParam)), _modCtrl(), _modShift(), _modAlt() });
                 ReleaseCapture();
                 qCDebug(LogWin32Backend) << "WM_LBUTTONUP: " << m_mouseX << ", " << m_mouseY << "\n";
                 return 0;
@@ -277,13 +282,13 @@ private:
             case WM_RBUTTONDOWN: {
                 m_mouseX = static_cast<float>(GET_X_LPARAM(lParam));
                 m_mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
-                m_rightQueue.push_back({ true, m_mouseX, m_mouseY });
+                m_rightQueue.push_back({ true, m_mouseX, m_mouseY, _modCtrl(), _modShift(), _modAlt() });
                 SetCapture(hwnd);
                 return 0;
             }
             case WM_RBUTTONUP: {
                 m_rightQueue.push_back({ false, static_cast<float>(GET_X_LPARAM(lParam)),
-                                                static_cast<float>(GET_Y_LPARAM(lParam)) });
+                                                static_cast<float>(GET_Y_LPARAM(lParam)), _modCtrl(), _modShift(), _modAlt() });
                 ReleaseCapture();
                 return 0;
             }
@@ -351,7 +356,14 @@ private:
     // Queued button events, per button, in arrival order — see LinuxPlatformWindow for why a flag is not
     // enough: it drops the second of two clicks in a frame, collapses a press and its release into one
     // moment, and lets later motion overwrite the position the press happened at.
-    struct JButtonEvent { bool press; float x, y; };
+    // See the note in the X11 window: an event carries the modifiers it HAPPENED under, because with a
+    // queue it may be consumed a frame later, after a key event has moved the window-global state on.
+    struct JButtonEvent { bool press; float x, y; bool ctrl, shift, alt; };
+    bool m_evCtrl = false, m_evShift = false, m_evAlt = false;   // …as reported by isCtrlDown() etc.
+    // The live keyboard modifiers, at the moment an event is recorded.
+    static bool _modCtrl()  { return (GetKeyState(VK_CONTROL) & 0x8000) != 0; }
+    static bool _modShift() { return (GetKeyState(VK_SHIFT)   & 0x8000) != 0; }
+    static bool _modAlt()   { return (GetKeyState(VK_MENU)    & 0x8000) != 0; }
     std::deque<JButtonEvent> m_leftQueue, m_rightQueue;
     int  m_leftTaken = 0, m_rightTaken = 0;      // events read since the last poll
     bool m_leftHad = false, m_rightHad = false;  // …and whether there was anything to read then
@@ -382,6 +394,9 @@ private:
         ++(&q == &m_leftQueue ? m_leftTaken : m_rightTaken);
         m_mouseX = q.front().x;
         m_mouseY = q.front().y;
+        m_evCtrl  = q.front().ctrl;      // the modifiers this event happened under, not the live keyboard
+        m_evShift = q.front().shift;
+        m_evAlt   = q.front().alt;
         q.pop_front();
         return true;
     }

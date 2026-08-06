@@ -283,7 +283,10 @@ public:
                             startWindowResize(static_cast<uint32_t>(rd));   // framework-managed: WM drives the resize
                             break;                                          // don't record a press or grab the pointer
                         }
-                        m_leftQueue.push_back({ true, static_cast<float>(b->event_x), static_cast<float>(b->event_y) });
+                        m_leftQueue.push_back({ true, static_cast<float>(b->event_x), static_cast<float>(b->event_y),
+                                                (b->state & XCB_MOD_MASK_CONTROL) != 0,
+                                                (b->state & XCB_MOD_MASK_SHIFT) != 0,
+                                                (b->state & XCB_MOD_MASK_1) != 0 });
                         m_altDown   = (b->state & XCB_MOD_MASK_1) != 0;
                         m_ctrlDown  = (b->state & XCB_MOD_MASK_CONTROL) != 0;
                         m_shiftDown = (b->state & XCB_MOD_MASK_SHIFT) != 0;
@@ -301,17 +304,26 @@ public:
                             s_grabHolder = this;   // remember who holds the grab so a modal-stack push can drop it
                         }
                     } else if (b->detail == XCB_BUTTON_INDEX_3) {
-                        m_rightQueue.push_back({ true, static_cast<float>(b->event_x), static_cast<float>(b->event_y) });
+                        m_rightQueue.push_back({ true, static_cast<float>(b->event_x), static_cast<float>(b->event_y),
+                                                (b->state & XCB_MOD_MASK_CONTROL) != 0,
+                                                (b->state & XCB_MOD_MASK_SHIFT) != 0,
+                                                (b->state & XCB_MOD_MASK_1) != 0 });
                     }
                     break;
                 }
                 case XCB_BUTTON_RELEASE: {
                     auto* b = reinterpret_cast<xcb_button_release_event_t*>(ev);
                     if (b->detail == XCB_BUTTON_INDEX_1) {
-                        m_leftQueue.push_back({ false, static_cast<float>(b->event_x), static_cast<float>(b->event_y) });
+                        m_leftQueue.push_back({ false, static_cast<float>(b->event_x), static_cast<float>(b->event_y),
+                                                (b->state & XCB_MOD_MASK_CONTROL) != 0,
+                                                (b->state & XCB_MOD_MASK_SHIFT) != 0,
+                                                (b->state & XCB_MOD_MASK_1) != 0 });
                         if (m_style != JPlatformWindowStyle::Popup) _ungrabPointer();
                     } else if (b->detail == XCB_BUTTON_INDEX_3) {
-                        m_rightQueue.push_back({ false, static_cast<float>(b->event_x), static_cast<float>(b->event_y) });
+                        m_rightQueue.push_back({ false, static_cast<float>(b->event_x), static_cast<float>(b->event_y),
+                                                (b->state & XCB_MOD_MASK_CONTROL) != 0,
+                                                (b->state & XCB_MOD_MASK_SHIFT) != 0,
+                                                (b->state & XCB_MOD_MASK_1) != 0 });
                     }
                     break;
                 }
@@ -1253,7 +1265,13 @@ private:
     // drag's press lands wherever the pointer got to. Each event carries the position it occurred at, and
     // one is handed over per poll, so a caller sees exactly the sequence the user performed. Keys have
     // always been queued this way; buttons had not.
-    struct JButtonEvent { bool press; float x, y; };
+    // A button event carries the state it HAPPENED under — position and modifiers both. The modifiers used
+    // to be window-global scalars written as X events were processed, which was fine while a press was a
+    // flag read in the same frame; with a queue, a press consumed a frame later reported whatever the last
+    // KEY event had left behind (a key's own state field excludes the key being pressed, so Ctrl's press
+    // writes ctrl=false). Ctrl-click and Shift-click then degraded to plain clicks: no multi-select, no
+    // multi-entry drag out of the dictionary.
+    struct JButtonEvent { bool press; float x, y; bool ctrl, shift, alt; };
     std::deque<JButtonEvent> m_leftQueue, m_rightQueue;
     int  m_leftTaken = 0, m_rightTaken = 0;      // events read since the last poll
     bool m_leftHad = false, m_rightHad = false;  // …and whether there was anything to read then
@@ -1286,6 +1304,9 @@ private:
         ++(&q == &m_leftQueue ? m_leftTaken : m_rightTaken);
         m_mouseX = q.front().x;
         m_mouseY = q.front().y;
+        m_ctrlDown  = q.front().ctrl;    // the modifiers this event happened under, not the latest key's
+        m_shiftDown = q.front().shift;
+        m_altDown   = q.front().alt;
         q.pop_front();
         return true;
     }
