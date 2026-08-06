@@ -97,6 +97,11 @@ public:
         m_mx      = m_window->mouseX();
         m_my      = m_window->mouseY();
         m_pressed = m_window->consumePress();
+        // DRAIN THE RELEASE. Button events are an ordered QUEUE (see the platform windows): a release left
+        // sitting at its head blocks every press behind it, so a window that consumes presses and never
+        // releases works for exactly one click and is deaf from then on. This window tracks the button with
+        // isLeftButtonDown(), so it wants nothing FROM the release — it still has to take it.
+        (void)m_window->consumeRelease();
         m_held    = m_window->isLeftButtonDown();
         m_wheel   = m_window->consumeWheel();
         m_keys    = m_window->consumeAllKeys();

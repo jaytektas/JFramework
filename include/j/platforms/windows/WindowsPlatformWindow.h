@@ -352,9 +352,22 @@ private:
     // moment, and lets later motion overwrite the position the press happened at.
     struct JButtonEvent { bool press; float x, y; };
     std::deque<JButtonEvent> m_leftQueue, m_rightQueue;
+    int m_btnStall = 0;   // consecutive reads blocked by an event nobody is taking
 
     bool _takeButton(std::deque<JButtonEvent>& q, bool wantPress) {
-        if (q.empty() || q.front().press != wantPress) return false;
+        if (q.empty()) { m_btnStall = 0; return false; }
+        if (q.front().press != wantPress) {
+            // A window that consumes presses and never releases works for exactly ONE click: the release it
+            // never took sits at the head of the queue and blocks every press behind it. From the outside
+            // that is indistinguishable from a frozen application, and it is silent — so say it out loud
+            // instead of leaving the next one to be found the hard way.
+            if (++m_btnStall == 240)
+                JLOGC("Platform", jf::JLogLevel::Warn)
+                    << "mouse queue stalled: " << q.size() << " unread button event(s) at the head. A window "
+                       "is consuming presses without consuming releases; it will ignore every click from now on.";
+            return false;
+        }
+        m_btnStall = 0;
         m_mouseX = q.front().x;
         m_mouseY = q.front().y;
         q.pop_front();

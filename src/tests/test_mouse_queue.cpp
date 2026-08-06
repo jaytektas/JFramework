@@ -88,12 +88,42 @@ static void test_empty_queue_reports_nothing() {
     std::printf("  an empty queue reports nothing; an event is consumed once\n");
 }
 
+// THE RULE the queue imposes on its consumers, and the regression that proves why it matters: a window
+// that takes presses and never takes releases works for exactly one click, then ignores the pointer for
+// ever. It cost an afternoon in a file dialog — one click on "up a directory", then nothing, with the rest
+// of the application still responding, which reads as a frozen dialog rather than an unread event.
+static void test_a_press_only_consumer_goes_deaf() {
+    Window w;
+    int presses = 0;
+    auto pressOnlyFrame = [&] { if (w.consumePress()) ++presses; };   // the bug: never consumes the release
+
+    w.onPress(10.f, 10.f); w.onRelease(10.f, 10.f);     // click one
+    pressOnlyFrame();
+    CHECK(presses == 1);                                // the first click lands…
+    w.onPress(20.f, 20.f); w.onRelease(20.f, 20.f);     // click two
+    for (int i = 0; i < 10; ++i) pressOnlyFrame();
+    std::printf("  press-only consumer: %d press(es) delivered from 2 clicks, %zu event(s) stuck\n",
+                presses, w.q.size());
+    CHECK(presses == 1);                                // …and every one after it is blocked
+
+    // The fix is on the CONSUMER: take the release too, even when you do nothing with it.
+    Window v;
+    int got = 0;
+    auto properFrame = [&] { if (v.consumePress()) ++got; (void)v.consumeRelease(); };
+    v.onPress(10.f, 10.f); v.onRelease(10.f, 10.f);
+    v.onPress(20.f, 20.f); v.onRelease(20.f, 20.f);
+    for (int i = 0; i < 6; ++i) properFrame();
+    std::printf("  drain-both consumer: %d press(es) delivered from 2 clicks\n", got);
+    CHECK(got == 2);
+}
+
 int main() {
     std::cout << "platform mouse queue tests\n";
     test_two_clicks_in_one_frame_are_both_delivered();
     test_press_position_survives_later_motion();
     test_order_is_preserved();
     test_empty_queue_reports_nothing();
+    test_a_press_only_consumer_goes_deaf();
     std::printf(g_fails ? "mouse queue: FAILED (%d)\n" : "mouse queue: OK\n", g_fails);
     return g_fails ? 1 : 0;
 }
