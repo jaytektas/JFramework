@@ -46,9 +46,14 @@ public:
     // an entry 57 rows down still opened at the top. Clamped on the next pass, like every other scroll.
     void setScrollY(float y) { m_scrollY = std::max(0.0f, y); }
     float scrollY() const    { return m_scrollY; }
-    // The vertical stride this area lays children out on: their own height plus the gap between them.
-    static constexpr float kChildGap = 6.0f;
-    static constexpr float kTopPad   = 6.0f;
+    // How children are inset and spaced. A form wants breathing room; a LIST does not — a dropdown row has
+    // to be clickable across the full width of the list, and a gap between rows is a strip that swallows
+    // clicks. Defaults match what this area has always used.
+    void setContentPadding(float sideX, float topY, float childGap) {
+        m_padX = sideX; m_padY = topY; m_gap = childGap;
+    }
+    float childGap() const { return m_gap; }
+    float topPad()   const { return m_padY; }
 
     // Non-owned children participate in focus traversal exactly like owned ones.
     void collectChildren(std::vector<JWidget*>& out) const override {
@@ -170,28 +175,28 @@ public:
         if (m_children.empty()) return;
 
         // Perform Layout
-        float curY = b.y + 6.0f - m_scrollY;
-        float innerW = b.width - 16.0f;
-        float totalH = 12.0f;
+        float curY = b.y + m_padY - m_scrollY;
+        float innerW = b.width - 2.0f * m_padX;
+        float totalH = 2.0f * m_padY;
 
         for (JWidget* w : m_children) {
             auto& wl = m_graph.getLayout(w->getNodeId());
-            wl.boundingBox.x = b.x + 8.0f;
+            wl.boundingBox.x = b.x + m_padX;
             wl.boundingBox.y = curY;
             wl.boundingBox.width = innerW;
-            
-            curY += wl.boundingBox.height + 6.0f;
-            totalH += wl.boundingBox.height + 6.0f;
+
+            curY += wl.boundingBox.height + m_gap;
+            totalH += wl.boundingBox.height + m_gap;
         }
 
         float maxScrollY = std::max(0.0f, totalH - b.height);
         m_scrollY = std::clamp(m_scrollY, 0.0f, maxScrollY);
 
-        curY = b.y + 6.0f - m_scrollY;
+        curY = b.y + m_padY - m_scrollY;                 // re-place with the clamped offset
         for (JWidget* w : m_children) {
             auto& wl = m_graph.getLayout(w->getNodeId());
             wl.boundingBox.y = curY;
-            curY += wl.boundingBox.height + 6.0f;
+            curY += wl.boundingBox.height + m_gap;
         }
 
         // Render with clip scissor
@@ -229,6 +234,7 @@ public:
 private:
     std::vector<JWidget*> m_children;
     float   m_scrollY{0.0f};
+    float   m_padX{8.0f}, m_padY{6.0f}, m_gap{6.0f};
     bool    m_hovered{false};
     bool    m_draggingScroll{false};
     float   m_dragStartY{0.0f};

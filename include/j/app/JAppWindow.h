@@ -1049,6 +1049,10 @@ private:
             // so computeNaturalHeight is deliberately not used here — the content is taller than the window
             // by design.
             auto* area = popup->add<JScrollArea>(static_cast<float>(popupW), static_cast<float>(maxH));
+            // A LIST, not a form: rows run edge to edge with nothing between them, so every pixel of a row
+            // is clickable. The default insets left an 8px margin down each side and a 6px strip between
+            // rows where a click landed on nothing at all.
+            area->setContentPadding(0.f, 0.f, 0.f);
             scroller = area;
             JPopupItem* current = nullptr;
             for (int i = 0; i < static_cast<int>(items.size()); ++i) {
@@ -1063,8 +1067,8 @@ private:
             // scroll area positions its children while painting, so at this point they have no geometry to
             // aim at and the list would open at the top with the selected entry 57 rows out of sight.
             if (current) {
-                const float stride = kItemH + JScrollArea::kChildGap;
-                const float centre = (cb->currentIndex() + 0.5f) * stride + JScrollArea::kTopPad;
+                const float stride = kItemH;                       // rows are flush: no gap, no top pad
+                const float centre = (cb->currentIndex() + 0.5f) * stride;
                 area->setScrollY(centre - maxH * 0.5f);
             }
         }
