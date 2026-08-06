@@ -1132,14 +1132,71 @@ private:
                             typeAtom, XCB_ATOM_ATOM, 32, 1, &valAtom);
     }
 
+    // Which modifier bit NumLock actually lives on. Conventionally Mod2, but that is a layout
+    // convention and not a guarantee, so ask the server which modifier holds the Num_Lock keycode.
+    uint16_t _numLockMask() {
+        if (m_numLockMask) return m_numLockMask;
+        m_numLockMask = XCB_MOD_MASK_2;                  // sane default if the query fails
+        if (!m_syms) m_syms = xcb_key_symbols_alloc(m_connection);
+        xcb_keycode_t* codes = xcb_key_symbols_get_keycode(m_syms, 0xFF7F /* XK_Num_Lock */);
+        if (!codes) return m_numLockMask;
+        if (auto* r = xcb_get_modifier_mapping_reply(m_connection,
+                                                     xcb_get_modifier_mapping(m_connection), nullptr)) {
+            const xcb_keycode_t* map = xcb_get_modifier_mapping_keycodes(r);
+            const int per = r->keycodes_per_modifier;
+            for (int mod = 0; mod < 8; ++mod)
+                for (int i = 0; i < per; ++i)
+                    for (const xcb_keycode_t* c = codes; *c != XCB_NO_SYMBOL; ++c)
+                        if (map[mod * per + i] == *c) m_numLockMask = static_cast<uint16_t>(1u << mod);
+            free(r);
+        }
+        free(codes);
+        return m_numLockMask;
+    }
+
+    // A keypad key is not a second, unhandled keyboard: fold it onto the main-keyboard keysym it
+    // means, so digits type and the navigation cluster navigates through the one path below.
+    static xcb_keysym_t _foldKeypad(xcb_keysym_t ks) {
+        if (ks >= 0xFFB0 && ks <= 0xFFB9) return '0' + (ks - 0xFFB0);   // XK_KP_0 … XK_KP_9
+        switch (ks) {
+            case 0xFFAE: return '.';        // XK_KP_Decimal
+            case 0xFFAC: return ',';        // XK_KP_Separator
+            case 0xFFAA: return '*';        // XK_KP_Multiply
+            case 0xFFAB: return '+';        // XK_KP_Add
+            case 0xFFAD: return '-';        // XK_KP_Subtract
+            case 0xFFAF: return '/';        // XK_KP_Divide
+            case 0xFFBD: return '=';        // XK_KP_Equal
+            case 0xFF80: return 0x0020;     // XK_KP_Space
+            case 0xFF89: return 0xFF09;     // XK_KP_Tab       -> Tab
+            case 0xFF95: return 0xFF50;     // XK_KP_Home      -> Home
+            case 0xFF96: return 0xFF51;     // XK_KP_Left      -> Left
+            case 0xFF97: return 0xFF52;     // XK_KP_Up        -> Up
+            case 0xFF98: return 0xFF53;     // XK_KP_Right     -> Right
+            case 0xFF99: return 0xFF54;     // XK_KP_Down      -> Down
+            case 0xFF9A: return 0xFF55;     // XK_KP_Page_Up   -> PageUp
+            case 0xFF9B: return 0xFF56;     // XK_KP_Page_Down -> PageDown
+            case 0xFF9C: return 0xFF57;     // XK_KP_End       -> End
+            case 0xFF9F: return 0xFFFF;     // XK_KP_Delete    -> Delete
+            default:     return ks;
+        }
+    }
+
     void _handleKey(xcb_key_press_event_t* k, bool pressed) {
         if (!m_syms) m_syms = xcb_key_symbols_alloc(m_connection);
         bool shift = (k->state & XCB_MOD_MASK_SHIFT) != 0;
-        xcb_keysym_t ks = xcb_key_symbols_get_keysym(m_syms, k->detail, shift ? 1 : 0);
+        const xcb_keysym_t base = xcb_key_symbols_get_keysym(m_syms, k->detail, 0);
+        // A keypad key holds its DIGIT at level 1 and its navigation meaning at level 0, and X picks
+        // between them with NUMLOCK, not Shift (Shift inverts it). Reading level (shift?1:0) meant
+        // every numpad digit arrived as KP_End/KP_Down/… and fell out of the switch with no character.
+        const bool keypad  = (base >= 0xFF80 && base <= 0xFFBD);   // XK_KP_Space … XK_KP_9
+        const bool numeric = ((k->state & _numLockMask()) != 0) != shift;
+        xcb_keysym_t ks = xcb_key_symbols_get_keysym(m_syms, k->detail,
+                                                     (keypad ? numeric : shift) ? 1 : 0);
         // Non-character keys (arrows, F-keys, Home/End…) have no shifted keysym level, so a Shift-held
         // lookup returns NoSymbol and the key would be dropped. Fall back to the base level so Shift+Arrow
         // etc. still identify as the same key (with ev.shift set) — e.g. Shift+Arrow range-select in tables.
-        if (ks == 0) ks = xcb_key_symbols_get_keysym(m_syms, k->detail, 0);
+        if (ks == 0) ks = base;
+        if (keypad) ks = _foldKeypad(ks);
 
         JKeyEvent ev;
         ev.pressed = pressed;
@@ -1241,6 +1298,7 @@ private:
     uint32_t            m_syncValueHi{0};
     bool                m_syncPending{false};
     xcb_key_symbols_t*  m_syms{nullptr};
+    uint16_t            m_numLockMask{0};   // 0 = not yet resolved; see _numLockMask()
 
     JPlatformWindowStyle m_style{JPlatformWindowStyle::Normal};
     bool m_isMaximized{false};
