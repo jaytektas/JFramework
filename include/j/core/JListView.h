@@ -57,6 +57,9 @@ public:
     }
 
     void handleMouseMove(float mx, float my) override {
+        // A thumb drag ends with the button, not with the event: if the release went to someone else (a
+        // drag-drop session withholds it, a grab redirects it) this is the only thing that lets go.
+        if (m_draggingScroll && !JWidget::s_leftDown) m_draggingScroll = false;
         if (m_draggingScroll) {
             const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
             float itemH = JTextHelper::hasAtlas() ? JTextHelper::lineHeight() + 8.0f : 20.0f;

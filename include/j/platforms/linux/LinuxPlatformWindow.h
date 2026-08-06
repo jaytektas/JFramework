@@ -247,6 +247,7 @@ public:
 
     // ---- JPlatformWindow interface ----
     void pollNativeEvents() override {
+        _expireUnwantedButtons();   // a frame nobody read is a frame nobody wanted
         xcb_generic_event_t* ev;
         while ((ev = _nextEvent())) {
             uint8_t type = ev->response_type & ~0x80;
@@ -1254,24 +1255,35 @@ private:
     // always been queued this way; buttons had not.
     struct JButtonEvent { bool press; float x, y; };
     std::deque<JButtonEvent> m_leftQueue, m_rightQueue;
-    int m_btnStall = 0;   // consecutive reads blocked by an event nobody is taking
+    int  m_leftTaken = 0, m_rightTaken = 0;      // events read since the last poll
+    bool m_leftHad = false, m_rightHad = false;  // …and whether there was anything to read then
+    // WHOSE JOB IS IT. Button events are an ordered queue so two clicks in one frame both arrive and a
+    // press is reported where it happened. That ordering only matters to a consumer that reads BOTH kinds;
+    // one that reads presses alone sits behind the first release for ever and ignores the pointer from then
+    // on. Three consumers got that wrong in one afternoon — a file dialog, a message dialog, and the app
+    // window's own right button, which is why a context menu opened once and never again. It is not a
+    // mistake each consumer should have to avoid, so the WINDOW owns its queue: an event that survives a
+    // whole frame with nobody reading anything is an event nobody wants, and it is dropped at the next poll
+    // instead of blocking what is behind it. A consumer that reads both always takes something while the
+    // queue is non-empty, so its ordering is never disturbed.
+    void _expireUnwantedButtons() {
+        _expireOne(m_leftQueue,  m_leftTaken,  m_leftHad);
+        _expireOne(m_rightQueue, m_rightTaken, m_rightHad);
+    }
+    // The "had" half matters: without it an event would be dropped on the very frame it arrived, before
+    // anybody had the chance to read it.
+    static void _expireOne(std::deque<JButtonEvent>& q, int& taken, bool& had) {
+        if (taken == 0 && had && !q.empty()) q.pop_front();
+        taken = 0;
+        had = !q.empty();
+    }
+
 
     // Take the next event IF it is the kind asked for. Only ever from the front: a release still waiting to
     // be read must not be jumped over by a later press, or a caller sees them out of order.
     bool _takeButton(std::deque<JButtonEvent>& q, bool wantPress) {
-        if (q.empty()) { m_btnStall = 0; return false; }
-        if (q.front().press != wantPress) {
-            // A window that consumes presses and never releases works for exactly ONE click: the release it
-            // never took sits at the head of the queue and blocks every press behind it. From the outside
-            // that is indistinguishable from a frozen application, and it is silent — so say it out loud
-            // instead of leaving the next one to be found the hard way.
-            if (++m_btnStall == 240)
-                JLOGC("Platform", JLogLevel::Warn)
-                    << "mouse queue stalled: " << q.size() << " unread button event(s) at the head. A window "
-                       "is consuming presses without consuming releases; it will ignore every click from now on.";
-            return false;
-        }
-        m_btnStall = 0;
+        if (q.empty() || q.front().press != wantPress) return false;
+        ++(&q == &m_leftQueue ? m_leftTaken : m_rightTaken);
         m_mouseX = q.front().x;
         m_mouseY = q.front().y;
         q.pop_front();

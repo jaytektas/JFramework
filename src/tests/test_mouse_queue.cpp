@@ -21,6 +21,17 @@ struct JButtonEvent { bool press; float x, y; };
 struct Window {
     std::deque<JButtonEvent> q;
     float mouseX{0.f}, mouseY{0.f};
+    int   taken{0};        // events read since the last poll
+    bool  had{false};      // …and whether there was anything to read at that point
+
+    // The frame boundary, exactly as the platform windows implement it: an event that survived a whole
+    // frame with nobody reading anything is an event nobody wants. The window's job, not the consumer's —
+    // a dialog must not have to know a queue exists in order to keep taking clicks.
+    void poll() {
+        if (taken == 0 && had && !q.empty()) q.pop_front();
+        taken = 0;
+        had = !q.empty();
+    }
 
     void onPress(float x, float y)   { q.push_back({ true,  x, y }); }
     void onRelease(float x, float y) { q.push_back({ false, x, y }); }
@@ -28,6 +39,7 @@ struct Window {
 
     bool take(bool wantPress) {
         if (q.empty() || q.front().press != wantPress) return false;
+        ++taken;
         mouseX = q.front().x; mouseY = q.front().y;
         q.pop_front();
         return true;
@@ -117,12 +129,41 @@ static void test_a_press_only_consumer_goes_deaf() {
     CHECK(got == 2);
 }
 
+// A consumer that reads presses and never releases — the app window's right button, a file dialog that
+// tracks the button with isLeftButtonDown() — must still get every click. It used to get exactly one: the
+// first release it ignored blocked every press behind it, so a context menu opened once and never again.
+static void test_a_press_only_consumer_still_gets_every_click() {
+    Window w;
+    int presses = 0;
+    auto pressOnlyFrame = [&] { w.poll(); if (w.consumePress()) ++presses; };
+    w.onPress(10.f, 10.f); w.onRelease(10.f, 10.f);
+    w.onPress(20.f, 20.f); w.onRelease(20.f, 20.f);
+    for (int frame = 0; frame < 6; ++frame) pressOnlyFrame();
+    std::printf("  press-only consumer: %d press(es) from 2 clicks, %zu left queued\n", presses, w.q.size());
+    CHECK(presses == 2);                                // the bug: 1, for ever after
+}
+
+// …and a consumer that reads BOTH loses nothing and keeps its ordering: it always takes something while
+// the queue is non-empty, so the expiry can never reach one of its events.
+static void test_expiry_never_touches_a_well_behaved_consumer() {
+    Window w;
+    int p = 0, r = 0; float px = -1.f;
+    w.onPress(10.f, 10.f); w.onRelease(10.f, 10.f);
+    w.onPress(20.f, 20.f); w.onRelease(20.f, 20.f);
+    for (int frame = 0; frame < 4; ++frame) { w.poll(); pollFrame(w, p, r, px); }
+    std::printf("  drain-both consumer: %d press(es), %d release(s), nothing dropped\n", p, r);
+    CHECK(p == 2);
+    CHECK(r == 2);
+}
+
 int main() {
     std::cout << "platform mouse queue tests\n";
     test_two_clicks_in_one_frame_are_both_delivered();
     test_press_position_survives_later_motion();
     test_order_is_preserved();
     test_empty_queue_reports_nothing();
+    test_a_press_only_consumer_still_gets_every_click();
+    test_expiry_never_touches_a_well_behaved_consumer();
     test_a_press_only_consumer_goes_deaf();
     std::printf(g_fails ? "mouse queue: FAILED (%d)\n" : "mouse queue: OK\n", g_fails);
     return g_fails ? 1 : 0;

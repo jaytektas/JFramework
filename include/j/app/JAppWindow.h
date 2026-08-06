@@ -510,6 +510,7 @@ public:
             // Downstream widget routing never sees a release that a drag has claimed (physical-state
             // tracking below still uses releasedRaw so the button state stays honest).
             const bool released = releasedRaw && !dragActive;
+            JWidget::s_leftDown  = m_leftHeld || m_window->isLeftButtonDown();   // see JWidget::s_leftDown
             JWidget::s_ctrlDown  = m_window->isCtrlDown();    // publish modifier state for handleMousePress
             JWidget::s_shiftDown = m_window->isShiftDown();
             // App-tracked button state: more reliable than querying the server's button mask

@@ -40,6 +40,12 @@ public:
     inline static std::vector<JWidget*> s_activeWidgets;
     // Live keyboard-modifier state, refreshed by the runner each frame so handleMousePress (which
     // carries no modifier args) can honour Ctrl/Shift — e.g. additive/toggle multi-select.
+    // The left button's PHYSICAL state, published by the app loop each frame beside the modifiers below.
+    // A widget in a drag mode needs it: a mode that exists only while the button is held must not depend on
+    // RECEIVING the release to leave it. Releases do go missing — a drag-and-drop session withholds them
+    // from downstream handlers, a grab can send one elsewhere — and a scrollbar that waits for one it will
+    // never get stays glued to the cursor, moving with a button nobody is pressing.
+    inline static bool s_leftDown = false;
     inline static bool s_ctrlDown = false;
     inline static bool s_shiftDown = false;
     // True for the duration of a press dispatch that the runner classified as a DOUBLE click (a second
