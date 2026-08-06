@@ -282,7 +282,7 @@ public:
                             startWindowResize(static_cast<uint32_t>(rd));   // framework-managed: WM drives the resize
                             break;                                          // don't record a press or grab the pointer
                         }
-                        m_pendingPress = true;
+                        m_leftQueue.push_back({ true, static_cast<float>(b->event_x), static_cast<float>(b->event_y) });
                         m_altDown   = (b->state & XCB_MOD_MASK_1) != 0;
                         m_ctrlDown  = (b->state & XCB_MOD_MASK_CONTROL) != 0;
                         m_shiftDown = (b->state & XCB_MOD_MASK_SHIFT) != 0;
@@ -300,23 +300,17 @@ public:
                             s_grabHolder = this;   // remember who holds the grab so a modal-stack push can drop it
                         }
                     } else if (b->detail == XCB_BUTTON_INDEX_3) {
-                        m_mouseX = static_cast<float>(b->event_x);
-                        m_mouseY = static_cast<float>(b->event_y);
-                        m_pendingRightPress = true;
+                        m_rightQueue.push_back({ true, static_cast<float>(b->event_x), static_cast<float>(b->event_y) });
                     }
                     break;
                 }
                 case XCB_BUTTON_RELEASE: {
                     auto* b = reinterpret_cast<xcb_button_release_event_t*>(ev);
                     if (b->detail == XCB_BUTTON_INDEX_1) {
-                        m_mouseX = static_cast<float>(b->event_x);
-                        m_mouseY = static_cast<float>(b->event_y);
-                        m_pendingRelease = true;
+                        m_leftQueue.push_back({ false, static_cast<float>(b->event_x), static_cast<float>(b->event_y) });
                         if (m_style != JPlatformWindowStyle::Popup) _ungrabPointer();
                     } else if (b->detail == XCB_BUTTON_INDEX_3) {
-                        m_mouseX = static_cast<float>(b->event_x);
-                        m_mouseY = static_cast<float>(b->event_y);
-                        m_pendingRightRelease = true;
+                        m_rightQueue.push_back({ false, static_cast<float>(b->event_x), static_cast<float>(b->event_y) });
                     }
                     break;
                 }
@@ -480,10 +474,13 @@ public:
     // ---- Mouse state accessors (consume-once for press/release) ----
     float mouseX() const override { return m_mouseX; }
     float mouseY() const override { return m_mouseY; }
-    bool  consumePress()   override { bool v = m_pendingPress;   m_pendingPress   = false; return v; }
-    bool  consumeRelease() override { bool v = m_pendingRelease; m_pendingRelease = false; return v; }
-    bool  consumeRightPress() override { bool v = m_pendingRightPress; m_pendingRightPress = false; return v; }
-    bool  consumeRightRelease() override { bool v = m_pendingRightRelease; m_pendingRightRelease = false; return v; }
+    // One queued event per call, and only from the FRONT, so press/release order is exactly as it happened.
+    // The reported cursor position becomes that event's own, which is what a handler needs: where the click
+    // was, not where the pointer has since travelled.
+    bool  consumePress()   override { return _takeButton(m_leftQueue,  true);  }
+    bool  consumeRelease() override { return _takeButton(m_leftQueue,  false); }
+    bool  consumeRightPress() override { return _takeButton(m_rightQueue, true); }
+    bool  consumeRightRelease() override { return _takeButton(m_rightQueue, false); }
     float consumeWheel()   override { float v = m_wheelY; m_wheelY = 0.0f; return v; }  // +up / -down notches
 
     // ---- Keyboard events (consume-once queue) ----
@@ -1249,10 +1246,26 @@ private:
     float m_mouseX{0.0f};
     float m_mouseY{0.0f};
     float m_wheelY{0.0f};
-    bool  m_pendingPress{false};
-    bool  m_pendingRelease{false};
-    bool  m_pendingRightPress{false};
-    bool  m_pendingRightRelease{false};
+    // BUTTON EVENTS ARE QUEUED, one per button, in arrival order — not latched into a flag. A flag loses
+    // the second of two clicks that land in the same frame, reports a press and its release as if they were
+    // simultaneous, and (worst) lets a later motion overwrite the position a press happened at, so a fast
+    // drag's press lands wherever the pointer got to. Each event carries the position it occurred at, and
+    // one is handed over per poll, so a caller sees exactly the sequence the user performed. Keys have
+    // always been queued this way; buttons had not.
+    struct JButtonEvent { bool press; float x, y; };
+    std::deque<JButtonEvent> m_leftQueue, m_rightQueue;
+
+    // Take the next event IF it is the kind asked for. Only ever from the front: a release still waiting to
+    // be read must not be jumped over by a later press, or a caller sees them out of order.
+    bool _takeButton(std::deque<JButtonEvent>& q, bool wantPress) {
+        if (q.empty() || q.front().press != wantPress) return false;
+        m_mouseX = q.front().x;
+        m_mouseY = q.front().y;
+        q.pop_front();
+        return true;
+    }
+
+
     bool  m_closeRequested{false};
     bool  m_wasResized{false};
     bool  m_focusLost{false};

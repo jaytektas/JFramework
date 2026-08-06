@@ -120,10 +120,11 @@ public:
 
     float mouseX() const override { return m_mouseX; }
     float mouseY() const override { return m_mouseY; }
-    bool  consumePress() override { bool v = m_pendingPress; m_pendingPress = false; return v; }
-    bool  consumeRelease() override { bool v = m_pendingRelease; m_pendingRelease = false; return v; }
-    bool  consumeRightPress() override { bool v = m_pendingRightPress; m_pendingRightPress = false; return v; }
-    bool  consumeRightRelease() override { bool v = m_pendingRightRelease; m_pendingRightRelease = false; return v; }
+    // One QUEUED event per call, front only, adopting that event's own position — see the queue below.
+    bool  consumePress() override        { return _takeButton(m_leftQueue,  true);  }
+    bool  consumeRelease() override      { return _takeButton(m_leftQueue,  false); }
+    bool  consumeRightPress() override   { return _takeButton(m_rightQueue, true);  }
+    bool  consumeRightRelease() override { return _takeButton(m_rightQueue, false); }
     float consumeWheel() override { float v = m_wheelY; m_wheelY = 0.0f; return v; }
 
     bool hasKeyEvents() const override { return !m_keyQueue.empty(); }
@@ -259,14 +260,15 @@ private:
             case WM_LBUTTONDOWN: {
                 m_mouseX = static_cast<float>(GET_X_LPARAM(lParam));
                 m_mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
-                m_pendingPress = true;
+                m_leftQueue.push_back({ true, m_mouseX, m_mouseY });
                 m_altDown = (GetKeyState(VK_MENU) & 0x8000) != 0;
                 SetCapture(hwnd);
                 qCDebug(LogWin32Backend) << "WM_LBUTTONDOWN: " << m_mouseX << ", " << m_mouseY << "\n";
                 return 0;
             }
             case WM_LBUTTONUP: {
-                m_pendingRelease = true;
+                m_leftQueue.push_back({ false, static_cast<float>(GET_X_LPARAM(lParam)),
+                                               static_cast<float>(GET_Y_LPARAM(lParam)) });
                 ReleaseCapture();
                 qCDebug(LogWin32Backend) << "WM_LBUTTONUP: " << m_mouseX << ", " << m_mouseY << "\n";
                 return 0;
@@ -274,12 +276,13 @@ private:
             case WM_RBUTTONDOWN: {
                 m_mouseX = static_cast<float>(GET_X_LPARAM(lParam));
                 m_mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
-                m_pendingRightPress = true;
+                m_rightQueue.push_back({ true, m_mouseX, m_mouseY });
                 SetCapture(hwnd);
                 return 0;
             }
             case WM_RBUTTONUP: {
-                m_pendingRightRelease = true;
+                m_rightQueue.push_back({ false, static_cast<float>(GET_X_LPARAM(lParam)),
+                                                static_cast<float>(GET_Y_LPARAM(lParam)) });
                 ReleaseCapture();
                 return 0;
             }
@@ -344,10 +347,19 @@ private:
     float m_mouseX{0.0f};
     float m_mouseY{0.0f};
     float m_wheelY{0.0f};
-    bool  m_pendingPress{false};
-    bool  m_pendingRelease{false};
-    bool  m_pendingRightPress{false};
-    bool  m_pendingRightRelease{false};
+    // Queued button events, per button, in arrival order — see LinuxPlatformWindow for why a flag is not
+    // enough: it drops the second of two clicks in a frame, collapses a press and its release into one
+    // moment, and lets later motion overwrite the position the press happened at.
+    struct JButtonEvent { bool press; float x, y; };
+    std::deque<JButtonEvent> m_leftQueue, m_rightQueue;
+
+    bool _takeButton(std::deque<JButtonEvent>& q, bool wantPress) {
+        if (q.empty() || q.front().press != wantPress) return false;
+        m_mouseX = q.front().x;
+        m_mouseY = q.front().y;
+        q.pop_front();
+        return true;
+    }
     bool  m_focusLost{false};
     bool  m_altDown{false};
 
