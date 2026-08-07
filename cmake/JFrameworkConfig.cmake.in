@@ -9,6 +9,14 @@ include(CMakeFindDependencyMacro)
 # Vulkan is a PUBLIC dependency of Genesis::platform, so the consumer needs it too.
 find_dependency(Vulkan)
 
+# OpenSSL, when the platform archive was built with TLS. It is linked PRIVATE, but a STATIC archive
+# still carries its private deps into INTERFACE_LINK_LIBRARIES as $<LINK_ONLY:...>, so a consumer that
+# does not itself find OpenSSL fails at configure with "target OpenSSL::SSL not found". Consumers that
+# call find_package(OpenSSL) themselves never saw it; the ones that don't could not configure at all.
+if(UNIX AND NOT APPLE)
+    find_dependency(OpenSSL)
+endif()
+
 # Linux windowing / IPC libraries the static platform archive links against.
 if(UNIX AND NOT APPLE)
     find_package(PkgConfig REQUIRED)
