@@ -32,7 +32,11 @@ public:
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         // Resolve the theme's TEXT role (so a custom global palette applies), not a raw label shade; the
         // muted label look comes from the alpha, not a separate hardcoded colour.
-        const uint8_t* base = jstyle::role(JColorRole::Text, jstyle::option(m_state, false)).data();
+        // jstyle::role() returns a JColor BY VALUE — keep it alive. Taking .data() from the temporary
+        // left this pointer dangling the moment the expression ended (ASan: stack-use-after-scope),
+        // and the bytes it then read were whatever the next call happened to leave on the stack.
+        const JColor baseCol = jstyle::role(JColorRole::Text, jstyle::option(m_state, false));
+        const uint8_t* base = baseCol.data();
         if (JTextHelper::hasAtlas()) {
             uint8_t c[4] = {base[0], base[1], base[2], 200};
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;

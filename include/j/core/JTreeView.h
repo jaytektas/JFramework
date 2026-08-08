@@ -623,7 +623,9 @@ public:
                 if (flat.node == m_hoverNode && onIsHyperlink && onIsHyperlink(flat.node) && JTextHelper::hasAtlas()) {
                     const float lw = std::min(JTextHelper::measureWidth(tr(flat.node->label)), maxW);
                     const JStyleOption o = jstyle::option(m_state, isFocused());
-                    const uint8_t* uc = jstyle::role(flat.node->selected ? JColorRole::HighlightedText : JColorRole::Text, o).data();
+                    // role() returns a JColor BY VALUE — bind it, or .data() dangles past the full expression.
+                    const JColor uco = jstyle::role(flat.node->selected ? JColorRole::HighlightedText : JColorRole::Text, o);
+                    const uint8_t* uc = uco.data();
                     uint8_t line[4] = { uc[0], uc[1], uc[2], 230 };
                     buf.pushRectangle(tx, ty + JTextHelper::lineHeight() - 1.0f, lw, 1.0f, line, 0.0f);
                 }
@@ -721,7 +723,9 @@ protected:
         // take HighlightedText for contrast on the selection fill. A placeholder ("New node…") add-affordance
         // row draws dimmed so it reads as a ghost hint, not a real node (still selectable/renamable).
         const JStyleOption o = jstyle::option(m_state, isFocused());
-        const uint8_t* base = jstyle::role(node->selected ? JColorRole::HighlightedText : JColorRole::Text, o).data();
+        // role() returns a JColor BY VALUE — bind it, or .data() dangles past the full expression.
+        const JColor baseCol = jstyle::role(node->selected ? JColorRole::HighlightedText : JColorRole::Text, o);
+        const uint8_t* base = baseCol.data();
         if (JTextHelper::hasAtlas()) {
             uint8_t tc[4] = {base[0], base[1], base[2], static_cast<uint8_t>(node->placeholder ? 150 : 230)};
             JTextHelper::pushText(buf, tx, ty, tr(node->label), tc, maxW);
