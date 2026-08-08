@@ -10,6 +10,7 @@
 #include "JTextEditCore.h"
 #include "KeyEvent.h"
 #include "Validator.h"
+#include "../graphics/VectorGraphics.h"   // JVectorCanvas — the clear button's ✕
 
 inline namespace jf {
 
@@ -44,6 +45,16 @@ public:
     }
     const std::string& text()        const { return m_core.text(); }
     const std::string& placeholder() const { return m_placeholder; }
+
+    // ---- Clear button ----------------------------------------------------------------------------------
+    // An ✕ inside the right edge that empties the field in one click, shown only while there is text to
+    // clear. Opt-in, because it only makes sense where the text is a QUERY you discard (a search/filter
+    // box) rather than a value you are authoring. Clicking it emits onTextChanged like any other edit, so
+    // a filter wired to that signal resets itself.
+    void setClearButtonEnabled(bool on) { m_clearButton = on; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    bool isClearButtonEnabled() const { return m_clearButton; }
+    // Visible only when it would DO something: enabled, non-empty, and the field is actually editable.
+    bool clearButtonVisible() const { return m_clearButton && !m_core.text().empty() && !m_core.isReadOnly(); }
     void setPlaceholderText(const std::string& p) { m_placeholder = p; m_graph.invalidateNode(m_nodeId, DirtySelf); }
 
     // ---- Echo mode -------------------------------------------------------------------------------------
@@ -84,6 +95,14 @@ public:
     void handleMousePress(float mx, float my) override {
         if (!isPointInside(mx, my)) return;
         requestFocus();
+        // The ✕ is a button, not text: a press on it clears and consumes, so it never also places a caret
+        // or starts a drag-selection in the text it just removed.
+        if (clearButtonVisible() && _inClearButton(mx, my)) {
+            setText("");
+            m_scrollX = 0.0f;
+            m_selecting = false;
+            return;
+        }
         onClicked.emit();
         // Multi-click detection (single → caret + drag-select, double → word, triple → all). Timing lives
         // here (widget), the selection ops in the core.
@@ -104,6 +123,8 @@ public:
 
     void handleMouseMove(float mx, float my) override {
         JControl::handleMouseMove(mx, my);
+        const bool over = clearButtonVisible() && _inClearButton(mx, my);
+        if (over != m_clearHover) { m_clearHover = over; m_graph.invalidateNode(m_nodeId, DirtySelf); }
         if (m_selecting) { m_core.setCaret(_caretFromX(mx), /*extend=*/true); m_graph.invalidateNode(m_nodeId, DirtySelf); }
     }
     void handleMouseRelease(float mx, float my) override {
@@ -136,6 +157,9 @@ public:
         float innerX = b.x + pad;
         float innerW = b.width - 2.0f * pad;
         float midY   = b.y + (b.height - 7.0f) * 0.5f;
+        // Give the ✕ its own strip: the text run is clipped to innerW, so without this the last characters
+        // would slide under the glyph and be unreadable at exactly the moment you want to read them.
+        if (clearButtonVisible()) innerW -= _clearBoxSize() + 4.0f;
 
         const std::string& raw = m_core.text();
         const std::string disp = _echo(raw);
@@ -185,10 +209,47 @@ public:
         }
 
         buf.popClip();
+
+        // Drawn AFTER popClip: the ✕ sits in the strip reserved above, outside the text clip.
+        if (clearButtonVisible()) _drawClearButton(buf, o);
     }
 
 
 private:
+    // ---- Clear button geometry / paint -----------------------------------------------------------------
+    float _clearBoxSize() const {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        return std::clamp(b.height - 8.0f, 8.0f, 14.0f);
+    }
+    void _clearBoxRect(float& x, float& y, float& s) const {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        s = _clearBoxSize();
+        x = b.x + b.width - textPadding() - s;
+        y = b.y + (b.height - s) * 0.5f;
+    }
+    // Hit area is padded beyond the glyph: a 10px ✕ is a hard target, and missing it places a caret instead
+    // of clearing — the one outcome a clear button must never produce.
+    bool _inClearButton(float mx, float my) const {
+        float x, y, s; _clearBoxRect(x, y, s);
+        const float g = 3.0f;
+        return mx >= x - g && mx <= x + s + g && my >= y - g && my <= y + s + g;
+    }
+    void _drawClearButton(JPrimitiveBuffer& buf, const JStyleOption& o) {
+        float x, y, s; _clearBoxRect(x, y, s);
+        const float cx = x + s * 0.5f, cy = y + s * 0.5f, r = s * 0.28f;
+        // Hover gives the glyph a disc behind it, so it reads as a pressable target rather than decoration.
+        const JColor tint = jstyle::role(JColorRole::Text, o);
+        if (m_clearHover)
+            buf.pushRectangle(x - 1.0f, y - 1.0f, s + 2.0f, s + 2.0f,
+                              withAlpha(tint, 38).data(), (s + 2.0f) * 0.5f);
+        JVectorCanvas vc;
+        vc.setAntiAlias(1.0f);
+        const JPaint p{withAlpha(tint, m_clearHover ? 235 : 165)};
+        vc.drawLine(cx - r, cy - r, cx + r, cy + r, 1.4f, p);
+        vc.drawLine(cx + r, cy - r, cx - r, cy + r, 1.4f, p);
+        vc.flush(buf);
+    }
+
     // Nearest character boundary to a screen x — click + drag-select. Delegates the scan to the core with a
     // measure that applies the echo, so bullets and plain text hit-test correctly.
     size_t _caretFromX(float mx) const {
@@ -241,6 +302,8 @@ private:
     std::string m_placeholder;
     float       m_scrollX = 0.f;
     bool        m_selecting = false;
+    bool        m_clearButton = false;   // opt-in ✕ (see setClearButtonEnabled)
+    bool        m_clearHover  = false;
     int         m_clickCount = 0;
     std::chrono::steady_clock::time_point m_lastClick{};
     float       m_lastClickX = 0.f;

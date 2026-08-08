@@ -77,6 +77,7 @@ public:
         for (const auto& sf : m_systemFonts) m_allFamilies.push_back(sf.name);
 
         m_search = std::make_unique<JLineEdit>(m_graph, "Search fonts…");
+        m_search->setClearButtonEnabled(true);   // a search box discards its text — one click, not a held backspace
         m_list   = std::make_unique<JListView>(m_graph, m_allFamilies);
         m_size   = std::make_unique<JSpinBox>(m_graph, 6, 96, 96.f, kRowH); m_size->setValue(std::atoi(sz.c_str()));
         m_sizeSlider = std::make_unique<JSlider>(m_graph);

@@ -145,7 +145,13 @@ public:
     // clears the filter. Matching subtrees are auto-revealed. Drives the dock search boxes.
     void setFilter(const std::string& f) {
         std::string lo = f; for (char& c : lo) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        if (lo != m_filter) { m_filter = std::move(lo); m_scrollY = 0.f; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+        if (lo != m_filter) {
+            m_filter = std::move(lo); m_scrollY = 0.f;
+            // Clearing the search re-hides everything it revealed. A selection left standing on a revealed
+            // row is no longer on a visible row, so it goes the same way a condition-hidden selection does.
+            if (m_filter.empty() && m_selectedNode && _isHidden(m_root, m_selectedNode)) _selectNode(nullptr);
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+        }
     }
 
     // Opt-in: also match a node's userData (the app payload — e.g. a binding path / raw signal id) against the
@@ -196,7 +202,11 @@ public:
     void applyVisibility(const std::function<bool(const JTreeViewNode&)>& visible) {
         bool changed = false;
         for (auto& c : m_root.children) _applyVis(c, visible, changed);
-        if (changed) { if (m_selectedNode && _isHidden(m_root, m_selectedNode)) _selectNode(nullptr); m_graph.invalidateNode(m_nodeId, DirtySelf); }
+        // Drop a selection the filter just hid — but only if it is really gone from the view. While a search
+        // is running a hidden row is still ON SCREEN (revealed, dimmed) and stays selectable: yanking the
+        // selection out from under someone who deliberately went looking for a disabled feature would take
+        // away the page carrying the switch that enables it.
+        if (changed) { if (m_selectedNode && m_filter.empty() && _isHidden(m_root, m_selectedNode)) _selectNode(nullptr); m_graph.invalidateNode(m_nodeId, DirtySelf); }
     }
     void clearVisibility() {
         bool changed = false;
@@ -216,6 +226,9 @@ public:
         JTreeViewNode* node;
         int depth;
         size_t flatIndex;
+        // Present only because a search revealed it — this row (or an ancestor) is hidden by the app's
+        // condition filter, so it is drawn dimmed and vanishes again when the search clears.
+        bool dimmed{false};
     };
 
     std::vector<JFlatNode> getFlatNodes() {
@@ -581,6 +594,9 @@ public:
             auto& flat = flatNodes[i];
             float itemY = b.y + 4.0f + i * itemH - m_scrollY;
             float indent = flat.depth * 16.0f + 6.0f;
+            // Row state the draw hooks need but the NODE cannot carry: "revealed by the search" is a property
+            // of this flattening, not of the node (a child of a hidden node isn't itself marked hidden).
+            m_rowDimmed = flat.dimmed;
 
             // EVERY selected row is drawn as selected. This used to paint only m_selectedNode — the row
             // that happens to be current — so in a multi-selection the other rows looked untouched: the
@@ -712,6 +728,10 @@ protected:
         JArrow::draw(buf, ax, ay, expanded ? JArrow::Direction::Down : JArrow::Direction::Right, col);
     }
 
+    // True while drawing a row that only the search revealed (one the app's condition filter hides). Draw
+    // hooks consult it to grey the row; it is a property of the ROW, not of the node.
+    bool rowDimmed() const { return m_rowDimmed; }
+
     virtual void drawNodeText(JPrimitiveBuffer& buf, JTreeViewNode* node, float tx, float ty, float maxW) {
         if (node->separator) {   // a group RULE — a menu's own grouping, carried through as a line
             const uint8_t* b = Colors::Border;
@@ -727,7 +747,10 @@ protected:
         const JColor baseCol = jstyle::role(node->selected ? JColorRole::HighlightedText : JColorRole::Text, o);
         const uint8_t* base = baseCol.data();
         if (JTextHelper::hasAtlas()) {
-            uint8_t tc[4] = {base[0], base[1], base[2], static_cast<uint8_t>(node->placeholder ? 150 : 230)};
+            // A row only present because the search revealed it reads as OFF: dimmer than a placeholder ghost,
+            // so "this exists but isn't enabled" is legible at a glance against the live rows beside it.
+            uint8_t tc[4] = {base[0], base[1], base[2],
+                             static_cast<uint8_t>(m_rowDimmed ? 110 : (node->placeholder ? 150 : 230))};
             JTextHelper::pushText(buf, tx, ty, tr(node->label), tc, maxW);
         } else {
             uint8_t tc[4] = {base[0], base[1], base[2], 180};
@@ -736,8 +759,15 @@ protected:
     }
 
 private:
-    void _flatten(JTreeViewNode& node, int depth, std::vector<JFlatNode>& result, bool ancestorMatch = false) {
-        if (node.hidden) return;                                // run-mode condition filter (self + descendants)
+    void _flatten(JTreeViewNode& node, int depth, std::vector<JFlatNode>& result, bool ancestorMatch = false,
+                  bool ancestorDimmed = false) {
+        // A node the condition filter hides is gone from the tree — but a SEARCH reaches the WHOLE tree.
+        // The feature you can't find by browsing is precisely the one you haven't enabled yet, so while a
+        // filter runs a hidden match is REVEALED (dimmed) rather than pretended out of existence: find it,
+        // select it like any other row, turn the feature on from its page, clear the search and it joins the
+        // live tree. With the search clear, hidden means hidden again.
+        if (node.hidden && m_filter.empty()) return;
+        const bool dimmed = ancestorDimmed || node.hidden;      // a revealed ancestor dims its whole subtree
         // Once a node matches (or an ancestor did), its WHOLE subtree stays present — so a matched category
         // reveals its signals and a matched sensor reveals its fields. Otherwise a node only survives as a path
         // down to a deeper match. This mirrors the old studio's ancestorMatch propagation.
@@ -746,11 +776,11 @@ private:
             if (_selfMatches(node))            subtreeMatch = true;   // this node matched → keep its subtree
             else if (!_descendantMatches(node)) return;               // neither self nor descendant → filtered out
         }
-        result.push_back({&node, depth, result.size()});
+        result.push_back({&node, depth, result.size(), dimmed});
         // While filtering, force subtrees open so matches deep in the tree are revealed.
         if (node.expanded || !m_filter.empty()) {
             for (auto& child : node.children) {
-                _flatten(child, depth + 1, result, subtreeMatch);
+                _flatten(child, depth + 1, result, subtreeMatch, dimmed);
             }
         }
     }
@@ -962,6 +992,7 @@ private:
     JLineEdit      m_editField;           // the real text editor mounted over a row during an in-place rename
     bool           m_editable{true};      // F2 / click-selected may start an in-place rename
     std::string    m_filter;              // lower-cased row filter ("" = show all)
+    bool           m_rowDimmed{false};    // set per row while painting (see rowDimmed())
     bool           m_filterUserData{false}; // also match userData (raw id / binding path), not just the label
     float         m_scrollY{0.0f};
     float         m_rowHeight{-1.0f};
