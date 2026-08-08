@@ -146,6 +146,11 @@ private:
                 added->setCheckable(mi->isCheckable());
                 added->setChecked(mi->isChecked());
                 added->setTooltip(mi->tooltip());
+                // …and whether it can be chosen. The popup entry is a COPY of the model item, and every
+                // property that decides how it behaves has to come across or the copy silently disagrees
+                // with the model: a disabled item rendered normal and stayed clickable, so an app that
+                // greyed an option (a pin another sensor holds) still let you pick it.
+                added->setEnabled(mi->isEnabled());
                 if (mi->embeddedWidgetFactory()) added->setEmbeddedWidgetFactory(mi->embeddedWidgetFactory());
 
                 JMenuItem* src = mi;
