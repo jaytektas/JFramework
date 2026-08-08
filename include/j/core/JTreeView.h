@@ -343,8 +343,14 @@ public:
                 }
                 didMove = _moveNode(srcPath, destParentPath, destIdx);
             }
+            // Drop the selection ITSELF, not just the pointer to it. Nulling m_selectedNode alone left the
+            // moved node's `selected` flag set, and _selectNode() clears the old flag THROUGH that pointer —
+            // so the next click added a second highlight instead of moving the first. Rows are drawn from
+            // the flag (a multi-select can highlight many), so a stale flag is a stale highlight forever.
+            _clearAllSelected();
             m_selectedNode = nullptr;   // vector reallocation invalidated node pointers
             m_lastClickNode = nullptr;
+            m_anchorNode = nullptr;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             if (didMove) onNodeMoved.emit(nullptr, nullptr, 0);   // app re-reads root() + persists
             return;
