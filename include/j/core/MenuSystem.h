@@ -318,7 +318,13 @@ public:
         return inst;
     }
 
-    std::function<void(JMenu* menu, int sx, int sy, bool parentTorn)> onOpenMenu;
+    // pointAnchored: the menu is opened AT a point (a right-click at the cursor) rather than UNDER a widget
+    // (a menu-bar dropdown, a combo popup). It decides what an off-screen menu does: a point-anchored menu
+    // FLIPS about the point — opening leftward/upward so the cursor stays on its corner — while an anchored
+    // dropdown slides back inside, staying under the thing it belongs to. Flipping a dropdown would park it a
+    // whole menu-width away from its button; sliding a context menu drags items under the cursor, where the
+    // button-up can trigger one.
+    std::function<void(JMenu* menu, int sx, int sy, bool parentTorn, bool pointAnchored)> onOpenMenu;
     std::function<void(JMenu* menu, int sx, int sy)> onTearOffMenu;
 
     struct JShortcutReg {
@@ -438,7 +444,7 @@ public:
                     if (m_activeIdx == static_cast<int>(i)) {
                         m_activeIdx = -1;
                         if (JMenuManager::instance().onOpenMenu) {
-                            JMenuManager::instance().onOpenMenu(nullptr, 0, 0, false);
+                            JMenuManager::instance().onOpenMenu(nullptr, 0, 0, false, false);
                         }
                     } else {
                         openMenu(static_cast<int>(i));
@@ -466,7 +472,7 @@ private:
             const auto& entry = m_entries[index];
             const auto& btnBB = m_graph.getLayoutConst(entry.btnId).boundingBox;
             auto [sx, sy] = onQueryScreenPos(btnBB.x, btnBB.y + btnBB.height);
-            JMenuManager::instance().onOpenMenu(entry.menu, sx, sy, false);
+            JMenuManager::instance().onOpenMenu(entry.menu, sx, sy, false, /*pointAnchored=*/false);   // under its bar button
         }
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }

@@ -916,6 +916,18 @@ public:
         return sz;
     }
 
+    // Usable rect for popup placement: _NET_WORKAREA (desktop minus panels/docks), else the root screen.
+    // NOTE: X gives no per-monitor split without RandR (not linked here), so on a multi-head desktop this
+    // is the whole work area, not the monitor under (px,py) — a menu can still be placed across a bezel.
+    JScreenRect workAreaAt(int px, int py) const override {
+        (void)px; (void)py;
+        int wx = 0, wy = 0; uint32_t ww = 0, wh = 0;
+        if (const_cast<JLinuxPlatformWindow*>(this)->_getWorkArea(wx, wy, ww, wh) && ww > 0 && wh > 0)
+            return JScreenRect{ wx, wy, static_cast<int>(ww), static_cast<int>(wh) };
+        const auto [sw, sh] = screenSize();
+        return JScreenRect{ 0, 0, sw, sh };
+    }
+
     // Recompute the window's true top-left in root (screen) coordinates by
     // translating its (0,0) through the X server.  Works regardless of WM
     // reparenting, unlike ConfigureNotify's parent-relative cfg->x/y.

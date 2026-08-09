@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -23,13 +24,15 @@ public:
     // handle (for pointer grab + focus); `bar` is reset whenever the menus close.
     void wire(JGpuHal* hal, JPopupWindow::NativeWinHandleType parentWindow, JMenuBar* bar) {
         m_hal = hal; m_parent = parentWindow; m_bar = bar;
-        JMenuManager::instance().onOpenMenu = [this](JMenu* menu, int sx, int sy, bool parentTorn) {
+        JMenuManager::instance().onOpenMenu = [this](JMenu* menu, int sx, int sy, bool parentTorn, bool pointAnchored) {
             // Defer if we're mid-poll (a popup callback re-entered us) to avoid mutating the
             // popup list while iterating it.
+            // A point-anchored menu flips about the click; an anchored dropdown only slides (kNoFlip).
+            const int fx = pointAnchored ? sx : kNoFlip, fy = pointAnchored ? sy : kNoFlip;
             if (m_isPolling)
-                m_deferred.push_back([this, menu, sx, sy, parentTorn]() { openMenu(menu, sx, sy, parentTorn); });
+                m_deferred.push_back([this, menu, sx, sy, parentTorn, fx, fy]() { openMenu(menu, sx, sy, parentTorn, fx, fy); });
             else
-                openMenu(menu, sx, sy, parentTorn);
+                openMenu(menu, sx, sy, parentTorn, fx, fy);
         };
     }
 
@@ -114,19 +117,23 @@ public:
     }
 
 private:
-    void openMenu(JMenu* menu, int sx, int sy, bool parentTorn) {
+    // "This axis has nothing to flip about" — the popup may only slide back inside the work area.
+    static constexpr int kNoFlip = std::numeric_limits<int>::min();
+
+    void openMenu(JMenu* menu, int sx, int sy, bool parentTorn, int flipX = kNoFlip, int flipY = kNoFlip) {
         if (!menu) { closeAll(); return; }
         if (!parentTorn) {                     // a new top-level menu replaces the open one
             if (m_hal) for (auto& p : m_active) p->destroySurface(*m_hal);
             m_active.clear();
         }
-        m_active.push_back(buildMenuPopup(menu, sx, sy, /*tearOffHandle=*/true));
+        m_active.push_back(buildMenuPopup(menu, sx, sy, /*tearOffHandle=*/true, flipX, flipY));
     }
 
     // Build a popup window for a menu: its items (with hover-cascade + trigger wiring) and, when asked, the
     // tear-off grab-strip. Shared by the modal dropdown stack (openMenu) and torn-off submenu cascades
     // (hoverFloating), so both behave identically — the only difference is which list owns the popup.
-    std::unique_ptr<JPopupWindow> buildMenuPopup(JMenu* menu, int sx, int sy, bool tearOffHandle) {
+    std::unique_ptr<JPopupWindow> buildMenuPopup(JMenu* menu, int sx, int sy, bool tearOffHandle,
+                                                 int flipX = kNoFlip, int flipY = kNoFlip) {
         auto popup = std::make_unique<JPopupWindow>(
             sx, sy, 180, 8, *m_hal, JPopupWindow::JStyle::Bordered, m_parent, nullptr);
 
@@ -185,17 +192,47 @@ private:
         }
 
         popup->computeNaturalHeight();
-        // Keep it on-screen: once its natural size is known, shift a menu/submenu that opened near the right or
-        // bottom edge back inside the screen, so it never runs off (and never lands off-screen rendering black).
+        // Keep it on-screen, once its natural size is known: FLIP, then SLIDE, then CLAMP — the standard
+        // order. Flipping (opening leftward/upward about the anchor) is what preserves the relationship
+        // between menu and anchor: a cursor menu keeps the pointer on its corner instead of sliding items
+        // underneath it, and a submenu opens on the parent's other side instead of sliding back ON TOP of
+        // the parent item it belongs to. Only when the flipped side has no room either does it slide, and
+        // clamping is the last resort. Measured against the WORK AREA (panels excluded), not the raw screen.
         {
-            const auto [sw, sh] = popup->window().screenSize();
+            const auto wa = popup->window().workAreaAt(sx, sy);
             const int w = static_cast<int>(popup->width()), h = static_cast<int>(popup->height());
             int x = sx, y = sy;
-            if (x + w > sw) x = std::max(0, sw - w);
-            if (y + h > sh) y = std::max(0, sh - h);
+            if (x + w > wa.x + wa.w) {
+                if (flipX != kNoFlip && flipX - w >= wa.x) x = flipX - w;      // flip: right edge on the anchor
+                else                                      x = wa.x + wa.w - w; // slide back inside
+            }
+            if (y + h > wa.y + wa.h) {
+                if (flipY != kNoFlip && flipY - h >= wa.y) y = flipY - h;      // flip: bottom edge on the anchor
+                else                                      y = wa.y + wa.h - h;
+            }
+            x = std::max(wa.x, x); y = std::max(wa.y, y);   // clamp (a menu taller/wider than the work area)
             if (x != sx || y != sy) popup->window().setPosition(x, y);
         }
         return popup;
+    }
+
+    // Where item `a`'s submenu opens: preferred top-left, plus the edges to flip about if it doesn't fit.
+    // Preferred is the item's top-right, pulled back by kSubOverlap so the submenu overlaps its parent by a
+    // couple of px — the diagonal mouse path to the submenu then never crosses a gap that would count as
+    // leaving the item. flipX is the parent popup's LEFT edge (+overlap), so a submenu with no room on the
+    // right opens leftward instead of sliding back over the parent menu; flipY is the item's BOTTOM, so one
+    // near the screen bottom rises with its bottom edge on the item rather than covering the whole column.
+    struct SubAnchor { int x, y, flipX, flipY; };
+    SubAnchor _submenuAnchor(JPopupWindow* parent, JMenuItem* a) const {
+        constexpr int kSubOverlap = 2;
+        const auto& l = parent->graph().getLayoutConst(a->getNodeId());
+        const int px = parent->window().screenX(), py = parent->window().screenY();
+        return SubAnchor{
+            px + static_cast<int>(l.boundingBox.x + l.boundingBox.width) - kSubOverlap,
+            py + static_cast<int>(l.boundingBox.y),
+            px + static_cast<int>(l.boundingBox.x) + kSubOverlap,
+            py + static_cast<int>(l.boundingBox.y + l.boundingBox.height),
+        };
     }
 
     // Hover handling for a menu item: collapse the cascade back to `parent` (destroying any sibling /
@@ -211,10 +248,8 @@ private:
             if (m_hal) for (size_t i = pi + 1; i < m_active.size(); ++i) m_active[i]->destroySurface(*m_hal);
             m_active.erase(m_active.begin() + pi + 1, m_active.end());
             if (sub) {
-                const auto& l = parent->graph().getLayoutConst(a->getNodeId());
-                const int ssx = parent->window().screenX() + static_cast<int>(l.boundingBox.x + l.boundingBox.width);
-                const int ssy = parent->window().screenY() + static_cast<int>(l.boundingBox.y);
-                openMenu(sub, ssx, ssy, true);
+                const auto [ssx, ssy, fx, fy] = _submenuAnchor(parent, a);
+                openMenu(sub, ssx, ssy, true, fx, fy);
             }
             return;
         }
@@ -233,10 +268,8 @@ private:
     void hoverFloating(JPopupWindow* parent, JMenuItem* a, JMenu* sub) {
         closeFloatingSubtree(parent, /*includeRoot=*/false);   // drop parent's currently-open submenu chain
         if (!sub) return;
-        const auto& l = parent->graph().getLayoutConst(a->getNodeId());
-        const int ssx = parent->window().screenX() + static_cast<int>(l.boundingBox.x + l.boundingBox.width);
-        const int ssy = parent->window().screenY() + static_cast<int>(l.boundingBox.y);
-        m_floating.push_back({ buildMenuPopup(sub, ssx, ssy, /*tearOffHandle=*/false), parent, a });
+        const auto [ssx, ssy, fx, fy] = _submenuAnchor(parent, a);
+        m_floating.push_back({ buildMenuPopup(sub, ssx, ssy, /*tearOffHandle=*/false, fx, fy), parent, a });
     }
 
     // Destroy `root`'s floating submenu descendants (owner chain), optionally `root` itself. Used to collapse a

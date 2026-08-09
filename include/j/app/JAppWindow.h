@@ -586,7 +586,7 @@ public:
                             JMenuManager::instance().onOpenMenu(
                                 w->contextMenu(),
                                 m_window->screenX() + static_cast<int>(mx),
-                                m_window->screenY() + static_cast<int>(my), false);
+                                m_window->screenY() + static_cast<int>(my), false, /*pointAnchored=*/true);
                         menuAte = true;
                         break;
                     }

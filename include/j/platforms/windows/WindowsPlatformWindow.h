@@ -210,6 +210,21 @@ public:
     std::pair<int,int> virtualDesktopSize() const override {
         return { GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN) };
     }
+
+    // Work area of the monitor under (px,py) — taskbar/appbars excluded, per-monitor (unlike the X11 side,
+    // which has no RandR here and can only report the whole desktop work area).
+    JScreenRect workAreaAt(int px, int py) const override {
+        POINT pt{ px, py };
+        HMONITOR mon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi{}; mi.cbSize = sizeof(mi);
+        if (mon && GetMonitorInfo(mon, &mi))
+            return JScreenRect{ mi.rcWork.left, mi.rcWork.top,
+                                mi.rcWork.right - mi.rcWork.left, mi.rcWork.bottom - mi.rcWork.top };
+        RECT wa{};
+        if (SystemParametersInfo(SPI_GETWORKAREA, 0, &wa, 0))
+            return JScreenRect{ wa.left, wa.top, wa.right - wa.left, wa.bottom - wa.top };
+        return JScreenRect{ 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN) };
+    }
     float dpiScale() const override { return m_dpiScaleFactor; }
     void setResizeCallback(std::function<void(uint32_t, uint32_t)> cb) override {
         m_resizeCallback = cb;

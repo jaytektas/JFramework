@@ -95,6 +95,17 @@ public:
     virtual bool isLeftButtonDown() const { return false; }
 
     virtual std::pair<int,int> virtualDesktopSize() const { return {1920, 1080}; }
+    // The usable rect (x, y, w, h) for the monitor holding the screen point (px,py): the desktop minus
+    // panels/taskbars/docks. Popups place themselves against THIS, not the raw desktop — clamping to the
+    // full screen puts a menu underneath a taskbar, and on a multi-head desktop the union of all monitors
+    // says a menu at the right edge of the left screen "fits" when it actually spills across the bezel.
+    // Default: the whole virtual desktop (no panel/monitor knowledge) — platforms override with better.
+    struct JScreenRect { int x{0}, y{0}, w{0}, h{0}; };
+    virtual JScreenRect workAreaAt(int px, int py) const {
+        (void)px; (void)py;
+        const auto [w, h] = virtualDesktopSize();
+        return JScreenRect{ 0, 0, w, h };
+    }
     virtual void setFullscreen(bool on)  { (void)on; }
     virtual void minimize()              {}
     virtual void setMaximized(bool on)   { (void)on; }
