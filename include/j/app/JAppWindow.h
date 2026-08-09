@@ -634,13 +634,21 @@ public:
             if (!chromeAte && !menuAte && !m_space.isResizing())
                 if (JWidget* cw = m_space.centralWidget()) {
                     const JRect& cr = m_space.centerRect();
-                    if (mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height) {
+                    const bool inside = mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height;
+                    // Same capture rule as dock content: a press inside the centre owns the stream until the
+                    // physical release. The bare point test used to drop every event once the cursor left the
+                    // centre — including the RELEASE — so a gesture finished over a dock (scroll-thumb drag,
+                    // marquee, widget move) left the surface stuck mid-drag, still following a button that was
+                    // already up. Wheel stays position-gated: it is not part of the press gesture.
+                    if (pressed && inside && !m_centreCapture) m_centreCapture = true;
+                    if (inside || m_centreCapture) {
                         cw->handleMouseMove(mx, my);
-                        if (pressed)      cw->handleMousePress(mx, my);
-                        if (released)     cw->handleMouseRelease(mx, my);
-                        if (wheel != 0.f) cw->handleScroll(mx, my, wheel);
+                        if (pressed && inside) cw->handleMousePress(mx, my);
+                        if (released)          cw->handleMouseRelease(mx, my);
                     }
+                    if (inside && wheel != 0.f) cw->handleScroll(mx, my, wheel);
                 }
+            if (releasedRaw) m_centreCapture = false;   // physical release ends the centre gesture
 
             // General widget-to-widget drag (DragDrop.h / JMimeData). Runs AFTER the mouse
             // press/move/release routing above (which is where a source's startDrag() opens the
@@ -901,10 +909,19 @@ private:
         // renders through the same _renderLeaf path, invoking the dock's onRenderContent.
         {
             JDockHost* fhost = &m_floating.back().dockHost();
+            // Content CAPTURE, exactly as the main window does it (see m_contentCapture above): a press owns
+            // the stream until the physical release, wherever the cursor goes. Without it, contentDockAt() is
+            // a plain point test, so a gesture that leaves the float — dragging a scroll thumb past the window
+            // edge and letting go — has its RELEASE dropped on the floor: the content never learns the button
+            // came up and stays in its drag (the thumb keeps following the cursor on the way back in). Held
+            // per-float via shared_ptr because the lambda is copied into the float and must own its own state.
+            auto capture = std::make_shared<JDockWidget*>(nullptr);
             m_floating.back().setContentInputHost(
-                [this, fhost](float x, float y, bool p, bool r, float w) {
-                    if (JDockWidget* d = fhost->contentDockAt(x, y))
-                        d->dispatchContentInput(x, y, p, r, w);
+                [this, fhost, capture](float x, float y, bool p, bool r, float w) {
+                    JDockWidget* d = *capture ? *capture : fhost->contentDockAt(x, y);
+                    if (p && !*capture && d) *capture = d;      // arm on the press's dock
+                    if (d) d->dispatchContentInput(x, y, p, r, w);
+                    if (r) *capture = nullptr;                  // the physical release ends the gesture
                     // A content drag (Dictionary binding / palette control) whose button releases inside a
                     // FLOATING dock: the main window never sees this gesture's release, so resolve the drop
                     // on the main surface here — at the global cursor — instead of leaving it stuck to the
@@ -1367,6 +1384,7 @@ private:
     int64_t                          m_lastTitleMs{0};   // last title-bar press (double-click → maximize)
     bool                             m_leftHeld{false};   // app-tracked button state (press→release)
     JDockWidget*                     m_contentCapture{nullptr};   // dock that owns the in-progress content press gesture
+    bool                             m_centreCapture{false};      // the centre widget owns the in-progress press gesture
     float                            m_titleH{JStyle::current().titleBarHeight};   // one canonical title-bar height
     bool                             m_needRedraw{false};
     bool                             m_wasDragging{false};   // drag active last frame (repaint on drop)
