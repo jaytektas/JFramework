@@ -106,6 +106,10 @@ public:
         const auto [w, h] = virtualDesktopSize();
         return JScreenRect{ 0, 0, w, h };
     }
+    // Hide/show without destroying (X: unmap/map). The window keeps geometry, surface and contents, so
+    // showing it again restores it exactly as it was — unlike closing and respawning.
+    virtual void setMapped(bool on)      { (void)on; }
+    virtual bool isMapped() const        { return true; }
     virtual void setFullscreen(bool on)  { (void)on; }
     virtual void minimize()              {}
     virtual void setMaximized(bool on)   { (void)on; }

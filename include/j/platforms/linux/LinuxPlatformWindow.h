@@ -594,6 +594,18 @@ public:
         xcb_flush(m_connection);
     }
 
+    // Map/unmap without destroying: the window keeps its geometry, surface and contents while hidden, so
+    // showing it again puts it back exactly where it was. This is what lets a mode change hide a floating
+    // panel and give it back later — closing and respawning would lose its position and size.
+    void setMapped(bool on) override {
+        if (on == m_mapped) return;
+        m_mapped = on;
+        if (on) xcb_map_window(m_connection, m_windowId);
+        else    xcb_unmap_window(m_connection, m_windowId);
+        xcb_flush(m_connection);
+    }
+    bool isMapped() const override { return m_mapped; }
+
     // Window translucency via _NET_WM_WINDOW_OPACITY (compositor-applied). 1 = opaque.
     void setOpacity(float a) {
         a = a < 0.f ? 0.f : (a > 1.f ? 1.f : a);
@@ -1314,6 +1326,7 @@ private:
 
     JPlatformWindowStyle m_style{JPlatformWindowStyle::Normal};
     bool m_isMaximized{false};
+    bool m_mapped{true};             // mapped at construction (see setMapped)
     bool m_wasUnsnapped{false};
     bool m_selfMaximized{false};
     int      m_preMaxX{0}, m_preMaxY{0};

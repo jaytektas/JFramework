@@ -808,6 +808,43 @@ public:
         return 0;
     }
 
+    // ---- Floating panels, as the app sees them -------------------------------------------------------
+    // A torn-out dock is in NO JDockHost of the main window's space — it lives in its own OS window. An app
+    // that hides panels by host membership (a mode change stripping its authoring docks) therefore misses
+    // every floating one: removeDock is a no-op, a layout snapshot never records it, and the panel just sits
+    // there through a mode it should be absent from. These three let the app see and control that state.
+    bool isDockFloating(const JDockWidget* d) const {
+#if defined(__linux__)
+        for (const auto& fd : m_floating) if (&const_cast<JFloatingDockWindow&>(fd).dock() == d) return true;
+#else
+        (void)d;
+#endif
+        return false;
+    }
+
+    // Hide/show a floating panel's window, keeping the float itself alive — so it comes back at the same
+    // size, in the same place, with the same contents. Returns false if the dock isn't floating.
+    bool setFloatingDockVisible(const JDockWidget* d, bool visible) {
+#if defined(__linux__)
+        for (auto& fd : m_floating)
+            if (&fd.dock() == d) { fd.window().setMapped(visible); m_needRedraw = true; return true; }
+#else
+        (void)d; (void)visible;
+#endif
+        return false;
+    }
+
+    bool isFloatingDockVisible(const JDockWidget* d) const {
+#if defined(__linux__)
+        for (const auto& fd : m_floating)
+            if (&const_cast<JFloatingDockWindow&>(fd).dock() == d) return fd.window().isMapped();
+#else
+        (void)d;
+#endif
+        return false;
+    }
+
+
 private:
     static constexpr float kBtnW = 28.0f;   // width of each window-control button (toolkit value)
 
@@ -988,6 +1025,9 @@ private:
         if (!anyInitial) m_revert.active = false;
 
         for (auto it = m_floating.begin(); it != m_floating.end(); ) {
+            // Hidden (unmapped) float: it receives no input and has nothing to show, so skip both the poll
+            // and the render. It stays in the list, keeping its geometry and contents for when it's shown.
+            if (!it->window().isMapped()) { ++it; continue; }
             auto pr = it->pollAndMove();
             if (pr.type == JFloatingDockWindow::JPollResult::JType::CommitDrop &&
                 pr.dropHost && pr.dropHost->tryCommitDrop()) {
