@@ -928,6 +928,16 @@ public:
         return sz;
     }
 
+    // Which X window holds the input focus RIGHT NOW, as a raw id. A menu popup needs to know whether
+    // focus is still somewhere in this application: FocusOut alone cannot say where it went, and a menu
+    // that dismissed on any focus change would close itself the moment its own submenu opened.
+    uintptr_t focusedWindowRaw() const {
+        auto* r = xcb_get_input_focus_reply(m_connection, xcb_get_input_focus(m_connection), nullptr);
+        const uintptr_t w = r ? static_cast<uintptr_t>(r->focus) : 0;
+        if (r) free(r);
+        return w;
+    }
+
     // Usable rect for popup placement: _NET_WORKAREA (desktop minus panels/docks), else the root screen.
     // NOTE: X gives no per-monitor split without RandR (not linked here), so on a multi-head desktop this
     // is the whole work area, not the monitor under (px,py) — a menu can still be placed across a bezel.

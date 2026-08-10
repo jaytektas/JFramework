@@ -316,7 +316,17 @@ public:
                             if (JWidget::s_shiftDown) { auto fn = flatNodes; _selectRangeTo(flat.node, fn); }
                             else {   // Ctrl: toggle this node in/out of the set
                                 flat.node->selected = !flat.node->selected;
-                                m_selectedNode = m_anchorNode = flat.node;
+                                // A row draws as selected if it IS selected or if it is the CURRENT row.
+                                // Parking "current" on a row we just deselected therefore left it lit, and
+                                // it only went out when a later click moved current elsewhere: the tick
+                                // said off, the highlight said on. Current follows the node only while the
+                                // node is in the set; deselecting hands it to whatever is still selected.
+                                if (flat.node->selected) {
+                                    m_selectedNode = m_anchorNode = flat.node;
+                                } else {
+                                    JTreeViewNode* still = _firstSelected(m_root);
+                                    m_selectedNode = m_anchorNode = still;
+                                }
                                 m_graph.invalidateNode(m_nodeId, DirtySelf);
                                 onSelectionChanged.emit(flat.node);
                             }
@@ -920,6 +930,14 @@ private:
             m_scrollY = itemY + itemH - b.height;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
         }
+    }
+
+    // Any node still in the selection, or null — used to hand "current" on when the current row is
+    // deselected, so no row is left drawn as selected while its flag says otherwise.
+    static JTreeViewNode* _firstSelected(JTreeViewNode& n) {
+        if (n.selected) return &n;
+        for (auto& c : n.children) if (JTreeViewNode* f = _firstSelected(c)) return f;
+        return nullptr;
     }
 
     static void _setExpandedRec(JTreeViewNode& n, bool e) { n.expanded = e; for (auto& c : n.children) _setExpandedRec(c, e); }

@@ -41,7 +41,35 @@ public:
     // Per-frame: poll modal popups (grab + dismiss-on-outside), run deferred callbacks, then
     // render active + floating menus. Each popup is its own window/surface, so it renders
     // into a fresh scratch buffer (like a floating dock window).
+    // Did focus leave the APPLICATION? An open menu is an override-redirect window: it floats above every
+    // other application and no window manager will take it away, so switching away by keyboard left it
+    // hanging over whatever you switched to. Dismissal used to rely entirely on the pointer grab delivering
+    // a click elsewhere, which never happens on an alt-tab. FocusOut alone cannot answer this — a menu
+    // opening its own submenu is also a focus change — so ASK where focus actually is and compare it with
+    // our own windows.
+    bool _focusIsOurs() const {
+        if (m_active.empty()) return true;
+        const uintptr_t focus = m_active.front()->window().focusedWindowRaw();
+        if (focus == 0) return true;                                  // not reported: assume ours
+        if (focus == static_cast<uintptr_t>(m_parent)) return true;   // the main window
+        for (const auto& p : m_active)   if (focus == p->window().rawWindowId()) return true;
+        for (const auto& f : m_floating) if (focus == f.win->window().rawWindowId()) return true;
+        return false;
+    }
+
+    // Dismiss on the TRANSITION out of the application, never on the mere state of not having focus. Some
+    // setups never give this process the input focus at all (a bare X server with no window manager, or
+    // focus-follows-mouse landing elsewhere) — treating "not focused" as "dismiss" there closes every menu
+    // on the frame it opens, so the menu bar stops working entirely. Only a menu that HELD focus and then
+    // lost it has actually been abandoned.
+    bool _focusLeftApp() {
+        const bool ours = _focusIsOurs();
+        if (ours) { m_sawAppFocus = true; return false; }
+        return m_sawAppFocus;
+    }
+
     void updateAndRender(JGpuHal& hal) {
+        if (_focusLeftApp()) { closeAll(); m_sawAppFocus = false; return; }
         if (!m_active.empty()) {
             m_isPolling = true;
             // Single grab: the ROOT popup owns the pointer and receives every event; we read
@@ -122,6 +150,7 @@ private:
 
     void openMenu(JMenu* menu, int sx, int sy, bool parentTorn, int flipX = kNoFlip, int flipY = kNoFlip) {
         if (!menu) { closeAll(); return; }
+        if (m_active.empty()) m_sawAppFocus = false;   // a new cascade re-arms the leave-the-app check
         if (!parentTorn) {                     // a new top-level menu replaces the open one
             if (m_hal) for (auto& p : m_active) p->destroySurface(*m_hal);
             m_active.clear();
@@ -315,6 +344,7 @@ private:
     JGpuHal*                          m_hal{nullptr};
     JPopupWindow::NativeWinHandleType m_parent{};
     JMenuBar*                         m_bar{nullptr};
+    bool m_sawAppFocus{false};   // this menu has held the app's focus at least once (see _focusLeftApp)
     std::vector<std::unique_ptr<JPopupWindow>> m_active;     // modal dropdown stack
     std::vector<FloatNode>                     m_floating;   // torn-off menus + their submenu cascades
     std::vector<std::function<void()>>         m_deferred;   // run after polling
