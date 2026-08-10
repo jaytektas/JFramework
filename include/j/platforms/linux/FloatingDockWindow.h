@@ -595,6 +595,14 @@ public:
                     }
                 }
             } else if (m_contentInputHost) {
+                // Modifier + button state for the widgets about to be clicked. The app publishes these
+                // from the MAIN window's loop, which receives no key events while a float holds the
+                // keyboard — so Ctrl and Shift read false inside a float and ctrl-click multi-select was
+                // impossible (and with it, dragging a multi-selection out onto the canvas). Publish from
+                // the window that actually has the keys, immediately before dispatching the press.
+                JWidget::s_ctrlDown  = m_window->isCtrlDown();
+                JWidget::s_shiftDown = m_window->isShiftDown();
+                JWidget::s_leftDown  = btnDown;
                 m_contentInputHost(mx, my, press, !btnDown && m_wasDown, m_lastWheel);
             }
 
