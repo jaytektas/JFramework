@@ -1045,17 +1045,30 @@ private:
             // and the render. It stays in the list, keeping its geometry and contents for when it's shown.
             if (!it->window().isMapped()) { ++it; continue; }
             auto pr = it->pollAndMove();
-            if (pr.type == JFloatingDockWindow::JPollResult::JType::CommitDrop &&
-                pr.dropHost && pr.dropHost->tryCommitDrop()) {
-                // tryCommitDrop already inserted the dock's stable pointer into the drop host; the object
-                // never moved, so that pointer is correct — no retarget. Relinquish the float's hold: keep a
-                // framework-owned dock alive in our pool at its unchanged address; a borrowed app dock needs
-                // nothing (its owner still holds it).
-                it->destroySurface(*m_hal);
-                if (std::unique_ptr<JDockWidget> owned = it->releasePrimary())
-                    m_ownedDocks.push_back(std::move(owned));
-                it = m_floating.erase(it);
-                continue;
+            if (pr.type == JFloatingDockWindow::JPollResult::JType::CommitDrop && pr.dropHost) {
+                // A float can hold SEVERAL docks (panels docked together inside it), but a drag offers only
+                // the first to the destination — so tryCommitDrop plants that one, and the float is then
+                // destroyed with the others still inside: drag a 3-panel float onto a host and two panels
+                // simply disappeared. Take the whole passenger list before committing, then re-home the
+                // remainder beside the one that landed.
+                const std::vector<JDockWidget*> carried = it->docks();
+                if (pr.dropHost->tryCommitDrop()) {
+                    // tryCommitDrop inserted the dragged dock's stable pointer into the drop host; the
+                    // object never moved, so that pointer is correct — no retarget.
+                    if (!carried.empty()) {
+                        const JDockNodeId landed = pr.dropHost->findDock(carried.front());
+                        if (landed != InvalidDockNodeId)
+                            for (size_t i = 1; i < carried.size(); ++i)
+                                pr.dropHost->insertDock(carried[i], landed);   // tabbed beside it, in order
+                    }
+                    // Relinquish the float's hold on ALL of them: keep framework-owned docks alive in our
+                    // pool at their unchanged addresses; borrowed app docks need nothing.
+                    it->destroySurface(*m_hal);
+                    for (auto& owned : it->releaseAll())
+                        if (owned) m_ownedDocks.push_back(std::move(owned));
+                    it = m_floating.erase(it);
+                    continue;
+                }
             }
             if (it->shouldClose()) { it->destroySurface(*m_hal); it = m_floating.erase(it); continue; }
             JPrimitiveBuffer fbuf;

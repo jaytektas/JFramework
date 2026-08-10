@@ -661,6 +661,25 @@ public:
         return *m_docks.at(0).ptr;
     }
 
+    // Every dock this float holds, in order — the first is the one a drag offers to a destination host.
+    // A float can hold several (panels docked together inside it), and all of them travel with a drop.
+    std::vector<JDockWidget*> docks() const {
+        std::vector<JDockWidget*> out;
+        out.reserve(m_docks.size());
+        for (const auto& d : m_docks) if (d.ptr) out.push_back(d.ptr);
+        return out;
+    }
+
+    // Relinquish ALL docks, returning the ones this float OWNS so the caller can keep them alive at their
+    // unchanged addresses (borrowed docks yield nothing — their owner still holds them). releasePrimary
+    // returned only the first while clearing the vector, so a multi-dock float silently destroyed the rest.
+    std::vector<std::unique_ptr<JDockWidget>> releaseAll() {
+        std::vector<std::unique_ptr<JDockWidget>> owned;
+        for (auto& d : m_docks) if (d.owned) owned.push_back(std::move(d.owned));
+        m_docks.clear();
+        return owned;
+    }
+
     // Hand the primary dock off for re-docking elsewhere. The destination host has already been given
     // this dock's (stable) pointer, so nothing to move: we just relinquish our hold. Returns the owning
     // pointer if THIS float owned the dock — the caller keeps it alive at its unchanged address — or null
