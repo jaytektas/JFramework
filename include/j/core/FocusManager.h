@@ -202,6 +202,8 @@ public:
         if (!m_order.empty()) setFocus(m_order.front());
     }
 
+    size_t orderSize() const { return m_order.size(); }   // diagnostics: how many widgets are focusable now
+
     void clear() { m_order.clear(); m_focused = nullptr; }
 
 private:

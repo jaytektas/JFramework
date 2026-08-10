@@ -538,6 +538,22 @@ public:
         JLOGC("dock.heal", JLogLevel::Debug) << "removeDock '" << (dock ? dock->title() : "?") << "' — not found in any leaf";
     }
 
+    // Diagnostics: is this dock the ACTIVE tab of the leaf holding it? A panel that is visible on screen
+    // but whose leaf thinks another tab is active is excluded from the focus chain, which presents as a
+    // field that takes clicks and ignores the keyboard.
+    struct JTabState { bool held{false}; bool activeTab{false}; int activeIdx{-1}; int tabCount{0}; };
+    JTabState tabStateOf(const JDockWidget* dock) const {
+        JTabState st;
+        const JDockNodeId leaf = findDock(dock);
+        const JDockNode* n = node(leaf);
+        if (!n) return st;
+        st.held = true;
+        st.activeIdx = n->activeTab;
+        st.tabCount  = static_cast<int>(n->tabs.size());
+        st.activeTab = (st.activeIdx >= 0 && st.activeIdx < st.tabCount && n->tabs[st.activeIdx] == dock);
+        return st;
+    }
+
     JDockNodeId findDock(const JDockWidget* dock) const {
         for (auto& n : m_nodes) {
             if (n.type != JDockNode::JType::Leaf) continue;

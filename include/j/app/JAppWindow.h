@@ -649,6 +649,7 @@ public:
                 JDockWidget* cd = m_contentCapture ? m_contentCapture : m_space.contentDockAt(mx, my);
                 if (pressed && !m_contentCapture && cd && !m_space.isResizing()) m_contentCapture = cd;   // arm on the press's dock
                 if (cd) cd->dispatchContentInput(mx, my, pressed, released, wheel);
+                if (pressed && cd) _logDockFocus("dock press", cd, mx, my);
             }
             if (releasedRaw) m_contentCapture = nullptr;   // physical release ends the content gesture
 
@@ -944,6 +945,25 @@ private:
         }
     }
 
+    // Why did a click on this panel not give it the keyboard? Everything that decides that, on one line:
+    // where it lives, whether its leaf believes it is the active tab, whether its content is flagged
+    // visible (an invisible root is skipped by the focus walk), and who ended up focused. Enable with
+    // JF_LOG=focus=debug. Kept because this state is invisible from the outside: the field looks normal,
+    // takes the click, and silently drops every key.
+    void _logDockFocus(const char* where, JDockWidget* d, float x, float y) {
+        if (!d) return;
+        JDockHost* h = d->placedIn();
+        const auto st = h ? h->tabStateOf(d) : JDockHost::JTabState{};
+        JLOGC("focus", JLogLevel::Debug)
+            << where << " '" << d->title() << "' at " << x << "," << y
+            << " | host=" << (h ? (isDockFloating(d) ? "float" : "docked") : "NONE")
+            << " tabs=" << st.tabCount << " activeIdx=" << st.activeIdx
+            << " isActiveTab=" << (st.activeTab ? 1 : 0)
+            << " contentVisible=" << (d->content() && d->content()->isVisibleSelf() ? 1 : 0)
+            << " focusRoots=" << m_focus.orderSize()
+            << " focused=" << (m_focus.focused() ? m_focus.focused()->getRef("name").toString() : std::string("none"));
+    }
+
     // Create a floating window for one dock and wire its content input. Used by BOTH tear-out paths —
     // out of a docked host, and out of another float — so they cannot drift apart.
     void _newFloat(JDockWidget* dw, int sx, int sy, uint32_t fw, uint32_t fh, int offX, int offY) {
@@ -979,7 +999,11 @@ private:
                     // Focus follows the click INSIDE this panel. Scoped to the panel because a float's
                     // widgets carry window-local coordinates, which mean something else entirely in the
                     // main window — an unscoped hit test would focus whatever sits at those numbers there.
-                    if (p && d && d->content()) { _refreshFocusRoots(); m_focus.focusAtWithin(d->content(), x, y); }
+                    if (p && d && d->content()) {
+                        _refreshFocusRoots();
+                        m_focus.focusAtWithin(d->content(), x, y);
+                        _logDockFocus("float press", d, x, y);
+                    }
                 });
         m_floating.back().setContentKeyHost([this](const JKeyEvent& ke) { _routeKey(ke); });
         }
@@ -1089,6 +1113,9 @@ private:
             if (jShortcuts().dispatch(ke)) return true;
             if (jIsTabNav(ke)) { jTabNavDir(ke) < 0 ? m_focus.prevFocus() : m_focus.nextFocus(); return true; }
             if (onKey) { onKey(ke); return true; }
+        JLOGC("focus", JLogLevel::Debug) << "key " << static_cast<int>(ke.key) << " CONSUMED BY NOBODY"
+            << " | focused=" << (m_focus.focused() ? m_focus.focused()->getRef("name").toString() : std::string("none"))
+            << " focusRoots=" << m_focus.orderSize();
         return false;
     }
 
