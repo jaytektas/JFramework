@@ -208,7 +208,7 @@ public:
 
     bool isGlobalTitleBarVisible() const {
         if (m_options.dragBehavior == JFloatingDragBehavior::AlwaysGlobalTitleBar) return true;
-        if (m_options.dragBehavior == JFloatingDragBehavior::ConditionalGlobalTitleBar && m_docks.size() > 1) return true;
+        if (m_options.dragBehavior == JFloatingDragBehavior::ConditionalGlobalTitleBar && dockCount() > 1) return true;
         return false;
     }
 
@@ -541,7 +541,12 @@ public:
             if (ev) {
                 if (ev->type == JDockHost::JDockEvent::JType::WantsFloat) {
                     bool allowTear = true;
-                    if (m_docks.size() == 1) {
+                    // How many panels this float ACTUALLY holds — from the host tree, not m_docks. m_docks
+                    // is the constructor's list, so a float you built by dragging more panels in still
+                    // reported one: every tab drag then took the single-dock branch below and moved the
+                    // WHOLE WINDOW, which is why dragging one tab appeared to drag all the tabified panels
+                    // with it instead of tearing that one out.
+                    if (dockCount() <= 1) {
                         if (m_options.singleDockDragMovesWindow) {
                             m_state    = JState::HeaderDrag;
                             m_dragOffX = static_cast<int>(mx);
@@ -575,7 +580,7 @@ public:
                         std::remove_if(m_docks.begin(), m_docks.end(),
                             [target = ev->dock](const auto& u){ return u.get() == target; }),
                         m_docks.end());
-                    if (m_docks.empty()) {
+                    if (dockCount() == 0) {      // empty by what it HOLDS, not what it was born with
                         m_shouldClose = true;
                     }
                 }
@@ -610,9 +615,10 @@ public:
             if (JTextHelper::hasAtlas()) {
                 const uint8_t* tc = Colors::MutedText;
                 float ty = (kGlobalTitleH - JTextHelper::lineHeight()) * 0.5f;
-                std::string title = m_docks.empty() ? "Genesis JWindow" : m_docks[0].ptr->title();
-                if (m_docks.size() > 1) {
-                    title += " (+" + std::to_string(m_docks.size() - 1) + " panels)";
+                const std::vector<JDockWidget*> held = docks();
+                std::string title = held.empty() ? "Genesis JWindow" : held.front()->title();
+                if (held.size() > 1) {
+                    title += " (+" + std::to_string(held.size() - 1) + " panels)";
                 }
                 JTextHelper::pushText(buf, 10.f, ty, title, tc, static_cast<float>(m_winW) - 30.f);
             }
@@ -668,6 +674,13 @@ public:
     // what the float was born with plus which of those it owns. A panel docked INTO the float afterwards is
     // inserted into m_dockHost and never appears in m_docks — so reading m_docks reported a lone panel for a
     // float that visibly held several, and every one added after construction was dropped on the floor.
+    // Panels this float currently holds. Always ask this rather than m_docks.size().
+    size_t dockCount() const {
+        size_t n = 0;
+        if (m_dockHost) m_dockHost->forEachDockPanel([&n](JDockWidget*, const JRect&, bool, int) { ++n; });
+        return n;
+    }
+
     std::vector<JDockWidget*> docks() const {
         std::vector<JDockWidget*> out;
         if (m_dockHost)
