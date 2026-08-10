@@ -173,6 +173,14 @@ public:
 
     JFloatingDockWindow& operator=(JFloatingDockWindow&& other) noexcept {
         if (this != &other) {
+            // OUR host dies here — the unique_ptr assignment below deletes it. JDockRegistry holds raw
+            // JDockHost*, so it must be dropped from the registry FIRST or the registry is left pointing at
+            // freed memory. This is not a corner case: std::vector::erase move-assigns the later elements
+            // over the erased one, so every removal of a float that isn't the last in m_floating lands here
+            // (closing one, or committing a drop, with another float still open). The next walk of the
+            // registry — _clearAllHostDrags → updateDrag → `m_nodes = m_savedNodes` — then copies a vector
+            // out of a destroyed host and segfaults.
+            if (m_dockHost) JDockRegistry::instance().unregisterHost(*m_dockHost);
             m_window = std::move(other.m_window);
             m_surface = other.m_surface;
             other.m_surface = GpuSurfaceId{kPrimarySurface};
