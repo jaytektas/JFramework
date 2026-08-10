@@ -47,7 +47,13 @@ public:
         // s_active live, so it always routes to the currently-active (top-most) manager. Focusing a clicked
         // widget is the framework's job, wired here, not by any app.
         if (!JWidget::s_focusHook)
-            JWidget::s_focusHook = [](JWidget* w) { if (s_active) s_active->setFocus(w); };
+            JWidget::s_focusHook = [](JWidget* w) {
+                // Route only to a manager that is demonstrably alive. The destructor above keeps s_active
+                // honest; this is the backstop, so no future teardown order can turn a focus click into a
+                // jump through a freed pointer.
+                if (s_active && std::find(s_instances.begin(), s_instances.end(), s_active) != s_instances.end())
+                    s_active->setFocus(w);
+            };
         // A widget being destroyed drops out of every manager's bookkeeping, BEFORE anything can dereference
         // it. syncOrder() used to be where a destroyed widget's focus was released -- and releasing it calls
         // setFocused(false) ON THE DEAD WIDGET, which is a use-after-free: a rebuilt properties form or a
@@ -56,7 +62,16 @@ public:
             JWidget::s_widgetDestroyedHook = [](JWidget* w) { for (auto* m : s_instances) m->_forget(w); };
     }
     ~JFocusManager() {
-        if (s_active == this) s_active = m_prevActive;   // restore the manager we displaced (the hook follows s_active)
+        // Managers do NOT necessarily die in creation order. m_prevActive assumes a stack, and a dialog
+        // opened from another dialog's callback breaks that assumption the moment the opener closes first:
+        // the survivor's m_prevActive (or s_active itself) is left pointing at this freed manager, and the
+        // next widget-initiated focus request reads m_focused out of freed memory and calls setFocused on
+        // whatever it finds. That is a hard crash on the next click into any text field — reached here by
+        // opening two dialogs in sequence and then clicking the dictionary's search box.
+        // Repair every link that points at us, whatever order we are destroyed in.
+        for (JFocusManager* m : s_instances)
+            if (m != this && m->m_prevActive == this) m->m_prevActive = m_prevActive;
+        if (s_active == this) s_active = m_prevActive;
         s_instances.erase(std::remove(s_instances.begin(), s_instances.end(), this), s_instances.end());
     }
 
