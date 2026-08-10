@@ -947,6 +947,8 @@ private:
         // dragged and instantly commits/closes — the dock just vanishes. Leave it docked.
         if (!m_window->isLeftButtonDown()) return;
         m_revert = { true, host->saveTree(), host };   // enable Escape-to-revert this drag
+        JLOGC("dock.float", JLogLevel::Debug) << "tear out: '" << dw->title() << "' from host "
+                                              << static_cast<const void*>(host);
         host->removeDock(dw);
         // BORROW the app-owned dock into the float — the object is NOT moved, so &dw stays the one true
         // dock. The saved revert tree references &dw and remains valid; no husk, no retarget.
@@ -1052,6 +1054,13 @@ private:
                 // simply disappeared. Take the whole passenger list before committing, then re-home the
                 // remainder beside the one that landed.
                 const std::vector<JDockWidget*> carried = it->docks();
+                {   // One line per drop, naming every passenger: a panel that goes missing on a re-dock is
+                    // otherwise invisible — it is in no host and no window, with nothing logged anywhere.
+                    std::string names;
+                    for (JDockWidget* d : carried) { if (!names.empty()) names += ", "; names += d ? d->title() : "?"; }
+                    JLOGC("dock.float", JLogLevel::Debug) << "commit drop: " << carried.size()
+                        << " dock(s) [" << names << "] -> host " << static_cast<const void*>(pr.dropHost);
+                }
                 if (pr.dropHost->tryCommitDrop()) {
                     // tryCommitDrop inserted the dragged dock's stable pointer into the drop host; the
                     // object never moved, so that pointer is correct — no retarget.

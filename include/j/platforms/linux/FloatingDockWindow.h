@@ -662,11 +662,23 @@ public:
     }
 
     // Every dock this float holds, in order — the first is the one a drag offers to a destination host.
-    // A float can hold several (panels docked together inside it), and all of them travel with a drop.
+    // A float can hold several, and all of them travel with a drop.
+    //
+    // The HOST TREE is the truth here, not m_docks: m_docks is filled once, at construction, and records
+    // what the float was born with plus which of those it owns. A panel docked INTO the float afterwards is
+    // inserted into m_dockHost and never appears in m_docks — so reading m_docks reported a lone panel for a
+    // float that visibly held several, and every one added after construction was dropped on the floor.
     std::vector<JDockWidget*> docks() const {
         std::vector<JDockWidget*> out;
-        out.reserve(m_docks.size());
-        for (const auto& d : m_docks) if (d.ptr) out.push_back(d.ptr);
+        if (m_dockHost)
+            m_dockHost->forEachDockPanel([&out](JDockWidget* p, const JRect&, bool, int) { out.push_back(p); });
+        // The primary leads: a drag offers it to the destination, so it lands first and the rest tab in
+        // beside it.
+        if (!m_docks.empty() && m_docks[0].ptr) {
+            auto it = std::find(out.begin(), out.end(), m_docks[0].ptr);
+            if (it != out.end()) std::iter_swap(out.begin(), it);
+            else                 out.insert(out.begin(), m_docks[0].ptr);
+        }
         return out;
     }
 
