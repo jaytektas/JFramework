@@ -42,6 +42,24 @@ int main() {
         check(seen == 1, "moved, not duplicated across leaves");
         check(h.findDock(&nav) == other, "lives in the target leaf");
     }
+    std::puts("4. a split handle must not claim its neighbours' content pixels");
+    {
+        jf::JDockWidget a("A", 0, 0, 100, 100), b("B", 0, 0, 100, 100);
+        jf::JDockHost h;
+        const jf::JDockNodeId l1 = h.addDock(&a);
+        const jf::JDockNodeId l2 = h.addLeaf(h.rootId(), "second", 1.0f);
+        h.insertDock(&b, l2);
+        h.computeLayout({0.f, 0.f, 200.f, 100.f});
+        using HC = jf::JDockHost::JHoverCursor;
+        // The seam itself resizes: that 6px strip is reserved and empty, and is what the user aims at.
+        check(h.getHoverCursor(100.f, 50.f) == HC::Horiz, "the seam is a resize target");
+        // A few px either side is CONTENT — a panel's scroll bar lives here. It used to report a resize
+        // cursor (and swallow the press) because the hit test padded 4px into each neighbour.
+        check(h.getHoverCursor( 95.f, 50.f) == HC::Default, "content 2px left of the handle is not the splitter");
+        check(h.getHoverCursor(105.f, 50.f) == HC::Default, "content 2px right of the handle is not the splitter");
+        (void)l1;
+    }
+
     std::printf("\n%s\n", fails ? "FAILURES" : "all invariants hold");
     return fails ? 1 : 0;
 }

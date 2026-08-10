@@ -108,7 +108,13 @@ public:
 
 private:
     JDockRegistry() {
-        m_defaultOptions.handleHoverPad = 4.0f;
+        // No pad by default. A split already RESERVES 6px between children for its handle (see
+        // computeLayout's handleSpace), and that reserved strip is empty — it is the thing the user aims
+        // at. Padding the hit test on top of it extended the splitter 4px INTO each neighbour's content,
+        // where it competed with whatever sat against the seam: a panel's scroll bar hugging a dock edge
+        // lost most of its width to a resize handle. An app that wants sloppier seams can still opt in via
+        // defaultOptions().handleHoverPad.
+        m_defaultOptions.handleHoverPad = 0.0f;
         m_defaultOptions.enforceMinSizes = true;
         m_defaultOptions.showResizeCursors = true;
     }

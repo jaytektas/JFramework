@@ -875,12 +875,16 @@ public:
 
 private:
     static constexpr float kBtnW = 28.0f;   // width of each window-control button (toolkit value)
+    // The window's resize band. It is a HIT TARGET, so it owns its pixels: the content is inset by it
+    // (see layoutDocks) rather than drawn underneath. Sharing them is what left a dock's scroll bar at
+    // the window edge with about a pixel of itself actually grabbable.
+    static constexpr float kWindowGrip = 6.0f;
 
     // Resize direction under (mx,my): _NET_WM_MOVERESIZE dirs 3=R,4=BR,5=B,6=BL,7=L, or
     // -1. Top edge is intentionally skipped — it conflicts with the title bar (catalog).
     int resizeDirAt(float mx, float my) const {
         const float W = static_cast<float>(m_w), H = static_cast<float>(m_h);
-        constexpr float kEdge = 6.0f, kCorn = 14.0f;
+        constexpr float kEdge = kWindowGrip, kCorn = 14.0f;
         const bool onLeft   = mx < kEdge   && my >= m_titleH;
         const bool onRight  = mx >= W-kEdge && my >= m_titleH;
         const bool onBottom = my >= H-kEdge;
@@ -898,8 +902,13 @@ private:
 
     void layoutDocks() {
         const float top = contentTop();
-        m_space.computeLayout({0.f, top, static_cast<float>(m_w),
-                               static_cast<float>(m_h) - top - m_statusH});
+        // Inset by the resize band on the sides, and along the bottom too when no status bar already
+        // covers it. Without this the dock space ran under the band and every scroll bar, splitter and
+        // tab hugging the window edge was competing with the resize handle for the same pixels.
+        const float side   = kWindowGrip;
+        const float bottom = (m_statusH > kWindowGrip) ? 0.f : kWindowGrip;
+        m_space.computeLayout({side, top, std::max(1.f, static_cast<float>(m_w) - 2.f * side),
+                               std::max(1.f, static_cast<float>(m_h) - top - m_statusH - bottom)});
         if (m_menuBar) {
             auto& g = JGuiApplication::instance()->sceneGraph();
             g.getLayout(m_menuBar->getNodeId()).boundingBox = {0.f, m_titleH, static_cast<float>(m_w), m_menuH};
