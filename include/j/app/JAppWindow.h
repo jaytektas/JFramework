@@ -831,7 +831,13 @@ public:
     // there through a mode it should be absent from. These three let the app see and control that state.
     bool isDockFloating(const JDockWidget* d) const {
 #if defined(__linux__)
-        for (const auto& fd : m_floating) if (&const_cast<JFloatingDockWindow&>(fd).dock() == d) return true;
+        // Ask the panel where it lives, then see whether that host belongs to a float. Comparing against
+        // each float's PRIMARY dock (what this used to do) only ever recognised the panel a float was born
+        // with: a second panel docked into the same float was reported as not floating at all, so the View
+        // menu thought it was hidden and its toggle acted on the wrong window.
+        if (!d || !d->placedIn()) return false;
+        for (const auto& fd : m_floating)
+            if (&const_cast<JFloatingDockWindow&>(fd).dockHost() == d->placedIn()) return true;
 #else
         (void)d;
 #endif
@@ -840,10 +846,21 @@ public:
 
     // Hide/show a floating panel's window, keeping the float itself alive — so it comes back at the same
     // size, in the same place, with the same contents. Returns false if the dock isn't floating.
+    // Hide/show a floating panel. Only meaningful for a float holding JUST this panel — unmapping the
+    // window would otherwise take its co-tenants with it, which is exactly what "hide Properties" did when
+    // Properties shared a float with the DTC panel: the whole window vanished, DTC included, and the View
+    // ticks then described neither. A panel sharing a float reports false here so the caller can fall back
+    // to removing that one panel.
     bool setFloatingDockVisible(const JDockWidget* d, bool visible) {
 #if defined(__linux__)
-        for (auto& fd : m_floating)
-            if (&fd.dock() == d) { fd.window().setMapped(visible); m_needRedraw = true; return true; }
+        if (!d || !d->placedIn()) return false;
+        for (auto& fd : m_floating) {
+            if (&fd.dockHost() != d->placedIn()) continue;
+            if (fd.dockCount() > 1) return false;            // shared window: not ours to map/unmap
+            fd.window().setMapped(visible);
+            m_needRedraw = true;
+            return true;
+        }
 #else
         (void)d; (void)visible;
 #endif
@@ -852,8 +869,10 @@ public:
 
     bool isFloatingDockVisible(const JDockWidget* d) const {
 #if defined(__linux__)
+        if (!d || !d->placedIn()) return false;
         for (const auto& fd : m_floating)
-            if (&const_cast<JFloatingDockWindow&>(fd).dock() == d) return fd.window().isMapped();
+            if (&const_cast<JFloatingDockWindow&>(fd).dockHost() == d->placedIn())
+                return fd.window().isMapped();
 #else
         (void)d;
 #endif
@@ -923,6 +942,45 @@ private:
         }
     }
 
+    // Create a floating window for one dock and wire its content input. Used by BOTH tear-out paths —
+    // out of a docked host, and out of another float — so they cannot drift apart.
+    void _newFloat(JDockWidget* dw, int sx, int sy, uint32_t fw, uint32_t fh, int offX, int offY) {
+#if defined(__linux__)
+        dw->setPosition(0.f, 0.f);
+        dw->setSize(static_cast<float>(fw), static_cast<float>(fh));
+        m_floating.emplace_back(dw, sx, sy, fw, fh, offX, offY, *m_hal, /*initialDrag=*/true,
+                                JFloatingDockOptions{},
+                                (JFloatingDockWindow::NativeWinHandleType)(m_window->rawWindowId()));
+        // Bridge the float's content input (which carries the wheel) to the dock's
+        // onInputContent hook. Content RENDER needs no bridge: the float's internal host
+        // renders through the same _renderLeaf path, invoking the dock's onRenderContent.
+        {
+            JDockHost* fhost = &m_floating.back().dockHost();
+            // Content CAPTURE, exactly as the main window does it (see m_contentCapture above): a press owns
+            // the stream until the physical release, wherever the cursor goes. Without it, contentDockAt() is
+            // a plain point test, so a gesture that leaves the float — dragging a scroll thumb past the window
+            // edge and letting go — has its RELEASE dropped on the floor: the content never learns the button
+            // came up and stays in its drag (the thumb keeps following the cursor on the way back in). Held
+            // per-float via shared_ptr because the lambda is copied into the float and must own its own state.
+            auto capture = std::make_shared<JDockWidget*>(nullptr);
+            m_floating.back().setContentInputHost(
+                [this, fhost, capture](float x, float y, bool p, bool r, float w) {
+                    JDockWidget* d = *capture ? *capture : fhost->contentDockAt(x, y);
+                    if (p && !*capture && d) *capture = d;      // arm on the press's dock
+                    if (d) d->dispatchContentInput(x, y, p, r, w);
+                    if (r) *capture = nullptr;                  // the physical release ends the gesture
+                    // A content drag (Dictionary binding / palette control) whose button releases inside a
+                    // FLOATING dock: the main window never sees this gesture's release, so resolve the drop
+                    // on the main surface here — at the global cursor — instead of leaving it stuck to the
+                    // cursor until a click.
+                    if (r && JDragDrop::isDragging()) _resolveFloatDrop();
+                });
+        }
+#else
+        (void)dw; (void)sx; (void)sy; (void)fw; (void)fh; (void)offX; (void)offY;
+#endif
+    }
+
     // Tear a dock out of the host into its own floating window (the host only emits
     // WantsFloat for docks the app declared floatable).
     void spawnFloat(JDockHost* host, JDockWidget* dw) {
@@ -952,38 +1010,7 @@ private:
         host->removeDock(dw);
         // BORROW the app-owned dock into the float — the object is NOT moved, so &dw stays the one true
         // dock. The saved revert tree references &dw and remains valid; no husk, no retarget.
-        dw->setPosition(0.f, 0.f);
-        dw->setSize(fw, fh);
-        m_floating.emplace_back(dw, sx, sy,
-                                static_cast<uint32_t>(fw), static_cast<uint32_t>(fh),
-                                offX, offY, *m_hal, /*initialDrag=*/true,
-                                JFloatingDockOptions{},
-                                (JFloatingDockWindow::NativeWinHandleType)(m_window->rawWindowId()));
-        // Bridge the float's content input (which carries the wheel) to the torn dock's
-        // onInputContent hook. Content RENDER needs no bridge: the float's internal host
-        // renders through the same _renderLeaf path, invoking the dock's onRenderContent.
-        {
-            JDockHost* fhost = &m_floating.back().dockHost();
-            // Content CAPTURE, exactly as the main window does it (see m_contentCapture above): a press owns
-            // the stream until the physical release, wherever the cursor goes. Without it, contentDockAt() is
-            // a plain point test, so a gesture that leaves the float — dragging a scroll thumb past the window
-            // edge and letting go — has its RELEASE dropped on the floor: the content never learns the button
-            // came up and stays in its drag (the thumb keeps following the cursor on the way back in). Held
-            // per-float via shared_ptr because the lambda is copied into the float and must own its own state.
-            auto capture = std::make_shared<JDockWidget*>(nullptr);
-            m_floating.back().setContentInputHost(
-                [this, fhost, capture](float x, float y, bool p, bool r, float w) {
-                    JDockWidget* d = *capture ? *capture : fhost->contentDockAt(x, y);
-                    if (p && !*capture && d) *capture = d;      // arm on the press's dock
-                    if (d) d->dispatchContentInput(x, y, p, r, w);
-                    if (r) *capture = nullptr;                  // the physical release ends the gesture
-                    // A content drag (Dictionary binding / palette control) whose button releases inside a
-                    // FLOATING dock: the main window never sees this gesture's release, so resolve the drop
-                    // on the main surface here — at the global cursor — instead of leaving it stuck to the
-                    // cursor until a click.
-                    if (r && JDragDrop::isDragging()) _resolveFloatDrop();
-                });
-        }
+        _newFloat(dw, sx, sy, static_cast<uint32_t>(fw), static_cast<uint32_t>(fh), offX, offY);
         // The drag now lives in the floating window; the main window won't see this gesture's
         // button-release, so drop the capture and held-state here rather than leaving them stuck.
         m_space.releaseMouseCapture();
@@ -1042,6 +1069,8 @@ private:
         for (auto& fd : m_floating) if (fd.isInInitialDrag()) { anyInitial = true; break; }
         if (!anyInitial) m_revert.active = false;
 
+        struct PendingFloat { JDockWidget* dock; int sx, sy; uint32_t w, h; };
+        std::vector<PendingFloat> pending;
         for (auto it = m_floating.begin(); it != m_floating.end(); ) {
             // Hidden (unmapped) float: it receives no input and has nothing to show, so skip both the poll
             // and the render. It stays in the list, keeping its geometry and contents for when it's shown.
@@ -1079,11 +1108,28 @@ private:
                     continue;
                 }
             }
+            // A tab dragged out of a FLOAT. The float has already removed it from its host and handed it
+            // back here — and nothing consumed it, so the panel simply ceased to exist: in no host, no
+            // window, still owned by the app. Give it its own float, like a tear-out from a docked host.
+            // Deferred: emplacing into m_floating now would reallocate the vector under this iterator.
+            if (pr.type == JFloatingDockWindow::JPollResult::JType::WantsFloat && pr.wantsFloatDock) {
+                const JRect r = pr.wantsFloatRect;
+                pending.push_back({ pr.wantsFloatDock,
+                                    it->window().screenX() + static_cast<int>(r.x),
+                                    it->window().screenY() + static_cast<int>(r.y),
+                                    static_cast<uint32_t>(std::max(160.f, r.width)),
+                                    static_cast<uint32_t>(std::max(120.f, r.height)) });
+                if (std::unique_ptr<JDockWidget> owned = it->releaseOwned(pr.wantsFloatDock))
+                    m_ownedDocks.push_back(std::move(owned));   // ownership follows the panel out
+            }
+            // Emptied by that tear-out (or by its last tab closing): the window has nothing left to show.
+            if (it->dockCount() == 0) { it->destroySurface(*m_hal); it = m_floating.erase(it); continue; }
             if (it->shouldClose()) { it->destroySurface(*m_hal); it = m_floating.erase(it); continue; }
             JPrimitiveBuffer fbuf;
             it->render(*m_hal, fbuf);
             ++it;
         }
+        for (const PendingFloat& pf : pending) _newFloat(pf.dock, pf.sx, pf.sy, pf.w, pf.h, 20, 10);
 #endif
     }
 

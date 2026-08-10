@@ -695,6 +695,19 @@ public:
         return out;
     }
 
+    // Relinquish ONE dock, returning its owning pointer if this float owned it (null when borrowed). Used
+    // when a single tab is torn out of this float: ownership must travel with the panel, or the float's
+    // destructor would delete a widget that now lives somewhere else.
+    std::unique_ptr<JDockWidget> releaseOwned(JDockWidget* d) {
+        for (auto it = m_docks.begin(); it != m_docks.end(); ++it) {
+            if (it->ptr != d) continue;
+            std::unique_ptr<JDockWidget> owned = std::move(it->owned);
+            m_docks.erase(it);
+            return owned;
+        }
+        return nullptr;
+    }
+
     // Relinquish ALL docks, returning the ones this float OWNS so the caller can keep them alive at their
     // unchanged addresses (borrowed docks yield nothing — their owner still holds them). releasePrimary
     // returned only the first while clearing the vector, so a multi-dock float silently destroyed the rest.
