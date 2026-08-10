@@ -110,6 +110,22 @@ public:
             JAiBus::instance().enable();
     }
 
+    // Quit teardown. Members die in REVERSE declaration order — m_floating first, m_hal after it — and a
+    // JFloatingDockWindow's destructor tears down its X window but NOT its GPU surface (that has always
+    // been an explicit call on the close/re-dock paths). So a float still open at quit left a swapchain
+    // bound to a drawable that no longer existed, and the HAL then destroyed it: the Vulkan WSI called
+    // into libxcb for a dead window and glibc's fortify check aborted the process inside
+    // xcb_get_extension_data ("buffer overflow detected") — a crash on quit, every time, with a panel
+    // undocked. Release every extra surface HERE, while the HAL and the windows owning them are all alive.
+    ~JAppWindow() {
+        if (!m_hal) return;
+#if defined(__linux__)
+        for (auto& fd : m_floating) fd.destroySurface(*m_hal);
+#endif
+        if (m_comboPopup) m_comboPopup->destroySurface(*m_hal);
+        m_menuRuntime.closeAll();       // open menu popups own surfaces too
+    }
+
     // This window's focus tree roots: the menu bar, the dock space (every docked panel hangs off it) and
     // the central widget. Traversal descends from these, so only widgets actually parented into this
     // window are tab stops -- no global registry, nothing to subtract. Refreshed each frame because the
