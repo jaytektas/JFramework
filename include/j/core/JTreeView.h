@@ -106,6 +106,10 @@ public:
         m_editField.setFocusPolicy(JFocusPolicy::NoFocus);
     }
 
+    // The row under the cursor, or null. Lets a caller describe THAT row — a per-row tooltip, say —
+    // without duplicating the tree's own hit-testing.
+    const JTreeViewNode* hoveredNode() const { return m_hoverNode; }
+
     JTreeViewNode& root() { return m_root; }
     const JTreeViewNode& root() const { return m_root; }
 

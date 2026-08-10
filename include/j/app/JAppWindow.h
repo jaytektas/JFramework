@@ -646,6 +646,18 @@ public:
             // surface) keeps feeding the source its motion. Without the capture the source stops getting moves
             // the instant the cursor exits its bounds, so it can never detect the leave to arm an external drag.
             if (!chromeAte && !menuAte) {
+                // A capture must never outlive the button that armed it. It is released on the physical
+                // release below — but a gesture whose release the main window never SEES (a modal dialog
+                // opening on the press and swallowing the up, a float taking the grab) left the capture
+                // armed for ever, and from then on every press in the window was delivered to that one
+                // dock: click the dictionary's search field and the press went somewhere else entirely,
+                // so the field could not be typed into until something happened to clear it. Self-heal
+                // from the platform's own button state, which cannot lie about whether a drag is live.
+                if (m_contentCapture && !pressed && !m_window->isLeftButtonDown()) {
+                    JLOGC("focus", JLogLevel::Debug) << "content capture released (button is up) — was '"
+                                                     << m_contentCapture->title() << "'";
+                    m_contentCapture = nullptr;
+                }
                 JDockWidget* cd = m_contentCapture ? m_contentCapture : m_space.contentDockAt(mx, my);
                 if (pressed && !m_contentCapture && cd && !m_space.isResizing()) m_contentCapture = cd;   // arm on the press's dock
                 if (cd) cd->dispatchContentInput(mx, my, pressed, released, wheel);
@@ -665,6 +677,8 @@ public:
                     // centre — including the RELEASE — so a gesture finished over a dock (scroll-thumb drag,
                     // marquee, widget move) left the surface stuck mid-drag, still following a button that was
                     // already up. Wheel stays position-gated: it is not part of the press gesture.
+                    if (m_centreCapture && !pressed && !m_window->isLeftButtonDown())
+                        m_centreCapture = false;                 // same self-heal as the dock capture above
                     if (pressed && inside && !m_centreCapture) m_centreCapture = true;
                     if (inside || m_centreCapture) {
                         cw->handleMouseMove(mx, my);
@@ -777,7 +791,8 @@ public:
                 m_space.render(buffer);                     // all areas: content + overlays
                 if (dragging) _drawDragGhost(buffer);       // floating "what you're holding" label
                 if (onRender) onRender(buffer);
-                JWidget::renderTooltips(buffer, m_window->mouseX(), m_window->mouseY());  // hover tips on top of all content
+                JWidget::renderTooltips(buffer, m_window->mouseX(), m_window->mouseY(),
+                                        static_cast<float>(m_w), static_cast<float>(m_h));  // hover tips on top of all content
                 const auto tBuilt = timing ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
                 m_hal->drawPrimitives(buffer);
                 m_hal->submitAndPresentFrame(frame);

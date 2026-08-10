@@ -181,7 +181,9 @@ public:
     // which items are enabled. Default no-op.
     virtual void prepareContextMenu(float /*mx*/, float /*my*/) {}
 
-    static void renderTooltips(JPrimitiveBuffer& buf, float mouseX, float mouseY);
+    static void renderTooltips(JPrimitiveBuffer& buf, float mouseX, float mouseY,
+
+                                float viewW = 0.f, float viewH = 0.f);
 
     NodeId      getNodeId()  const noexcept { return m_nodeId; }
     JWidgetState getState()   const noexcept { return m_state;  }

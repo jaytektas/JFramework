@@ -12,7 +12,8 @@
 inline namespace jf {
 
 
-inline void JWidget::renderTooltips(JPrimitiveBuffer& buf, float mouseX, float mouseY) {
+inline void JWidget::renderTooltips(JPrimitiveBuffer& buf, float mouseX, float mouseY,
+                                    float viewW, float viewH) {
     static JWidget* lastHovered = nullptr;
     static auto hoverStart = std::chrono::steady_clock::now();
 
@@ -37,22 +38,55 @@ inline void JWidget::renderTooltips(JPrimitiveBuffer& buf, float mouseX, float m
             return; // 500ms delay
         }
 
-        float padX = 8.0f;
-        float padY = 6.0f;
-        std::string text = hovered->tooltip();
-        float textW = JTextHelper::measureWidth(text);
-        float textH = JTextHelper::lineHeight();
-        float tooltipW = textW + padX * 2.0f;
-        float tooltipH = textH + padY * 2.0f;
+        const float padX = 8.0f, padY = 6.0f;
+        const float lineH = JTextHelper::lineHeight();
+        const std::string text = hovered->tooltip();
+
+        // WRAP. A tooltip carrying real help — a sentence explaining what a field does — was drawn as one
+        // unbroken line and simply ran off the screen, so the part that mattered was the part you could not
+        // read. Break on spaces at a comfortable measure, then keep the whole box on screen.
+        constexpr float kMaxW = 420.0f;
+        std::vector<std::string> lines;
+        {
+            std::string line;
+            size_t i = 0;
+            while (i < text.size()) {
+                if (text[i] == '\n') {           // an explicit break is honoured, not swallowed
+                    lines.push_back(line);
+                    line.clear();
+                    ++i;
+                    continue;
+                }
+                size_t sp = text.find_first_of(" \n", i);
+                const std::string word = text.substr(i, sp == std::string::npos ? sp : sp - i);
+                const std::string next = line.empty() ? word : line + " " + word;
+                if (!line.empty() && JTextHelper::measureWidth(next) > kMaxW - padX * 2.0f) {
+                    lines.push_back(line);
+                    line = word;
+                } else {
+                    line = next;
+                }
+                if (sp == std::string::npos) break;
+                i = (text[sp] == '\n') ? sp : sp + 1;   // leave a newline for the branch above
+            }
+            if (!line.empty()) lines.push_back(line);
+        }
+        float textW = 0.0f;
+        for (const std::string& l : lines) textW = std::max(textW, JTextHelper::measureWidth(l));
+
+        const float tooltipW = textW + padX * 2.0f;
+        const float tooltipH = lineH * float(lines.size()) + padY * 2.0f;
         float x = mouseX + 12.0f;
         float y = mouseY + 12.0f;
+        // Keep it inside the window rather than letting it hang off the edge the cursor is near.
+        if (viewW > 0.f && x + tooltipW > viewW) x = std::max(0.f, mouseX - 12.0f - tooltipW);
+        if (viewH > 0.f && y + tooltipH > viewH) y = std::max(0.f, mouseY - 12.0f - tooltipH);
 
         uint8_t shadow[4] = {Colors::DialogShadow[0], Colors::DialogShadow[1], Colors::DialogShadow[2], 80};
         buf.pushRectangle(x + 2.f, y + 2.f, tooltipW, tooltipH, shadow, 4.0f);
-
         buf.pushRectangle(x, y, tooltipW, tooltipH, Colors::ToolTipFill, 4.0f, 1.0f, Colors::ToolTipBorder);
-
-        JTextHelper::pushText(buf, x + padX, y + padY, text, Colors::TextPrimary);
+        for (size_t li = 0; li < lines.size(); ++li)
+            JTextHelper::pushText(buf, x + padX, y + padY + lineH * float(li), lines[li], Colors::TextPrimary);
     }
 }
 
