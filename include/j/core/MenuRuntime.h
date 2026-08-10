@@ -48,8 +48,11 @@ public:
     // opening its own submenu is also a focus change — so ASK where focus actually is and compare it with
     // our own windows.
     bool _focusIsOurs() const {
-        if (m_active.empty()) return true;
-        const uintptr_t focus = m_active.front()->window().focusedWindowRaw();
+        const JPopupWindow* any = !m_active.empty()   ? m_active.front().get()
+                                : !m_floating.empty() ? m_floating.front().win.get()
+                                                      : nullptr;
+        if (!any) return true;
+        const uintptr_t focus = any->window().focusedWindowRaw();
         if (focus == 0) return true;                                  // not reported: assume ours
         if (focus == static_cast<uintptr_t>(m_parent)) return true;   // the main window
         for (const auto& p : m_active)   if (focus == p->window().rawWindowId()) return true;
@@ -57,19 +60,29 @@ public:
         return false;
     }
 
-    // Dismiss on the TRANSITION out of the application, never on the mere state of not having focus. Some
-    // setups never give this process the input focus at all (a bare X server with no window manager, or
-    // focus-follows-mouse landing elsewhere) — treating "not focused" as "dismiss" there closes every menu
-    // on the frame it opens, so the menu bar stops working entirely. Only a menu that HELD focus and then
-    // lost it has actually been abandoned.
-    bool _focusLeftApp() {
-        const bool ours = _focusIsOurs();
-        if (ours) { m_sawAppFocus = true; return false; }
-        return m_sawAppFocus;
-    }
+    // NOTE on the transition rule used above: dismissal keys off LOSING focus, never off the mere state of
+    // not having it. Some setups never give this process the input focus at all (a bare X server with no
+    // window manager, or focus-follows-mouse landing elsewhere), and treating "not focused" as "put it
+    // away" there hides every menu on the frame it opens — the menu bar stops working entirely.
 
     void updateAndRender(JGpuHal& hal) {
-        if (_focusLeftApp()) { closeAll(); m_sawAppFocus = false; return; }
+        // Leaving the application: the modal cascade is DISMISSED (a dropdown you walked away from is
+        // finished with), but a TORN-OFF menu is a palette the user deliberately kept — so it is hidden,
+        // not destroyed, and comes back with the app. Either way it must stop floating over other
+        // applications: these are override-redirect windows, above everything, and no window manager will
+        // put them away for us.
+        const bool ours = _focusIsOurs();
+        if (ours) m_sawAppFocus = true;
+        if (m_sawAppFocus && !ours) {
+            if (!m_active.empty()) { closeAll(); m_sawAppFocus = false; }
+            for (auto& fn : m_floating)
+                if (fn.win->window().isMapped()) { fn.win->window().setMapped(false); m_hiddenFloating = true; }
+            return;                                   // nothing of ours is on screen to drive this frame
+        }
+        if (ours && m_hiddenFloating) {                // back in the app: the palettes return as they were
+            for (auto& fn : m_floating) fn.win->window().setMapped(true);
+            m_hiddenFloating = false;
+        }
         if (!m_active.empty()) {
             m_isPolling = true;
             // Single grab: the ROOT popup owns the pointer and receives every event; we read
@@ -122,8 +135,10 @@ public:
             // iteration; the deferred actions (open/close submenus) run afterwards, then closes are applied.
             m_isPolling = true;
             std::vector<JPopupWindow*> closing;
-            for (auto& fn : m_floating)
+            for (auto& fn : m_floating) {
+                if (!fn.win->window().isMapped()) continue;   // hidden with the app: no input, nothing to draw
                 if (fn.win->pollFloating() == JPopupWindow::JFloatPollResult::Close) closing.push_back(fn.win.get());
+            }
             m_isPolling = false;
 
             if (!m_deferred.empty()) {
@@ -134,7 +149,7 @@ public:
             for (auto* w : closing) closeFloatingSubtree(w, /*includeRoot=*/true);   // a closed menu takes its submenus with it
 
             for (auto& fn : m_floating)
-                if (fn.win->isViewable()) { JPrimitiveBuffer b; fn.win->render(hal, b); }
+                if (fn.win->window().isMapped() && fn.win->isViewable()) { JPrimitiveBuffer b; fn.win->render(hal, b); }
         }
     }
 
@@ -344,7 +359,8 @@ private:
     JGpuHal*                          m_hal{nullptr};
     JPopupWindow::NativeWinHandleType m_parent{};
     JMenuBar*                         m_bar{nullptr};
-    bool m_sawAppFocus{false};   // this menu has held the app's focus at least once (see _focusLeftApp)
+    bool m_sawAppFocus{false};    // this menu has held the app's focus at least once (see updateAndRender)
+    bool m_hiddenFloating{false}; // torn-off menus we hid on leaving the app, to restore on return
     std::vector<std::unique_ptr<JPopupWindow>> m_active;     // modal dropdown stack
     std::vector<FloatNode>                     m_floating;   // torn-off menus + their submenu cascades
     std::vector<std::function<void()>>         m_deferred;   // run after polling
