@@ -157,6 +157,12 @@ public:
         }
     }
 
+    // Is this one of our area hosts (as opposed to a floating window's)?
+    bool ownsHost(const JDockHost* h) const {
+        for (int a = 0; a < AreaCount; ++a) if (&m_host[a] == h) return true;
+        return false;
+    }
+
     void render(JPrimitiveBuffer& buf) {
         // Reconcile dock-content visibility once per frame. A dock that was closed or dropped by a
         // restored layout is no longer in any host's tree, yet its content widget stays registered
@@ -165,8 +171,19 @@ public:
         // dictionary tree at (0,0) stealing clicks from the navigation tree). Hide every non-floating
         // dock's content here; each host's _renderLeaf re-shows its ACTIVE tab below, so only live,
         // visible tabs stay focusable. Floating (torn) docks self-heal in their own float host.
-        for (JDockWidget* d : JDockWidget::s_activeDocks)
-            if (d && !d->hasTornState() && d->content()) d->content()->setVisible(false);
+        // Only for docks THIS space is responsible for: one of our hosts (whose _renderLeaf re-shows the
+        // active tab below), or no host at all (orphaned — nothing of it may stay visible). A dock living
+        // in a FLOAT's host belongs to that window, and hiding it here was breaking it outright: the float
+        // polls its input BEFORE it renders, so the panel was flagged invisible at click time and nothing
+        // inside it could take focus — you could not type into a floating panel's search field at all.
+        // The old test was hasTornState(), which is true only for framework-created tear-offs and never
+        // for an app's own panel borrowed into a float.
+        for (JDockWidget* d : JDockWidget::s_activeDocks) {
+            if (!d || !d->content()) continue;
+            JDockHost* h = d->placedIn();
+            if (h && !ownsHost(h)) continue;
+            d->content()->setVisible(false);
+        }
         for (int a = 0; a < AreaCount; ++a) if (a != Center && active(Area(a))) m_host[a].populateRenderPrimitives(buf);
         if (m_central) m_central->populateRenderPrimitives(buf);   // centre content (not a host)
 

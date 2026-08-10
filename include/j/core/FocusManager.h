@@ -170,6 +170,23 @@ public:
 
     // Click-to-focus over the tree: the same membership rule as Tab, so a click can never focus
     // something outside this window. Scanned back-to-front (topmost wins).
+    // Focus the widget at (mx,my) WITHIN one subtree. A floating panel is drawn into its own window, so
+    // its widgets carry window-local coordinates that mean something completely different in the main
+    // window — a plain focusAt would match whatever main-window widget happens to sit at those numbers.
+    // Restricting the hit test to the panel that was actually clicked keeps the two coordinate spaces from
+    // being confused for one another.
+    void focusAtWithin(JWidget* root, float mx, float my) {
+        if (!root) return;
+        syncOrder();                                   // keeps m_order (and thus focus validity) current
+        std::vector<JWidget*> sub;
+        std::unordered_set<const JWidget*> seen;
+        _collectInto(root, seen, sub);
+        JWidget* hit = nullptr;
+        for (auto it = sub.rbegin(); it != sub.rend(); ++it)
+            if ((*it)->hitTest(mx, my)) { hit = *it; break; }
+        if (hit) setFocus(hit);
+    }
+
     void focusAt(float mx, float my) {
         syncOrder();
         JWidget* hit = nullptr;
@@ -192,6 +209,16 @@ private:
     // prunes its whole subtree: nothing inside something the user cannot see, or that the host paints and
     // hit-tests itself, is a tab stop. `seen` guards against a widget reachable by two edges (owned AND
     // registered non-owningly in a container).
+    // Same walk as _collect, into a caller-supplied list (used by focusAtWithin for one subtree).
+    void _collectInto(JWidget* w, std::unordered_set<const JWidget*>& seen, std::vector<JWidget*>& out) {
+        if (!w || !seen.insert(w).second) return;
+        if (!w->isVisibleSelf() || w->isScanExcludedSelf()) return;
+        if (w->isFocusable() && w->isEnabled()) out.push_back(w);
+        std::vector<JWidget*> kids;
+        w->collectChildren(kids);
+        for (JWidget* k : kids) _collectInto(k, seen, out);
+    }
+
     void _collect(JWidget* w, std::unordered_set<const JWidget*>& seen) {
         if (!w || !seen.insert(w).second) return;
         if (!w->isVisibleSelf() || w->isScanExcludedSelf()) return;

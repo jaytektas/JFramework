@@ -134,13 +134,21 @@ public:
         std::vector<JWidget*> roots;
         if (m_menuBar) roots.push_back(m_menuBar.get());
         // One root per docked panel, and only the ACTIVE tab of each leaf: a panel tabbed behind another
-        // is not on screen, so its widgets are not in the chain. Floating docks own their own windows and
-        // run their own focus, so they are not roots here.
+        // is not on screen, so its widgets are not in the chain.
         for (int a = 0; a < JDockSpace::AreaCount; ++a)
             m_space.host(static_cast<JDockSpace::Area>(a)).forEachDockPanel(
                 [&roots](JDockWidget* d, const JRect&, bool activeTab, int) {
                     if (d && activeTab && d->content()) roots.push_back(d->content());
                 });
+        // FLOATING panels too. They were left out on the grounds that they "run their own focus", but
+        // nothing implemented that — and syncOrder() clears focus from any widget outside the order, so a
+        // field in a float could never hold it: typing into a floating panel did nothing at all.
+#if defined(__linux__)
+        for (auto& fd : m_floating)
+            fd.dockHost().forEachDockPanel([&roots](JDockWidget* d, const JRect&, bool activeTab, int) {
+                if (d && activeTab && d->content()) roots.push_back(d->content());
+            });
+#endif
         if (JWidget* cw = m_space.centralWidget()) roots.push_back(cw);
         m_focus.setFocusRoots(std::move(roots));
     }
@@ -690,22 +698,7 @@ public:
             for (const auto& ke : frameKeys) {
                 if (!ke.pressed) continue;
                 activity = true;
-                if (JWidget* f = m_focus.focused(); f && f->handleKeyEvent(ke)) continue;
-                // The centre is a plain central widget (not in the focus order), so give it a shot at
-                // keys nothing else consumed — e.g. the surface editor's Delete / arrows / Ctrl+Z. But
-                // ONLY when nothing focusable holds focus (i.e. focus is on the canvas itself): a focused
-                // dock field ignores keys it doesn't use (a line-edit drops Up/Down, a spin box Left/Right),
-                // and those must NOT bleed onto the canvas and nudge/delete the selection behind the user.
-                if (!m_focus.focused())
-                    if (JWidget* cw = m_space.centralWidget(); cw && cw->handleKeyEvent(ke)) continue;
-                // Accelerators — menu chords (Ctrl+C/X/V/Z…) and registered JActions. Both run AFTER
-                // the focused widget has had first refusal, so Ctrl+C/V inside a text field edits the
-                // text instead of firing Edit▸Copy. (Menu chords used to run before focus, which stole
-                // every clipboard key from every JLineEdit in the app.) Consumed = stop routing.
-                if (JMenuManager::instance().processAccelerator(ke)) continue;
-                if (jShortcuts().dispatch(ke)) continue;
-                if (jIsTabNav(ke)) { jTabNavDir(ke) < 0 ? m_focus.prevFocus() : m_focus.nextFocus(); continue; }
-                if (onKey) onKey(ke);
+                if (_routeKey(ke)) continue;
             }
 
             if (auto* app = JGuiApplication::instance()) app->serviceFrame();
@@ -974,7 +967,12 @@ private:
                     // on the main surface here — at the global cursor — instead of leaving it stuck to the
                     // cursor until a click.
                     if (r && JDragDrop::isDragging()) _resolveFloatDrop();
+                    // Focus follows the click INSIDE this panel. Scoped to the panel because a float's
+                    // widgets carry window-local coordinates, which mean something else entirely in the
+                    // main window — an unscoped hit test would focus whatever sits at those numbers there.
+                    if (p && d && d->content()) { _refreshFocusRoots(); m_focus.focusAtWithin(d->content(), x, y); }
                 });
+        m_floating.back().setContentKeyHost([this](const JKeyEvent& ke) { _routeKey(ke); });
         }
 #else
         (void)dw; (void)sx; (void)sy; (void)fw; (void)fh; (void)offX; (void)offY;
@@ -1058,6 +1056,31 @@ private:
             }
         if (JDragDrop::isDragging()) JDragDrop::cancel();   // consumed → session cleared; else never leave it stuck
         m_needRedraw = true;
+    }
+
+    // ONE key-routing chain: focused widget, then the centre, then accelerators/shortcuts/tab-nav, then
+    // the app hook. Used for the main window's keys AND for every floating panel's, so a field behaves the
+    // same wherever its panel happens to live. Returns true when something consumed the key.
+    bool _routeKey(const JKeyEvent& ke) {
+        if (!ke.pressed) return false;
+
+            if (JWidget* f = m_focus.focused(); f && f->handleKeyEvent(ke)) return true;
+            // The centre is a plain central widget (not in the focus order), so give it a shot at
+            // keys nothing else consumed — e.g. the surface editor's Delete / arrows / Ctrl+Z. But
+            // ONLY when nothing focusable holds focus (i.e. focus is on the canvas itself): a focused
+            // dock field ignores keys it doesn't use (a line-edit drops Up/Down, a spin box Left/Right),
+            // and those must NOT bleed onto the canvas and nudge/delete the selection behind the user.
+            if (!m_focus.focused())
+                if (JWidget* cw = m_space.centralWidget(); cw && cw->handleKeyEvent(ke)) return true;
+            // Accelerators — menu chords (Ctrl+C/X/V/Z…) and registered JActions. Both run AFTER
+            // the focused widget has had first refusal, so Ctrl+C/V inside a text field edits the
+            // text instead of firing Edit▸Copy. (Menu chords used to run before focus, which stole
+            // every clipboard key from every JLineEdit in the app.) Consumed = stop routing.
+            if (JMenuManager::instance().processAccelerator(ke)) return true;
+            if (jShortcuts().dispatch(ke)) return true;
+            if (jIsTabNav(ke)) { jTabNavDir(ke) < 0 ? m_focus.prevFocus() : m_focus.nextFocus(); return true; }
+            if (onKey) { onKey(ke); return true; }
+        return false;
     }
 
     // Per-frame: drive each floating window — move/drag, re-dock to the host on drop,

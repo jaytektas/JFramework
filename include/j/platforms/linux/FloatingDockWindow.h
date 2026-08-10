@@ -52,6 +52,12 @@ public:
     static constexpr uint32_t kDefaultW = 340;
     static constexpr uint32_t kDefaultH = 260;
     static constexpr float    kGlobalTitleH = 26.0f;
+    // The window edge belongs to the RESIZE GRIP and nothing else. Content is inset by this much on every
+    // side, so the grip never sits on top of what it covers — it used to overlap the panel's own scroll
+    // bar, leaving about a pixel of it actually grabbable. Reserving the ring is what every toolkit with
+    // client-side decorations does (GTK/Qt keep an equivalent margin outside the visible frame); the point
+    // is that the two targets never share pixels.
+    static constexpr float    kEdgeGrip = 8.0f;
 
     struct JPollResult {
         enum class JType {
@@ -114,16 +120,16 @@ private:
         m_docks.push_back({init.ptr, std::move(init.owned)});
 
         float topOffset = isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f;
-        m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(winW), static_cast<float>(winH) - topOffset});
+        m_dockHost->computeLayout(_contentRect(winW, winH));
 
-        float minW = m_dockHost->minWidthNeeded();
-        float minH = m_dockHost->minHeightNeeded() + topOffset;
+        float minW = m_dockHost->minWidthNeeded() + 2.f * kEdgeGrip;
+        float minH = m_dockHost->minHeightNeeded() + topOffset + 2.f * kEdgeGrip;
         if (static_cast<float>(m_winW) < minW || static_cast<float>(m_winH) < minH) {
             m_winW = std::max(m_winW, static_cast<uint32_t>(std::ceil(minW)));
             m_winH = std::max(m_winH, static_cast<uint32_t>(std::ceil(minH)));
             m_window->setSize(m_winW, m_winH);
             m_needsSurfaceResize = true;
-            m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(m_winW), static_cast<float>(m_winH) - topOffset});
+            m_dockHost->computeLayout(_contentRect(m_winW, m_winH));
         }
 
         JDockRegistry::instance().registerHost(*m_dockHost, screenX, screenY, m_winW, m_winH);
@@ -218,7 +224,7 @@ public:
             m_dockHost->setLivePreviewEnabled(m_options.livePreviewEnabled);
         }
         float topOffset = isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f;
-        m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(m_winW), static_cast<float>(m_winH) - topOffset});
+        m_dockHost->computeLayout(_contentRect(m_winW, m_winH));
     }
 
     const JFloatingDockOptions& options() const { return m_options; }
@@ -226,7 +232,7 @@ public:
     void setDragBehavior(JFloatingDragBehavior behavior) {
         m_options.dragBehavior = behavior;
         float topOffset = isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f;
-        m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(m_winW), static_cast<float>(m_winH) - topOffset});
+        m_dockHost->computeLayout(_contentRect(m_winW, m_winH));
     }
 
     JFloatingDragBehavior dragBehavior() const { return m_options.dragBehavior; }
@@ -247,6 +253,10 @@ public:
                 if (k.key == JKeyEvent::JKey::Escape) { m_abortRequested = true; return JPollResult{}; }
         }
 
+        else if (m_contentKeyHost) {
+            for (const auto& k : m_window->consumeAllKeys()) m_contentKeyHost(k);
+        }
+
         // Translucent while dragging so the drop targets/areas underneath show through.
         const bool dragging = (m_state == JState::InitialDrag || m_state == JState::HeaderDrag);
         if (dragging != m_wasDragging) {
@@ -262,8 +272,8 @@ public:
         // Keep bounds current if WM moved or resized the window, or if we are actively resizing
         if (m_state == JState::Idle || m_state == JState::Resizing) {
             float topOffset = isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f;
-            int kMinWidth = static_cast<int>(std::ceil(m_dockHost->minWidthNeeded()));
-            int kMinHeight = static_cast<int>(std::ceil(m_dockHost->minHeightNeeded() + topOffset));
+            int kMinWidth = static_cast<int>(std::ceil(m_dockHost->minWidthNeeded() + 2.f * kEdgeGrip));
+            int kMinHeight = static_cast<int>(std::ceil(m_dockHost->minHeightNeeded() + topOffset + 2.f * kEdgeGrip));
 
             if (m_state == JState::Idle) {
                 uint32_t targetW = m_window->width();
@@ -279,7 +289,7 @@ public:
                     m_needsSurfaceResize = true;
                 }
             }
-            m_dockHost->computeLayout({0.f, topOffset, static_cast<float>(m_winW), static_cast<float>(m_winH) - topOffset});
+            m_dockHost->computeLayout(_contentRect(m_winW, m_winH));
             JDockRegistry::instance().updateBounds(*m_dockHost, m_window->screenX(), m_window->screenY(), m_winW, m_winH);
             // The dock's stored size IS its floating size: keep it synced to the float
             // window so resizing the float becomes the new floating size (and thus the size
@@ -477,7 +487,7 @@ public:
             float my = m_window->mouseY();
 
             // Determine hover / resize zones
-            constexpr float kResizeBorder = 8.0f;
+            constexpr float kResizeBorder = kEdgeGrip;
             bool left   = mx < kResizeBorder;
             bool right  = mx > static_cast<float>(m_winW) - kResizeBorder;
             bool top    = my < kResizeBorder;
@@ -636,6 +646,10 @@ public:
 
     void setContentRenderHost(std::function<void(JPrimitiveBuffer&)> fn) { m_contentRenderHost = std::move(fn); }
     void setContentInputHost(std::function<void(float, float, bool, bool, float)> fn) { m_contentInputHost = std::move(fn); }
+    // Keys land in THIS window while it has focus, and were being dropped: a panel in a float could not be
+    // typed into at all (its search field ignored every keystroke). Forwarded to the app, which routes them
+    // exactly as it routes the main window's.
+    void setContentKeyHost(std::function<void(const JKeyEvent&)> fn) { m_contentKeyHost = std::move(fn); }
 
     // -------------------------------------------------------------------------
     // Destroy the Vulkan surface.  Call before erasing this object.
@@ -674,6 +688,14 @@ public:
     // what the float was born with plus which of those it owns. A panel docked INTO the float afterwards is
     // inserted into m_dockHost and never appears in m_docks — so reading m_docks reported a lone panel for a
     // float that visibly held several, and every one added after construction was dropped on the floor.
+    // Where the panels live: the window minus the title bar and minus the resize ring on all four sides.
+    JRect _contentRect(uint32_t w, uint32_t h) const {
+        const float top = (isGlobalTitleBarVisible() ? kGlobalTitleH : 0.f) + kEdgeGrip;
+        return JRect{ kEdgeGrip, top,
+                      std::max(1.f, static_cast<float>(w) - 2.f * kEdgeGrip),
+                      std::max(1.f, static_cast<float>(h) - top - kEdgeGrip) };
+    }
+
     // Panels this float currently holds. Always ask this rather than m_docks.size().
     size_t dockCount() const {
         size_t n = 0;
@@ -770,6 +792,7 @@ private:
     uint32_t     m_winW{kDefaultW}, m_winH{kDefaultH};
 
     std::function<void(JPrimitiveBuffer&)> m_contentRenderHost;
+    std::function<void(const JKeyEvent&)>  m_contentKeyHost;
     std::function<void(float, float, bool, bool, float)> m_contentInputHost;
 
     JState m_state{JState::Idle};
