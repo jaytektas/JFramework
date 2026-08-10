@@ -150,7 +150,15 @@ public:
     void setFilter(const std::string& f) {
         std::string lo = f; for (char& c : lo) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         if (lo != m_filter) {
+            const bool wasFiltering = !m_filter.empty();
             m_filter = std::move(lo); m_scrollY = 0.f;
+            // A search reveals its matches by EXPANDING the paths down to them — as actual expansion state,
+            // not a render-time override, so the user stays in control of the tree while searching. Entering
+            // a search remembers how the tree was arranged; clearing it puts that back, so a search costs you
+            // nothing.
+            if (!wasFiltering && !m_filter.empty()) _saveExpansion(m_root);
+            if (!m_filter.empty())                  _expandToMatches(m_root);
+            else if (wasFiltering)                  _restoreExpansion(m_root);
             // Clearing the search re-hides everything it revealed. A selection left standing on a revealed
             // row is no longer on a visible row, so it goes the same way a condition-hidden selection does.
             if (m_filter.empty() && m_selectedNode && _isHidden(m_root, m_selectedNode)) _selectNode(nullptr);
@@ -165,6 +173,8 @@ public:
 
     void expandAll()   { for (auto& c : m_root.children) _setExpandedRec(c, true);  m_root.expanded = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
     void collapseAll() { for (auto& c : m_root.children) _setExpandedRec(c, false); m_root.expanded = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    // One branch, from this node down — what a right-click on a row wants, as opposed to the whole tree.
+    void setBranchExpanded(JTreeViewNode& n, bool e) { _setExpandedRec(n, e); m_graph.invalidateNode(m_nodeId, DirtySelf); }
 
     // Select the node at a "/"-joined label path, expanding its ancestors so the highlight is visible, and
     // emit onSelectionChanged exactly as a user click would. Lets an app drive the selection to match a
@@ -623,7 +633,7 @@ public:
                 float ax = b.x + indent + 8.0f;
                 float ay = itemY + itemH * 0.5f;
                 // While filtering, subtrees are force-opened (_flatten), so show ▼ then too — not a stale ▶.
-                drawNodeChevron(buf, flat.node, ax, ay, 10.0f, flat.node->expanded || !m_filter.empty());
+                drawNodeChevron(buf, flat.node, ax, ay, 10.0f, flat.node->expanded);
             }
 
             float textX = b.x + indent + 16.0f;
@@ -781,13 +791,36 @@ private:
             else if (!_descendantMatches(node)) return;               // neither self nor descendant → filtered out
         }
         result.push_back({&node, depth, result.size(), dimmed});
-        // While filtering, force subtrees open so matches deep in the tree are revealed.
-        if (node.expanded || !m_filter.empty()) {
+        // Descend only if the node is actually expanded. A filter no longer OVERRIDES this: it expands the
+        // paths to its matches as real state (see setFilter), so the reveal still happens — but a branch you
+        // then collapse stays collapsed, instead of springing open again on the next frame with no way to
+        // shut it while the search stood.
+        if (node.expanded) {
             for (auto& child : node.children) {
                 _flatten(child, depth + 1, result, subtreeMatch, dimmed);
             }
         }
     }
+    // Remember/restore how the tree was arranged before a search, keyed by node pointer. A tree rebuilt
+    // under us (setRootNode) simply finds nothing to restore, which is the right answer — the arrangement
+    // it described no longer exists.
+    void _saveExpansion(const JTreeViewNode& n) {
+        m_preFilterExpanded[&n] = n.expanded;
+        for (const auto& c : n.children) _saveExpansion(c);
+    }
+    void _restoreExpansion(JTreeViewNode& n) {
+        if (const auto it = m_preFilterExpanded.find(&n); it != m_preFilterExpanded.end()) n.expanded = it->second;
+        for (auto& c : n.children) _restoreExpansion(c);
+        if (&n == &m_root) m_preFilterExpanded.clear();
+    }
+    // Expand only the paths that lead to a match, so a search opens what it found and nothing else.
+    bool _expandToMatches(JTreeViewNode& n) {
+        bool any = _selfMatches(n);
+        for (auto& c : n.children) if (_expandToMatches(c)) any = true;
+        if (any && !n.children.empty()) n.expanded = true;
+        return any;
+    }
+
     // A node matches on its own label — or, when enabled, its userData (raw id / binding path).
     bool _selfMatches(const JTreeViewNode& n) const {
         std::string l = n.label; for (char& c : l) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -996,6 +1029,7 @@ private:
     JLineEdit      m_editField;           // the real text editor mounted over a row during an in-place rename
     bool           m_editable{true};      // F2 / click-selected may start an in-place rename
     std::string    m_filter;              // lower-cased row filter ("" = show all)
+    std::map<const JTreeViewNode*, bool> m_preFilterExpanded;   // arrangement to restore when a search clears
     bool           m_rowDimmed{false};    // set per row while painting (see rowDimmed())
     bool           m_filterUserData{false}; // also match userData (raw id / binding path), not just the label
     float         m_scrollY{0.0f};
