@@ -28,8 +28,20 @@ inline namespace jf {
 // then offsets by contentArea().
 // ============================================================================
 
+class JDockHost;   // placement owner (see placedIn below)
+
 class JDockWidget {
 public:
+    // WHERE THIS PANEL LIVES — the one source of truth. Null means it is placed nowhere (hidden, or in
+    // flight mid-drag); otherwise it is the single JDockHost holding it, whether that host belongs to the
+    // main window or to a floating window.
+    //
+    // Everything used to answer this question by SEARCHING — the drop registry, then every host, then a
+    // float's own list — and those searches disagreed with each other. A panel appeared twice when one
+    // search missed the host that still held it, and vanished when another reported a stale list. Only
+    // JDockHost writes this field (attach/detach), so it cannot drift from the tree it describes.
+    JDockHost* placedIn() const { return m_placedIn; }
+    bool       isPlaced() const { return m_placedIn != nullptr; }
     // All live DockWidgets register here so the owner can enumerate floating panels.
     inline static std::vector<JDockWidget*> s_activeDocks;
 
@@ -360,7 +372,10 @@ public:
         }
     }
 
+    friend class JDockHost;   // maintains m_placedIn — nothing else may write it
+
 private:
+    JDockHost* m_placedIn{nullptr};
     bool _inTitleBar(float mx, float my) const {
         return mx >= m_x && mx <= m_x + m_w &&
                my >= m_y && my <= m_y + TITLE_H;

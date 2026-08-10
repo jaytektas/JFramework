@@ -239,6 +239,7 @@ if(GENESIS_BUILD_TESTS)
         add_test(NAME ${name} COMMAND ${name})
     endfunction()
 
+    add_genesis_test(test_dock_placement   src/tests/test_dock_placement.cpp)
     add_genesis_test(test_signal           src/tests/test_signal.cpp)
     add_genesis_test(test_application      src/tests/test_application.cpp)
     add_genesis_test(test_scenegraph       src/tests/test_scenegraph.cpp)

@@ -408,16 +408,13 @@ public:
 
     // --- Construction ---
 
-    // Every LIVE host, tied to object lifetime. Distinct from JDockRegistry, which is a hit-testing
-    // registry for drag/drop and holds only hosts that are currently ACTIVE — a collapsed dock area
-    // unregisters itself while still owning its panels (DockSpace::registerAll). Single placement must be
-    // enforced against every host that can hold a dock, not just the ones a cursor could drop onto.
-    static std::vector<JDockHost*>& _liveHosts() { static std::vector<JDockHost*> v; return v; }
-
-    JDockHost() { _allocNode(); _liveHosts().push_back(this); }  // root SplitNode(Horizontal)
+    JDockHost() { _allocNode(); }  // root SplitNode(Horizontal)
     ~JDockHost() {
-        auto& v = _liveHosts();
-        v.erase(std::remove(v.begin(), v.end(), this), v.end());
+        // A destroyed host must not leave panels claiming to live in it — the next insertDock would ask a
+        // dead host to let go. Clearing here keeps placedIn() honest for the lifetime of every dock.
+        for (auto& n : m_nodes)
+            for (JDockWidget* d : n.tabs)
+                if (d && d->m_placedIn == this) d->m_placedIn = nullptr;
     }
     JDockHost(const JDockHost&)            = delete;   // registered by address — never copy or move
     JDockHost& operator=(const JDockHost&) = delete;
@@ -481,22 +478,25 @@ public:
         for (auto* t : leaf->tabs)
             if (!t->isTabifiable()) return false;
 
-        // Single-placement invariant: a JDockWidget lives in exactly one host. Detach it from any OTHER
-        // host still referencing it — re-docking from a float, or a layout restore re-homing it — before we
-        // take it. Without this, two hosts would reference and render the same widget (the duplicate-dock
-        // bug). removeDock is a no-op on a host that doesn't hold it, so this is cheap and safe.
-        //
-        // Swept over EVERY LIVE host, not JDockRegistry's: the registry drops a dock area as soon as it is
-        // collapsed or inactive, while that area still holds its panels. Sweeping the registry therefore
-        // left the dock in the inactive host AND put it in this one, and the duplicate appeared the moment
-        // that area came back — two Navigation panels, one in each.
-        for (JDockHost* h : _liveHosts())
-            if (h != this) h->removeDock(dock);
+        // SINGLE PLACEMENT, structurally. The dock names the host holding it, so moving it is: ask that
+        // host to let go, then take it. No searching, so nothing can miss a holder (which duplicated the
+        // panel) or act on a stale list (which lost it). Already in the target leaf ⇒ nothing to move.
+        if (dock->placedIn() == this && findDock(dock) == leafId) {
+            leaf->activeTab = _tabIndexOf(*leaf, dock);
+            return true;
+        }
+        if (JDockHost* owner = dock->placedIn()) {
+            owner->removeDock(dock);                  // clears dock->m_placedIn
+            // Detaching can prune the emptied leaf and move m_nodes, including ours when owner == this.
+            leaf = node(leafId);
+            if (!leaf || leaf->type != JDockNode::JType::Leaf) return false;
+        }
 
         if (tabIdx < 0 || tabIdx > static_cast<int>(leaf->tabs.size()))
             tabIdx = static_cast<int>(leaf->tabs.size());
         leaf->tabs.insert(leaf->tabs.begin() + tabIdx, dock);
         leaf->activeTab = tabIdx;
+        dock->m_placedIn = this;                      // the ONE write, paired with removeDock's clear
         return true;
     }
 
@@ -527,6 +527,7 @@ public:
             JLOGC("dock.heal", JLogLevel::Debug) << "removeDock '" << (dock ? dock->title() : "?")
                 << "' from L#" << leafId.v << "  BEFORE: " << _treeStr(rootId());
             n.tabs.erase(it);
+            if (dock->m_placedIn == this) dock->m_placedIn = nullptr;   // paired with insertDock's write
             if (n.activeTab >= static_cast<int>(n.tabs.size()))
                 n.activeTab = std::max(0, static_cast<int>(n.tabs.size()) - 1);
             if (n.tabs.empty())
@@ -2055,16 +2056,12 @@ private:
             n->tabBarEdge = src.tabBarEdge;
             for (const auto& title : src.tabTitles) {
                 if (JDockWidget* w = resolver ? resolver(title) : nullptr) {
-                    // Same single-placement rule as insertDock. A restore resolves titles to docks that may
-                    // still be living somewhere else — another area whose snapshot this restore does not
-                    // cover (an app that saves only some hosts), or a host left untouched by this pass — and
-                    // pushing straight into tabs would give the widget two homes.
-                    for (JDockHost* h : _liveHosts())
-                        if (h != this) h->removeDock(w);
-                    n = node(id);                    // removeDock can prune/realloc; refetch before use
+                    // Through insertDock, so a restore obeys the same single-placement rule as every other
+                    // placement. Pushing into tabs directly (what this used to do) bypassed it entirely and
+                    // could hand a widget a second home.
+                    insertDock(w, id);
+                    n = node(id);                    // insertDock can prune/realloc; refetch before use
                     if (!n) return false;
-                    if (std::find(n->tabs.begin(), n->tabs.end(), w) == n->tabs.end())
-                        n->tabs.push_back(w);        // and never twice within this leaf
                 }
             }
             int tabCount = static_cast<int>(n->tabs.size());
