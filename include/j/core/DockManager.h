@@ -657,12 +657,22 @@ public:
         JDockNode* leaf = node(leafId);
         if (!leaf || leaf->type != JDockNode::JType::Leaf) { _endDrag(); return std::nullopt; }
 
-        if (pos == JDropPos::Center) {
-            insertDock(dock, leafId);
-        } else {
-            JDockNodeId newLeaf = _splitLeaf(leafId, pos);
-            if (!newLeaf.valid()) { _endDrag(); return std::nullopt; }
-            insertDock(dock, newLeaf);
+        // insertDock CAN refuse (leaf affinity, a non-tabifiable dock already there, …) and its result was
+        // being dropped on the floor. The caller reads a successful drop as "the destination owns it now"
+        // and releases the float — so a refused drop left the panel in no host and no window: gone from the
+        // UI, with the app still holding a pointer to it. Report the refusal instead; the float stays up and
+        // the user can drop it somewhere that will have it.
+        const bool placed = (pos == JDropPos::Center)
+            ? insertDock(dock, leafId)
+            : [&] {
+                  JDockNodeId newLeaf = _splitLeaf(leafId, pos);
+                  return newLeaf.valid() && insertDock(dock, newLeaf);
+              }();
+        if (!placed) {
+            JLOGC("dock.heal", JLogLevel::Warn) << "drop REFUSED by leaf " << leafId.v
+                                                << " — '" << (dock ? dock->title() : "?") << "' stays where it is";
+            _endDrag();
+            return std::nullopt;
         }
 
         computeLayout(m_hostRect);
