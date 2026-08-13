@@ -33,17 +33,28 @@ public:
     // can be dragged to rearrange. A permanent home tab leaves both off — it stays put and stays open.
     int addTab(const std::string& label, JWidget* content, bool closable = false, bool draggable = false) {
         m_tabs.push_back({ label, content, closable, draggable });
+        addChild(content);                        // a page IS a child of the tab widget
         const int idx = (int)m_tabs.size() - 1;
-        if (m_active < 0) { m_active = idx; onTabChanged.emit(m_active); }
+        const bool firstTab = (m_active < 0);
+        if (firstTab) m_active = idx;
+        _syncPages();
+        if (firstTab) onTabChanged.emit(m_active);
         m_graph.invalidateNode(m_nodeId, DirtySelf);
         return idx;
     }
     void removeTab(int idx) {
         if (idx < 0 || idx >= (int)m_tabs.size()) return;
+        JWidget* gone = m_tabs[idx].content;
         m_tabs.erase(m_tabs.begin() + idx);
         if (m_tabs.empty())            m_active = -1;
         else if (m_active > idx)       --m_active;
         else if (m_active >= (int)m_tabs.size()) m_active = (int)m_tabs.size() - 1;
+        removeChild(gone);
+        // Hand it back the way it arrived. _syncPages hid it while another tab was in front, and the
+        // page is the CALLER's widget: leaving it hidden would make it silently unpaintable wherever
+        // they put it next, with nothing in this widget still responsible for it.
+        if (gone) gone->setVisible(true);
+        _syncPages();
         m_graph.invalidateNode(m_nodeId, DirtySelf);
         onTabClosed.emit(idx);
         onTabChanged.emit(m_active);
@@ -51,6 +62,7 @@ public:
     void setActiveTab(int i) {
         if (i < 0 || i >= (int)m_tabs.size() || i == m_active) return;
         m_active = i;
+        _syncPages();
         m_graph.invalidateNode(m_nodeId, DirtySelf);
         onTabChanged.emit(i);
         notifyAccessibility();
@@ -59,6 +71,7 @@ public:
     int      tabCount()  const { return (int)m_tabs.size(); }
     JWidget* content(int i) const { return (i >= 0 && i < (int)m_tabs.size()) ? m_tabs[i].content : nullptr; }
     JWidget* activeContent() const { return content(m_active); }
+
     void     setTabLabel(int i, const std::string& s) { if (i >= 0 && i < (int)m_tabs.size()) { m_tabs[i].label = s; m_graph.invalidateNode(m_nodeId, DirtySelf); } }
 
     JA11yNode a11yNode() const override {
@@ -183,6 +196,19 @@ public:
 private:
     struct Tab { std::string label; JWidget* content; bool closable; bool draggable; };
 
+    // Exactly one page is visible: the active one. This is the Qt rule (a QStackedWidget hides every
+    // page but the current one) and it is what makes the tab widget need no special-casing anywhere
+    // else — focus traversal, the tooltip scan, the drop-target scan and the click hit-test all filter
+    // on visibility, so a tabbed-away page drops out of all four for the same reason.
+    //
+    // Before this, pages stayed flagged visible while covered. They were only ever PAINTED when active,
+    // so the picture looked right, and every scan that trusts the flag went on finding widgets sitting
+    // underneath the tab in front of them.
+    void _syncPages() {
+        const JWidget* shown = activeContent();
+        for (const Tab& t : m_tabs) if (t.content) t.content->setVisible(t.content == shown);
+    }
+
     bool  _horizontal() const { return m_edge == JTabBarEdge::Top || m_edge == JTabBarEdge::Bottom; }
     float _along(float mx, float my) const { return _horizontal() ? mx : my; }
     static bool _pointIn(const JRect& r, float x, float y) {
@@ -264,6 +290,7 @@ private:
         if (m_active == from)                 m_active = to;
         else if (from < m_active && m_active <= to) --m_active;
         else if (to <= m_active && m_active < from) ++m_active;
+        _syncPages();
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
     void _drawActiveEdge(JPrimitiveBuffer& buf, const JRect& r, bool active) const {

@@ -132,40 +132,88 @@ public:
         if (it != s_activeWidgets.end()) {
             s_activeWidgets.erase(it);
         }
+        // Tear the tree edges down BEFORE any child is destroyed. Children die at three different
+        // moments — a derived class's by-value members just before this body runs, m_ownedChildren
+        // just after it — and each of them calls m_parent->removeChild(this) on the way out. Cutting
+        // every edge here means the ones that die after us find m_parent == nullptr and touch
+        // nothing, while the ones that died before us already removed themselves from a live vector.
+        for (JWidget* c : m_children) if (c && c->m_parent == this) c->m_parent = nullptr;
+        m_children.clear();
+        if (m_parent) m_parent->removeChild(this);
         if (s_widgetDestroyedHook) s_widgetDestroyedHook(this);   // drop every raw pointer held to us
     }
     JWidget(const JWidget&)            = delete;
     JWidget& operator=(const JWidget&) = delete;
 
-    // --- Child ownership (Qt QObject model) ------------------------------------------------------------
+    // --- The widget tree (Qt QObject model) ------------------------------------------------------------
+    //
+    // m_children is THE child list — the analogue of QObject::children(), and the single structure the
+    // framework means when it says "the widget tree". Focus traversal walks it, effective visibility
+    // walks it, scan exclusion walks it. Every way of putting a widget inside another one goes through
+    // addChild(): adopt(), JContainer::add (both overloads), JScrollArea::addChildWidget (both),
+    // JTabWidget::addTab. There is no second list to remember and no hook to override, because the
+    // thing that used to be forgotten — declaring a child the framework could not otherwise see — is
+    // now the same call that puts the child there in the first place.
+    //
+    // Ownership is a SEPARATE axis, exactly as in Qt. m_ownedChildren is lifetime bookkeeping only: a
+    // child may be parented here and owned elsewhere (a widget held as a member, or by the app), or
+    // parented here and owned here (adopt). Neither implies the other.
+    //
+    // A widget has at most ONE parent. addChild() re-parents, so putting a widget somewhere else moves
+    // its edge rather than leaving it reachable from two places with two different visibilities.
+    void addChild(JWidget* child) {
+        if (!child || child == this) return;
+        if (child->m_parent == this) return;                      // already ours — idempotent
+        if (child->m_parent) child->m_parent->removeChild(child);  // re-parent, never dual-parent
+        child->m_parent = this;
+        m_children.push_back(child);
+    }
+    // Drop the parent edge to `child`. Does NOT destroy it (that is disown()'s job) and is a no-op if
+    // `child` is not a child of this widget.
+    void removeChild(JWidget* child) {
+        auto it = std::find(m_children.begin(), m_children.end(), child);
+        if (it == m_children.end()) return;
+        if ((*it)->m_parent == this) (*it)->m_parent = nullptr;
+        m_children.erase(it);
+    }
+    // Drop every parent edge (children live on — non-owned ones are the caller's, owned ones are still
+    // in m_ownedChildren and die with this widget).
+    void removeAllChildren() {
+        for (JWidget* c : m_children) if (c && c->m_parent == this) c->m_parent = nullptr;
+        m_children.clear();
+    }
+    // The child list, in the order the children were added.
+    const std::vector<JWidget*>& children() const noexcept { return m_children; }
+
     // Take ownership of a child widget: it lives exactly as long as this widget and is destroyed with it
-    // (RAII, recursively — an owned child destroys ITS owned children in turn). Returns the raw pointer for
-    // wiring. THE framework ownership primitive: containers, dialogs and custom widgets adopt their children
-    // through this instead of each re-implementing an owned std::unique_ptr vector + hand-rolled own() helper.
-    // A widget with no parent (a top-level window/dialog) is still owned by whoever holds it, exactly like a
-    // parentless QObject — adopt() only expresses the parent->child edge.
+    // (RAII, recursively). Also parents it. Returns the raw pointer for wiring. THE framework ownership
+    // primitive: containers, dialogs and custom widgets adopt their children through this instead of each
+    // re-implementing an owned std::unique_ptr vector + hand-rolled own() helper.
     template <class T>
     T* adopt(std::unique_ptr<T> child) {
         T* p = child.get();
-        p->m_parent = this;                    // parent edge — drives EFFECTIVE visibility (see isVisible)
+        if (!p) return nullptr;
+        addChild(p);
         m_ownedChildren.push_back(std::move(child));
         return p;
     }
     // Destroy an adopted child early (before this widget dies). No-op if `child` is not owned here.
     void disown(JWidget* child) {
         for (auto it = m_ownedChildren.begin(); it != m_ownedChildren.end(); ++it)
-            if (it->get() == child) { (*it)->m_parent = nullptr; m_ownedChildren.erase(it); return; }
+            if (it->get() == child) { m_ownedChildren.erase(it); return; }   // ~JWidget cuts the edge
     }
-    // Destroy every adopted child now (e.g. rebuilding a form's rows).
+    // Destroy every adopted child now (e.g. rebuilding a form's rows). Non-owned children are untouched.
     void disownAll() { m_ownedChildren.clear(); }
     const std::vector<std::unique_ptr<JWidget>>& ownedChildren() const { return m_ownedChildren; }
 
-    // The widget TREE used for focus traversal — the analogue of Qt's QObject::children(). Defaults to the
-    // adopted children; a container that also holds NON-OWNED children (JContainer::add(JWidget*),
-    // JScrollArea::addChildWidget(JWidget*)) overrides this to include them. Traversal must not use the
-    // scene-graph hierarchy: only some containers wire graph edges, so that tree is incomplete.
-    virtual void collectChildren(std::vector<JWidget*>& out) const {
-        for (const auto& c : m_ownedChildren) if (c) out.push_back(c.get());
+    // The children to descend into — focus traversal, and anything else that walks the tree. NOT virtual:
+    // a widget that hosts another widget says so by parenting it, and there is exactly one answer to
+    // "what is inside this". It was virtual, and the default returned only the ADOPTED children, so a
+    // child held as a member or registered non-owningly had no edge at all unless its parent remembered
+    // to override this. Forgetting was silent and looked like nothing: mouse still worked (panes route
+    // presses to their members by hand) while the keyboard could never reach anything in that subtree.
+    void collectChildren(std::vector<JWidget*>& out) const {
+        out.insert(out.end(), m_children.begin(), m_children.end());
     }
 
     std::string m_tooltipText;
@@ -193,8 +241,17 @@ public:
     // control on a hidden page can no longer take Tab focus or swallow a click while off-screen.
     bool        isVisible()  const noexcept {
         if (!m_visible) return false;
-        // Ancestors via the SCENE GRAPH, so both owning (adopt) and non-owning (JContainer::add) edges
-        // propagate -- a row added non-owningly to a hidden form is hidden too.
+        // Ancestors via the WIDGET TREE — the complete one. The scene graph carries a parent edge only
+        // where a container happens to wire one (JContainer does; JTabWidget, JScrollArea and every
+        // hand-built pane do not), so asking it alone left a widget inside a hidden host reporting
+        // itself visible. That is not academic: the flat scans that hunt for a tooltip target, a drop
+        // target or a click target walk s_activeWidgets and filter on this, so a tabbed-away tree went
+        // on claiming hits over the pane covering it. Panes worked around it by cascading setVisible()
+        // to their members by hand — a workaround for the tree edge that was missing, not for this.
+        for (const JWidget* p = m_parent; p; p = p->m_parent)
+            if (!p->m_visible) return false;
+        // The graph chain as well: it is a subset in practice, but a node parented only there (a menu's
+        // embedded widget, a popup's content) must still follow its host.
         return m_graph.isChainVisible(m_nodeId);
     }
     // This widget's OWN flag, ignoring ancestors (for code that manages the flag itself).
@@ -600,9 +657,12 @@ protected:
     JWidgetState m_state;
     std::string m_debugName;
     bool        m_visible{true};
-    JWidget*    m_parent{nullptr};   // set by adopt(); drives effective visibility
+    JWidget*    m_parent{nullptr};   // set by addChild(); drives effective visibility + scan exclusion
     bool        m_scanExcluded{false};   // out of global focus/hit scans, still painted
     bool        m_focused{false};
+    // THE child list (see addChild). Declared BEFORE m_ownedChildren so it is destroyed AFTER it:
+    // an owned child's destructor reaches back through m_parent to remove its own edge.
+    std::vector<JWidget*> m_children;
     std::vector<std::unique_ptr<JWidget>> m_ownedChildren;   // Qt-model ownership: destroyed (RAII) with this widget
 
     // Core-API state added for Qt/GTK-class completeness.

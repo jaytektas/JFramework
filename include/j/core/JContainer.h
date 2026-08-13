@@ -31,9 +31,8 @@ public:
     template <class T>
     T* add(std::unique_ptr<T> child) {
         if (!child) return nullptr;
-        T* p = adopt(std::move(child));                 // JWidget owns the lifetime (RAII)
-        m_children.push_back(p);                        // layout/paint child list
-        m_graph.addChild(m_nodeId, p->getNodeId());
+        T* p = adopt(std::move(child));                 // parents it AND owns the lifetime (RAII)
+        m_graph.addChild(m_nodeId, p->getNodeId());     // layout edge
         return p;
     }
     // Non-owning add: register a widget OWNED ELSEWHERE (an adopt()-ed child, or a member) into this layout.
@@ -43,21 +42,18 @@ public:
     // create-and-forget children, prefer the owning add(std::unique_ptr<T>) above.
     JContainer* add(JWidget* w) {
         if (!w) return this;
-        m_children.push_back(w);
-        m_graph.addChild(m_nodeId, w->getNodeId());
+        addChild(w);                                    // tree edge — same list the owning add uses
+        m_graph.addChild(m_nodeId, w->getNodeId());     // layout edge
         return this;
-    }
-    const std::vector<JWidget*>& children() const { return m_children; }
-
-    // Non-owned children participate in focus traversal exactly like owned ones.
-    void collectChildren(std::vector<JWidget*>& out) const override {
-        JWidget::collectChildren(out);
-        for (JWidget* c : m_children) if (c) out.push_back(c);
     }
 
     // Detach all children and DESTROY the ones this container owns (adopted via add(unique_ptr)); non-owned
-    // children live on. Used to rebuild a form with a new set of rows.
-    void clear() { m_graph.clearChildren(m_nodeId); m_children.clear(); disownAll(); }
+    // children live on, unparented. Used to rebuild a form with a new set of rows.
+    void clear() {
+        m_graph.clearChildren(m_nodeId);
+        disownAll();            // owned rows die; each cuts its own edge on the way out
+        removeAllChildren();    // whatever is left was owned elsewhere — drop the edge, keep the widget
+    }
 
     // Layout configuration — thin pass-throughs to this node's layout component (chainable).
     JContainer* setLayoutMode(JLayoutMode m)   { m_graph.getLayout(m_nodeId).mode = m; return this; }
@@ -95,10 +91,6 @@ public:
         for (JWidget* w : m_children) if (w->isVisible()) consumed |= w->handleScroll(mx, my, wheel);
         return consumed;
     }
-
-
-private:
-    std::vector<JWidget*> m_children;   // layout/paint list (raw); lifetime of owned children is JWidget::m_ownedChildren
 };
 
 } // inline namespace jf

@@ -26,20 +26,18 @@ public:
     template <class T>
     T* addChildWidget(std::unique_ptr<T> child) {
         if (!child) return nullptr;
-        T* p = adopt(std::move(child));
-        m_children.push_back(p);
-        return p;
+        return adopt(std::move(child));      // parents it AND owns the lifetime
     }
     // Non-owning add: register a widget OWNED ELSEWHERE (an adopt()-ed child, or a member) into this scroll
     // area. It is laid out + painted here but its lifetime is the caller's — for re-addable content that
     // survives clearChildren(). For create-and-forget content, prefer the owning addChildWidget above.
-    void addChildWidget(JWidget* w) {
-        m_children.push_back(w);
-    }
+    void addChildWidget(JWidget* w) { addChild(w); }
     // Detach all children and DESTROY the ones this scroll area owns; non-owned children live on.
-    void clearChildren() { m_children.clear(); m_scrollY = 0.0f; disownAll(); }   // rebuildable content (per-selection form)
-
-    const std::vector<JWidget*>& children() const { return m_children; }
+    void clearChildren() {                       // rebuildable content (per-selection form)
+        disownAll();
+        removeAllChildren();
+        m_scrollY = 0.0f;
+    }
 
     // Scroll to an offset WITHOUT needing a layout pass first. Children are positioned during painting, so
     // before the first paint there are no boxes for revealChild() to aim at — which is why a list opened on
@@ -54,12 +52,6 @@ public:
     }
     float childGap() const { return m_gap; }
     float topPad()   const { return m_padY; }
-
-    // Non-owned children participate in focus traversal exactly like owned ones.
-    void collectChildren(std::vector<JWidget*>& out) const override {
-        JWidget::collectChildren(out);
-        for (JWidget* c : m_children) if (c) out.push_back(c);
-    }
 
     // Scroll `w` (a direct or nested child) into view. Called by the focus manager when focus moves, so
     // tabbing to a control that is scrolled off simply brings it on screen instead of the focus ring
@@ -276,7 +268,6 @@ public:
 
 
 private:
-    std::vector<JWidget*> m_children;
     float   m_scrollY{0.0f};
     float   m_padX{8.0f}, m_padY{6.0f}, m_gap{6.0f};
     bool    m_hovered{false};
