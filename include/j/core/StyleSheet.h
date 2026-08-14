@@ -99,6 +99,10 @@ inline JStyle parseStyleSheet(const std::string& text) {
         {"gridcellpadding", &t.gridCellPadding}, {"gridmincolumnwidth", &t.gridMinColumnWidth},
         {"griddefaultcolumnwidth", &t.gridDefaultColumnWidth}, {"gridresizegrab", &t.gridResizeGrab},
         {"gridsortglyphwidth", &t.gridSortGlyphWidth},
+        {"tooltipdelayms", &t.tooltipDelayMs}, {"tooltipmaxwidth", &t.tooltipMaxWidth},
+        {"tooltippaddingx", &t.tooltipPaddingX}, {"tooltippaddingy", &t.tooltipPaddingY},
+        {"tooltipcursorgap", &t.tooltipCursorGap}, {"tooltipradius", &t.tooltipRadius},
+        {"tooltipshadowoffset", &t.tooltipShadowOffset},
         {"doubleclickms", &t.doubleClickMs}, {"doubleclickslop", &t.doubleClickSlop},
     };
 

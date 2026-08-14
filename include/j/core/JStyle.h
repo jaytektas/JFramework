@@ -105,6 +105,9 @@ struct JStyle {
     uint8_t PopupInnerBg[4]    = {18,  18,  22,  250};   // borderless popup body fill
     uint8_t ToolTipFill[4]     = {30,  30,  34,  250};   // tooltip body fill
     uint8_t ToolTipBorder[4]   = {80,  80,  85,  255};   // tooltip outline
+    uint8_t ToolTipShadow[4]   = {0,   0,   0,   80};    // tooltip drop-shadow halo (its own: a tooltip
+                                                         // floats over content and casts harder than the
+                                                         // dialog halo it used to borrow RGB from)
     uint8_t PopupItemText[4]   = {220, 220, 228, 255};   // popup-list item text
     uint8_t PreviewBg[4]       = {20,  20,  26,  255};   // font-picker preview panel fill
 
@@ -187,6 +190,18 @@ struct JStyle {
     float gridDefaultColumnWidth = 100.f; // width for a column with no explicit or computable size
     float gridResizeGrab        = 4.f;    // pointer distance to a header divider that starts a resize
     float gridSortGlyphWidth    = 14.f;   // header space reserved for the sort arrow
+
+    // Tooltips. A tooltip is not a control: it has no height band to derive, and its width is a READING
+    // measure rather than a layout one — so it carries its own values instead of bending itemPadding and
+    // controlHeight to fit. The delay sits here with doubleClickMs for the same reason that one does:
+    // it is interaction timing the scheme owns, not a clock each widget keeps.
+    float tooltipDelayMs      = 500.f;   // pointer dwell before it appears
+    float tooltipMaxWidth     = 420.f;   // wrap measure — a comfortable line, not the window width
+    float tooltipPaddingX     = 8.f;
+    float tooltipPaddingY     = 6.f;
+    float tooltipCursorGap    = 12.f;    // offset from the pointer, and the flip margin at a view edge
+    float tooltipRadius       = 4.f;     // tighter than cornerRadius: a small floating box, not a panel
+    float tooltipShadowOffset = 2.f;
 
     // Interaction timing. A second press within this window AND slop counts as a double click; the
     // runner detects it once and publishes it, so no widget keeps its own clock.
@@ -276,6 +291,7 @@ inline JStyle JStyle::light() {
     s(t.PopupInnerBg,     248, 248, 250, 250);
     s(t.ToolTipFill,      250, 250, 252, 250);
     s(t.ToolTipBorder,    200, 200, 208, 255);
+    s(t.ToolTipShadow,      0,   0,   0,  50);   // lighter halo on a light ground, as DialogShadow does
     s(t.PopupItemText,     30,  30,  36, 255);
     s(t.PreviewBg,        242, 242, 246, 255);
     // Chart surface — light-theme values (provisional).
@@ -481,6 +497,7 @@ namespace Colors {
     inline const uint8_t* const PopupInnerBg      = JStyle::current().PopupInnerBg;
     inline const uint8_t* const ToolTipFill       = JStyle::current().ToolTipFill;
     inline const uint8_t* const ToolTipBorder     = JStyle::current().ToolTipBorder;
+    inline const uint8_t* const ToolTipShadow     = JStyle::current().ToolTipShadow;
     inline const uint8_t* const PopupItemText     = JStyle::current().PopupItemText;
     inline const uint8_t* const PreviewBg         = JStyle::current().PreviewBg;
     inline const uint8_t* const ChartBg           = JStyle::current().ChartBg;
