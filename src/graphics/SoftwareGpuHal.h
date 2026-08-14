@@ -232,6 +232,71 @@ public:
                         dest = blend(dest, tr, tg, tb, ta);
                     }
                 }
+            } else if (cmd.kind == JPrimitiveBuffer::JDrawCommand::JKind::Geometry) {
+                // VECTOR GEOMETRY — triangle list, the same contract the Vulkan vector pipeline
+                // consumes: JRenderVertex is position/uv/colour and every three vertices are one
+                // triangle, already tessellated and anti-alias-expanded by JVectorCanvas.
+                //
+                // This case did not exist. Every Geometry command was silently dropped, so on the
+                // software path an entire primitive class vanished with no warning: dials, gauges,
+                // charts, table grids, sliders and radio buttons all rendered as empty space while
+                // the text and rectangles around them drew perfectly. That reads as "the widget has
+                // no data", which is a different and far more misleading statement than "this
+                // renderer cannot draw it" — and it cost a real investigation into a trigger designer
+                // that turned out to be working.
+                //
+                // Colour comes from the vertices and is interpolated barycentrically, because the
+                // canvas encodes anti-aliased edges as a colour/alpha ramp across the expanded
+                // triangle rather than as coverage the rasteriser is expected to compute.
+                const auto& gv = cmd.geom.verts;
+                for (size_t i = 0; i + 2 < gv.size(); i += 3) {
+                    const JRenderVertex& a = gv[i];
+                    const JRenderVertex& b = gv[i + 1];
+                    const JRenderVertex& c = gv[i + 2];
+
+                    // Edge-function rasterisation over the triangle's clipped bounding box.
+                    const float minXf = std::min({a.position[0], b.position[0], c.position[0]}), maxXf = std::max({a.position[0], b.position[0], c.position[0]});
+                    const float minYf = std::min({a.position[1], b.position[1], c.position[1]}), maxYf = std::max({a.position[1], b.position[1], c.position[1]});
+                    int tx1 = std::max(cx1, static_cast<int>(std::floor(minXf)));
+                    int ty1 = std::max(cy1, static_cast<int>(std::floor(minYf)));
+                    int tx2 = std::min(cx2, static_cast<int>(std::ceil(maxXf)) + 1);
+                    int ty2 = std::min(cy2, static_cast<int>(std::ceil(maxYf)) + 1);
+                    if (tx1 >= tx2 || ty1 >= ty2) continue;
+
+                    // Twice the signed area. Zero means degenerate — a zero-length segment or a
+                    // collapsed join, which the canvas does emit; skipping beats dividing by it.
+                    const float area = (b.position[0] - a.position[0]) * (c.position[1] - a.position[1]) - (b.position[1] - a.position[1]) * (c.position[0] - a.position[0]);
+                    if (std::fabs(area) < 1e-6f) continue;
+                    const float inv = 1.0f / area;
+
+                    for (int py = ty1; py < ty2; ++py) {
+                        const float sy = static_cast<float>(py) + 0.5f;
+                        for (int px = tx1; px < tx2; ++px) {
+                            const float sx = static_cast<float>(px) + 0.5f;
+                            // Barycentrics. Winding is not normalised by the canvas, so accept both
+                            // orientations rather than culling half the geometry.
+                            float w0 = ((b.position[0] - a.position[0]) * (sy - a.position[1]) - (b.position[1] - a.position[1]) * (sx - a.position[0])) * inv;
+                            float w1 = ((c.position[0] - b.position[0]) * (sy - b.position[1]) - (c.position[1] - b.position[1]) * (sx - b.position[0])) * inv;
+                            float w2 = ((a.position[0] - c.position[0]) * (sy - c.position[1]) - (a.position[1] - c.position[1]) * (sx - c.position[0])) * inv;
+                            if (w0 < 0.0f || w1 < 0.0f || w2 < 0.0f) continue;
+                            // w1 weights vertex A, w2 weights B, w0 weights C (each edge function is
+                            // opposite its vertex) — getting this wrong tilts every gradient.
+                            const float fa = w1, fb = w2, fc = w0;
+
+                            const float af = fa * a.color[3] + fb * b.color[3] + fc * c.color[3];
+                            const uint8_t al = static_cast<uint8_t>(std::clamp(af, 0.0f, 255.0f));
+                            if (al == 0) continue;
+                            const uint8_t rr = static_cast<uint8_t>(std::clamp(
+                                fa * a.color[0] + fb * b.color[0] + fc * c.color[0], 0.0f, 255.0f));
+                            const uint8_t gg = static_cast<uint8_t>(std::clamp(
+                                fa * a.color[1] + fb * b.color[1] + fc * c.color[1], 0.0f, 255.0f));
+                            const uint8_t bb = static_cast<uint8_t>(std::clamp(
+                                fa * a.color[2] + fb * b.color[2] + fc * c.color[2], 0.0f, 255.0f));
+                            uint32_t& dest = surf.pixels[py * surf.width + px];
+                            dest = blend(dest, rr, gg, bb, al);
+                        }
+                    }
+                }
             } else if (cmd.kind == JPrimitiveBuffer::JDrawCommand::JKind::Text) {
                 if (m_fontAtlas.empty()) continue;
                 const auto& call = cmd.text;
