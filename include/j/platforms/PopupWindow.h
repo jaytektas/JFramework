@@ -460,7 +460,16 @@ public:
             }
         }
 
-        JWidget::renderTooltips(buf, m_window->mouseX(), m_window->mouseY());
+        // This popup's own widgets are its roots, and its own dwell state: a popup renders its own
+        // frame, so sharing either with the window underneath would have them overwrite each other.
+        {
+            std::vector<JWidget*> roots;
+            roots.reserve(m_widgets.size());
+            for (auto& w : m_widgets) if (w) roots.push_back(w.get());
+            JWidget::renderTooltips(buf, m_tooltipHover, roots,
+                                    m_window->mouseX(), m_window->mouseY(),
+                                    static_cast<float>(m_winW), static_cast<float>(m_winH));
+        }
 
         // Close button — same style as JDockWidget title-bar close button.
         if (m_showCloseButton) {
@@ -522,6 +531,7 @@ private:
     int   m_floatDragStartX{0}, m_floatDragStartY{0};
     int   m_floatWinStartX{0},  m_floatWinStartY{0};
     int   m_keyNavIdx{-1};
+    JTooltipHover                  m_tooltipHover; // this popup's own hover dwell
     std::vector<JWidget*>          m_navItems;    // explicit keyboard list (combo entries), else m_widgets
     std::function<void(JWidget*)>  m_navReveal;   // scroll an entry into view as the keyboard reaches it
     float m_lastPollMx{-1.f}, m_lastPollMy{-1.f};

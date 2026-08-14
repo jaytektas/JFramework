@@ -153,6 +153,25 @@ public:
         m_focus.setFocusRoots(std::move(roots));
     }
 
+    // THIS window's tooltip roots — deliberately NOT the focus roots.
+    //
+    // Focus is one chain across the whole application (there is a single keyboard focus, and a field
+    // in a floated panel must be able to hold it), so _refreshFocusRoots merges the floating panels
+    // in. Tooltips are the opposite: every window renders its own frame and must consider only what
+    // IT draws, or the main window would pop a tip for a widget living in a float that happens to sit
+    // at the same window-local coordinates. Same tree-walk machinery, different membership.
+    std::vector<JWidget*> _tooltipRoots() {
+        std::vector<JWidget*> roots;
+        if (m_menuBar) roots.push_back(m_menuBar.get());
+        for (int a = 0; a < JDockSpace::AreaCount; ++a)
+            m_space.host(static_cast<JDockSpace::Area>(a)).forEachDockPanel(
+                [&roots](JDockWidget* d, const JRect&, bool activeTab, int) {
+                    if (d && activeTab && d->content()) roots.push_back(d->content());
+                });
+        if (JWidget* cw = m_space.centralWidget()) roots.push_back(cw);
+        return roots;
+    }
+
     bool valid() const { return m_window && m_hal; }
 
     JPlatformWindow& window() { return *m_window; }
@@ -791,7 +810,8 @@ public:
                 m_space.render(buffer);                     // all areas: content + overlays
                 if (dragging) _drawDragGhost(buffer);       // floating "what you're holding" label
                 if (onRender) onRender(buffer);
-                JWidget::renderTooltips(buffer, m_window->mouseX(), m_window->mouseY(),
+                JWidget::renderTooltips(buffer, m_tooltipHover, _tooltipRoots(),
+                                        m_window->mouseX(), m_window->mouseY(),
                                         static_cast<float>(m_w), static_cast<float>(m_h));  // hover tips on top of all content
                 const auto tBuilt = timing ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
                 m_hal->drawPrimitives(buffer);
@@ -1553,6 +1573,7 @@ private:
     std::unique_ptr<JMenuBar> m_menuBar;     // lazily created on menuBar()
     JMenuRuntime              m_menuRuntime; // popup menu engine
     JFocusManager             m_focus;       // keyboard focus + Tab order (auto-synced each frame)
+    JTooltipHover             m_tooltipHover; // THIS window's hover dwell (a float owns its own)
     // Combo dropdown + native dialogs — overlay OS-windows the runner owns and services each
     // frame (like menu popups), so apps don't hand-roll JPopupWindow / JNativeDialogWindow.
     std::unique_ptr<JPopupWindow>    m_comboPopup;

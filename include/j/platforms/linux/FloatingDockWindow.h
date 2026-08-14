@@ -3,6 +3,7 @@
 #include <j/core/DockWidget.h>
 #include <j/core/DockManager.h>
 #include <j/core/DockRegistry.h>
+#include <j/core/JWindowControls.h>   // JWidget::renderTooltips — a float draws its own hover tips
 #include <j/graphics/GpuHal.h>
 #include <j/graphics/RenderPrimitive.h>
 
@@ -647,6 +648,15 @@ public:
             m_contentRenderHost(buf);
         }
         m_dockHost->populateOverlay(buf);
+        // Hover tips, on top of everything this window drew — the same last step the main window takes
+        // (JAppWindow's render). Its absence here was invisible in a way that looked like a widget bug:
+        // a panel's tooltips worked while docked and silently stopped the moment it was torn out,
+        // because setTooltip() went on being called correctly and nothing ever drew the result.
+        // Roots are THIS window's panels only, and the dwell state is this window's own — see
+        // JTooltipHover for why sharing either across windows breaks both.
+        JWidget::renderTooltips(buf, m_tooltipHover, _tooltipRoots(),
+                                m_window->mouseX(), m_window->mouseY(),
+                                static_cast<float>(m_winW), static_cast<float>(m_winH));
         auto frame = hal.beginFrame(m_surface);
         hal.drawPrimitives(buf);
         hal.submitAndPresentFrame(frame);
@@ -702,6 +712,18 @@ public:
         return JRect{ kEdgeGrip, top,
                       std::max(1.f, static_cast<float>(w) - 2.f * kEdgeGrip),
                       std::max(1.f, static_cast<float>(h) - top - kEdgeGrip) };
+    }
+
+    // This window's tooltip roots: the content of each panel it holds, ACTIVE TAB ONLY — a panel
+    // tabbed behind another is not on screen, so nothing in it can be hovered. Mirrors the main
+    // window's _tooltipRoots(); the two never overlap, which is the point.
+    std::vector<JWidget*> _tooltipRoots() const {
+        std::vector<JWidget*> roots;
+        if (m_dockHost)
+            m_dockHost->forEachDockPanel([&roots](JDockWidget* d, const JRect&, bool activeTab, int) {
+                if (d && activeTab && d->content()) roots.push_back(d->content());
+            });
+        return roots;
     }
 
     // Panels this float currently holds. Always ask this rather than m_docks.size().
@@ -799,6 +821,7 @@ private:
     std::vector<HeldDock> m_docks;
     uint32_t     m_winW{kDefaultW}, m_winH{kDefaultH};
 
+    JTooltipHover m_tooltipHover;   // this window's own hover dwell (never shared with the main window)
     std::function<void(JPrimitiveBuffer&)> m_contentRenderHost;
     std::function<void(const JKeyEvent&)>  m_contentKeyHost;
     std::function<void(float, float, bool, bool, float)> m_contentInputHost;

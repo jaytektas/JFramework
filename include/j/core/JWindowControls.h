@@ -12,28 +12,47 @@
 inline namespace jf {
 
 
-inline void JWidget::renderTooltips(JPrimitiveBuffer& buf, float mouseX, float mouseY,
+// The topmost tooltip-bearing widget under (mx, my) within one subtree, or null.
+//
+// PAINT ORDER decides "topmost": a parent paints before its children, and earlier siblings before
+// later ones, so the search tries the last child first and only falls back to the widget itself once
+// nothing inside it answered. That is the tree equivalent of the reverse walk the flat registry scan
+// used to do, and it stays right when a window reorders its children.
+//
+// Visibility prunes the whole subtree — a hidden container paints nothing, so nothing inside it can
+// be hovered. isVisibleSelf() is enough here (not isVisible(), which re-walks every ancestor on each
+// node): the descent only reaches a node whose ancestors were already checked on the way down.
+//
+// Bounds deliberately do NOT prune the descent. A child is not guaranteed to be inside its parent's
+// box — an overflowing or hand-placed child would otherwise become untooltippable — so only the
+// final hit decision consults the geometry.
+inline JWidget* jTooltipHitTest(JWidget* w, float mx, float my) {
+    if (!w || !w->isVisibleSelf()) return nullptr;
+    std::vector<JWidget*> kids;
+    w->collectChildren(kids);
+    for (auto it = kids.rbegin(); it != kids.rend(); ++it)
+        if (JWidget* hit = jTooltipHitTest(*it, mx, my)) return hit;
+    return (!w->tooltip().empty() && w->hitTest(mx, my)) ? w : nullptr;
+}
+
+inline void JWidget::renderTooltips(JPrimitiveBuffer& buf, JTooltipHover& hover,
+                                    const std::vector<JWidget*>& roots,
+                                    float mouseX, float mouseY,
                                     float viewW, float viewH) {
-    static JWidget* lastHovered = nullptr;
-    static auto hoverStart = std::chrono::steady_clock::now();
-
+    // Last root first: later roots are declared in paint order too (the central widget goes on after
+    // the docks), so the same "later wins" rule that orders siblings orders these.
     JWidget* hovered = nullptr;
-    for (auto it = s_activeWidgets.rbegin(); it != s_activeWidgets.rend(); ++it) {
-        JWidget* w = *it;
-        if (w && w->isVisible() && !w->tooltip().empty() && w->hitTest(mouseX, mouseY)) {
-            hovered = w;
-            break;
-        }
-    }
+    for (auto it = roots.rbegin(); it != roots.rend() && !hovered; ++it)
+        hovered = jTooltipHitTest(*it, mouseX, mouseY);
 
-    if (hovered != lastHovered) {
-        lastHovered = hovered;
-        hoverStart = std::chrono::steady_clock::now();
+    if (hovered != hover.last) {
+        hover.last  = hovered;
+        hover.since = std::chrono::steady_clock::now();
     }
 
     if (hovered) {
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - hoverStart).count();
+            std::chrono::steady_clock::now() - hover.since).count();
         if (elapsed < 500) {
             return; // 500ms delay
         }

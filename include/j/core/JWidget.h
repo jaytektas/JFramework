@@ -34,6 +34,23 @@ inline namespace jf {
 // ============================================================================
 
 class JMenu;
+class JWidget;
+
+// Tooltip hover state for ONE window.
+//
+// The dwell timer and "what is the pointer over" are facts about a single window, not about the
+// process — every window renders its own frame, with its own pointer position, and reaches its own
+// answer. This used to be a pair of function-local statics inside renderTooltips(), which was
+// invisible while exactly one window ever called it. The moment a second did (a floated dock), the
+// two windows overwrote each other's `last` every frame, restarting the dwell timer forever, and
+// NEITHER window would ever reach the delay. Owning the state per window is what makes more than one
+// caller legal.
+struct JTooltipHover {
+    JWidget*                              last = nullptr;   // COMPARED ONLY, never dereferenced: the
+                                                            // widget may be destroyed while hovered,
+                                                            // and the live hit comes from the tree.
+    std::chrono::steady_clock::time_point since{};
+};
 
 class JWidget : public jf::JSlotTracker {
 public:
@@ -229,9 +246,19 @@ public:
     // which items are enabled. Default no-op.
     virtual void prepareContextMenu(float /*mx*/, float /*my*/) {}
 
-    static void renderTooltips(JPrimitiveBuffer& buf, float mouseX, float mouseY,
-
-                                float viewW = 0.f, float viewH = 0.f);
+    // Draw the hover tooltip for ONE window.
+    //
+    // `roots` are that window's widget-tree roots, and the search DESCENDS them — membership by tree,
+    // exactly as JFocusManager does for tab order and for the same reason (see FocusManager.h). The
+    // previous version scanned the global s_activeWidgets registry, which holds every JWidget ever
+    // CONSTRUCTED regardless of which window (if any) it was parented into — so a floating window
+    // could match a main-window widget that happened to sit at the same window-local coordinates.
+    //
+    // `hover` is the caller's own dwell state; see JTooltipHover for why it cannot be a static.
+    static void renderTooltips(JPrimitiveBuffer& buf, JTooltipHover& hover,
+                               const std::vector<JWidget*>& roots,
+                               float mouseX, float mouseY,
+                               float viewW = 0.f, float viewH = 0.f);
 
     NodeId      getNodeId()  const noexcept { return m_nodeId; }
     JWidgetState getState()   const noexcept { return m_state;  }

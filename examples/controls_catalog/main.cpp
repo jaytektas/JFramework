@@ -560,6 +560,16 @@ public:
         if (m_demoSplitter) m_demoSplitter->layout();
     }
 
+    // Tooltip roots for this catalog. The panels draw through JDockWidget::onRenderContent rather
+    // than setContent(), so their widgets are never parented into the dock tree and the window cannot
+    // discover them — the catalog has to declare them, exactly as it already declares focus roots.
+    std::vector<JWidget*> tooltipRoots() const {
+        std::vector<JWidget*> roots;
+        for (const auto& p : m_panels)
+            if (p) roots.insert(roots.end(), p->widgets.begin(), p->widgets.end());
+        return roots;
+    }
+
     void initTextures(JGpuHal& hal) {
         std::vector<uint8_t> rgba(64 * 64 * 4);
         for (int y = 0; y < 64; ++y) {
@@ -819,7 +829,8 @@ int main() {
         catalog.update(dt);
         catalog.layoutExtra();
         if (catalog.isAnimating()) win.requestRedraw();   // keep frames coming while animating
-        JWidget::renderTooltips(buf, mx, my);
+        static JTooltipHover hover;   // one window, one dwell state
+        JWidget::renderTooltips(buf, hover, catalog.tooltipRoots(), mx, my);
     };
 
     std::cout << "[GENESIS] Catalog on the JAppWindow runner. Tab cycles focus; close to exit.\n";
