@@ -260,6 +260,9 @@ private:
                 else                                      y = wa.y + wa.h - h;
             }
             x = std::max(wa.x, x); y = std::max(wa.y, y);   // clamp (a menu taller/wider than the work area)
+            JLOGC("menu.place", JLogLevel::Debug) << "place sx=" << sx << " sy=" << sy
+                << " w=" << w << " h=" << h << " wa=(" << wa.x << "," << wa.y << " " << wa.w << "x" << wa.h
+                << ") flipY=" << flipY << " -> x=" << x << " y=" << y;
             if (x != sx || y != sy) popup->window().setPosition(x, y);
         }
         return popup;
