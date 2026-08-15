@@ -103,6 +103,31 @@ public:
         m_graph.computeLayout(m_root, { static_cast<float>(m_winW), static_cast<float>(m_winW), 0.0f, 100000.f });
     }
 
+    // Wrap into COLUMNS when a single column would not fit the room available. A menu of a hundred
+    // items is not a placement problem — flip, slide and clamp all do the right thing and it is still
+    // taller than the screen — so the shape has to change. Fill is column-major: the list keeps running
+    // top-to-bottom, it just starts a new column when it reaches the bottom, so nothing moves except
+    // what genuinely could not fit. Returns the column count actually used (1 = unchanged).
+    int wrapToHeight(uint32_t availH) {
+        computeNaturalHeight();                       // single-column natural size first
+        if (availH == 0 || m_winH <= availH) return 1;
+        const int n = static_cast<int>(m_graph.getChildren(m_root).size());
+        if (n <= 1) return 1;
+        const int cols = std::max(2, static_cast<int>((m_winH + availH - 1) / availH));
+        auto& l = m_graph.getLayout(m_root);
+        l.mode            = JLayoutMode::Grid;
+        l.columns         = cols;
+        l.gridColumnMajor = true;                     // down each column, not across each row
+        // Equal columns, each as wide as the single-column natural width — the widest item still fits
+        // and every column lines up, which is what makes a wrapped list scannable.
+        setSize(static_cast<uint32_t>(m_winW) * static_cast<uint32_t>(cols), availH);
+        m_graph.computeMinSize(m_root);
+        const float h = m_graph.getLayoutConst(m_root).minHeight
+                      + (m_style == JStyle::Bordered ? m_kBorderPad * 2.f : 0.f);
+        setSize(m_winW, static_cast<uint32_t>(std::max(1.f, std::min<float>(h, static_cast<float>(availH)))));
+        return cols;
+    }
+
     // Size the popup EXPLICITLY, for content that is deliberately taller than its window — a list clamped
     // to the room on screen, scrolling inside. computeNaturalHeight() is the other case: fit the window to
     // the content. Same bookkeeping either way, so the root lays out against the real window size.

@@ -235,7 +235,12 @@ private:
             }
         }
 
-        popup->computeNaturalHeight();
+        // Fit the room BEFORE placing it: a list too tall for the screen wraps into columns, so what
+        // follows is placing a popup that can actually fit rather than clamping one that cannot.
+        {
+            const auto wa0 = popup->window().workAreaAt(sx, sy);
+            popup->wrapToHeight(static_cast<uint32_t>(std::max(0, wa0.h)));
+        }
         // Keep it on-screen, once its natural size is known: FLIP, then SLIDE, then CLAMP — the standard
         // order. Flipping (opening leftward/upward about the anchor) is what preserves the relationship
         // between menu and anchor: a cursor menu keeps the pointer on its corner instead of sliding items

@@ -141,6 +141,11 @@ struct JLayoutComponent {
     JAlignItems     alignItems{JAlignItems::Start};              // cross-axis for children
     JLayoutMode     mode{JLayoutMode::Flex};                     // Flex (default) / Grid / Form
     int            columns{2};                                  // Grid column count (>=1)
+    // Grid fill order. Row-major (the default) reads ACROSS: child 1 is the second cell of row 0.
+    // Column-major fills each column top-to-bottom before starting the next, which is what a list
+    // WRAPPED for height needs — a menu split into columns must keep its familiar order running down
+    // each column, or every item moves the moment the list grows past one screen.
+    bool           gridColumnMajor{false};
     // Per-child override of the parent's alignItems (-1 = inherit, else JAlignItems value).
     int            alignSelf{-1};
     float          flexGrow{0.0f};   // share of leftover main-axis space this node claims
@@ -608,6 +613,12 @@ public:
 
     // --- Grid / Form layout (mode != Flex). Row-major cells; children stretch to column width,
     //     keep their measured height; each row is as tall as its tallest child. ------------------
+    // Which cell child `i` occupies. Row-major reads across; column-major fills down each column first.
+    static void _gridCell(int i, int cols, int rows, bool colMajor, int& row, int& col) {
+        if (colMajor && rows > 0) { col = i / rows; row = i % rows; }
+        else                      { col = i % cols; row = i / cols; }
+    }
+
     void _measureGrid(NodeId nodeId, const JConstraints& c) {
         auto& L = m_layouts[nodeId];
         const auto& kids = m_hierarchy[nodeId].childrenIds;
@@ -637,7 +648,8 @@ public:
 
         std::vector<float> rowH(std::max(1, rows), 0.0f);
         for (int i = 0; i < n; ++i) {
-            const int col = i % cols, row = i / cols;
+            int col = 0, row = 0;
+            _gridCell(i, cols, rows, L.gridColumnMajor && !form, row, col);
             auto& cl = m_layouts[kids[i]];
             // Fill (default) stretches the child to the whole column; any other cellAlign lets the
             // child keep its own width (capped to the column) so it can sit left/centre/right in the cell.
@@ -676,16 +688,21 @@ public:
         std::vector<float> rowH(std::max(1, rows), 0.0f);
         for (int i = 0; i < n; ++i) {
             auto& cl = m_layouts[kids[i]];
-            colW[i % cols] = std::max(colW[i % cols], cl.boundingBox.width);
-            rowH[i / cols] = std::max(rowH[i / cols], cl.boundingBox.height + cl.margin.vertical());
+            int col = 0, row = 0;
+            _gridCell(i, cols, rows, L.gridColumnMajor && !form, row, col);
+            colW[col] = std::max(colW[col], cl.boundingBox.width);
+            rowH[row] = std::max(rowH[row], cl.boundingBox.height + cl.margin.vertical());
         }
 
+        // Walk CELLS, not children — the child that occupies a cell depends on the fill order, and a
+        // column-major grid's last column is short, so "i >= n, break the row" is not the end condition
+        // either. Ask the mapper which child belongs here and skip the cell if the list ran out.
         float cy = y + pad.top;
         for (int r = 0; r < rows; ++r) {
             float cx = x + pad.left;
             for (int col = 0; col < cols; ++col) {
-                const int i = r * cols + col;
-                if (i >= n) break;
+                const int i = (L.gridColumnMajor && !form) ? (col * rows + r) : (r * cols + col);
+                if (i >= n) { cx += colW[col] + gap; continue; }
                 auto& cl = m_layouts[kids[i]];
                 // Place a narrower-than-column child by its cell alignment (Fill children already
                 // span the column, so their offset is 0 either way).
@@ -713,7 +730,10 @@ public:
         for (int i = 0; i < n; ++i) {
             _computeMinSize(kids[i]);
             auto& cl = m_layouts[kids[i]];
-            rowMinH[i / cols] = std::max(rowMinH[i / cols], cl.minHeight + cl.margin.vertical());
+            int col = 0, row = 0;
+            _gridCell(i, cols, rows, L.gridColumnMajor && (L.mode != JLayoutMode::Form), row, col);
+            (void)col;
+            rowMinH[row] = std::max(rowMinH[row], cl.minHeight + cl.margin.vertical());
         }
         float minH = pad.vertical();
         for (int r = 0; r < rows; ++r) minH += rowMinH[r];
