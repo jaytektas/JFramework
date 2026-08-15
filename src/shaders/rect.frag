@@ -42,10 +42,17 @@ void main() {
     // Anti-aliased shape coverage
     float coverage = 1.0 - smoothstep(-0.5, 0.5, d);
 
-    // Inset border: d in range (-borderWidth, 0) → border zone
+    // Inset border: the band d in (-borderWidth, 0) is border-coloured, with the antialiasing ramp on the
+    // band's INNER edge — a half pixel either side of d = -borderWidth.
+    //
+    // The ramp used to span the whole band (smoothstep(-borderWidth, -borderWidth + 1, d)), which meant a
+    // 1px border never reached its own colour: the only pixel in the band sits at d = -0.5 and came out
+    // half fill, half border. It read as no border at all, and the first width that looked drawn was 2 —
+    // one solid row plus a half. Anchoring the ramp to the inner edge instead makes width N give N solid
+    // rows, which is what a width means.
     vec4 c = fill;
-    if (pc.borderWidth > 0.0 && border.a > 0.0 && d > -pc.borderWidth) {
-        float t = smoothstep(-pc.borderWidth, -pc.borderWidth + 1.0, d);
+    if (pc.borderWidth > 0.0 && border.a > 0.0 && d > -pc.borderWidth - 0.5) {
+        float t = smoothstep(-pc.borderWidth - 0.5, -pc.borderWidth + 0.5, d);
         c = mix(fill, border, t);
     }
 

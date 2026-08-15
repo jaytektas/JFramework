@@ -58,6 +58,16 @@ public:
         return true;
     }
 
+    // Read back what was rasterised, WITHOUT presenting — the present path talks to the window system,
+    // which a headless test has none of. This is the seam that lets the blend maths be asserted on real
+    // pixels instead of by reading the shader and believing it.
+    const std::vector<uint32_t>* surfacePixels(GpuSurfaceId sid, uint32_t& w, uint32_t& h) const {
+        const auto it = m_surfaces.find(sid);
+        if (it == m_surfaces.end()) return nullptr;
+        w = it->second.width; h = it->second.height;
+        return &it->second.pixels;
+    }
+
     void resizeSurface(GpuSurfaceId sid, uint32_t width, uint32_t height) override {
         std::lock_guard<std::mutex> lock(m_mutex);
         auto it = m_surfaces.find(sid);
@@ -172,10 +182,14 @@ public:
                         // AA coverage: 1 - smoothstep(-0.5, 0.5, d)
                         float coverage = 1.0f - std::clamp(d + 0.5f, 0.f, 1.f);
 
-                        // Border blend: smoothstep(-bw, -bw+1, d) → mix(fill, border, t)
+                        // Border blend: smoothstep(-bw-0.5, -bw+0.5, d) → mix(fill, border, t). The ramp
+                        // sits on the band's INNER edge, so width N gives N solid rows; spanning the whole
+                        // band left a 1px border at half strength and therefore invisible. Kept an exact
+                        // translation of rect.frag — the two must agree or the software path is not a
+                        // reference for the GPU one.
                         float out_r, out_g, out_b, out_a;
-                        if (hasBorder && d > -bw) {
-                            float t = std::clamp(d + bw, 0.f, 1.f);
+                        if (hasBorder && d > -bw - 0.5f) {
+                            float t = std::clamp(d + bw + 0.5f, 0.f, 1.f);
                             out_r = fr + t * (bcr - (int)fr);
                             out_g = fg + t * (bcg - (int)fg);
                             out_b = fb + t * (bcb - (int)fb);
