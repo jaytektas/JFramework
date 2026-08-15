@@ -45,6 +45,22 @@ public:
     // All live DockWidgets register here so the owner can enumerate floating panels.
     inline static std::vector<JDockWidget*> s_activeDocks;
 
+    // THE resolver for a layout snapshot, which stores TITLES because it is a serializable format (see
+    // JDockLayoutSnapshot). Restoring therefore has to turn a title back into a panel, and every app that
+    // ever did so wrote its own hand-maintained title→panel list — which is a list that must be edited
+    // every time a panel is ADDED, in a file far from where panels are created, with no compiler and no
+    // test to say it was missed. A panel absent from that list resolves to null, restore() silently skips
+    // it, and the panel is left in no host at all: gone from the window until the layout is reset.
+    //
+    // The registry already knows every live panel, so ask it. A panel that exists is resolvable, and there
+    // is no second list to forget. Titles are the snapshot's identity, so a duplicate title is ambiguous
+    // there too — first match wins, same as the lists this replaces.
+    static JDockWidget* byTitle(std::string_view t) {
+        for (JDockWidget* d : s_activeDocks)
+            if (d && d->title() == t) return d;
+        return nullptr;
+    }
+
     static constexpr float TITLE_H     = 30.0f;
     static constexpr float BTN_SZ      = 16.0f;  // close / pin button size
     static constexpr float BORDER_R    = 8.0f;

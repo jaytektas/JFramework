@@ -1061,10 +1061,14 @@ public:
     }
 
     // Rebuild the tree from a snapshot.
-    // `resolver(title)` must return the JDockWidget* to insert, or nullptr to skip.
+    // `resolver(title)` returns the JDockWidget* to insert, or nullptr to SKIP that panel — and skipping
+    // means the panel ends up in no host, so a resolver that misses a title makes the panel disappear.
+    // It therefore defaults to the live-panel registry, which cannot miss one. Pass your own only to
+    // deliberately withhold panels (e.g. leaving a floating panel in its own window), and build it on
+    // JDockWidget::byTitle rather than a second hand-written list.
     // The host rect is NOT re-applied — call computeLayout() after restore().
     bool restore(const JDockLayoutSnapshot& snap,
-                 const std::function<JDockWidget*(std::string_view)>& resolver)
+                 const std::function<JDockWidget*(std::string_view)>& resolver = &JDockWidget::byTitle)
     {
         m_nodes.clear();
         m_nextId       = 0;
