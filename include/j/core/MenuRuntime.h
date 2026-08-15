@@ -260,7 +260,14 @@ private:
                 else                                      y = wa.y + wa.h - h;
             }
             x = std::max(wa.x, x); y = std::max(wa.y, y);   // clamp (a menu taller/wider than the work area)
-            JLOGC("menu.place", JLogLevel::Debug) << "place sx=" << sx << " sy=" << sy
+            // A menu that ends up off the work area is a BUG, and one nobody can diagnose from a
+            // screenshot: the same picture results from a mis-measured height, a wrong work area, or a
+            // move that did not take. So say so unprompted, with all four inputs — at Warn, because it
+            // means items are unreachable, and needing an env var set in advance to catch it means it is
+            // only ever caught by someone who already suspected it.
+            const bool off = (y + h > wa.y + wa.h) || (x + w > wa.x + wa.w) || y < wa.y || x < wa.x;
+            JLOGC("menu.place", off ? JLogLevel::Warn : JLogLevel::Debug)
+                << (off ? "OFF-SCREEN " : "") << "place sx=" << sx << " sy=" << sy
                 << " w=" << w << " h=" << h << " wa=(" << wa.x << "," << wa.y << " " << wa.w << "x" << wa.h
                 << ") flipY=" << flipY << " -> x=" << x << " y=" << y;
             if (x != sx || y != sy) popup->window().setPosition(x, y);
