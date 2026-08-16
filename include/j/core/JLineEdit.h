@@ -57,6 +57,14 @@ public:
     bool clearButtonVisible() const { return m_clearButton && !m_core.text().empty() && !m_core.isReadOnly(); }
     void setPlaceholderText(const std::string& p) { m_placeholder = p; m_graph.invalidateNode(m_nodeId, DirtySelf); }
 
+    // Which edge the text sits against when it is SHORTER than the field. A number belongs on the right —
+    // a column of them lines up on the decimal point, and a field that shows a value left-aligned where
+    // the same value is drawn right-aligned everywhere else makes the number appear to jump when you
+    // click it. Overflowing text ignores this and scrolls with the caret, as it must.
+    enum Alignment { AlignLeft, AlignRight };
+    void      setAlignment(Alignment a) { if (m_align == a) return; m_align = a; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    Alignment alignment() const { return m_align; }
+
     // ---- Echo mode -------------------------------------------------------------------------------------
     // Normal / Password (bullets) / NoEcho (blank) / PasswordEchoOnEdit (plain while focused).
     enum EchoMode { Normal, Password, NoEcho, PasswordEchoOnEdit };
@@ -172,7 +180,7 @@ public:
         if (caretW - m_scrollX < 0.0f)   m_scrollX = caretW;
         if (m_scrollX > fullW - innerW)  m_scrollX = fullW - innerW;
         if (m_scrollX < 0.0f)            m_scrollX = 0.0f;
-        const float ox = innerX - m_scrollX;
+        const float ox = _textOriginX();
 
         buf.pushClip(innerX, b.y, innerW, b.height);
 
@@ -187,7 +195,9 @@ public:
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             if (raw.empty()) {
                 uint8_t pc[4] = {Colors::FieldPlaceholder[0], Colors::FieldPlaceholder[1], Colors::FieldPlaceholder[2], 160};
-                JTextHelper::pushText(buf, innerX, ty, m_placeholder, pc, innerW);
+                const float px = (m_align == AlignRight)
+                               ? innerX + innerW - JTextHelper::measureWidth(m_placeholder) : innerX;
+                JTextHelper::pushText(buf, px, ty, m_placeholder, pc, innerW);
             } else {
                 uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 220};
                 JTextHelper::pushText(buf, ox, ty, disp, tc, 0.0f);
@@ -252,11 +262,31 @@ private:
 
     // Nearest character boundary to a screen x — click + drag-select. Delegates the scan to the core with a
     // measure that applies the echo, so bullets and plain text hit-test correctly.
-    size_t _caretFromX(float mx) const {
+    // The text box inside the frame: the padded rect, less the ✕'s strip when one is shown.
+    void _innerBox(float& innerX, float& innerW) const {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        const float innerX = b.x + textPadding();
+        const float pad = textPadding();
+        innerX = b.x + pad;
+        innerW = b.width - 2.0f * pad;
+        if (clearButtonVisible()) innerW -= _clearBoxSize() + 4.0f;
+    }
+
+    // WHERE THE RUN STARTS. The paint and the caret hit-test must agree to the pixel — a click lands on the
+    // character it looks like it landed on only because both ask this. Right-aligned text that OVERFLOWS
+    // falls back to scrolling with the caret: there is no right edge to sit against once it does not fit.
+    float _textOriginX() const {
+        float innerX = 0.f, innerW = 0.f;
+        _innerBox(innerX, innerW);
+        if (m_align == AlignRight && JTextHelper::hasAtlas()) {
+            const float fullW = JTextHelper::measureWidth(_echo(m_core.text()));
+            if (fullW <= innerW) return innerX + innerW - fullW;
+        }
+        return innerX - m_scrollX;
+    }
+
+    size_t _caretFromX(float mx) const {
         if (!JTextHelper::hasAtlas() || m_core.text().empty()) return m_core.text().size();
-        const float target = mx - innerX + m_scrollX;   // the run is drawn at innerX - m_scrollX; add it back
+        const float target = mx - _textOriginX();
         return m_core.caretAtX(target, [this](size_t end) {
             return JTextHelper::measureWidth(_echo(m_core.text().substr(0, end)));
         });
@@ -301,6 +331,7 @@ private:
     JTextEditCore m_core;              // the shared text-editing model (buffer/caret/selection/keys)
     std::string m_placeholder;
     float       m_scrollX = 0.f;
+    Alignment   m_align{AlignLeft};   // which edge short text sits against — see setAlignment
     bool        m_selecting = false;
     bool        m_clearButton = false;   // opt-in ✕ (see setClearButtonEnabled)
     bool        m_clearHover  = false;
