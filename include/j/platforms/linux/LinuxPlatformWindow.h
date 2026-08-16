@@ -573,6 +573,16 @@ public:
     void setPosition(int x, int y) override {
         m_screenX = x;
         m_screenY = y;
+        // This IS the app asking for a position, so it becomes the one the placement correction defends.
+        //
+        // m_requestedX/Y were set once, at construction, and never updated. The correction above (on the
+        // first ConfigureNotify: "the WM put it somewhere else, move it back") therefore fought every
+        // deliberate move made between creating a window and its first configure event, and put the window
+        // back where it was CREATED. Menu placement is exactly that sequence — a popup is created at the
+        // click, its items added, measured, and only then moved to fit the screen — so the move was undone
+        // every time and a menu opened near the bottom of the screen always hung off it. Nothing said so:
+        // the placement arithmetic was right, and it only ever checked its own answer.
+        m_requestedX = x; m_requestedY = y; m_placementRequested = true;
         uint32_t vals[] = { static_cast<uint32_t>(x), static_cast<uint32_t>(y) };
         xcb_configure_window(m_connection, m_windowId,
             XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y, vals);

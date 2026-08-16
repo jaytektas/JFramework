@@ -126,7 +126,7 @@ public:
             }
 
             if (dismissed) closeAll();
-            else for (auto& p : m_active) if (p->isViewable()) { JPrimitiveBuffer b; p->render(hal, b); }
+            else for (auto& p : m_active) if (p->isViewable()) { _auditPlacement(p.get()); JPrimitiveBuffer b; p->render(hal, b); }
         }
 
         if (!m_floating.empty()) {
@@ -156,6 +156,7 @@ public:
     void closeAll() {
         if (m_hal) for (auto& p : m_active) p->destroySurface(*m_hal);
         m_active.clear();
+        m_placeAudited.clear();   // the pointers die with the popups; never compare against a freed one
         if (m_bar) m_bar->closeMenu();
     }
 
@@ -275,6 +276,34 @@ private:
         return popup;
     }
 
+    // Is the popup actually on the screen, now that it IS on the screen?
+    //
+    // The check inside buildMenuPopup marks its own homework: it warns when the rectangle it just computed
+    // falls outside the work area, which only ever catches arithmetic. It cannot catch the case where the
+    // sum was right and the window is somewhere else — a size that grew after placement, a move that did
+    // not take, a work area read before the desktop's panels were up. That case is INVISIBLE: the log
+    // stays silent while the menu hangs off the bottom of the screen, so a report of "it still runs off"
+    // has nothing to work from and the arithmetic reads as correct because it is.
+    //
+    // So ask the WINDOW where it ended up, once, on the first frame it is viewable, and warn on what is
+    // actually there. Both sizes are logged because they answer different questions: the popup's own
+    // (what placement used) against the window's (what the server has), which is the whole difference
+    // between "we placed it wrong" and "it did not go where we put it".
+    void _auditPlacement(JPopupWindow* p) {
+        for (const void* seen : m_placeAudited) if (seen == p) return;
+        m_placeAudited.push_back(p);
+        const int x = p->window().screenX(), y = p->window().screenY();
+        const int w = static_cast<int>(p->width()), h = static_cast<int>(p->height());
+        const auto wa = p->window().workAreaAt(x, y);
+        const bool off = x < wa.x || y < wa.y || x + w > wa.x + wa.w || y + h > wa.y + wa.h;
+        JLOGC("menu.place", off ? JLogLevel::Warn : JLogLevel::Debug)
+            << (off ? "OFF-SCREEN AS MAPPED " : "mapped ") << "at=(" << x << "," << y << ")"
+            << " popup=" << w << "x" << h
+            << " window=" << p->window().width() << "x" << p->window().height()
+            << " wa=(" << wa.x << "," << wa.y << " " << wa.w << "x" << wa.h << ")"
+            << (off ? "  <- the menu is off the work area where it is DRAWN" : "");
+    }
+
     // Where item `a`'s submenu opens: preferred top-left, plus the edges to flip about if it doesn't fit.
     // Preferred is the item's top-right, pulled back by kSubOverlap so the submenu overlaps its parent by a
     // couple of px — the diagonal mouse path to the submenu then never crosses a gap that would count as
@@ -379,6 +408,9 @@ private:
     std::vector<std::unique_ptr<JPopupWindow>> m_active;     // modal dropdown stack
     std::vector<FloatNode>                     m_floating;   // torn-off menus + their submenu cascades
     std::vector<std::function<void()>>         m_deferred;   // run after polling
+    // Popups whose mapped geometry has already been audited (see _auditPlacement) — once each, not per
+    // frame. Raw pointers, only ever compared, and cleared with the stack that owns them.
+    std::vector<const void*>                   m_placeAudited;
     bool                              m_isPolling{false};
 };
 
