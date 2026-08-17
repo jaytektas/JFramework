@@ -270,9 +270,14 @@ private:
     }
     // The field fills everything left of the suffix and the steppers. Run before any hit-test as well as every
     // paint, so a click maps to exactly the text the user can see even on the frame the box was moved.
+    // THE FRAME ENCLOSES THE NUMBER AND THE UNIT. The field used to stop short of the suffix, so a box read
+    // "[400.0] RPM" with the unit stranded outside its own border — the number looked like the widget and the
+    // unit like something next to it. The field now runs to the steppers and RESERVES the suffix's width, so
+    // the text still cannot slide under the unit.
     void _layout() {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        m_edit->setBounds({ b.x, b.y, std::max(8.0f, b.width - _btnW() - _suffixW()), b.height });
+        m_edit->setRightInset(_suffixW());
+        m_edit->setBounds({ b.x, b.y, std::max(8.0f, b.width - _btnW()), b.height });
     }
 
     // Only characters the numeric grammar can use are offered to the field; the validator has the final say.

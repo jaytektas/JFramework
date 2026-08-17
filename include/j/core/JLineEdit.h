@@ -61,6 +61,12 @@ public:
     // a column of them lines up on the decimal point, and a field that shows a value left-aligned where
     // the same value is drawn right-aligned everywhere else makes the number appear to jump when you
     // click it. Overflowing text ignores this and scrolls with the caret, as it must.
+    // A strip on the RIGHT the text keeps clear of, inside the frame. The ✕ already reserved one inline;
+    // this is the same thing, stated by a host that draws something of its own in there — a spin box's unit
+    // suffix, so the field's border can enclose the number AND the unit instead of stopping between them.
+    void  setRightInset(float px) { if (m_rightInset == px) return; m_rightInset = px; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    float rightInset() const { return m_rightInset; }
+
     enum Alignment { AlignLeft, AlignRight };
     void      setAlignment(Alignment a) { if (m_align == a) return; m_align = a; m_graph.invalidateNode(m_nodeId, DirtySelf); }
     Alignment alignment() const { return m_align; }
@@ -161,13 +167,9 @@ public:
                           JStyle::current().hint(JStyleHint::ControlRadius),
                           jstyle::borderW(focused), jstyle::border(o).data());
 
-        const float pad = textPadding();
-        float innerX = b.x + pad;
-        float innerW = b.width - 2.0f * pad;
-        float midY   = b.y + (b.height - 7.0f) * 0.5f;
-        // Give the ✕ its own strip: the text run is clipped to innerW, so without this the last characters
-        // would slide under the glyph and be unreadable at exactly the moment you want to read them.
-        if (clearButtonVisible()) innerW -= _clearBoxSize() + 4.0f;
+        float innerX = 0.f, innerW = 0.f;
+        _innerBox(innerX, innerW);                    // ONE inner box: the ✕'s strip, the host's inset, the padding
+        const float midY = b.y + (b.height - 7.0f) * 0.5f;
 
         const std::string& raw = m_core.text();
         const std::string disp = _echo(raw);
@@ -269,6 +271,8 @@ private:
         innerX = b.x + pad;
         innerW = b.width - 2.0f * pad;
         if (clearButtonVisible()) innerW -= _clearBoxSize() + 4.0f;
+        innerW -= m_rightInset;                       // whatever the host draws in there (see setRightInset)
+        if (innerW < 8.0f) innerW = 8.0f;
     }
 
     // WHERE THE RUN STARTS. The paint and the caret hit-test must agree to the pixel — a click lands on the
@@ -331,6 +335,7 @@ private:
     JTextEditCore m_core;              // the shared text-editing model (buffer/caret/selection/keys)
     std::string m_placeholder;
     float       m_scrollX = 0.f;
+    float       m_rightInset = 0.f;   // reserved strip inside the frame (see setRightInset)
     Alignment   m_align{AlignLeft};   // which edge short text sits against — see setAlignment
     bool        m_selecting = false;
     bool        m_clearButton = false;   // opt-in ✕ (see setClearButtonEnabled)
