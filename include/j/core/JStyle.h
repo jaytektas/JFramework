@@ -349,7 +349,29 @@ inline void   JStyle::apply(JStyle t) { current() = std::move(t); }
 //   Window/Base  <- Surface1     Button      <- Surface2     ToolTipBase <- Surface3
 //   *Text        <- TextPrimary  Placeholder <- TextSecondary
 //   Highlight/Accent/Link <- Accent          Border      <- Border
+// Thread-local SCOPED palette override — the local counterpart to the global paletteOverride. Push a
+// JPaletteScope around a paint subtree and every palette() call inside resolves against it, with no
+// per-widget threading; it is restored on scope exit and wins over the global override. Used e.g. to tint
+// one hosted control's Base (field) surface for an error state without disturbing any other widget.
+namespace jstyle_detail {
+inline const JPalette*& scopedPalette() { static thread_local const JPalette* p = nullptr; return p; }
+}
+
+// RAII installer for a scoped palette. The palette must outlive the scope.
+class JPaletteScope {
+public:
+    explicit JPaletteScope(const JPalette& p) : prev_(jstyle_detail::scopedPalette()) {
+        jstyle_detail::scopedPalette() = &p;
+    }
+    ~JPaletteScope() { jstyle_detail::scopedPalette() = prev_; }
+    JPaletteScope(const JPaletteScope&) = delete;
+    JPaletteScope& operator=(const JPaletteScope&) = delete;
+private:
+    const JPalette* prev_;
+};
+
 inline JPalette JStyle::palette() const {
+    if (const JPalette* s = jstyle_detail::scopedPalette()) return *s;   // a local scope wins over all
     if (paletteOverride) return *paletteOverride;   // caller-installed custom palette wins
     return palette_detail::build(
         /*Window*/          JColor::fromArray(Surface1),
