@@ -672,7 +672,12 @@ public:
                 // dock: click the dictionary's search field and the press went somewhere else entirely,
                 // so the field could not be typed into until something happened to clear it. Self-heal
                 // from the platform's own button state, which cannot lie about whether a drag is live.
-                if (m_contentCapture && !pressed && !m_window->isLeftButtonDown()) {
+                // …but NOT on the frame carrying the physical release: that release still has to be dispatched
+                // to the captured dock (below) before the capture is dropped at `releasedRaw` further down. The
+                // self-heal is for a STALE capture — a button that is up on a frame we did NOT see go up — so it
+                // must exclude the up-frame itself, or a release outside the dock clears the capture first and
+                // then routes the up to whatever dock sits under the cursor, and the presser never sees its release.
+                if (m_contentCapture && !pressed && !releasedRaw && !m_window->isLeftButtonDown()) {
                     JLOGC("focus", JLogLevel::Debug) << "content capture released (button is up) — was '"
                                                      << m_contentCapture->title() << "'";
                     m_contentCapture = nullptr;
@@ -696,8 +701,9 @@ public:
                     // centre — including the RELEASE — so a gesture finished over a dock (scroll-thumb drag,
                     // marquee, widget move) left the surface stuck mid-drag, still following a button that was
                     // already up. Wheel stays position-gated: it is not part of the press gesture.
-                    if (m_centreCapture && !pressed && !m_window->isLeftButtonDown())
+                    if (m_centreCapture && !pressed && !releasedRaw && !m_window->isLeftButtonDown())
                         m_centreCapture = false;                 // same self-heal as the dock capture above
+                                                                 // (excl. the release frame — see the note there)
                     if (pressed && inside && !m_centreCapture) m_centreCapture = true;
                     if (inside || m_centreCapture) {
                         cw->handleMouseMove(mx, my);
