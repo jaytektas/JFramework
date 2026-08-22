@@ -1258,15 +1258,27 @@ private:
         constexpr float kItemH = 28.f;
         constexpr int   kEdgePad = 8;      // never touch the screen edge
 
-        // HOW TALL THE LIST MAY BE. A definition's enum can be enormous — 176 pin names on a rusEFI
-        // channel — and a popup sized to its content simply ran off the bottom of the screen: the items
-        // past the fold could not be seen, scrolled to, or picked. Fit it to the room actually available,
-        // opening upward when there is more room up there, and scroll whatever still does not fit.
+        // HOW TALL THE LIST MAY BE. Two limits, and the list takes the smaller.
+        //
+        // The room available: a definition's enum can be enormous — 176 pin names on a rusEFI channel, 314
+        // bus signals on a table axis — and a popup sized to its content ran off the bottom of the screen,
+        // where the items past the fold could not be seen, scrolled to, or picked. So fit the room, open
+        // upward when there is more of it up there, and scroll the remainder.
+        //
+        // …and a SENSIBLE size. Fitting the screen is not the same as being usable: on a tall display the
+        // same 314 signals became a list seventy-odd rows long running the full height of the monitor,
+        // which is a wall of text to read and a very long way to drag a scrollbar. Cap it at a normal
+        // dropdown's worth of rows and let the scroll area carry the rest — the keyboard, the scroll wheel
+        // and open-on-current-selection all already work inside it.
+        constexpr int kMaxVisibleItems = 12;
         const auto [scrW, scrH] = popup->window().screenSize();
         const int roomBelow = scrH - sy - kEdgePad;
         const int roomAbove = (wsy + static_cast<int>(bb.y)) - kEdgePad;
-        const bool upward   = roomBelow < roomAbove && roomBelow < static_cast<int>(items.size() * kItemH);
-        const int  maxH     = std::max(kItemH * 3.f, static_cast<float>(upward ? roomAbove : roomBelow));
+        const float wanted  = std::min(items.size() * kItemH, kMaxVisibleItems * kItemH);
+        const bool upward   = roomBelow < roomAbove && roomBelow < static_cast<int>(wanted);
+        const int  maxH     = static_cast<int>(std::min(
+                                  std::max(kItemH * 3.f, static_cast<float>(upward ? roomAbove : roomBelow)),
+                                  wanted));
         const bool scrolls  = items.size() * kItemH > static_cast<float>(maxH);
 
         auto wire = [this, cb](JPopupItem* pi, int i) {
