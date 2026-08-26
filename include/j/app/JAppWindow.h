@@ -64,6 +64,7 @@
 #include <chrono>
 #include <thread>
 #include <functional>
+#include <typeinfo>   // openModal tags each modal with its type, to refuse re-pushing the same one
 #include <atomic>
 #include <memory>
 #include <string>
@@ -300,7 +301,7 @@ public:
     // surface) and returns false once the dialog has closed, at which point `destroy` is called.
     // The app owns the dialog object/lifetime; this only drives it. Used for Preferences, etc.
     void setModalDialog(std::function<bool(JGpuHal&, JPrimitiveBuffer&)> poll, std::function<void(JGpuHal&)> destroy,
-                        uintptr_t nativeHandle = 0) {
+                        uintptr_t nativeHandle = 0, const char* kind = nullptr) {
         // The opener (main window, or a modal already on the stack) grabbed the pointer on the very
         // button-press that is opening this dialog, and — because it is about to be frozen out of the
         // pump (only the TOP of the stack polls) — will never see its own release to drop that grab.
@@ -314,7 +315,7 @@ public:
 #endif
         // nativeHandle = this modal's OWN window id; a nested child pushed later parents to it (see
         // _parentForChildModal) so the WM stacks the child above its opener rather than the root window.
-        m_modalStack.push_back({ std::move(poll), std::move(destroy), nativeHandle });   // push: modals STACK, so a modal can open another (e.g. Axis Setup -> channel picker) without destroying its parent
+        m_modalStack.push_back({ std::move(poll), std::move(destroy), nativeHandle, kind });   // push: modals STACK, so a modal can open another (e.g. Axis Setup -> channel picker) without destroying its parent
     }
 
     // The parent window for a NEW modal: the modal currently on top of the stack (its opener) so the WM
@@ -341,6 +342,16 @@ public:
     // static kW/kH + pollAndRender + destroySurface. The dialog lives for as long as it's open.
     template <typename T, typename... Args>
     void openModal(Args&&... args) {
+        // THE SAME PICKER, REOPENED, IS THE SAME REQUEST -- not a nested one. The stack is deliberately a
+        // stack so a modal can open a CHILD (Axis Setup -> channel picker) without destroying its parent,
+        // and nothing distinguished that from clicking the same button twice. So a second click built a
+        // second Select Source over the first, and a third built another: you closed them one at a time to
+        // get back, and every one of them held its dialog alive behind the one you could see.
+        //
+        // Refused by TYPE, and only against the TOP of the stack: a genuinely different child still opens,
+        // and a picker that opens the same type deeper down (an editor reopening from within a dialog it
+        // spawned) is unaffected.
+        if (!m_modalStack.empty() && m_modalStack.back().kind == typeid(T).name()) return;
         m_window->refreshScreenPosition();   // see the dialog-placement note: the cached origin can be stale
         const int cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(T::kW)) / 2;
         const int cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(T::kH)) / 2;
@@ -349,7 +360,7 @@ public:
                                        (typename T::NativeWinHandleType)(_parentForChildModal()));
         const uintptr_t handle = _lastCreatedNativeId();   // dlg just created its window -> its own id
         setModalDialog([dlg](JGpuHal& h, JPrimitiveBuffer& b) { return dlg->pollAndRender(h, b); },
-                       [dlg](JGpuHal& h) { dlg->destroySurface(h); }, handle);
+                       [dlg](JGpuHal& h) { dlg->destroySurface(h); }, handle, typeid(T).name());
     }
 
     // The window's menu bar — built lazily on first call (reserves a 28px strip below the
@@ -619,12 +630,28 @@ public:
             // the flag every frame; only act when no menu is already open.
             const bool rightPressed = m_window->consumeRightPress();
             if (rightPressed && !menusOpen && !chromeAte) {
-                for (auto it = JWidget::s_activeWidgets.rbegin(); it != JWidget::s_activeWidgets.rend(); ++it) {
+                // WALK A SNAPSHOT, AND RE-CHECK LIVENESS EVERY TIME. prepareContextMenu() is not a
+                // query: a widget may build its content lazily the first time it is asked (the studio's
+                // PropertiesDock builds an entire property form) or rebuild menu rows, and EVERY JWidget
+                // ctor push_back()s into s_activeWidgets while every dtor erase()s from it. Iterating the
+                // registry itself meant one lazily-built dock reallocated the vector under this loop, so
+                // the next dereference read a freed widget and isVisible() followed its dangling scene-
+                // graph reference into freed memory. It only bit when the click happened to be the one
+                // that triggered the build, which is exactly the shape of an intermittent right-click
+                // crash. The snapshot survives reallocation; the liveness check covers destruction.
+                const std::vector<JWidget*> scan(JWidget::s_activeWidgets);
+                const auto alive = [](JWidget* w) {
+                    return w && std::find(JWidget::s_activeWidgets.begin(),
+                                          JWidget::s_activeWidgets.end(), w) != JWidget::s_activeWidgets.end();
+                };
+                for (auto it = scan.rbegin(); it != scan.rend(); ++it) {
                     JWidget* w = *it;
+                    if (!alive(w)) continue;              // destroyed by an earlier prepareContextMenu()
                     // prepareContextMenu FIRST so a widget can pick its menu from the click position (a surface
                     // sets the table/curve menu for whatever control is under the cursor), THEN check contextMenu().
-                    if (w && w->isVisible() && w->hitTest(mx, my)) w->prepareContextMenu(mx, my);
-                    if (w && w->isVisible() && w->contextMenu() && w->hitTest(mx, my)) {
+                    if (w->isVisible() && w->hitTest(mx, my)) w->prepareContextMenu(mx, my);
+                    if (!alive(w)) continue;              // ...or by its own
+                    if (w->isVisible() && w->contextMenu() && w->hitTest(mx, my)) {
                         if (JMenuManager::instance().onOpenMenu)
                             JMenuManager::instance().onOpenMenu(
                                 w->contextMenu(),
@@ -1375,6 +1402,13 @@ private:
     // JFontButton picker: open a font dialog centred over the window, seeded with the button's spec;
     // applies to the button only on OK. Driven via the generic modal hook (setModalDialog).
     void openFontPicker(JFontButton* b) {
+        // ONE AT A TIME. Unlike the colour picker -- which is a dedicated member, replaced when reopened --
+        // this goes onto the generic modal STACK, and that stack is deliberately a stack so a modal can
+        // open a child without destroying its parent. Which means nothing here refused a second one: every
+        // click on the button pushed another font picker, and you closed them one at a time to get back.
+        // A picker reopened while it is already open is the same request, not a nested one.
+        if (m_fontPickerOpen) return;
+        m_fontPickerOpen = true;
         // Position + parent against the button's OWN window (a button in a modal dialog declares its host in
         // its scene graph); fall back to centring over this window.
         const auto& host = b->sceneGraph().hostWindow();
@@ -1393,7 +1427,7 @@ private:
             [target](std::string spec) { target->pick(spec); });
         const uintptr_t handle = _lastCreatedNativeId();   // the picker's own window id (for nested-modal parenting)
         setModalDialog([dlg](JGpuHal& h, JPrimitiveBuffer& bf) { return dlg->pollAndRender(h, bf); },
-                       [dlg](JGpuHal& h) { dlg->destroySurface(h); }, handle);
+                       [dlg, this](JGpuHal& h) { dlg->destroySurface(h); m_fontPickerOpen = false; }, handle);
     }
 
     // Per-frame: poll/render the open combo dropdown, and drain the JDialogManager queue into
@@ -1597,6 +1631,7 @@ private:
     std::unique_ptr<JPopupWindow>    m_comboPopup;
     JComboBox*                       m_comboOwner{nullptr};
     std::unique_ptr<JColorPickerDialog> m_colorDialog;          // open colour dialog (own surface)
+    bool m_fontPickerOpen = false;   // openFontPicker: refuse a second push of the SAME picker
     // Generic app-modal STACK (Preferences, pickers, Axis Setup…): only the top is pumped, so one modal
     // can open another. Pushed by setModalDialog, popped when its poll returns false. Each entry also
     // carries the modal's own native window id so a nested child parents to its opener (_parentForChildModal).
@@ -1604,6 +1639,7 @@ private:
         std::function<bool(JGpuHal&, JPrimitiveBuffer&)> poll;
         std::function<void(JGpuHal&)>                    destroy;
         uintptr_t                                        handle{0};   // this modal's own native window id
+        const char*                                      kind{nullptr};   // typeid name — see openModal's guard
     };
     std::vector<JModalEntry> m_modalStack;
     JPopupWindow*                    m_comboCloseReq{nullptr};
