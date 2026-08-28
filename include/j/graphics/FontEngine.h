@@ -226,6 +226,14 @@ public:
         packRange(0x2026, 0x2026); // ellipsis (…)
         packRange(0x2190, 0x2195); // arrows ← ↑ → ↓ ↔ ↕ (↔/↕ = table axis-name bar; the toolbar's "Verify ↔ ECU" etc.)
         packRange(0x25CF, 0x25CF); // black circle (●) — present in DejaVu/Noto (absent in Ubuntu)
+        // The three Greek letters engineering units are actually written with: λ (lambda — the mixture
+        // an ECU targets, and the reason this range exists), Ω (resistance) and Δ (a difference). Packed
+        // individually rather than as the Greek block: the atlas is a fixed 512x256 shelf and fifty-odd
+        // glyphs nobody types would cost the space that arrows and bullets are using. Without them the
+        // unit renders as tofu, which is what every lambda gauge in the studio was showing.
+        packRange(0x0394, 0x0394); // Δ
+        packRange(0x03A9, 0x03A9); // Ω
+        packRange(0x03BB, 0x03BB); // λ
 
         atlas.valid = true;
         qCInfo(jf::Log::Graphics) << "JFontEngine: atlas " << atlasW << "x" << atlasH
