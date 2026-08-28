@@ -229,6 +229,10 @@ public:
     // base font changes. This is what makes pushTextScaled draw large text CRISP (a real glyph at that
     // size, Qt-style) instead of stretching the 14px base bitmap into lego bricks.
     void _wireSizedGlyphCache() {
+        // Whatever the last window/backend left in the cache belongs to ITS engine and ITS atlas ids —
+        // including the id-less entries recording sizes that backend could not hold. This one may be able
+        // to, so start it empty rather than inheriting another HAL's answers.
+        JTextHelper::invalidateSized();
         JTextHelper::s_buildSized = [this](const std::string& facePath, float px) -> JFontAtlas {
             uint32_t dim = static_cast<uint32_t>(std::ceil(px * 13.0f));   // room for the full glyph set at px
             dim = std::clamp(dim, 512u, 2048u);

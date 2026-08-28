@@ -96,6 +96,35 @@ public:
         return true;
     }
 
+    // SIZE-SPECIFIC GLYPH ATLASES. The base class returns 0 for these ("unsupported"), and only the
+    // Vulkan backend overrode them — which was not merely a missing feature here. JTextHelper caches a
+    // baked atlas ONLY once the upload hands back an id, so a 0 meant every frame that drew text at a
+    // non-base size rasterised the whole glyph set again and threw it away: 669 rebuilds of the same
+    // 512x512 atlas in one studio session, all of them work the cache exists to do once. Keeping the
+    // bitmaps costs a copy each and makes large text crisp here too, instead of an upscaled 14px base.
+    uint32_t createFontAtlas(const uint8_t* pixels, uint32_t w, uint32_t h) override {
+        if (!pixels || w == 0 || h == 0)
+            return 0;
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const uint32_t id = m_nextAtlasId++;
+        SoftwareFontAtlas& a = m_sizedAtlases[id];
+        a.pixels.assign(pixels, pixels + (static_cast<size_t>(w) * h));
+        a.w = w;
+        a.h = h;
+        return id;
+    }
+
+    void freeFontAtlases() override {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_sizedAtlases.clear();
+    }
+
+    void freeFontAtlas(uint32_t id) override {
+        if (id == 0) return;                       // 0 is the base atlas, not one of ours
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_sizedAtlases.erase(id);
+    }
+
     inline uint32_t packColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
         return (static_cast<uint32_t>(a) << 24) |
                (static_cast<uint32_t>(r) << 16) |
@@ -312,8 +341,19 @@ public:
                     }
                 }
             } else if (cmd.kind == JPrimitiveBuffer::JDrawCommand::JKind::Text) {
-                if (m_fontAtlas.empty()) continue;
                 const auto& call = cmd.text;
+                // Which atlas this run of glyphs was laid out against — the UVs belong to that one, so
+                // drawing them from the base atlas would sample the wrong glyphs entirely.
+                const std::vector<uint8_t>* atlasPx = &m_fontAtlas;
+                uint32_t atlasW = m_fontAtlasW, atlasH = m_fontAtlasH;
+                if (call.atlasId != 0) {
+                    const auto sized = m_sizedAtlases.find(call.atlasId);
+                    if (sized == m_sizedAtlases.end()) continue;   // freed under us: skip, never mis-sample
+                    atlasPx = &sized->second.pixels;
+                    atlasW = sized->second.w;
+                    atlasH = sized->second.h;
+                }
+                if (atlasPx->empty()) continue;
                 
                 for (size_t i = 0; i < call.verts.size(); i += 6) {
                     if (i + 5 >= call.verts.size()) break;
@@ -335,14 +375,14 @@ public:
                     for (int py = drawY1; py < drawY2; ++py) {
                         float ty = (y2 - y1 > 0.001f) ? (py - y1) / (y2 - y1) : 0.f;
                         float v = v0 + ty * (v1 - v0);
-                        int texY = std::clamp(static_cast<int>(v * m_fontAtlasH), 0, static_cast<int>(m_fontAtlasH) - 1);
+                        int texY = std::clamp(static_cast<int>(v * atlasH), 0, static_cast<int>(atlasH) - 1);
                         
                         for (int px = drawX1; px < drawX2; ++px) {
                             float tx = (x2 - x1 > 0.001f) ? (px - x1) / (x2 - x1) : 0.f;
                             float u = u0 + tx * (u1 - u0);
-                            int texX = std::clamp(static_cast<int>(u * m_fontAtlasW), 0, static_cast<int>(m_fontAtlasW) - 1);
+                            int texX = std::clamp(static_cast<int>(u * atlasW), 0, static_cast<int>(atlasW) - 1);
                             
-                            uint8_t alpha = m_fontAtlas[texY * m_fontAtlasW + texX];
+                            uint8_t alpha = (*atlasPx)[texY * atlasW + texX];
                             if (alpha > 0) {
                                 uint8_t blended_a = (static_cast<uint32_t>(call.color[3]) * alpha) / 255;
                                 uint32_t& dest = surf.pixels[py * surf.width + px];
@@ -453,6 +493,12 @@ private:
     std::vector<uint8_t> m_fontAtlas;
     uint32_t m_fontAtlasW{0};
     uint32_t m_fontAtlasH{0};
+
+    // The size-specific atlases, by the id handed to JTextCall::atlasId. Ids never repeat within a HAL,
+    // so a stale id from a freed atlas is a miss (skipped) rather than someone else's glyphs.
+    struct SoftwareFontAtlas { std::vector<uint8_t> pixels; uint32_t w{0}, h{0}; };
+    std::map<uint32_t, SoftwareFontAtlas> m_sizedAtlases;
+    uint32_t m_nextAtlasId{1};
 
     std::unordered_map<TextureHandle, SoftwareTexture> m_textures;
     TextureHandle m_nextTexHandle{1};

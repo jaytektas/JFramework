@@ -49,21 +49,31 @@ public:
 
     // Get-or-build the glyph atlas for `facePath` (empty = default face) whose native size is `px`. Returns
     // nullptr if the size machinery isn't wired or the bake/upload failed (caller falls back to base scaling).
+    //
+    // A FAILURE IS REMEMBERED TOO. This used to return before the cache insert whenever the bake or the
+    // upload failed, so a backend that cannot hold sized atlases (the base GpuHal answers 0, which the
+    // software renderer inherited) rasterised the whole glyph set on EVERY text draw and threw it away —
+    // hundreds of rebuilds of one atlas per session, each of them work that was already known to be
+    // useless. The answer "this size is not available" is as cacheable as the atlas itself: it is stored
+    // as an id-less entry, which the caller reads exactly as it read the old nullptr.
     static const SizedAtlas* sizedFor(const std::string& facePath, int px) {
         if (!s_buildSized || !s_uploadSized) return nullptr;
         auto& cache = sizedCache();
         const std::pair<std::string, int> key{ facePath, px };
-        if (auto it = cache.find(key); it != cache.end()) return &it->second;
+        if (auto it = cache.find(key); it != cache.end())
+            return it->second.id ? &it->second : nullptr;      // id 0 = known-unavailable, don't rebake
         JFontAtlas a = s_buildSized(facePath, static_cast<float>(px));
-        if (!a.valid) return nullptr;
-        uint32_t id = s_uploadSized(a);
-        if (id == 0) return nullptr;
+        const uint32_t id = a.valid ? s_uploadSized(a) : 0u;
         SizedAtlas& slot = cache[key];
-        slot.atlas = std::move(a); slot.id = id;
+        slot.id = id;
+        if (id == 0) return nullptr;                           // remembered as unavailable
+        slot.atlas = std::move(a);
         return &slot;
     }
 
-    // The base font changed → every cached sized atlas is stale (wrong face/metrics). Free them.
+    // The base font changed → every cached sized atlas is stale (wrong face/metrics). Free them. This also
+    // clears the id-less "not available" entries, which is what a re-wire (a new window, a different HAL)
+    // needs: a backend that could not hold sized atlases before may be able to now.
     static void invalidateSized() { if (s_freeSized) s_freeSized(); sizedCache().clear(); }
 
     /** Decode one UTF-8 codepoint from src[i], advance i, return codepoint. */
