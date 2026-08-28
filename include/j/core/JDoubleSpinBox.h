@@ -222,6 +222,14 @@ public:
 
     // Show the caret with the value selected, as tabbing into a field does. Called by the framework on
     // focus-in, and by a host that drives its own focus notion (the studio canvas) when its keyboard moves here.
+    // What the text field is left with after the steppers and (when it fits) the unit — the number's room.
+    // Exposed so a test can assert the layout rather than eyeball a screenshot.
+    float numberWidth() const {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        return b.width - _btnW() - (_suffixShown() ? _suffixW() : 0.0f);
+    }
+    bool  unitShown()   const { return _suffixShown(); }
+
     void beginEdit() override {
         m_focusValue = m_value;
         _enterEdit();
@@ -242,10 +250,12 @@ public:
         const float btnW = _btnW();
         JStyleOption o = jstyle::option(m_state, isFocused() || _editing());
 
-        if (!m_suffix.empty() && JTextHelper::hasAtlas()) {
+        if (_suffixShown()) {
             uint8_t sc[4] = {Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 200};
             const float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
-            JTextHelper::pushText(buf, b.x + b.width - btnW - _suffixW() + 3.0f, ty, m_suffix, sc, _suffixW());
+            const std::string u = _trimmed(m_suffix);
+            JTextHelper::pushText(buf, b.x + b.width - btnW - _suffixW() + kSuffixGap, ty, u, sc,
+                                  _suffixW());
         }
 
         // The two steppers — Button role fill, Border-role outline, tiny arrow marks.
@@ -264,9 +274,46 @@ private:
     SpinRepeat m_repeat;   // press-and-hold stepper auto-repeat with acceleration
 
     float _btnW() const { return m_graph.getLayoutConst(m_nodeId).boundingBox.height * 0.7f; }
+    // The unit's OWN width plus one gap — not the width of the string it was set with. Callers write the
+    // suffix as " RPM" so it reads with a space in front, and measuring that space (plus a 6px pad on top)
+    // reserved about 38px for three characters: half of an 80px box, taken from the number.
+    static std::string _trimmed(const std::string& s) {
+        const size_t a = s.find_first_not_of(" \t");
+        if (a == std::string::npos) return {};
+        return s.substr(a, s.find_last_not_of(" \t") - a + 1);
+    }
     float _suffixW() const {
         if (m_suffix.empty() || !JTextHelper::hasAtlas()) return 0.0f;
-        return JTextHelper::measureWidth(m_suffix) + 6.0f;
+        return JTextHelper::measureWidth(_trimmed(m_suffix)) + kSuffixGap;
+    }
+    static constexpr float kSuffixGap = 8.0f;   // the space between the number and its unit
+
+    // THE NUMBER WINS. The suffix reserves its width out of the field, so in a box too narrow for both,
+    // the unit was drawn in full and the VALUE was the thing that got cut: 661 RPM in an 80px box showed
+    // as "1 RPM" — not a clipped number, a different number, and one that reads as a real reading. A unit
+    // is a label you already know; a value is the thing you are here to read. So when they cannot both
+    // fit, the unit goes and the number gets the whole box.
+    //
+    // Measured against the WIDEST value this box can ever hold (its range at its precision), not the
+    // value of the moment — otherwise the unit would appear and vanish as digits come and go, and a box
+    // that fits "99 RPM" would lose its unit at 100.
+    bool _suffixShown() const {
+        if (m_suffix.empty() || !JTextHelper::hasAtlas()) return false;
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        return (b.width - _btnW() - _suffixW()) >= _widestNumberW();
+    }
+
+    // The width of the longest number the range can produce, at the current decimals.
+    float _widestNumberW() const {
+        if (!JTextHelper::hasAtlas()) return 0.0f;
+        auto fmt = [this](double v) {
+            char t[48];
+            std::snprintf(t, sizeof t, "%.*f", m_decimals, v);
+            return std::string(t);
+        };
+        const float lo = JTextHelper::measureWidth(fmt(m_min));
+        const float hi = JTextHelper::measureWidth(fmt(m_max));
+        return (lo > hi ? lo : hi) + 10.0f;      // the field's own left padding and a little air
     }
     // The field fills everything left of the suffix and the steppers. Run before any hit-test as well as every
     // paint, so a click maps to exactly the text the user can see even on the frame the box was moved.
@@ -276,7 +323,7 @@ private:
     // the text still cannot slide under the unit.
     void _layout() {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        m_edit->setRightInset(_suffixW());
+        m_edit->setRightInset(_suffixShown() ? _suffixW() : 0.0f);
         m_edit->setBounds({ b.x, b.y, std::max(8.0f, b.width - _btnW()), b.height });
     }
 
