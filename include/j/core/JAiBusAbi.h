@@ -12,7 +12,7 @@
 inline namespace jf {
 
 inline constexpr uint32_t kAiBusMagic     = 0x4A414942;   // "JAIB"
-inline constexpr uint32_t kAiBusVersion   = 5;            // ABI version (bump on layout change)
+inline constexpr uint32_t kAiBusVersion   = 6;            // ABI version (bump on layout change)
 inline constexpr uint32_t kAiBusMaxNodes  = 2048;
 inline constexpr char     kAiBusDefaultName[] = "/jframework_ai_bus";
 
@@ -36,7 +36,12 @@ struct alignas(16) JAiBusAction {
     std::atomic<uint32_t> ackSeq{0};       // server sets = requestSeq when handled
     uint32_t targetId{0xFFFFFFFFu};
     int32_t  resultCode{0};                // 1 handled, 0 not handled, -1 bad target
-    char     action[64]{0};                // "click", "focus", "set_value:0.5", "select:1080p", …
+    // Long enough for an action that carries a PATH. 64 bytes fit "click" and "set_value:0.5" and looked
+    // generous until an app grew an action addressed at a place rather than a widget: "select_node:" plus
+    // a navigation-tree path is routinely 60-80 characters, and the overflow was silently truncated — the
+    // action arrived, was handled, and went somewhere that did not exist. Nothing reported it, because
+    // truncation is not an error anywhere along the way.
+    char     action[256]{0};               // "click", "focus", "set_value:0.5", "select_node:A/B/C", …
 };
 
 // The whole segment. `seq` is a seqlock: the server makes it ODD while writing the node array and EVEN

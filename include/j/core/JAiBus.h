@@ -20,9 +20,12 @@
 #include "FocusManager.h"
 
 #include <functional>
-#include <string>
-#include <vector>
+#include <iterator>
 #include <new>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #if defined(__linux__) || defined(__APPLE__)
 #  include <sys/mman.h>
@@ -73,19 +76,41 @@ private:
         const uint32_t req = m_shm->action.requestSeq.load(std::memory_order_acquire);
         if (req == m_lastHandled) return false;
         int rc = dispatchDefault(widgets, focus, m_shm->action.targetId, m_shm->action.action);
-        if (rc == 0 && onAction) rc = onAction(m_shm->action.targetId, m_shm->action.action);
+        // The app gets a shot at anything the generic dispatch did not HANDLE — including actions with no
+        // widget target at all. It used to be asked only when rc == 0, so "unknown id" (-1) went straight
+        // back to the client: an action addressed at the application rather than at a widget ("go to this
+        // page") could never be written, because there was no id to give it.
+        if (rc != 1 && onAction) {
+            const int appRc = onAction(m_shm->action.targetId, m_shm->action.action);
+            if (appRc != 0) rc = appRc;
+        }
         m_shm->action.resultCode = rc;
         m_shm->action.ackSeq.store(req, std::memory_order_release);   // ack last: client waits on this
         m_lastHandled = req;
         return true;
     }
 
+public:
+    // The widget a bus id names, or nullptr. Public because an app's onAction has to resolve the SAME id
+    // the client read out of a dump — looking it up by getNodeId() (as the studio's handler did) finds a
+    // different widget entirely, now that ids are bus-assigned.
+    JWidget* widgetFor(uint32_t id) const {
+        for (const auto& kv : m_ids)
+            if (kv.second == id) return const_cast<JWidget*>(kv.first);
+        return nullptr;
+    }
+
+private:
     // Generic actions only — focus + click via the widget's existing input methods (no AI virtuals).
     // Everything else returns 0 so the optional app handler gets a shot.
     int dispatchDefault(const std::vector<JWidget*>& widgets, JFocusManager* focus,
                         uint32_t id, const std::string& action) {
-        JWidget* w = nullptr;
-        for (JWidget* c : widgets) if (c && static_cast<uint32_t>(c->getNodeId()) == id) { w = c; break; }
+        JWidget* w = widgetFor(id);
+        if (w) {
+            bool live = false;
+            for (JWidget* c : widgets) if (c == w) { live = true; break; }
+            if (!live) w = nullptr;
+        }
         if (!w) return -1;
         if (action == "focus") { if (focus) focus->setFocus(w); return 1; }
         if (action == "click") {
@@ -98,14 +123,28 @@ private:
         return 0;
     }
 
+    // A BUS ID IS THE BUS'S OWN. JWidget::getNodeId() is an index into a SCENE GRAPH, and every dock,
+    // surface and popup has one of its own — so a dump listed ids 0,1,2… several times over and an action
+    // addressed to id 0 hit whichever of them the search happened to reach first. The bus hands each
+    // widget an id of its own instead, stable for as long as the widget lives, and forgets it when the
+    // widget stops being published (so the number space does not grow without bound, and a client's stale
+    // id resolves to nothing rather than to a stranger).
+    uint32_t idFor(const JWidget* w) {
+        const auto it = m_ids.find(w);
+        if (it != m_ids.end()) return it->second;
+        return m_ids.emplace(w, m_nextId++).first->second;
+    }
+
     void publish(const std::vector<JWidget*>& widgets) {
         m_shm->seq.fetch_add(1, std::memory_order_release);   // odd → write in progress
         uint32_t n = 0;
+        m_seen.clear();
         for (JWidget* w : widgets) {
             if (!w || !w->isVisible() || n >= kAiBusMaxNodes) continue;
             const JA11yNode a = w->a11yNode();   // fully populated: role/name/value/state/geometry/range
             JAiBusNode& node = m_shm->nodes[n++];
-            node.id = a.id;
+            node.id = idFor(w);
+            m_seen.insert(w);
             node.stateFlags = a.stateFlags;
             node.x = a.x; node.y = a.y; node.w = a.width; node.h = a.height;
             node.hasRange = a.hasRange ? 1u : 0u;
@@ -115,11 +154,18 @@ private:
             aiBusCopy(node.value, sizeof(node.value), a.value);
         }
         m_shm->nodeCount = n;
+        // Forget widgets that were not published this frame. Done here rather than on destruction because
+        // the bus has no hook into a widget's life; the cost is one pass over a small map per frame.
+        for (auto it = m_ids.begin(); it != m_ids.end();)
+            it = m_seen.count(it->first) ? std::next(it) : m_ids.erase(it);
         m_shm->seq.fetch_add(1, std::memory_order_release);   // even → frame complete
     }
 
     JAiBusShared* m_shm = nullptr;
     uint32_t      m_lastHandled = 0;
+    std::unordered_map<const JWidget*, uint32_t> m_ids;   // widget -> its bus id, for as long as it lives
+    std::unordered_set<const JWidget*>           m_seen;  // published this frame (scratch, reused)
+    uint32_t      m_nextId = 1;                           // 0 stays free: a client can mean "nothing" by it
 };
 
 } // inline namespace jf

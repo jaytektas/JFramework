@@ -84,6 +84,14 @@ public:
         _updateMinWidth();
     }
 
+    // A menu item IS its text — without this it publishes as "JMenuItem" with no name, and a whole menu
+    // reads as a column of identical nodes on the accessibility bridge and the AI bus alike.
+    JA11yNode a11yNode() const override {
+        JA11yNode n;
+        _a11yFillCommon(n, JA11yRole::MenuItem, m_label, m_submenu ? "submenu" : "");
+        return n;
+    }
+
     // Natural width = exactly what populateRenderPrimitives lays out, so a label or shortcut can never be
     // clipped. Was a flat 160px, which silently cut off any longer entry.
     void _updateMinWidth() {
