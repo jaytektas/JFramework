@@ -643,6 +643,15 @@ public:
             }
         }
 
+        // THIS WINDOW HOSTS THESE DOCKS RIGHT NOW. Their widgets belong to the main window's scene graph
+        // but are laid out and drawn in here, so anything turning a widget rect into a screen position
+        // (a combo dropdown, a context menu) has to anchor to THIS window. Declared every frame because
+        // the float moves while it is dragged, and cleared by whoever hosts the dock next.
+        for (JDockWidget* d : docks())
+            if (d && d->content())
+                d->content()->setHostWindowOverride(m_window->screenX(), m_window->screenY(),
+                                                    static_cast<std::uintptr_t>(m_window->rawWindowId()));
+
         m_dockHost->populateRenderPrimitives(buf);
         if (m_contentRenderHost) {
             m_contentRenderHost(buf);

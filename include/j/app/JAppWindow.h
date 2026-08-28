@@ -843,6 +843,7 @@ public:
                 JPrimitiveBuffer buffer;
                 auto frame = m_hal->beginFrame();
                 drawChrome(buffer);
+                _claimDockedPanels();                       // docks in THIS window are this window's again
                 drawBars(buffer);                           // menu bar / toolbar / status bar
                 m_space.render(buffer);                     // all areas: content + overlays
                 if (dragging) _drawDragGhost(buffer);       // floating "what you're holding" label
@@ -992,6 +993,17 @@ private:
     }
 
     // Draw the menu bar / toolbar / status bar strips into the main frame.
+    // A DOCK BACK IN THIS WINDOW IS THIS WINDOW'S AGAIN. The float declares itself the host of the docks
+    // it holds every frame (see JFloatingDockWindow::render); this is the other half, and between them no
+    // one has to notice the moment a panel is torn out or dropped back. Called once per frame from render.
+    void _claimDockedPanels() {
+        for (int a = 0; a < JDockSpace::AreaCount; ++a)
+            m_space.host(static_cast<JDockSpace::Area>(a)).forEachDockPanel(
+                [](JDockWidget* d, const JRect&, bool, int) {
+                    if (d && d->content()) d->content()->clearHostWindowOverride();
+                });
+    }
+
     void drawBars(JPrimitiveBuffer& buf) {
         const float W = static_cast<float>(m_w);
         uint8_t bg[4]  = {Colors::Surface1[0], Colors::Surface1[1], Colors::Surface1[2], 255};
@@ -1273,13 +1285,20 @@ private:
         if (m_comboPopup) { m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); }
 
         const auto bb = cb->getBoundingBox();
-        // Anchor to the combo's OWN window: a control in a modal dialog lives in that dialog's scene graph,
-        // which declares its live screen origin + native handle. Fall back to this (main) window when unset.
+        // WHICH WINDOW IS THIS COMBO IN? Three answers, most specific first:
+        //   * a host that has CLAIMED this subtree — a floating dock draws main-window widgets in its own
+        //     window, so its combos are at float-local coordinates (JWidget::setHostWindowOverride);
+        //   * the scene graph's own window — a modal dialog has a graph per window and declares it;
+        //   * this window, for everything that is simply here.
+        // Getting it wrong does not misplace the popup slightly: it opens in the top-left of the app.
+        const JSceneGraph::JHostWindow* claimed = cb->hostWindowOverride();
         const auto& host = cb->sceneGraph().hostWindow();
-        const int wsx = host.set ? host.screenX : m_window->screenX();
-        const int wsy = host.set ? host.screenY : m_window->screenY();
-        const auto parent = host.set ? (JPopupWindow::NativeWinHandleType)(host.nativeHandle)
-                                     : (JPopupWindow::NativeWinHandleType)(m_window->rawWindowId());
+        const bool haveHost = claimed || host.set;
+        const int wsx = claimed ? claimed->screenX : (host.set ? host.screenX : m_window->screenX());
+        const int wsy = claimed ? claimed->screenY : (host.set ? host.screenY : m_window->screenY());
+        const auto parent = haveHost
+            ? (JPopupWindow::NativeWinHandleType)(claimed ? claimed->nativeHandle : host.nativeHandle)
+            : (JPopupWindow::NativeWinHandleType)(m_window->rawWindowId());
         const int sx = wsx + static_cast<int>(bb.x);
         const int sy = wsy + static_cast<int>(bb.y + bb.height);
         const auto popupW = static_cast<uint32_t>(bb.width);

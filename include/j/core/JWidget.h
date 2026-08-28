@@ -590,6 +590,30 @@ public:
     }
 
     // ------------------------------------------------------------------
+    // WHICH WINDOW THIS WIDGET IS CURRENTLY DRAWN IN.
+    //
+    // A widget's coordinates are window-local, and normally the window is the one its scene graph names.
+    // A FLOATING DOCK breaks that: the dock and its contents belong to the main window's graph, but while
+    // torn out they are laid out and drawn inside the float's own window. Anything that turns a widget
+    // rectangle into a SCREEN position — a combo's dropdown, a context menu — then anchored to the main
+    // window and opened in its top-left corner, which is exactly what a floating properties dock did.
+    //
+    // So a host can declare "this subtree is mine at the moment", and the lookup walks up from the widget:
+    // the float sets it on the docks it holds, the main window clears it on the docks it holds back, and
+    // nothing has to track the transition. Unset everywhere = the scene graph's own window, as before.
+    void setHostWindowOverride(int screenX, int screenY, std::uintptr_t nativeHandle) {
+        m_hostOverride = { screenX, screenY, nativeHandle, true };
+    }
+    void clearHostWindowOverride() { m_hostOverride = {}; }
+
+    // The nearest declared host window at or above this widget, or nullptr for "ask the scene graph".
+    const JSceneGraph::JHostWindow* hostWindowOverride() const {
+        for (const JWidget* w = this; w; w = w->m_parent)
+            if (w->m_hostOverride.set) return &w->m_hostOverride;
+        return nullptr;
+    }
+
+    // ------------------------------------------------------------------
     // Accessibility — the semantic snapshot an AT client reads. Every
     // interactive widget overrides a11yNode() to report its role, accessible
     // name, current value and live state. The default derives a generic
@@ -602,6 +626,8 @@ public:
     }
 
 protected:
+    JSceneGraph::JHostWindow m_hostOverride{};   // set while another window hosts this subtree (see above)
+
     // Register this widget's editable properties into the model. The base
     // contributes the universal, most-edited set — identity, behaviour, and
     // geometry. A subclass overrides this, calls JWidget::collectProperties(m)
