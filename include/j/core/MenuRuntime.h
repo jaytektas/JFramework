@@ -11,6 +11,8 @@
 #include <j/graphics/RenderPrimitive.h>
 
 #include <algorithm>
+#include <climits>
+#include <cstdlib>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -108,12 +110,24 @@ public:
                 for (auto& p : m_active) { if (p->takePress()) pressed = true; if (p->takeRelease()) released = true; }
             }
             if (!dismissed) {
+                // THE CLICK THAT OPENED THE MENU IS NOT A CLICK IN IT. The popup appears under the
+                // cursor on the opening press, so the button coming up lands on the first item — and
+                // with items firing on release, that release would choose an entry the user has not
+                // even seen yet. Swallow the first release unless the gesture has since become a real
+                // one: a press inside the menu (click, then click) or the pointer having moved (press,
+                // drag, release). Both are ordinary ways to use a menu; neither is the opening click.
+                if (pressed) m_sawPress = true;
+                if (m_openGx == kNoCursor) { m_openGx = gx; m_openGy = gy; }
+                else if (!m_moved && (std::abs(gx - m_openGx) > 3 || std::abs(gy - m_openGy) > 3))
+                    m_moved = true;
+                const bool deliver_release = released && (m_sawPress || m_moved);
+
                 bool insideAny = false;
                 for (auto& p : m_active) {
                     if (p->containsGlobal(gx, gy)) insideAny = true;
                     p->driveInput(static_cast<float>(gx - p->window().screenX()),
                                   static_cast<float>(gy - p->window().screenY()),
-                                  pressed, released);
+                                  pressed, deliver_release);
                 }
                 if (pressed && !insideAny) dismissed = true;   // clicked outside every menu
             }
@@ -166,7 +180,15 @@ private:
 
     void openMenu(JMenu* menu, int sx, int sy, bool parentTorn, int flipX = kNoFlip, int flipY = kNoFlip) {
         if (!menu) { closeAll(); return; }
-        if (m_active.empty()) m_sawAppFocus = false;   // a new cascade re-arms the leave-the-app check
+        if (m_active.empty()) {
+            m_sawAppFocus = false;   // a new cascade re-arms the leave-the-app check
+            // Where the opening click was, and that we have seen neither a press of our own nor any
+            // movement since. Until one of those happens, a release belongs to the click that opened
+            // this menu and not to an item in it.
+            m_sawPress = false;
+            m_moved    = false;
+            m_openGx   = kNoCursor;   // sampled on the first poll — the opener has no cursor to hand us
+        }
         if (!parentTorn) {                     // a new top-level menu replaces the open one
             if (m_hal) for (auto& p : m_active) p->destroySurface(*m_hal);
             m_active.clear();
@@ -412,6 +434,11 @@ private:
     // frame. Raw pointers, only ever compared, and cleared with the stack that owns them.
     std::vector<const void*>                   m_placeAudited;
     bool                              m_isPolling{false};
+    // The opening-click guard (see the note in the poll loop).
+    static constexpr int              kNoCursor = INT_MIN;
+    bool                              m_sawPress{false};
+    bool                              m_moved{false};
+    int                               m_openGx{kNoCursor}, m_openGy{0};
 };
 
 } // inline namespace jf

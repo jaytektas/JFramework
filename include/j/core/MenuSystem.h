@@ -192,6 +192,19 @@ public:
         }
     }
 
+    // A MENU ITEM FIRES ON RELEASE, like every other control here.
+    //
+    // It used to fire on the PRESS, which made a menu act on a click it had no business claiming. The
+    // popup opens under the cursor on the opening press, so the very first item sits where the pointer
+    // already is: the button coming up — or the grab delivering a fresh press while it was still down —
+    // triggered whatever was under it before the user had seen the list. That is why the first entry
+    // was unpickable and why the whole thing felt erratic, differently each time depending on how the
+    // grab and the frame boundary lined up. It also meant a click could not be cancelled: press an
+    // item, slide off it, let go, and it had already fired.
+    //
+    // Press arms (and shows pressed); release inside fires. JPopupWindow additionally ignores a release
+    // that belongs to the click which OPENED the menu — see m_sawPress there — so the two halves of one
+    // click cannot be read as two separate gestures.
     void handleMousePress(float mx, float my) override {
         if (m_state == JWidgetState::Disabled) return;
         if (isPointInside(mx, my)) {
@@ -199,17 +212,25 @@ public:
                 m_embedded->handleMousePress(mx, my);
             } else {
                 setState(JWidgetState::Pressed);
-                if (m_checkable) {
-                    m_checked = !m_checked;
-                }
-                onTriggered.emit();
-                onClicked.emit();
+                m_armed = true;
             }
         }
     }
 
+    // Activate. Callable without a preceding press, because a menu is also operated by press-drag-
+    // release: the item under the cursor at the moment the button comes up is the one chosen, whether
+    // or not it ever saw the press that started the gesture.
+    void activate() override {
+        if (m_state == JWidgetState::Disabled) return;
+        if (m_checkable) m_checked = !m_checked;
+        onTriggered.emit();
+        onClicked.emit();
+    }
+
     void handleMouseRelease(float mx, float my) override {
+        const bool fire = !m_embedded && m_state != JWidgetState::Disabled && isPointInside(mx, my);
         JControl::handleMouseRelease(mx, my);
+        if (fire) activate();
         if (m_embedded) {
             m_embedded->handleMouseRelease(mx, my);
         }
