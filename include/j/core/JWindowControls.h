@@ -4,6 +4,7 @@
 // methods (renderTooltips/drawFocusRing). Kept together — they need JWidget AND JTextHelper.
 
 #include "JWidget.h"
+#include <cmath>
 #include "JTextHelper.h"
 #include "DragDrop.h"
 #include "JStyle.h"
@@ -45,9 +46,16 @@ inline void JWidget::renderTooltips(JPrimitiveBuffer& buf, JTooltipHover& hover,
     for (auto it = roots.rbegin(); it != roots.rend() && !hovered; ++it)
         hovered = jTooltipHitTest(*it, mouseX, mouseY);
 
-    if (hovered != hover.last) {
+    // A NEW DWELL when the widget changes, and also when the POINTER MOVES. Resetting on the widget
+    // alone meant a tooltip, once shown, stayed up and trailed the cursor for as long as it remained
+    // inside the same widget — so it covered whatever you moved to look at. Any real movement takes it
+    // away; standing still brings it back.
+    const float moved = std::max(std::fabs(mouseX - hover.x), std::fabs(mouseY - hover.y));
+    if (hovered != hover.last || moved > JStyle::current().tooltipMoveResetPx) {
         hover.last  = hovered;
         hover.since = std::chrono::steady_clock::now();
+        hover.x     = mouseX;
+        hover.y     = mouseY;
     }
 
     if (hovered) {

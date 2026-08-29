@@ -50,6 +50,11 @@ struct JTooltipHover {
                                                             // widget may be destroyed while hovered,
                                                             // and the live hit comes from the tree.
     std::chrono::steady_clock::time_point since{};
+    // WHERE the dwell started. The dwell used to reset only when the hovered WIDGET changed, so once a
+    // tooltip was up it stayed up and trailed the cursor around the widget for as long as the pointer
+    // stayed inside it — a tooltip that follows you is a tooltip that is in the way. Moving more than
+    // a couple of pixels now restarts the dwell (and so hides it); pausing brings it back.
+    float                                 x = 0.f, y = 0.f;
 };
 
 class JWidget : public jf::JSlotTracker {

@@ -200,6 +200,10 @@ struct JStyle {
     float tooltipPaddingX     = 8.f;
     float tooltipPaddingY     = 6.f;
     float tooltipCursorGap    = 12.f;    // offset from the pointer, and the flip margin at a view edge
+    // How far the pointer may drift before the dwell restarts (and the tooltip goes away until you
+    // pause again). Small enough that it reacts to a real movement, large enough that hand tremor and
+    // a mouse's own jitter do not flicker a tooltip that is being read.
+    float tooltipMoveResetPx  = 4.f;
     float tooltipRadius       = 4.f;     // tighter than cornerRadius: a small floating box, not a panel
     float tooltipShadowOffset = 2.f;
 
