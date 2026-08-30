@@ -23,12 +23,25 @@ struct JTreeViewNode {
     bool        hidden{false};   // transient: run-mode visibility filter hides the row + its subtree (not persisted)
     bool        placeholder{false};  // transient edit-mode "New node…" add-affordance row: drawn dimmed, never persisted (app owns promotion)
     bool        separator{false};    // a RULE between groups, not an entry: drawn as a line, never selectable
+    // CHECKABLE ROWS. A tree is how a long list is made findable, and "choose several from a long
+    // list" is the commonest reason to want one — so the box is drawn here rather than faked by the
+    // app with a tick in the label. A glyph in a label LOOKS like a checkbox until something needs
+    // the state back, and then every consumer parses its own text.
+    //   checkable  : this row shows a box (a parent row can be checkable too — see JTreeView::onNodeChecked)
+    //   checked    : its state; `partial` draws the indeterminate mark a half-selected group wants
+    bool        checkable{false};
+    bool        checked{false};
+    bool        partial{false};
 };
 
 class JTreeView : public JControl {
 public:
     jf::JSignal<JTreeViewNode*> onSelectionChanged;
     jf::JSignal<JTreeViewNode*> onNodeActivated;
+    // A checkable row's box was clicked. The view has ALREADY flipped `checked`; the app decides what
+    // that means for children or for its own model. Clicking the LABEL still selects/activates as
+    // ever, so a tree can be both a chooser and a navigator without the two gestures colliding.
+    jf::JSignal<JTreeViewNode*> onNodeChecked;
     jf::JSignal<JTreeViewNode*> onNodeRenamed;    // fired after an in-place label edit commits
     jf::JSignal<JTreeViewNode*> onNodeDragStarted; // press-and-drag on a node past a threshold (app starts a JDragDrop)
     jf::JSignal<> onDeleteKey;   // Delete/Backspace pressed with a node selected (app removes it)
@@ -301,6 +314,20 @@ public:
                     float indent = flat.depth * 16.0f + 6.0f;
                     float arrowW = 16.0f;
                     if (flat.node->separator) return;   // a rule is not a row you can select or rename
+                    // THE BOX IS ITS OWN TARGET. Checking a row and selecting it are different
+                    // gestures, so the box takes the click before selection does — otherwise a tree
+                    // could not be a chooser and a navigator at once, which is exactly what a
+                    // "pick several of these" tree has to be.
+                    if (flat.node->checkable) {
+                        const float cx = b.x + indent + 16.0f;
+                        if (mx >= cx && mx < cx + kCheckW) {
+                            flat.node->checked = !flat.node->checked;
+                            flat.node->partial = false;      // an explicit click is never indeterminate
+                            onNodeChecked.emit(flat.node);
+                            m_graph.invalidateNode(m_nodeId, DirtySelf);
+                            return;
+                        }
+                    }
                     if (!flat.node->children.empty() && mx >= b.x + indent && mx <= b.x + indent + arrowW) {
                         flat.node->expanded = !flat.node->expanded;
                         m_graph.invalidateNode(m_nodeId, DirtySelf);
@@ -655,7 +682,11 @@ public:
                 m_editField.populateRenderPrimitives(buf);
             } else {
                 float tx = textX;
-                if (flat.node->icon != 0) { _drawTreeIcon(buf, textX + 1.0f, itemY + itemH * 0.5f, flat.node->icon); tx += 15.0f; }
+                if (flat.node->checkable) {
+                    _drawCheck(buf, tx + 1.0f, itemY + itemH * 0.5f, *flat.node);
+                    tx += kCheckW;
+                }
+                if (flat.node->icon != 0) { _drawTreeIcon(buf, tx + 1.0f, itemY + itemH * 0.5f, flat.node->icon); tx += 15.0f; }
                 const float maxW = b.width - (tx - b.x) - 14.0f;
                 drawNodeText(buf, flat.node, tx, ty, maxW);
                 // Hyperlink-hover underline: while the cursor is over a node the app marks as a link, underline
@@ -726,6 +757,32 @@ protected:
     // A small ~10px type glyph before a leaf label (app-assigned JTreeViewNode::icon). Shapes/colours
     // distinguish kinds without needing font symbol glyphs: 1 grid, 2 rounded, 3 bar, 4 pill, 5 filled,
     // else a hollow outline. Kinds are app-defined; unknown ones fall through to the hollow default.
+    // A CHECKBOX ROW, drawn to the same style as JCheckBox so a tree of them does not read as a
+    // different control. Three states: off, on (a tick), and PARTIAL (a bar) — a group whose children
+    // are half chosen is neither on nor off, and saying so is the difference between a chooser you
+    // can trust and one you have to open to verify.
+    static constexpr float kCheckW = 18.0f;
+    void _drawCheck(JPrimitiveBuffer& buf, float x, float cy, const JTreeViewNode& n) {
+        // The SAME shapes JCheckBox draws — a plus for checked, a centred dash for partial, on a
+        // Highlight-filled box. Copied deliberately rather than invented: a tree of checkboxes that
+        // does not look like the app's checkboxes reads as a different control with different rules.
+        const float s = 12.0f, y = cy - s * 0.5f;
+        const JStyleOption o = jstyle::option(m_state, isFocused());
+        const JColor fill   = (n.checked || n.partial) ? jstyle::role(JColorRole::Highlight, o)
+                                                       : jstyle::role(JColorRole::Base, o);
+        const JColor border = JStyle::borderColor(o, JStyle::current().palette());
+        buf.pushRectangle(x, y, s, s, fill.data(), 4.0f, 1.5f, border.data());
+        uint8_t mark[4] = { Colors::HighlightedText[0], Colors::HighlightedText[1],
+                            Colors::HighlightedText[2], 220 };
+        if (n.partial) {
+            mark[3] = 200;
+            buf.pushRectangle(x + 4.0f, y + s * 0.5f - 1.5f, s - 8.0f, 3.0f, mark, 1.5f);
+        } else if (n.checked) {
+            buf.pushRectangle(x + 3.0f, y + s * 0.5f - 1.5f, s - 6.0f, 3.0f, mark, 1.5f);
+            buf.pushRectangle(x + s * 0.5f - 1.5f, y + 3.0f, 3.0f, s - 6.0f, mark, 1.5f);
+        }
+    }
+
     void _drawTreeIcon(JPrimitiveBuffer& buf, float x, float cy, int kind) {
         const float s = 10.0f, y = cy - s * 0.5f, h = s * 0.45f;
         // Node-kind glyph colours route through the themed TreeIcon* roles (byte-identical defaults).
