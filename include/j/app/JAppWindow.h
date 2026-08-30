@@ -1539,12 +1539,19 @@ private:
             qCDebug(jf::Log::Platform) << "dialog placement: requested" << dlgX << dlgY
                                        << "size" << dlgW << dlgH
                                        << "parent at" << wx << wy << "size" << cW << cH;
+            // PARENTED TO WHATEVER OPENED IT, exactly as openModal parents a nested modal. These were
+            // always transient for the MAIN window, so a JDialog::input raised from inside a modal
+            // (a picker asking what to name the set you just built) was transient for something
+            // BEHIND that modal — and a window manager that honours the hint is then entitled to
+            // stack the prompt under the dialog that asked for it. WM_TRANSIENT_FOR is a hint, not
+            // ownership, so nothing here is destroyed with its parent.
+            const auto owner = _parentForChildModal();
             if (isFile)
                 m_fileDialogs.emplace_back(*req, *m_hal, dlgX, dlgY,
-                    (JFileDialogWindow::NativeWinHandleType)(m_window->rawWindowId()));
+                    (JFileDialogWindow::NativeWinHandleType)(owner));
             else
                 m_dialogs.emplace_back(*req, *m_hal, dlgX, dlgY,
-                    (JNativeDialogWindow::NativeWinHandleType)(m_window->rawWindowId()));
+                    (JNativeDialogWindow::NativeWinHandleType)(owner));
             JDialogManager::instance().pop();
         }
         for (auto it = m_dialogs.begin(); it != m_dialogs.end();) {
