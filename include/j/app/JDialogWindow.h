@@ -128,11 +128,20 @@ public:
         _refreshFocus();
         if (pressed) jRouteMouse(mx, my, m_focus);
         if (!m_focusSeeded) { m_focusSeeded = true; m_focus.focusFirst(); }
+        // THE WHEEL, which this class claimed in its own comment and never actually forwarded — so a
+        // dialog with a long list in it could only be scrolled by dragging the bar, and the reason was
+        // invisible: the platform window offers consumeWheel(), nothing called it, and no one is
+        // suspicious of a scroll that simply does nothing.
+        //
+        // It goes to the widget UNDER THE POINTER, which is what makes a dialog with two scrollable
+        // areas behave: a wheel is a gesture at a place, not at whatever happens to hold focus.
+        const float wheel = m_window->consumeWheel();
         for (JWidget* w : m_widgets) {
             if (!w) continue;
             w->handleMouseMove(mx, my);
             if (pressed)  w->handleMousePress(mx, my);
             if (released) w->handleMouseRelease(mx, my);
+            if (wheel != 0.0f && _in(w->bounds(), mx, my)) w->handleScroll(mx, my, wheel);
         }
         onMouse(mx, my, pressed, released, held);
         if (m_done) return false;
