@@ -121,6 +121,11 @@ public:
         // Equal columns, each as wide as the single-column natural width — the widest item still fits
         // and every column lines up, which is what makes a wrapped list scannable.
         setSize(static_cast<uint32_t>(m_winW) * static_cast<uint32_t>(cols), availH);
+        // MEASURE THE SHAPE IT IS NOW, not the taller one it was a moment ago. computeNaturalHeight()
+        // above left the single column's height in the root's measured minimum, and _computeMinSize
+        // accumulates with max() — so without this the columns are measured correctly and then thrown
+        // away, and the window is sized to a list it no longer has (in practice: the whole screen).
+        m_graph.resetMinSize(m_root);
         m_graph.computeMinSize(m_root);
         const float h = m_graph.getLayoutConst(m_root).minHeight
                       + (m_style == JStyle::Bordered ? m_kBorderPad * 2.f : 0.f);

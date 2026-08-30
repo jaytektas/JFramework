@@ -335,6 +335,23 @@ public:
         _computeMinSize(nodeId);
     }
 
+    // Drop a node's MEASURED minimum so the next computeMinSize() starts from nothing.
+    //
+    // _computeMinSize accumulates with max(), which is what lets a widget declare a floor that a
+    // measurement can raise but never lower. The cost is that a container which has CHANGED SHAPE keeps
+    // the minimum of the shape it no longer has: a popup list re-laid from one tall column into two
+    // short ones measured the columns correctly and then kept the single column's height, because that
+    // number was still sitting in the node. The window was the height of a list that was not there any
+    // more — on a 1080p screen, the whole screen.
+    //
+    // Only a caller that OWNS the node and its layout mode may say this; a widget's own authored
+    // minimum is not the framework's to discard.
+    void resetMinSize(NodeId nodeId) {
+        if (nodeId >= m_layouts.size()) return;
+        m_layouts[nodeId].minWidth = 0.0f;
+        m_layouts[nodeId].minHeight = 0.0f;
+    }
+
     void computeLayout(NodeId nodeId, const JConstraints& constraints) {
         if (nodeId >= m_layouts.size()) return;
         if (m_dirtyFlags[nodeId] == Clean) return;
