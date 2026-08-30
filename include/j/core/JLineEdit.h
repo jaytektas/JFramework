@@ -186,7 +186,11 @@ public:
 
         buf.pushClip(innerX, b.y, innerW, b.height);
 
-        if (m_core.hasSelection() && JTextHelper::hasAtlas() && !disp.empty()) {
+        // ONLY WHILE FOCUSED. A selection is where the NEXT keystroke lands, so a field showing one it
+        // cannot receive is lying — and the band is Highlight at alpha 90, which on an accent-coloured
+        // theme reads as the brightest thing on the page. The core keeps the selection (refocusing
+        // restores it, as every toolkit does); it just stops being drawn, exactly like the caret below.
+        if (focused && m_core.hasSelection() && JTextHelper::hasAtlas() && !disp.empty()) {
             const float xLo = ox + JTextHelper::measureWidth(_echo(raw.substr(0, m_core.selectionStart())));
             const float xHi = ox + JTextHelper::measureWidth(_echo(raw.substr(0, m_core.selectionEnd())));
             const JColor sc = withAlpha(jstyle::role(JColorRole::Highlight, o), 90);

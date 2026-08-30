@@ -68,17 +68,34 @@ public:
         if (topGap < 0.f)      delta = topGap;      // scroll up to reveal
         else if (botGap > 0.f) delta = botGap;      // scroll down to reveal
         if (delta == 0.f) return;
-        float totalH = 12.0f;
-        for (JWidget* c : m_children) totalH += m_graph.getLayoutConst(c->getNodeId()).boundingBox.height + 6.0f;
-        const float maxScrollY = std::max(0.0f, totalH - b.height);
-        m_scrollY = std::clamp(m_scrollY + delta, 0.0f, maxScrollY);
+        m_scrollY = std::clamp(m_scrollY + delta, 0.0f, _maxScrollY());
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
+    // THE CONTENT'S HEIGHT, by the same arithmetic the painter lays it out with — its own padding and its
+    // own gap. This was written out as "12 + sum(h + 6)" here and in three other places, which is the
+    // DEFAULT padding spelled as a constant: a list that sets its own (a dropdown calls
+    // setContentPadding(0,0,0), because a gap between rows is a strip that swallows clicks) had every one
+    // of those disagree with what was drawn. On a 42-entry combo list that is 1440px of content believed
+    // against 1176 painted — so the scrollbar hit-tested a thumb 17px shorter than the one on screen, and
+    // grabbing the visible thumb near its lower end PAGED the list instead of dragging it.
     float _contentHeight() const {
-        float totalH = 12.0f;
-        for (JWidget* w : m_children) totalH += m_graph.getLayoutConst(w->getNodeId()).boundingBox.height + 6.0f;
+        float totalH = 2.0f * m_padY;
+        for (JWidget* w : m_children)
+            totalH += m_graph.getLayoutConst(w->getNodeId()).boundingBox.height + m_gap;
         return totalH;
+    }
+    float _maxScrollY() const {
+        return std::max(0.0f, _contentHeight() - m_graph.getLayoutConst(m_nodeId).boundingBox.height);
+    }
+    // WHERE THE SCROLLBAR IS — one answer for the painter and for the hit test. They had two: the bar was
+    // drawn in the last 12px and hit-tested from 16px in, so a 4px column of perfectly visible row armed a
+    // scroll instead of selecting the row under it — and then swallowed the release, because a release that
+    // ends a scroll drag is deliberately not forwarded to the children.
+    static constexpr float kTrackW = 10.0f;
+    float _trackX() const {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        return b.x + b.width - kTrackW - 2.0f;
     }
     bool _scrolls() const {
         return _contentHeight() > m_graph.getLayoutConst(m_nodeId).boundingBox.height;
@@ -91,10 +108,8 @@ public:
         if (m_draggingScroll && !JWidget::s_leftDown) m_draggingScroll = false;
         if (m_draggingScroll) {
             const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-            float totalH = 12.0f;
-            for (JWidget* w : m_children)
-                totalH += m_graph.getLayoutConst(w->getNodeId()).boundingBox.height + 6.0f;
-            float maxScrollY = std::max(0.0f, totalH - b.height);
+            const float totalH = _contentHeight();
+            const float maxScrollY = _maxScrollY();
             float trackH = b.height - 4.0f;
             float thumbH = std::max(20.0f, trackH * (b.height / totalH));
             float thumbRange = trackH - thumbH;
@@ -126,15 +141,14 @@ public:
     bool pointInScrollbar(float mx, float my) const {
         if (!_scrolls()) return false;                 // no bar drawn, no dead column
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        return my >= b.y && my <= b.y + b.height && mx >= b.x + b.width - 16.0f && mx <= b.x + b.width;
+        return my >= b.y && my <= b.y + b.height && mx >= _trackX() && mx <= b.x + b.width;
     }
     bool isDraggingScroll() const { return m_draggingScroll; }
 
     void handleMousePress(float mx, float my) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         if (mx >= b.x && mx <= b.x + b.width && my >= b.y && my <= b.y + b.height) {
-            float trackW = 10.0f;
-            float trackX = b.x + b.width - trackW - 6.0f;
+            const float trackX = _trackX();            // the bar as DRAWN — see _trackX()
             if (mx >= trackX && _scrolls()) {
                 // ON the thumb: drag it. Above or below it: PAGE, as every scrollbar does — clicking the
                 // empty track used to arm a drag that never moved, so the list sat there doing nothing
@@ -189,12 +203,7 @@ public:
             }
             if (consumed) return true;
 
-            float totalH = 12.0f;
-            for (JWidget* w : m_children) {
-                totalH += m_graph.getLayoutConst(w->getNodeId()).boundingBox.height + 6.0f;
-            }
-            float maxScrollY = std::max(0.0f, totalH - b.height);
-            m_scrollY = std::clamp(m_scrollY - wheel * 40.0f, 0.0f, maxScrollY);
+            m_scrollY = std::clamp(m_scrollY - wheel * 40.0f, 0.0f, _maxScrollY());
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             return true;
         }
@@ -213,7 +222,6 @@ public:
         // Perform Layout
         float curY = b.y + m_padY - m_scrollY;
         float innerW = b.width - 2.0f * m_padX;
-        float totalH = 2.0f * m_padY;
 
         for (JWidget* w : m_children) {
             auto& wl = m_graph.getLayout(w->getNodeId());
@@ -222,9 +230,11 @@ public:
             wl.boundingBox.width = innerW;
 
             curY += wl.boundingBox.height + m_gap;
-            totalH += wl.boundingBox.height + m_gap;
         }
 
+        // The same arithmetic the hit tests use — literally, so the thumb you grab is the thumb that is
+        // drawn and a wheel cannot scroll past where the rows end.
+        const float totalH = _contentHeight();
         float maxScrollY = std::max(0.0f, totalH - b.height);
         m_scrollY = std::clamp(m_scrollY, 0.0f, maxScrollY);
 
@@ -249,10 +259,10 @@ public:
 
         // Render Scrollbar
         if (maxScrollY > 0.0f) {
-            float trackW = 10.0f;
-            float trackH = b.height - 4.0f;
-            float trackX = b.x + b.width - trackW - 2.0f;
-            float trackY = b.y + 2.0f;
+            const float trackW = kTrackW;
+            const float trackH = b.height - 4.0f;
+            const float trackX = _trackX();            // the hit test asks the same question — see _trackX()
+            const float trackY = b.y + 2.0f;
 
             buf.pushRectangle(trackX, trackY, trackW, trackH, Colors::ScrollTrack, 3.0f);
 

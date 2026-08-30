@@ -1280,6 +1280,8 @@ private:
     // JComboBox::onOpenPopupHook so any combo just works — the app wires nothing.
     void openComboDropdown(JComboBox* cb) {
         if (m_comboPopup && m_comboOwner == cb) {   // click same combo again → close
+            JLOGC("popup", jf::JLogLevel::Debug) << "TOGGLE-CLOSE: the click reached the COMBO, "
+                                                    "not the open dropdown";
             m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); m_comboOwner = nullptr; return;
         }
         if (m_comboPopup) { m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); }
@@ -1331,8 +1333,15 @@ private:
                                   wanted));
         const bool scrolls  = items.size() * kItemH > static_cast<float>(maxH);
 
+        JLOGC("popup", jf::JLogLevel::Debug) << "OPEN items=" << items.size()
+            << " current=" << cb->currentIndex() << " at (" << sx << "," << sy << ") w=" << popupW
+            << " maxH=" << maxH << " scrolls=" << int(scrolls) << " upward=" << int(upward)
+            << " roomBelow=" << roomBelow << " roomAbove=" << roomAbove;
+
         auto wire = [this, cb](JPopupItem* pi, int i) {
             pi->onActivated.connect([this, cb, i]() {
+                JLOGC("popup", jf::JLogLevel::Debug) << "PICK index=" << i
+                    << " (was " << cb->currentIndex() << ")";
                 cb->setCurrentIndex(i);
                 m_comboCloseReq = m_comboPopup.get();   // defer close until after pollEvents returns
                 m_comboOwner = nullptr;
@@ -1463,7 +1472,10 @@ private:
             const bool close = res.type == JPopupWindow::JPollResult::JType::Dismissed
                                || m_comboCloseReq == m_comboPopup.get();
             m_comboCloseReq = nullptr;
-            if (close) { m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); m_comboOwner = nullptr; }
+            if (close) {
+                JLOGC("popup", jf::JLogLevel::Debug) << "CLOSE ("
+                    << (res.type == JPopupWindow::JPollResult::JType::Dismissed ? "dismissed" : "picked") << ")";
+                m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); m_comboOwner = nullptr; }
             else if (m_comboPopup->isViewable()) m_comboPopup->render(*m_hal, scratch);
         }
 

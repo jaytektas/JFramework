@@ -4,6 +4,7 @@
 #include <j/core/JCloseButton.h>
 #include <j/core/JPopupItem.h>
 #include <j/core/JScrollArea.h>
+#include <j/core/Log.h>
 #include <j/graphics/GpuHal.h>
 
 #if defined(_WIN32)
@@ -157,17 +158,42 @@ public:
         m_window->pollNativeEvents();
         JPollResult out{};
 
-        if (m_window->shouldClose() || m_window->consumeFocusLost()) {
+        if (m_window->shouldClose()) {
+            JLOGC("popup", jf::JLogLevel::Debug) << "DISMISS poll#" << m_pollNo << " shouldClose";
             out.type = JPollResult::JType::Dismissed;
             return out;
         }
 
         _ensureGrab();
 
+        // FOCUS IS NOT A DISMISSAL SIGNAL WHILE WE HOLD THE POINTER GRAB — the same conclusion
+        // pumpAndGrab() reached for menu stacks, for the same reason. This popup is an override-redirect
+        // window that takes X input focus for itself; a window manager hands that focus back to the real
+        // toplevel whenever it next re-evaluates, hundreds of milliseconds later and for reasons that have
+        // nothing to do with the user. Reading that as "clicked away" dismissed a dropdown out from under
+        // somebody still choosing — and it only showed on the LONG lists, because a four-entry list is
+        // picked before the window manager gets round to it and a forty-two entry list is not. That is the
+        // "click five times before one sticks" report: no press ever arrived, the list had already gone.
+        //
+        // Every real dismissal still reaches us: a press outside the popup (the grab routes it here, which
+        // is also how clicking another application arrives), Escape, or shouldClose above. Without the grab
+        // there is no such stream, so there focus loss is still the only signal there is. The flag is
+        // consumed either way so it cannot pile up and fire late.
+        const bool lostFocus = m_window->consumeFocusLost();
+        if (lostFocus && !m_hasPointerGrab) {
+            JLOGC("popup", jf::JLogLevel::Debug) << "DISMISS poll#" << m_pollNo << " focusLost (no grab)";
+            out.type = JPollResult::JType::Dismissed;
+            return out;
+        }
+        if (lostFocus)
+            JLOGC("popup", jf::JLogLevel::Debug) << "poll#" << m_pollNo
+                << " focusLost IGNORED (pointer grab held)";
+
         float mx = m_window->mouseX();
         float my = m_window->mouseY();
         bool  pressed  = m_window->consumePress();
         bool  released = m_window->consumeRelease();
+        ++m_pollNo;
 
         // Mouse movement cancels keyboard selection — for a MENU. A list with an explicit nav list (a combo
         // box) behaves the way every other combo box does instead: the pointer MOVES the highlight to
@@ -199,6 +225,8 @@ public:
                        my >= 0.f && my < static_cast<float>(m_winH));
 
         if (!inside && pressed) {
+            JLOGC("popup", jf::JLogLevel::Debug) << "DISMISS poll#" << m_pollNo
+                << " press outside at (" << mx << "," << my << ") of " << m_winW << "x" << m_winH;
             out.type = JPollResult::JType::Dismissed;
             return out;
         }
@@ -479,8 +507,17 @@ public:
                 w->populateRenderPrimitives(buf);
         }
 
-        // Keyboard-nav selection highlight (drawn on top of normal hover)
-        if (m_keyNavIdx >= 0 && m_keyNavIdx < static_cast<int>(m_widgets.size())) {
+        // Keyboard-nav selection highlight (drawn on top of normal hover).
+        //
+        // ONLY WHEN THE KEYBOARD WALKS THIS POPUP'S OWN WIDGETS. m_keyNavIdx indexes m_navItems the moment
+        // setKeyNavList() has been given one — and then the entries are not m_widgets at all: a combo list
+        // long enough to scroll puts its rows inside a JScrollArea, so m_widgets holds exactly ONE thing,
+        // the area. Indexing it with a nav index painted this accent wash and border over the WHOLE LIST
+        // whenever the list opened on its first entry (index 0 being the only one that passed the bounds
+        // test), and it cleared as soon as the pointer moved the highlight to entry 1. The rows already
+        // draw their own selection — _applyNavHighlight() sets it — so with a nav list there is nothing
+        // for this to add.
+        if (m_navItems.empty() && m_keyNavIdx >= 0 && m_keyNavIdx < static_cast<int>(m_widgets.size())) {
             auto* w = m_widgets[m_keyNavIdx].get();
             if (w->isVisible()) {
                 const auto& bb = m_graph.getLayoutConst(w->getNodeId()).boundingBox;
@@ -561,6 +598,7 @@ private:
     int   m_floatDragStartX{0}, m_floatDragStartY{0};
     int   m_floatWinStartX{0},  m_floatWinStartY{0};
     int   m_keyNavIdx{-1};
+    long  m_pollNo{0};                 // polls since this popup opened — names the frame in a log line
     JTooltipHover                  m_tooltipHover; // this popup's own hover dwell
     std::vector<JWidget*>          m_navItems;    // explicit keyboard list (combo entries), else m_widgets
     std::function<void(JWidget*)>  m_navReveal;   // scroll an entry into view as the keyboard reaches it

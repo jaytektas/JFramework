@@ -269,7 +269,10 @@ public:
         };
 
         // Selection highlight — per visual row, the intersection of the row's byte range with [selLo, selHi).
-        if (m_core.hasSelection()) {
+        // Focused only — see JLineEdit: a selection is where the next keystroke lands, and one drawn on a
+        // field that cannot receive keys is a claim it has no business making. The caret is already gated
+        // this way; the band was not, so every field you had ever selected text in stayed lit.
+        if (focused && m_core.hasSelection()) {
             const size_t selLo = m_core.selectionStart(), selHi = m_core.selectionEnd();
             const uint8_t selColor[4] = {Colors::SelectionFill[0], Colors::SelectionFill[1], Colors::SelectionFill[2], 100};
             for (size_t r = 0; r < rows.size(); ++r) {
