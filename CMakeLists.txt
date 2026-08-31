@@ -127,6 +127,7 @@ add_dependencies(j_platform j_shaders)
 target_sources(j_platform PRIVATE src/platforms/PlatformFactory.cpp)
 # Serial backend (JSerialPort) — POSIX/Win32 impl behind the pimpl; header stays platform-free.
 target_sources(j_platform PRIVATE src/io/SerialPort.cpp)
+target_sources(j_platform PRIVATE src/io/Volumes.cpp)
 # Clipboard backend (JClipboard) — Win32/X11 impl behind the interface; header stays platform-free.
 target_sources(j_platform PRIVATE src/platform/Clipboard.cpp)
 # HTTP backend (JHttpClient) — POSIX sockets / Win32 impl behind the pimpl; header stays platform-free.
