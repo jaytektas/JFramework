@@ -57,6 +57,7 @@ public:
 #endif
           ))
         , m_surface(hal.createSurface(m_window->nativeHandle(), 0, 0))
+        , m_owner(static_cast<uintptr_t>(parentWindow))
     {
         m_root = m_graph.createNode("PopupRoot");
         auto& l = m_graph.getLayout(m_root);
@@ -185,9 +186,25 @@ public:
             out.type = JPollResult::JType::Dismissed;
             return out;
         }
-        if (lostFocus)
+        if (lostFocus) {
+            // …BUT WHERE THE FOCUS WENT DECIDES. Ignoring every focus loss under the grab left one
+            // case with no way out: switching applications WITHOUT clicking — alt-tab, or another
+            // window raising itself. No press ever reaches the grab, nothing else fires, and an
+            // override-redirect popup then floats above every other application on the screen until
+            // something is clicked. That is the "dropdown stuck on top of everything" report.
+            //
+            // Asking WHICH window now holds the focus separates the two: our own opener taking it
+            // back is the window manager re-evaluating and must still be ignored, while a stranger
+            // holding it means the user has genuinely gone elsewhere and the popup should go too.
+            if (_focusLeftApp()) {
+                JLOGC("popup", jf::JLogLevel::Debug) << "DISMISS poll#" << m_pollNo
+                    << " focus went to another application";
+                out.type = JPollResult::JType::Dismissed;
+                return out;
+            }
             JLOGC("popup", jf::JLogLevel::Debug) << "poll#" << m_pollNo
-                << " focusLost IGNORED (pointer grab held)";
+                << " focusLost IGNORED (pointer grab held, focus still ours)";
+        }
 
         float mx = m_window->mouseX();
         float my = m_window->mouseY();
@@ -327,7 +344,14 @@ public:
     // shouldClose. The flag is still consumed so it cannot pile up.
     bool pumpAndGrab() {
         m_window->pollNativeEvents();
-        (void)m_window->consumeFocusLost();          // consumed, never acted on -- see above
+        // Acted on ONLY when the focus has left the application entirely (see _focusLeftApp): the
+        // window manager handing focus back to our own toplevel is churn and must be ignored, but
+        // an alt-tab to another program is a dismissal that no press will ever deliver. Without
+        // this an open MENU floats above every other application exactly as a dropdown did.
+        if (m_window->consumeFocusLost() && _focusLeftApp()) {
+            JLOGC("popup", jf::JLogLevel::Debug) << "DISMISS menu: focus went to another application";
+            return true;
+        }
         if (m_window->shouldClose()) return true;
         _ensureGrab();
         return false;
@@ -591,6 +615,31 @@ private:
     GpuSurfaceId m_surface{kPrimarySurface};
     bool m_focusSet{false};
     bool m_hasPointerGrab{false};
+    // The window that opened this popup, so a focus loss can be told from a focus MOVE within our
+    // own application. 0 when the popup has no opener, which reads as "cannot tell" and is treated
+    // as ours — never dismissing on a question we could not answer.
+    uintptr_t m_owner{0};
+
+    // Which window holds the input focus, or 0 when the platform cannot say. Only the X11 backend
+    // can answer today; on Windows the case this guards against does not arise the same way (a
+    // popup there is not override-redirect and the shell will not leave it above other apps).
+    // Has the user actually left this application? True only when the focus has moved to a window
+    // that is neither this popup nor its opener — the one focus loss that must dismiss even while
+    // the pointer grab is held, because no press will ever arrive to do it.
+    bool _focusLeftApp() const {
+        const uintptr_t focused = _focusedWindow();
+        if (focused == 0) return false;                     // cannot tell: never dismiss on a guess
+        if (focused == m_window->rawWindowId()) return false;
+        return m_owner == 0 || focused != m_owner;
+    }
+
+    uintptr_t _focusedWindow() const {
+#if defined(_WIN32)
+        return 0;
+#else
+        return m_window->currentInputFocus();
+#endif
+    }
     uint32_t m_surfaceW{0}, m_surfaceH{0};
     bool  m_showCloseButton{false};
     bool  m_floatFirstPollDone{false};

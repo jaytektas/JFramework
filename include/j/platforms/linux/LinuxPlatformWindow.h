@@ -470,6 +470,21 @@ public:
     void requestClose()       override { m_closeRequested = true; }
     void clearCloseRequest()  override { m_closeRequested = false; }
     bool consumeFocusLost()  override { bool v = m_focusLost;  m_focusLost  = false; return v; }
+
+    // WHICH WINDOW HAS THE INPUT FOCUS RIGHT NOW, as an id comparable with rawWindowId(). Asked
+    // when a focus loss needs interpreting rather than obeying: focus moving to another window of
+    // ours is a window manager re-evaluating, and focus moving to a stranger is the user leaving.
+    // Those want opposite responses and the FocusOut event alone cannot tell them apart.
+    // A round trip, so call it on the transition and not per frame.
+    uintptr_t currentInputFocus() const {
+        if (!m_connection) return 0;
+        xcb_get_input_focus_reply_t* r =
+            xcb_get_input_focus_reply(m_connection, xcb_get_input_focus(m_connection), nullptr);
+        if (!r) return 0;
+        const uintptr_t w = static_cast<uintptr_t>(r->focus);
+        free(r);
+        return w;
+    }
     bool consumeMouseLeave() override { bool v = m_mouseLeft; m_mouseLeft = false; return v; }
     bool consumeWasResized() override { bool v = m_wasResized; m_wasResized = false; return v; }
     void swapBuffers()        override {
