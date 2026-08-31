@@ -219,8 +219,31 @@ public:
             m_selectedNode = cur;
             m_selectedNode->selected = true;
         }
+        // …AND SCROLL IT INTO VIEW. Expanding the ancestors makes the node exist in the list; it does not
+        // put it on screen. A selection driven from somewhere other than a click — a hyperlink, a tab
+        // that carries its own page — then landed correctly and invisibly, and the only clue was a
+        // highlight somewhere below the fold.
+        ensureVisible(cur);
         m_graph.invalidateNode(m_nodeId, DirtySelf);
         onSelectionChanged.emit(cur);
+    }
+
+    // Scroll the least distance that puts `node` inside the viewport: nothing if it is already there,
+    // otherwise flush to whichever edge it fell past. Jumping it to the middle would move the rest of the
+    // tree out from under the reader for no reason.
+    void ensureVisible(const JTreeViewNode* node) {
+        if (!node) return;
+        const auto flat = getFlatNodes();
+        int row = -1;
+        for (size_t i = 0; i < flat.size(); ++i) if (flat[i].node == node) { row = static_cast<int>(i); break; }
+        if (row < 0) return;                                  // filtered out or collapsed away: nothing to show
+        const auto  b     = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const float itemH = getItemHeight();
+        const float top   = row * itemH;                      // in content space, before the 4px inset
+        const float bot   = top + itemH;
+        if (top < m_scrollY)                       m_scrollY = top;
+        else if (bot > m_scrollY + b.height - 8.f) m_scrollY = bot - (b.height - 8.f);
+        _clampScroll();
     }
 
     // Run-mode condition filtering (mirrors the original EditTree::applyConditions): hide every node whose
