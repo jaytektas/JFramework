@@ -7,14 +7,16 @@ using namespace jf;
 
 void test_default_options() {
     // 1. Registry defaults
+    // handleHoverPad defaults to 0: a split already reserves a 6px handle strip between children,
+    // and that empty strip is what the user aims at. See JDockRegistry ctor.
     auto& reg = JDockRegistry::instance();
-    assert(reg.defaultOptions().handleHoverPad.value_or(0.f) == 4.0f);
+    assert(reg.defaultOptions().handleHoverPad.value_or(-1.f) == 0.0f);
     assert(reg.defaultOptions().enforceMinSizes.value_or(false) == true);
     assert(reg.defaultOptions().showResizeCursors.value_or(false) == true);
 
     // 2. Host inheritance
     JDockHost host;
-    assert(host.handleHoverPad() == 4.0f);
+    assert(host.handleHoverPad() == 0.0f);
     assert(host.enforceMinSizes() == true);
     assert(host.showResizeCursors() == true);
 
@@ -27,8 +29,8 @@ void test_local_overrides() {
     // Override handleHoverPad
     host.options().handleHoverPad = 8.0f;
     assert(host.handleHoverPad() == 8.0f);
-    // Registry should still be 4.0f
-    assert(JDockRegistry::instance().defaultOptions().handleHoverPad.value_or(0.f) == 4.0f);
+    // Registry default is unaffected by the host-local override
+    assert(JDockRegistry::instance().defaultOptions().handleHoverPad.value_or(-1.f) == 0.0f);
 
     // Override enforceMinSizes
     host.options().enforceMinSizes = false;
