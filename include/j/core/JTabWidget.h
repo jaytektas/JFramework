@@ -4,7 +4,10 @@
 
 #include "JWidget.h"
 #include "JTabBar.h"
+#include "JLineEdit.h"
 #include "JTextHelper.h"
+
+#include <chrono>
 
 inline namespace jf {
 
@@ -20,19 +23,28 @@ class JTabWidget : public JWidget {
 public:
     jf::JSignal<int> onTabChanged;   // (active index, or -1 when empty)
     jf::JSignal<int> onTabClosed;    // (index that was closed) — fired after removal
+    // (index, new label) — fired after an in-place rename commits. A tab IS the name of the thing it
+    // holds, and the name is right there on screen: renaming it through a dialog that lists every tab
+    // so you can pick the one you are already looking at is a menu standing in for a double-click.
+    jf::JSignal<int, std::string> onTabRenamed;
 
     JTabWidget(JSceneGraph& graph, float w = 640.0f, float h = 400.0f)
         : JWidget(graph, "JTabWidget")
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().menuItemHeight;
+        // The rename field is driven entirely BY THE BAR (keys and mouse are forwarded to it, and the
+        // caret shows through the visual focus flag). It must never be a focus-manager target itself,
+        // or a click would take keyboard focus off the bar and the forwarding would stop — the same
+        // rule, for the same reason, as JTreeView's in-place row editor.
+        m_editField.setFocusPolicy(JFocusPolicy::NoFocus);
     }
 
     // content is non-owning; caller keeps it alive while the tab exists. Returns the new tab index.
     // closable and draggable are opt-in per tab: only a closable tab gets a ×; only a draggable tab
     // can be dragged to rearrange. A permanent home tab leaves both off — it stays put and stays open.
     int addTab(const std::string& label, JWidget* content, bool closable = false, bool draggable = false) {
-        m_tabs.push_back({ label, content, closable, draggable });
+        m_tabs.push_back({ label, content, closable, draggable, false });
         addChild(content);                        // a page IS a child of the tab widget
         const int idx = (int)m_tabs.size() - 1;
         const bool firstTab = (m_active < 0);
@@ -86,6 +98,50 @@ public:
     // Pro layout config (opt-in; defaults = a Top strip, tabs at natural width).
     //   edge — which side the strip sits on (Top / Bottom / Left / Right; Left/Right run vertical).
     //   fill — how tabs occupy the strip: Fill = equal share, Left = natural width, Compress = shrink to fit.
+    // WHICH TABS MAY BE RENAMED. Off by default, so no existing bar changes behaviour: a tab bar over
+    // fixed views (a document's pages, a wizard's steps) has no business offering to rename anything.
+    // The host says which of its tabs name something the user owns.
+    void setTabRenamable(int i, bool on) {
+        if (i >= 0 && i < (int)m_tabs.size()) m_tabs[i].renamable = on;
+    }
+    bool isTabRenamable(int i) const { return i >= 0 && i < (int)m_tabs.size() && m_tabs[i].renamable; }
+
+    // Begin an in-place rename. A real JLineEdit is mounted over the tab, so this is a full text editor
+    // — caret, selection, arrows — not an append/backspace buffer. The label starts SELECTED so the
+    // first keystroke replaces it. Enter commits (fires onTabRenamed), Escape cancels, and a click or
+    // focus landing anywhere else commits, which is what every in-place editor everywhere does.
+    void beginRenameTab(int i) {
+        if (!isTabRenamable(i)) return;
+        m_editTab = i;
+        m_editField.setText(m_tabs[i].label);
+        m_editField.selectAll();
+        m_editField.setFocused(true);
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+    bool isRenamingTab() const { return m_editTab >= 0; }
+    void commitRenameTab() {
+        if (m_editTab < 0) return;
+        const int i = m_editTab;
+        const std::string t = m_editField.text();
+        m_editTab = -1;
+        m_editField.setFocused(false);
+        // AN EMPTY NAME IS NOT A NAME. Committing one leaves a tab you cannot click and cannot read;
+        // the edit simply does not take, which is also what pressing Escape does.
+        if (!t.empty() && t != m_tabs[i].label) {
+            m_tabs[i].label = t;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            onTabRenamed.emit(i, t);
+            return;
+        }
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+    void cancelRenameTab() {
+        if (m_editTab < 0) return;
+        m_editTab = -1;
+        m_editField.setFocused(false);
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+
     void setTabEdge(JTabBarEdge e) { if (m_edge != e) { m_edge = e; m_graph.invalidateNode(m_nodeId, DirtySelf); } }
     JTabBarEdge tabEdge() const { return m_edge; }
     void setTabFill(JTabFill f)   { if (m_fill != f) { m_fill = f; m_graph.invalidateNode(m_nodeId, DirtySelf); } }
@@ -117,6 +173,11 @@ public:
                 if (i == m_hotClose) { std::copy(Colors::Danger, Colors::Danger + 4, cc); }
                 else { const JColor ph = jstyle::role(JColorRole::PlaceholderText, so); std::copy(ph.data(), ph.data() + 4, cc); }
                 const float lh = JTextHelper::lineHeight();
+                if (i == m_editTab) {           // being renamed: the editor stands in for the label
+                    m_editField.setBounds({ r.x + 2.f, r.y + 2.f, r.width - 4.f, r.height - 4.f });
+                    m_editField.populateRenderPrimitives(buf);
+                    continue;
+                }
                 if (horiz) {
                     JTextHelper::pushText(buf, r.x + kPadX, r.y + (r.height - lh) * 0.5f, tr(m_tabs[i].label), lc);
                     if (m_tabs[i].closable)
@@ -137,11 +198,28 @@ public:
 
     void handleMousePress(float mx, float my) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        // A press INSIDE the editor places the caret / selects; anywhere else ends the edit first, so
+        // the click is then handled as the ordinary click it is.
+        if (m_editTab >= 0) {
+            if (_pointIn(m_editField.bounds(), mx, my)) {
+                m_editField.handleMousePress(mx, my);
+                m_graph.invalidateNode(m_nodeId, DirtySelf);
+                return;
+            }
+            commitRenameTab();
+        }
         if (_pointIn(_stripRect(b), mx, my)) {   // in the strip: close / select / begin a reorder drag
             _layoutTabs(b);
             for (int i = 0; i < (int)m_tabs.size(); ++i) {
                 if (!_pointIn(m_tabRect[i], mx, my)) continue;
                 if (m_tabs[i].closable && _inCloseBox(m_tabRect[i], mx, my)) { removeTab(i); return; }
+                // SECOND CLICK ON THE TAB YOU ARE ALREADY ON. Same tab, inside 400 ms — the same test
+                // and the same window JTreeView uses for renaming a row, so the two feel like one app.
+                const auto now = std::chrono::steady_clock::now();
+                const bool dbl = m_tabs[i].renamable && i == m_lastClickTab &&
+                    std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastClickTime).count() < 400;
+                m_lastClickTab = i; m_lastClickTime = now;
+                if (dbl) { setActiveTab(i); beginRenameTab(i); return; }
                 setActiveTab(i);
                 if (m_tabs[i].draggable) { m_dragIdx = i; m_dragActive = false; m_dragPress = _along(mx, my); }
                 return;
@@ -153,6 +231,11 @@ public:
     }
     void handleMouseMove(float mx, float my) override {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        if (m_editTab >= 0) {                    // drag-select inside the rename field
+            m_editField.handleMouseMove(mx, my);
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            return;
+        }
         if (m_dragIdx >= 0) {                     // reordering a draggable tab
             const float a = _along(mx, my);
             if (!m_dragActive && std::abs(a - m_dragPress) > kDragThresh) m_dragActive = true;
@@ -172,6 +255,7 @@ public:
         if (JWidget* c = activeContent()) c->handleMouseMove(mx, my);
     }
     void handleMouseRelease(float mx, float my) override {
+        if (m_editTab >= 0) { m_editField.handleMouseRelease(mx, my); return; }
         if (m_dragIdx >= 0) { m_dragIdx = -1; m_dragActive = false; return; }
         if (m_capContent) { if (JWidget* c = activeContent()) c->handleMouseRelease(mx, my); m_capContent = false; return; }
         // A cross-widget drag (e.g. a Dictionary binding dropped onto the canvas) ends with a release that
@@ -188,13 +272,27 @@ public:
         return false;
     }
     bool handleKeyEvent(const JKeyEvent& ke) override {
+        if (m_editTab >= 0) {
+            if (ke.key == JKeyEvent::JKey::Return) { commitRenameTab(); return true; }
+            if (ke.key == JKeyEvent::JKey::Escape) { cancelRenameTab();  return true; }
+            m_editField.handleKeyEvent(ke);
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+            return true;                          // an edit owns the keyboard while it is open
+        }
+        // F2 renames the tab in front, for the same reason it renames a tree row.
+        if (ke.key == JKeyEvent::JKey::F2 && isTabRenamable(m_active)) { beginRenameTab(m_active); return true; }
         if (JWidget* c = activeContent()) return c->handleKeyEvent(ke);
         return false;
     }
 
 
 private:
-    struct Tab { std::string label; JWidget* content; bool closable; bool draggable; };
+    struct Tab { std::string label; JWidget* content; bool closable; bool draggable; bool renamable; };
+
+    JLineEdit m_editField{ m_graph, "" };   // the real editor mounted over a tab during an in-place rename
+    int       m_editTab{ -1 };
+    int       m_lastClickTab{ -1 };         // double-click-to-rename tracking, as JTreeView does it
+    std::chrono::steady_clock::time_point m_lastClickTime{};
 
     // Exactly one page is visible: the active one. This is the Qt rule (a QStackedWidget hides every
     // page but the current one) and it is what makes the tab widget need no special-casing anywhere
