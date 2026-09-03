@@ -196,14 +196,27 @@ public:
             // Asking WHICH window now holds the focus separates the two: our own opener taking it
             // back is the window manager re-evaluating and must still be ignored, while a stranger
             // holding it means the user has genuinely gone elsewhere and the popup should go too.
-            if (_focusLeftApp()) {
-                JLOGC("popup", jf::JLogLevel::Debug) << "DISMISS poll#" << m_pollNo
-                    << " focus went to another application";
-                out.type = JPollResult::JType::Dismissed;
-                return out;
-            }
             JLOGC("popup", jf::JLogLevel::Debug) << "poll#" << m_pollNo
-                << " focusLost IGNORED (pointer grab held, focus still ours)";
+                << " focusLost seen (pointer grab held) — deciding on WHO has focus, below";
+        }
+
+        // ASKED EVERY POLL, NOT ONLY WHEN A FocusOut ARRIVED. This test used to live inside the
+        // `if (lostFocus)` above, which made dismissal depend on X delivering us a focus event — and
+        // an override-redirect window the window manager never gave input focus to does not get one.
+        // Alt-tab away, or let another window raise itself, and no FocusOut came, no press reached the
+        // grab, and nothing else fired: the popup floated above every other application until
+        // something was clicked. That is the "combobox stuck on top of everything" report, and it
+        // survived the previous fix because the previous fix was behind the event that never came.
+        //
+        // Polling is safe precisely because _focusLeftApp() is conservative: focus we cannot read at
+        // all, focus still on the popup, and focus back on our own opener (the window manager
+        // re-evaluating, which is what dismissed lists out from under people before) all answer
+        // false. Only a STRANGER holding the focus dismisses, which is the case that had no exit.
+        if (_focusLeftApp()) {
+            JLOGC("popup", jf::JLogLevel::Debug) << "DISMISS poll#" << m_pollNo
+                << " focus went to another application";
+            out.type = JPollResult::JType::Dismissed;
+            return out;
         }
 
         float mx = m_window->mouseX();
@@ -348,7 +361,13 @@ public:
         // window manager handing focus back to our own toplevel is churn and must be ignored, but
         // an alt-tab to another program is a dismissal that no press will ever deliver. Without
         // this an open MENU floats above every other application exactly as a dropdown did.
-        if (m_window->consumeFocusLost() && _focusLeftApp()) {
+        //
+        // AND IT IS NOT CONDITIONAL ON A FocusOut ARRIVING. consumeFocusLost() was ANDed in here, so
+        // this only ran when X told us we had lost focus — which an override-redirect window that
+        // never held input focus is never told. Same hole as poll() had, same symptom, and the
+        // consume still happens so the flag cannot pile up and fire late.
+        m_window->consumeFocusLost();
+        if (_focusLeftApp()) {
             JLOGC("popup", jf::JLogLevel::Debug) << "DISMISS menu: focus went to another application";
             return true;
         }
