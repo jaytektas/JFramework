@@ -490,8 +490,15 @@ protected:
         const float reserve = sorted ? JStyle::current().gridSortGlyphWidth : 0.0f;
         const std::string t = tr(title);
         const float ty = bounds.y + (bounds.height - JTextHelper::lineHeight()) * 0.5f;
+        // NO ROOM IS NOT NO LIMIT. pushText reads maxWidth <= 0 as "unlimited" — that is what its
+        // default of 0.0f means — so a column narrow enough to leave nothing after the padding and the
+        // sort glyph handed it a NEGATIVE limit and got the whole label drawn, unclipped, straight
+        // across its neighbours. It takes only the SORTED column and only below 30px
+        // (2*8 padding + 14 glyph), which is reachable at the 24px minimum column width: a data grid in
+        // a narrowed dock printed every header on top of the next and read as mush.
         JTextHelper::pushText(buf, alignedTextX(colIdx, bounds, t, reserve), ty, t,
-                              Colors::GridHeaderText, bounds.width - m_cellPadding * 2.0f - reserve);
+                              Colors::GridHeaderText,
+                              std::max(1.0f, bounds.width - m_cellPadding * 2.0f - reserve));
         if (sorted) {
             // Direction mark via JArrow — the toolkit's one triangle, shared with the tree's disclosure.
             JArrow::draw(buf,
@@ -507,8 +514,10 @@ protected:
             uint8_t tc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 220};
             const std::string t = tr(val);
             float ty = bounds.y + (bounds.height - JTextHelper::lineHeight()) * 0.5f;
+            // Same guard as the header: at or below twice the padding this expression reaches zero,
+            // which pushText would read as "draw it all".
             JTextHelper::pushText(buf, alignedTextX(colIdx, bounds, t), ty, t, tc,
-                                  bounds.width - m_cellPadding * 2.0f);
+                                  std::max(1.0f, bounds.width - m_cellPadding * 2.0f));
         }
     }
 
