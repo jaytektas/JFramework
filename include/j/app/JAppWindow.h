@@ -643,18 +643,34 @@ public:
                 // graph reference into freed memory. It only bit when the click happened to be the one
                 // that triggered the build, which is exactly the shape of an intermittent right-click
                 // crash. The snapshot survives reallocation; the liveness check covers destruction.
-                const std::vector<JWidget*> scan(JWidget::s_activeWidgets);
-                const auto alive = [](JWidget* w) {
-                    return w && std::find(JWidget::s_activeWidgets.begin(),
-                                          JWidget::s_activeWidgets.end(), w) != JWidget::s_activeWidgets.end();
+                // …AND THE LIVENESS CHECK NEEDS AN IDENTITY, NOT AN ADDRESS. The snapshot fixed the
+                // reallocation half; this is the other half. "Is this pointer still in the registry"
+                // says yes when the widget died and a NEW one was built at the same address, which is
+                // exactly what prepareContextMenu() does when it rebuilds a form — so the scan went on
+                // to call isVisible() on a stranger and followed its scene-graph reference into freed
+                // memory. Serials are never reused, so the snapshot carries one per widget and the
+                // check compares it. A recycled address is now a thing this loop SEES, and says.
+                std::vector<std::pair<JWidget*, uint64_t>> scan;
+                scan.reserve(JWidget::s_activeWidgets.size());
+                for (JWidget* w : JWidget::s_activeWidgets) scan.emplace_back(w, w->uid());
+                const auto alive = [](JWidget* w, uint64_t uid) {
+                    bool reused = false;
+                    if (JWidget::stillAlive(w, uid, &reused)) return true;
+                    if (reused)
+                        qCWarning(LogLayoutEngine)
+                            << "widget scan: address" << static_cast<const void*>(w)
+                            << "was widget #" << uid << "at snapshot and is #" << w->uid()
+                            << "now — destroyed and rebuilt mid-scan; skipped instead of dereferenced";
+                    return false;
                 };
                 for (auto it = scan.rbegin(); it != scan.rend(); ++it) {
-                    JWidget* w = *it;
-                    if (!alive(w)) continue;              // destroyed by an earlier prepareContextMenu()
+                    JWidget* w = it->first;
+                    const uint64_t uid = it->second;
+                    if (!alive(w, uid)) continue;         // destroyed by an earlier prepareContextMenu()
                     // prepareContextMenu FIRST so a widget can pick its menu from the click position (a surface
                     // sets the table/curve menu for whatever control is under the cursor), THEN check contextMenu().
                     if (w->isVisible() && w->hitTest(mx, my)) w->prepareContextMenu(mx, my);
-                    if (!alive(w)) continue;              // ...or by its own
+                    if (!alive(w, uid)) continue;         // ...or by its own
                     if (w->isVisible() && w->contextMenu() && w->hitTest(mx, my)) {
                         if (JMenuManager::instance().onOpenMenu)
                             JMenuManager::instance().onOpenMenu(

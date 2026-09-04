@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cmath>
 #include <optional>
+#include <array>
 #include <vector>
 #include <memory>
 #include <functional>
@@ -60,6 +61,17 @@ struct JTooltipHover {
 class JWidget : public jf::JSlotTracker {
 public:
     inline static std::vector<JWidget*> s_activeWidgets;
+    // A SERIAL NUMBER, because an ADDRESS IS NOT AN IDENTITY. Every global scan that walks a snapshot
+    // of s_activeWidgets checks liveness by asking "is this pointer still in the registry" — and the
+    // allocator reuses addresses, so a widget destroyed and another built at the same address during
+    // the scan answers YES about an object the snapshot never meant. Comparing the serial as well
+    // turns that from an undetectable dangling dereference into a fact the scan can see and log.
+    inline static uint64_t s_uidCounter = 0;
+    // The last few widgets to die, so a scan that trips over a recycled address can say what USED to
+    // live there. Tiny, fixed, and never read on the fast path.
+    struct GoneWidget { const void* addr; uint64_t uid; };
+    inline static std::array<GoneWidget, 32> s_recentlyGone{};
+    inline static std::size_t s_goneAt = 0;
     // Live keyboard-modifier state, refreshed by the runner each frame so handleMousePress (which
     // carries no modifier args) can honour Ctrl/Shift — e.g. additive/toggle multi-select.
     // The left button's PHYSICAL state, published by the app loop each frame beside the modifiers below.
@@ -146,6 +158,7 @@ public:
         : m_graph(graph), m_state(JWidgetState::Normal), m_debugName(debugName)
     {
         m_nodeId = m_graph.createNode(debugName);
+        m_uid    = ++s_uidCounter;
         s_activeWidgets.push_back(this);
     }
 
@@ -162,6 +175,8 @@ public:
         for (JWidget* c : m_children) if (c && c->m_parent == this) c->m_parent = nullptr;
         m_children.clear();
         if (m_parent) m_parent->removeChild(this);
+        s_recentlyGone[s_goneAt] = { static_cast<const void*>(this), m_uid };
+        s_goneAt = (s_goneAt + 1) % s_recentlyGone.size();
         if (s_widgetDestroyedHook) s_widgetDestroyedHook(this);   // drop every raw pointer held to us
     }
     JWidget(const JWidget&)            = delete;
@@ -288,6 +303,25 @@ public:
     }
     // This widget's OWN flag, ignoring ancestors (for code that manages the flag itself).
     bool        isVisibleSelf() const noexcept { return m_visible; }
+    // This widget's serial. Unique for the life of the process and never reused, unlike its address.
+    uint64_t    uid() const noexcept { return m_uid; }
+    // Was `w` — the very object the caller saw at snapshot time — still alive? Address membership
+    // alone cannot answer that (see s_uidCounter); the serial can. `reused` comes back true for the
+    // case worth shouting about: the address IS registered, but to a different widget entirely.
+    static bool stillAlive(JWidget* w, uint64_t uid, bool* reused = nullptr) {
+        if (reused) *reused = false;
+        if (!w) return false;
+        const auto it = std::find(s_activeWidgets.begin(), s_activeWidgets.end(), w);
+        if (it == s_activeWidgets.end()) return false;         // gone, and the address went with it
+        if ((*it)->m_uid == uid) return true;
+        if (reused) *reused = true;                            // same address, different widget
+        return false;
+    }
+    // What used to live at this address, if we still remember it. 0 = no record.
+    static uint64_t lastUidAt(const void* addr) {
+        for (const GoneWidget& g : s_recentlyGone) if (g.addr == addr) return g.uid;
+        return 0;
+    }
 
     // Scan exclusion: keep this widget (and its subtree) out of the framework's GLOBAL widget scans --
     // focus traversal and click hit-testing -- while it still paints normally. For content a host drives
@@ -712,6 +746,7 @@ protected:
 
     JSceneGraph& m_graph;
     NodeId      m_nodeId;
+    uint64_t    m_uid = 0;   // serial: identity that an address cannot give
     JWidgetState m_state;
     std::string m_debugName;
     bool        m_visible{true};
