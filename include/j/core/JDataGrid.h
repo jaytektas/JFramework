@@ -175,7 +175,13 @@ public:
             return m_columnWidths[colIdx];
         }
         if (m_headers.empty()) return totalW;
-        return totalW / m_headers.size();
+        // THE SAME FLOOR _materialiseWidths USES. This fallback (widths not yet materialised) divided the
+        // width evenly with no minimum, so a grid in a 62px dock drew SEVEN 9px columns — narrower than
+        // the padding, which made every header's limit negative and drew all seven labels on top of one
+        // another. Floored, the columns keep a usable width and overflow into the horizontal scroll this
+        // class already computes, which is the difference between "unreadable" and "scroll to see it".
+        return std::max(JStyle::current().gridMinColumnWidth,
+                        totalW / static_cast<float>(m_headers.size()));
     }
 
     void handleMousePress(float mx, float my) override {
