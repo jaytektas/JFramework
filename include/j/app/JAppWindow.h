@@ -288,7 +288,7 @@ public:
     uint32_t width()  const { return m_w; }
     uint32_t height() const { return m_h; }
     // Content y-origin: below the title bar + menu bar + toolbar.
-    float    contentTop() const { return m_titleH + m_menuH + m_toolbarH; }
+    float    contentTop() const { return m_titleH + m_menuH + m_noticeH + m_toolbarH; }
 
     // The window's dock host — build the layout on this; the runner auto-lays-it-out,
     // renders it, and routes input to it (no per-app plumbing). Empty = no docks.
@@ -409,6 +409,25 @@ public:
     }
     // Override the toolbar height (e.g. to host a tall icon widget). Call after toolBar().
     void setToolbarHeight(float h) { if (m_toolBar) { m_toolbarH = h; layoutDocks(); } }
+
+    // A NOTICE ABOUT THE WHOLE WINDOW, in the chrome rather than over the content.
+    //
+    // The state an app needs to announce — "not connected", "read only", "recording" — is about the
+    // session, not about any one thing on screen, and the obvious place to put it is across the middle
+    // of the content where it cannot be missed. That works exactly once: the second time, the reader
+    // already knows, and a banner sitting on top of the work is in the way with no way to move it.
+    //
+    // So it goes in the chrome, above the toolbar: permanently visible, never over the content, and it
+    // takes its own space rather than borrowing the canvas's. Empty text removes the strip entirely.
+    // `accent` tints the left edge and the text — Warning and Danger both read well.
+    void setNotice(std::string text, std::string detail = "", const uint8_t* accent = nullptr) {
+        const bool had = m_noticeH > 0.f;
+        m_notice = std::move(text); m_noticeDetail = std::move(detail);
+        if (accent) std::copy(accent, accent + 4, m_noticeAccent);
+        m_noticeH = m_notice.empty() ? 0.f : JStyle::current().buttonHeight + 4.f;
+        if (had != (m_noticeH > 0.f)) layoutDocks();   // the content moved; docks must be re-laid out
+    }
+    const std::string& notice() const { return m_notice; }
 
     // The window's keyboard-focus manager. The runner owns focus: it rebuilds the tab order
     // from the live widget set each frame, focuses the widget under a click, cycles focus on
@@ -616,7 +635,7 @@ public:
                 }
             }
             if (m_toolBar && m_toolbarH > 0.f) {
-                const float ty = m_titleH + m_menuH;
+                const float ty = m_titleH + m_menuH + m_noticeH;   // the notice strip is above it
                 m_toolBar->setRect(JRect{0.f, ty, static_cast<float>(m_w), m_toolbarH});
                 const bool act = !chromeAte && !menusOpen;
                 if (m_toolBar->handleMouse(mx, my, act && pressed, act && released) && !menusOpen)
@@ -990,6 +1009,10 @@ private:
 
     void ensureStatusBar() { if (m_statusH == 0.f) { m_statusH = 24.f; layoutDocks(); } }
 
+    std::string m_notice, m_noticeDetail;      // chrome notice strip (see setNotice)
+    float       m_noticeH = 0.f;               // 0 = no strip, and it costs no content space
+    uint8_t     m_noticeAccent[4] = {255, 159, 10, 255};   // Warning by default
+
     void layoutDocks() {
         const float top = contentTop();
         // Inset by the resize band on the sides, and along the bottom too when no status bar already
@@ -1029,8 +1052,29 @@ private:
             buf.pushRectangle(0.f, m_titleH + m_menuH - 1.f, W, 1.f, sep, 0.f);
             m_menuBar->populateRenderPrimitives(buf);
         }
-        if (m_toolBar && m_toolbarH > 0.f) {
+        if (m_noticeH > 0.f) {
             const float y = m_titleH + m_menuH;
+            // Tinted ground rather than the plain chrome fill, so it reads as a state and not as
+            // another row of buttons; a solid bar down the left edge carries the severity colour.
+            uint8_t tint[4] = {m_noticeAccent[0], m_noticeAccent[1], m_noticeAccent[2], 38};
+            buf.pushRectangle(0.f, y, W, m_noticeH, bg, 0.f);
+            buf.pushRectangle(0.f, y, W, m_noticeH, tint, 0.f);
+            buf.pushRectangle(0.f, y, 3.f, m_noticeH, m_noticeAccent, 0.f);
+            buf.pushRectangle(0.f, y + m_noticeH - 1.f, W, 1.f, sep, 0.f);
+            if (JTextHelper::hasAtlas()) {
+                const float lh = JTextHelper::lineHeight();
+                const float ty = y + (m_noticeH - lh) * 0.5f;
+                JTextHelper::pushText(buf, 14.f, ty, m_notice, m_noticeAccent, W - 28.f);
+                if (!m_noticeDetail.empty()) {
+                    const float dx = 14.f + JTextHelper::measureWidth(m_notice) + 12.f;
+                    if (dx < W - 20.f)
+                        JTextHelper::pushText(buf, dx, ty, m_noticeDetail,
+                                              Colors::TextSecondary, W - dx - 14.f);
+                }
+            }
+        }
+        if (m_toolBar && m_toolbarH > 0.f) {
+            const float y = m_titleH + m_menuH + m_noticeH;
             buf.pushRectangle(0.f, y, W, m_toolbarH, bg, 0.f);
             buf.pushRectangle(0.f, y + m_toolbarH - 1.f, W, 1.f, sep, 0.f);
             m_toolBar->setRect(JRect{0.f, y, W, m_toolbarH});
