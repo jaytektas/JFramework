@@ -56,17 +56,32 @@ public:
         RegisterClassExW(&wc);
 
         DWORD winStyle = WS_OVERLAPPEDWINDOW;
+        DWORD exStyle   = 0;
         if (style == JPlatformWindowStyle::Borderless) {
             winStyle = WS_POPUP | WS_SYSMENU;
         } else if (style == JPlatformWindowStyle::Popup) {
             winStyle = WS_POPUP;
+            // A MENU IS NOT AN ORDINARY WINDOW, and saying so is not cosmetic.
+            //
+            // WS_EX_NOACTIVATE keeps the popup from taking activation: a menu that activates itself
+            // makes the window behind it draw as inactive the moment it opens, and hands focus back
+            // on close, which is a visible flicker on every single menu click.
+            // WS_EX_TOOLWINDOW keeps it out of the taskbar and the alt-tab list -- a dropdown is not
+            // a task -- and WS_EX_TOPMOST keeps it above the window that owns it.
+            //
+            // It also decides who chooses the popup's POSITION. An extended style of zero describes a
+            // normal top-level window, so a window manager is entitled to place it wherever its own
+            // policy says; under Wine that is exactly what happens, and menus open in the middle of
+            // the screen instead of under the item that was clicked. These flags are what mark it as
+            // the app's own furniture, to be put exactly where it was asked for.
+            exStyle  = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST;
         }
 
         RECT rect = { 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) };
-        AdjustWindowRect(&rect, winStyle, FALSE);
+        AdjustWindowRectEx(&rect, winStyle, FALSE, exStyle);
 
         m_hwnd = CreateWindowExW(
-            0,
+            exStyle,
             className,
             wTitle.c_str(),
             winStyle,
@@ -91,7 +106,9 @@ public:
             ReleaseDC(m_hwnd, hdc);
         }
 
-        ShowWindow(m_hwnd, SW_SHOW);
+        // SW_SHOW ACTIVATES, which would undo WS_EX_NOACTIVATE at the moment it matters. A menu has to
+        // appear without taking focus from the window it belongs to.
+        ShowWindow(m_hwnd, (style == JPlatformWindowStyle::Popup) ? SW_SHOWNOACTIVATE : SW_SHOW);
         UpdateWindow(m_hwnd);
         s_lastCreatedRaw = reinterpret_cast<uintptr_t>(m_hwnd);   // so a caller can parent the NEXT modal to this one
     }
@@ -174,6 +191,22 @@ public:
 
     HWND nativeWindow() const { return m_hwnd; }
     HINSTANCE nativeInstance() const { return m_hInstance; }
+
+    // ---- Parity with JLinuxPlatformWindow: the three things the menu runtime asks for ----
+
+    // An HWND as a plain integer id, so menu code can compare windows without knowing the platform
+    // type. Win32 hands out pointers where X hands out numeric ids; both fit a uintptr_t.
+    uintptr_t rawWindowId() const override { return reinterpret_cast<uintptr_t>(m_hwnd); }
+
+    // Which window holds the input focus RIGHT NOW. GetFocus() only answers for the calling thread's
+    // own message queue, which is exactly wrong here: the question is whether focus went to another
+    // application, so it must be asked globally.
+    uintptr_t focusedWindowRaw() const { return reinterpret_cast<uintptr_t>(GetForegroundWindow()); }
+
+    // Primary-monitor pixel size, for keeping popups on-screen.
+    std::pair<int,int> screenSize() const {
+        return { GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN) };
+    }
 
     // Release whatever window currently holds the mouse capture. A window captures the mouse on
     // button-down (to keep motion/up during a drag-outside) and releases on button-up. But a modal

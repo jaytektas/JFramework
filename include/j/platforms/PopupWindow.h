@@ -57,7 +57,11 @@ public:
 #endif
           ))
         , m_surface(hal.createSurface(m_window->nativeHandle(), 0, 0))
+#if defined(_WIN32)
+        , m_owner(reinterpret_cast<uintptr_t>(parentWindow))   // HWND is a pointer
+#else
         , m_owner(static_cast<uintptr_t>(parentWindow))
+#endif
     {
         m_root = m_graph.createNode("PopupRoot");
         auto& l = m_graph.getLayout(m_root);

@@ -56,7 +56,11 @@ public:
         if (!any) return true;
         const uintptr_t focus = any->window().focusedWindowRaw();
         if (focus == 0) return true;                                  // not reported: assume ours
+#if defined(_WIN32)
+        if (focus == reinterpret_cast<uintptr_t>(m_parent)) return true;   // the main window (HWND is a pointer)
+#else
         if (focus == static_cast<uintptr_t>(m_parent)) return true;   // the main window
+#endif
         for (const auto& p : m_active)   if (focus == p->window().rawWindowId()) return true;
         for (const auto& f : m_floating) if (focus == f.win->window().rawWindowId()) return true;
         return false;
