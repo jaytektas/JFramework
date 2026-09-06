@@ -32,7 +32,7 @@
 #else
 #include <j/platforms/linux/LinuxPlatformWindow.h>
 #endif
-#include <j/platforms/linux/FloatingDockWindow.h>
+#include <j/platforms/FloatingDockWindow.h>
 #include <j/core/MenuSystem.h>
 #include <j/core/Dialog.h>
 #include <j/core/Animator.h>

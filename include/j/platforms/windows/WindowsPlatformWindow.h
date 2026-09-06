@@ -178,7 +178,40 @@ public:
         SetWindowPos(m_hwnd, nullptr, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
-    void setCursor(jf::JPlatformCursor shape) override { (void)shape; }
+    // A floating dock is resized by grabbing its edge, and the only thing telling the user where
+    // that edge is, is the cursor. Left as a no-op the grip is invisible and feels broken.
+    void setCursor(jf::JPlatformCursor shape) override {
+        // The IDC_* macros are MAKEINTRESOURCE, which is the ANSI spelling unless UNICODE is
+        // defined -- and it is not for this build. Use the numeric ids with the W macro, the same
+        // way the window class above already loads its arrow.
+        constexpr WORD kArrow = 32512, kSizeNWSE = 32642, kSizeNESW = 32643,
+                       kSizeWE = 32644, kSizeNS = 32645;
+        WORD id = kArrow;
+        switch (shape) {
+            case jf::JPlatformCursor::ResizeLeftRight:   id = kSizeWE;   break;
+            case jf::JPlatformCursor::ResizeUpDown:      id = kSizeNS;   break;
+            case jf::JPlatformCursor::ResizeTopLeft:
+            case jf::JPlatformCursor::ResizeBottomRight: id = kSizeNWSE; break;
+            case jf::JPlatformCursor::ResizeTopRight:
+            case jf::JPlatformCursor::ResizeBottomLeft:  id = kSizeNESW; break;
+            default:                                     id = kArrow;    break;
+        }
+        m_cursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(id));
+        // Windows re-asserts the class cursor on every WM_SETCURSOR, so setting it once is not
+        // enough -- the handler below reapplies m_cursor, and this makes the change visible now.
+        if (m_cursor) ::SetCursor(m_cursor);
+    }
+
+    // Show/hide without activating: a float is hidden while its dock is dragged back into a host,
+    // and stealing focus on the way past would fight the drag.
+    void setMapped(bool on) override {
+        if (!m_hwnd || on == m_mapped) return;
+        m_mapped = on;
+        ShowWindow(m_hwnd, on ? SW_SHOWNA : SW_HIDE);
+    }
+    bool isMapped() const override { return m_mapped; }
+
+    bool consumeMouseLeave() override { bool v = m_mouseLeft; m_mouseLeft = false; return v; }
     jf::JPlatformWindowStyle windowStyle() const override { return m_style; }
 
     jf::JNativeWindowHandle nativeHandle() const override {
@@ -206,6 +239,54 @@ public:
     // Primary-monitor pixel size, for keeping popups on-screen.
     std::pair<int,int> screenSize() const {
         return { GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN) };
+    }
+
+    // ---- Window chrome ----------------------------------------------------------------
+    //
+    // The application DRAWS ITS OWN title bar, so nothing native is listening for a drag on
+    // it, a double-click to maximise, or a click on a close button that Windows did not put
+    // there. Every one of those arrives as an ordinary click in the client area and has to be
+    // turned back into a window operation here.
+    //
+    // These are all declared on JPlatformWindow with an empty default body rather than as pure
+    // virtuals, so a platform that implements none of them compiles perfectly and then does
+    // nothing at all when the user drags the title bar. That is how they came to be missing.
+
+    void requestClose()      override { m_closeRequested = true;  }
+    void clearCloseRequest() override { m_closeRequested = false; }
+
+    void minimize() override {
+        if (m_style == jf::JPlatformWindowStyle::Popup || !m_hwnd) return;
+        ShowWindow(m_hwnd, SW_MINIMIZE);
+    }
+
+    bool isMaximized() const override { return m_hwnd && IsZoomed(m_hwnd); }
+
+    void setMaximized(bool on) override {
+        if (m_style == jf::JPlatformWindowStyle::Popup || !m_hwnd) return;
+        ShowWindow(m_hwnd, on ? SW_MAXIMIZE : SW_RESTORE);
+    }
+
+    // Hand the drag to Windows and let DefWindowProc run it. Tracking the move ourselves would
+    // mean re-implementing snap, multi-monitor edges and the Escape-to-cancel that users expect,
+    // all of which come free with the native modal loop.
+    void startWindowMove() override {
+        if (m_style == jf::JPlatformWindowStyle::Popup || !m_hwnd) return;
+        ReleaseCapture();   // the click that began the drag still holds it; the loop needs it back
+        SendMessageW(m_hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+    }
+
+    // `direction` is the _NET_WM_MOVERESIZE code, because that is what the framework's edge
+    // hit-test produces and X11 was implemented first. Translated here rather than changed at
+    // the source, so one platform's protocol constant does not leak into the other's.
+    void startWindowResize(uint32_t direction) override {
+        if (m_style == jf::JPlatformWindowStyle::Popup || !m_hwnd || !m_resizable) return;
+        static constexpr WPARAM kHit[] = {
+            HTTOPLEFT, HTTOP, HTTOPRIGHT, HTRIGHT, HTBOTTOMRIGHT, HTBOTTOM, HTBOTTOMLEFT, HTLEFT
+        };
+        if (direction >= sizeof(kHit) / sizeof(kHit[0])) return;
+        ReleaseCapture();
+        SendMessageW(m_hwnd, WM_NCLBUTTONDOWN, kHit[direction], 0);
     }
 
     // Release whatever window currently holds the mouse capture. A window captures the mouse on
@@ -305,7 +386,24 @@ private:
 
     LRESULT handleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
         switch (uMsg) {
+            case WM_SETCURSOR: {
+                // Windows reasserts the window class's cursor constantly; without answering here,
+                // setCursor() would be undone before the user saw it. Only over the client area --
+                // the frame keeps its own arrows.
+                if (LOWORD(lParam) == HTCLIENT && m_cursor) { ::SetCursor(m_cursor); return TRUE; }
+                break;
+            }
+            case WM_MOUSELEAVE: {
+                m_mouseLeft     = true;
+                m_mouseTracking = false;   // the request is one-shot; re-arm on the next move
+                return 0;
+            }
             case WM_MOUSEMOVE: {
+                // WM_MOUSELEAVE is not sent unless it is asked for, once, per entry.
+                if (!m_mouseTracking) {
+                    TRACKMOUSEEVENT tme{ sizeof(tme), TME_LEAVE, hwnd, 0 };
+                    if (TrackMouseEvent(&tme)) m_mouseTracking = true;
+                }
                 m_mouseX = static_cast<float>(GET_X_LPARAM(lParam));
                 m_mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
                 qCDebug(LogWin32Backend) << "WM_MOUSEMOVE: " << m_mouseX << ", " << m_mouseY << "\n";
@@ -344,6 +442,25 @@ private:
                 m_wheelY += static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam)) / static_cast<float>(WHEEL_DELTA);
                 qCDebug(LogWin32Backend) << "WM_MOUSEWHEEL: " << m_wheelY << "\n";
                 return 0;
+            }
+            case WM_GETMINMAXINFO: {
+                // Windows clamps a MAXIMIZED window to the monitor work area only for ordinary
+                // framed windows. This one is borderless, so without this it would maximise over
+                // the taskbar and the user would lose the way back to everything else.
+                if (m_style != JPlatformWindowStyle::Normal) {
+                    MONITORINFO mi{}; mi.cbSize = sizeof(mi);
+                    HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                    if (mon && GetMonitorInfo(mon, &mi)) {
+                        auto* mm = reinterpret_cast<MINMAXINFO*>(lParam);
+                        // Maximised position is expressed relative to the monitor, not the desktop.
+                        mm->ptMaxPosition.x = mi.rcWork.left - mi.rcMonitor.left;
+                        mm->ptMaxPosition.y = mi.rcWork.top  - mi.rcMonitor.top;
+                        mm->ptMaxSize.x     = mi.rcWork.right  - mi.rcWork.left;
+                        mm->ptMaxSize.y     = mi.rcWork.bottom - mi.rcWork.top;
+                        return 0;
+                    }
+                }
+                break;
             }
             case WM_SIZE: {
                 m_width = LOWORD(lParam);
@@ -455,6 +572,10 @@ private:
         return true;
     }
     bool  m_focusLost{false};
+    bool  m_mouseLeft{false};      // WM_MOUSELEAVE seen; consumed by consumeMouseLeave()
+    bool  m_mouseTracking{false};  // a TrackMouseEvent request is outstanding
+    bool  m_mapped{true};          // windows are created shown
+    HCURSOR m_cursor{nullptr};     // what WM_SETCURSOR should reassert
     bool  m_altDown{false};
 
     std::deque<jf::JKeyEvent> m_keyQueue;

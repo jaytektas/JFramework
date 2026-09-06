@@ -51,9 +51,7 @@
 #include <j/platforms/FileDialogWindow.h>    // JFileDialogWindow (in-app file/folder picker)
 #include <j/core/JAiBus.h>                    // opt-in AI bus (introspect/drive over shared memory)
 #include <cstdlib>                            // getenv (JF_AI_BUS opt-in)
-#if defined(__linux__)
-#  include <j/platforms/linux/FloatingDockWindow.h>   // tear-out / floating docks
-#endif
+#  include <j/platforms/FloatingDockWindow.h>   // tear-out / floating docks
 #include <j/graphics/GpuHal.h>
 #include <j/graphics/FontEngine.h>
 #include <j/graphics/RenderPrimitive.h>
@@ -120,9 +118,7 @@ public:
     // undocked. Release every extra surface HERE, while the HAL and the windows owning them are all alive.
     ~JAppWindow() {
         if (!m_hal) return;
-#if defined(__linux__)
         for (auto& fd : m_floating) fd.destroySurface(*m_hal);
-#endif
         if (m_comboPopup) m_comboPopup->destroySurface(*m_hal);
         m_menuRuntime.closeAll();       // open menu popups own surfaces too
     }
@@ -144,12 +140,10 @@ public:
         // FLOATING panels too. They were left out on the grounds that they "run their own focus", but
         // nothing implemented that — and syncOrder() clears focus from any widget outside the order, so a
         // field in a float could never hold it: typing into a floating panel did nothing at all.
-#if defined(__linux__)
         for (auto& fd : m_floating)
             fd.dockHost().forEachDockPanel([&roots](JDockWidget* d, const JRect&, bool activeTab, int) {
                 if (d && activeTab && d->content()) roots.push_back(d->content());
             });
-#endif
         if (JWidget* cw = m_space.centralWidget()) roots.push_back(cw);
         m_focus.setFocusRoots(std::move(roots));
     }
@@ -812,7 +806,6 @@ public:
             // Floating docks (tear-out): keep the host's screen rect current for re-dock
             // hit-testing, then poll/render/re-dock/close each floating window.
             m_space.registerAll(m_window->screenX(), m_window->screenY());
-#if defined(__linux__)
             // Escape reverts an in-progress dock drag to its exact pre-drag state. A float
             // may hold keyboard focus (it flags consumeAbortRequest) or the main window may
             // (poll its keys while dragging) — either way the host owns the revert.
@@ -825,11 +818,8 @@ public:
                 for (const auto& k : frameKeys)
                     if (k.key == JKeyEvent::JKey::Escape) escAbort = true;
             if (escAbort) revertActiveDrag();
-#endif
             serviceFloats();
-#if defined(__linux__)
             if (!m_floating.empty()) activity = true;   // keep polling while docks float
-#endif
             // Re-derive the area layout each frame so tear-out/re-dock changes take effect —
             // an emptied area collapses and the centre reclaims its space.
             m_space.computeLayout({0.f, contentTop(), static_cast<float>(m_w),
@@ -932,7 +922,6 @@ public:
     // every floating one: removeDock is a no-op, a layout snapshot never records it, and the panel just sits
     // there through a mode it should be absent from. These three let the app see and control that state.
     bool isDockFloating(const JDockWidget* d) const {
-#if defined(__linux__)
         // Ask the panel where it lives, then see whether that host belongs to a float. Comparing against
         // each float's PRIMARY dock (what this used to do) only ever recognised the panel a float was born
         // with: a second panel docked into the same float was reported as not floating at all, so the View
@@ -940,9 +929,6 @@ public:
         if (!d || !d->placedIn()) return false;
         for (const auto& fd : m_floating)
             if (&const_cast<JFloatingDockWindow&>(fd).dockHost() == d->placedIn()) return true;
-#else
-        (void)d;
-#endif
         return false;
     }
 
@@ -954,7 +940,6 @@ public:
     // ticks then described neither. A panel sharing a float reports false here so the caller can fall back
     // to removing that one panel.
     bool setFloatingDockVisible(const JDockWidget* d, bool visible) {
-#if defined(__linux__)
         if (!d || !d->placedIn()) return false;
         for (auto& fd : m_floating) {
             if (&fd.dockHost() != d->placedIn()) continue;
@@ -963,21 +948,14 @@ public:
             m_needRedraw = true;
             return true;
         }
-#else
-        (void)d; (void)visible;
-#endif
         return false;
     }
 
     bool isFloatingDockVisible(const JDockWidget* d) const {
-#if defined(__linux__)
         if (!d || !d->placedIn()) return false;
         for (const auto& fd : m_floating)
             if (&const_cast<JFloatingDockWindow&>(fd).dockHost() == d->placedIn())
                 return fd.window().isMapped();
-#else
-        (void)d;
-#endif
         return false;
     }
 
@@ -1111,7 +1089,6 @@ private:
     // Create a floating window for one dock and wire its content input. Used by BOTH tear-out paths —
     // out of a docked host, and out of another float — so they cannot drift apart.
     void _newFloat(JDockWidget* dw, int sx, int sy, uint32_t fw, uint32_t fh, int offX, int offY) {
-#if defined(__linux__)
         dw->setPosition(0.f, 0.f);
         dw->setSize(static_cast<float>(fw), static_cast<float>(fh));
         m_floating.emplace_back(dw, sx, sy, fw, fh, offX, offY, *m_hal, /*initialDrag=*/true,
@@ -1151,15 +1128,11 @@ private:
                 });
         m_floating.back().setContentKeyHost([this](const JKeyEvent& ke) { _routeKey(ke); });
         }
-#else
-        (void)dw; (void)sx; (void)sy; (void)fw; (void)fh; (void)offX; (void)offY;
-#endif
     }
 
     // Tear a dock out of the host into its own floating window (the host only emits
     // WantsFloat for docks the app declared floatable).
     void spawnFloat(JDockHost* host, JDockWidget* dw) {
-#if defined(__linux__)
         if (!host || !dw) return;
         const JDockNode* n = host->node(host->findDock(dw));
         if (!n) return;
@@ -1190,15 +1163,11 @@ private:
         // button-release, so drop the capture and held-state here rather than leaving them stuck.
         m_space.releaseMouseCapture();
         m_leftHeld = false;
-#else
-        (void)host; (void)dw;
-#endif
     }
 
     // Escape-to-revert: restore the host to its exact pre-drag tree and re-home the dock,
     // undoing the tear-out (instead of leaving it floating mid-flight).
     void revertActiveDrag() {
-#if defined(__linux__)
         if (!m_revert.active) return;
         for (auto it = m_floating.begin(); it != m_floating.end(); ++it) {
             if (!it->isInInitialDrag()) continue;
@@ -1215,7 +1184,6 @@ private:
             break;
         }
         m_revert.active = false;
-#endif
     }
 
     // Resolve an active content-drag (Dictionary binding / palette control) when its button releases
@@ -1266,7 +1234,6 @@ private:
     // Per-frame: drive each floating window — move/drag, re-dock to the host on drop,
     // close, and render to its own surface.
     void serviceFloats() {
-#if defined(__linux__)
         // A settled (released/committed) tear-out is no longer revertible.
         bool anyInitial = false;
         for (auto& fd : m_floating) if (fd.isInInitialDrag()) { anyInitial = true; break; }
@@ -1333,7 +1300,6 @@ private:
             ++it;
         }
         for (const PendingFloat& pf : pending) _newFloat(pf.dock, pf.sx, pf.sy, pf.w, pf.h, 20, 10);
-#endif
     }
 
     // Open (or toggle/replace) a Popup-mode combo's dropdown below the combo. Installed as
@@ -1717,9 +1683,7 @@ private:
     std::unique_ptr<JGpuHal>         m_hal;
     JDockSpace                       m_space;
     std::vector<std::unique_ptr<JDockWidget>> m_ownedDocks;   // docks adopted back from floats
-#if defined(__linux__)
     std::vector<JFloatingDockWindow> m_floating;
-#endif
     // Pre-drag tree snapshot for Escape-to-revert (active only during a tear-out drag).
     struct { bool active{false}; JDockHost::JSavedTree tree;
              JDockHost* host{nullptr}; } m_revert;
