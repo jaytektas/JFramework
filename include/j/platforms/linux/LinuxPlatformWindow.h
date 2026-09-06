@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <cctype>
 #include <vector>
 #include <string>
 #include <thread>
@@ -40,6 +41,25 @@ inline namespace jf {
  */
 class JLinuxPlatformWindow : public jf::JPlatformWindow {
 public:
+    // WHAT THIS APPLICATION IS CALLED, for the window manager — see the WM_CLASS block below. An app
+    // whose binary is named after itself needs to call nothing; one launched through a wrapper script,
+    // or shipped under a different executable name than its .desktop expects, says so here BEFORE its
+    // first window is created.
+    static void setApplicationClass(std::string name) { s_appClass = std::move(name); }
+    static const std::string& applicationClass() {
+        if (s_appClass.empty()) {
+            char buf[4096];
+            const ssize_t n = ::readlink("/proc/self/exe", buf, sizeof buf - 1);
+            if (n > 0) {
+                buf[n] = '\0';
+                const char* slash = std::strrchr(buf, '/');
+                s_appClass = slash ? slash + 1 : buf;
+            }
+            if (s_appClass.empty()) s_appClass = "genesis-ui";   // nothing readable: the old name
+        }
+        return s_appClass;
+    }
+
     JLinuxPlatformWindow(const std::string& title, uint32_t width, uint32_t height,
                         int screenX = 100, int screenY = 100,
                         jf::JPlatformWindowStyle style = jf::JPlatformWindowStyle::Normal,
@@ -115,12 +135,25 @@ public:
                             XCB_ATOM_WM_NAME, XCB_ATOM_STRING,
                             8, static_cast<uint32_t>(title.size()), title.c_str());
 
-        // Set WM_CLASS so the WM (e.g. GNOME/Mutter) can correctly group our windows
+        // WM_CLASS — THE APPLICATION'S IDENTITY, NOT THE TOOLKIT'S.
+        //
+        // A desktop entry finds its running window by StartupWMClass, so a class hardcoded to the
+        // framework's own name means no application built on it is ever matched: the launcher's icon and
+        // name never attach to the window, and every Genesis app appears in the dock as the same unknown
+        // program. (jayECU Studio launched as "genesis-ui" while its .desktop said StartupWMClass=studio.)
+        //
+        // Default to the EXECUTABLE's name, because that is what a .desktop file conventionally names and
+        // it needs no app to remember anything. setApplicationClass() overrides it for an app whose
+        // binary is not named after itself.
         {
-            const char classStr[] = "genesis-ui\0GenesisUi";
+            const std::string inst = applicationClass();
+            std::string cls = inst;
+            if (!cls.empty()) cls[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(cls[0])));
+            // Two NUL-terminated strings, instance then class — the format the property has always been.
+            std::string prop = inst; prop.push_back('\0'); prop += cls; prop.push_back('\0');
             xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
                                 XCB_ATOM_WM_CLASS, XCB_ATOM_STRING, 8,
-                                sizeof(classStr), classStr);
+                                static_cast<uint32_t>(prop.size()), prop.data());
         }
 
         // Set _NET_WM_PID to associate the window with our process
@@ -1380,6 +1413,7 @@ private:
     // current selection had that selection overwritten on its very first poll, by a "hover" over
     // the first row from a pointer that was still up in the combo box. Every consumer already
     // handles -1: the leave handler has always produced it.
+    static inline std::string s_appClass;   // empty until derived from /proc/self/exe (or set by the app)
     float m_mouseX{-1.0f};
     float m_mouseY{-1.0f};
     float m_wheelY{0.0f};
