@@ -233,7 +233,12 @@ public:
         // …but NOT while the pointer is on the scrollbar, or dragging it. The row behind the bar is not the
         // row you are pointing at, and in a combo list that highlight is the selection Enter commits — so a
         // click on the scrollbar looked exactly like picking whatever entry happened to sit behind it.
-        if ((mx != m_lastPollMx || my != m_lastPollMy) && !_pointerOnScrollbar(mx, my)) {
+        // …and NOT from a pointer position nothing has reported. A window that has had no motion event
+        // knows where the pointer is only once one arrives; until then it is outside (negative), and a
+        // hover test against a position the pointer was never at is how an opened-on-selection list lost
+        // its selection to its own first row.
+        const bool havePointer = mx >= 0.f && my >= 0.f;
+        if (havePointer && (mx != m_lastPollMx || my != m_lastPollMy) && !_pointerOnScrollbar(mx, my)) {
             if (m_navItems.empty()) {
                 m_keyNavIdx = -1;
             } else {
@@ -254,7 +259,12 @@ public:
         bool inside = (mx >= 0.f && mx < static_cast<float>(m_winW) &&
                        my >= 0.f && my < static_cast<float>(m_winH));
 
-        if (!inside && pressed) {
+        // "OUTSIDE" NEEDS A POINTER TO BE OUTSIDE OF. Until a motion event arrives this window does not
+        // know where the pointer is, and treating that as outside dismissed the popup on its first poll:
+        // the press that OPENED it is still in flight, and a press with no known position is not a click
+        // somewhere else. (It only looked fine while an unknown position read as (0,0) — inside, by
+        // accident, for any popup whose top-left is over content.)
+        if (havePointer && !inside && pressed) {
             JLOGC("popup", jf::JLogLevel::Debug) << "DISMISS poll#" << m_pollNo
                 << " press outside at (" << mx << "," << my << ") of " << m_winW << "x" << m_winH;
             out.type = JPollResult::JType::Dismissed;

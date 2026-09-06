@@ -1374,8 +1374,14 @@ private:
     bool  m_resizable{false};        // opt-in framework edge-resize
     float m_resizeTopInset{0.0f};    // title-bar strip kept free from side-edge resize
     int   m_lastResizeDir{-2};       // last resize cursor dir (avoid re-setting the cursor every motion)
-    float m_mouseX{0.0f};
-    float m_mouseY{0.0f};
+    // NO POINTER YET IS NOT A POINTER AT THE ORIGIN. These start where XCB_LEAVE_NOTIFY puts them
+    // — outside — because a freshly created window has received no motion event and (0,0) is a
+    // real, hittable place: the top-left of whatever it contains. A combo dropdown opened on its
+    // current selection had that selection overwritten on its very first poll, by a "hover" over
+    // the first row from a pointer that was still up in the combo box. Every consumer already
+    // handles -1: the leave handler has always produced it.
+    float m_mouseX{-1.0f};
+    float m_mouseY{-1.0f};
     float m_wheelY{0.0f};
     // BUTTON EVENTS ARE QUEUED, one per button, in arrival order — not latched into a flag. A flag loses
     // the second of two clicks that land in the same frame, reports a press and its release as if they were

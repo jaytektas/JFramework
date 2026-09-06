@@ -365,8 +365,14 @@ private:
     std::function<void(uint32_t, uint32_t)> m_resizeCallback;   // swapchain resize hook (fired on WM_SIZE)
     bool  m_resizable{true};
     float m_resizeTopInset{0.0f};
-    float m_mouseX{0.0f};
-    float m_mouseY{0.0f};
+    // NO POINTER YET IS NOT A POINTER AT THE ORIGIN. These start OUTSIDE, where a mouse-leave puts
+    // them, because a freshly created window has received no motion event and (0,0) is a
+    // real, hittable place: the top-left of whatever it contains. A combo dropdown opened on its
+    // current selection had that selection overwritten on its very first poll, by a "hover" over
+    // the first row from a pointer that was still up in the combo box. Every consumer already
+    // handles -1: the mouse-leave path has always produced it.
+    float m_mouseX{-1.0f};
+    float m_mouseY{-1.0f};
     float m_wheelY{0.0f};
     // Queued button events, per button, in arrival order — see LinuxPlatformWindow for why a flag is not
     // enough: it drops the second of two clicks in a frame, collapses a press and its release into one
