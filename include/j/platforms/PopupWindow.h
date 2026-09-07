@@ -244,7 +244,15 @@ public:
         // knows where the pointer is only once one arrives; until then it is outside (negative), and a
         // hover test against a position the pointer was never at is how an opened-on-selection list lost
         // its selection to its own first row.
-        const bool havePointer = mx >= 0.f && my >= 0.f;
+        // ASK THE WINDOW, DO NOT INFER FROM THE SIGN. "Where is the pointer" and "do we know where the
+        // pointer is" are two questions, and -1 was answering both. Under the pointer grab this popup
+        // holds, X reports every event relative to THIS window, so the whole application above and to the
+        // left of the dropdown has negative coordinates — and reading those as "position unknown" made
+        // every click up there do nothing at all. Clicking to the right dismissed the list and clicking
+        // above it did not, which is the "the combo box cannot be closed unless you choose something"
+        // report: the thing you click to close a dropdown is the combo box, and the combo box is directly
+        // above its own dropdown. mousePosKnown() distinguishes the sentinel from a real position.
+        const bool havePointer = m_window->mousePosKnown();
         if (havePointer && (mx != m_lastPollMx || my != m_lastPollMy) && !_pointerOnScrollbar(mx, my)) {
             if (m_navItems.empty()) {
                 m_keyNavIdx = -1;

@@ -301,6 +301,7 @@ public:
                     // hit-testing desyncs from rendering whenever scale != 1.0.
                     m_mouseX = static_cast<float>(m->event_x);
                     m_mouseY = static_cast<float>(m->event_y);
+                    m_mousePosKnown = true;
                     if (m_resizable) {   // framework-managed resize cursor feedback near edges/corners
                         const int rd = _resizeDirAt(m_mouseX, m_mouseY);
                         if (rd != m_lastResizeDir) { setCursor(_resizeCursor(rd)); m_lastResizeDir = rd; }
@@ -315,6 +316,7 @@ public:
                     if (b->detail == XCB_BUTTON_INDEX_1) {
                         m_mouseX = static_cast<float>(b->event_x);
                         m_mouseY = static_cast<float>(b->event_y);
+                        m_mousePosKnown = true;
                         if (const int rd = _resizeDirAt(m_mouseX, m_mouseY); rd >= 0) {
                             startWindowResize(static_cast<uint32_t>(rd));   // framework-managed: WM drives the resize
                             break;                                          // don't record a press or grab the pointer
@@ -440,6 +442,7 @@ public:
                     if (le->mode == XCB_NOTIFY_MODE_NORMAL) {
                         m_mouseX = -1.f;
                         m_mouseY = -1.f;
+                        m_mousePosKnown = false;
                     }
                     m_mouseLeft = true;
                     break;
@@ -537,6 +540,7 @@ public:
 
     // ---- Mouse state accessors (consume-once for press/release) ----
     float mouseX() const override { return m_mouseX; }
+    bool  mousePosKnown() const override { return m_mousePosKnown; }
     float mouseY() const override { return m_mouseY; }
     // One queued event per call, and only from the FRONT, so press/release order is exactly as it happened.
     // The reported cursor position becomes that event's own, which is what a handler needs: where the click
@@ -1418,6 +1422,8 @@ private:
     // handles -1: the leave handler has always produced it.
     static inline std::string s_appClass;   // empty until derived from /proc/self/exe (or set by the app)
     float m_mouseX{-1.0f};
+    // False until a pointer event has actually told us where the pointer is; see mousePosKnown().
+    bool  m_mousePosKnown{false};
     float m_mouseY{-1.0f};
     float m_wheelY{0.0f};
     // BUTTON EVENTS ARE QUEUED, one per button, in arrival order — not latched into a flag. A flag loses
@@ -1463,6 +1469,7 @@ private:
     bool _takeButton(std::deque<JButtonEvent>& q, bool wantPress) {
         if (q.empty() || q.front().press != wantPress) return false;
         ++(&q == &m_leftQueue ? m_leftTaken : m_rightTaken);
+        m_mousePosKnown = true;
         m_mouseX = q.front().x;
         m_mouseY = q.front().y;
         m_ctrlDown  = q.front().ctrl;    // the modifiers this event happened under, not the latest key's

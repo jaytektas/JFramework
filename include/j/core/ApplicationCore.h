@@ -53,6 +53,13 @@ public:
     // Common mouse and wheel getters/modifiers
     virtual float mouseX() const { return 0.0f; }
     virtual float mouseY() const { return 0.0f; }
+    // IS THAT POSITION A FACT? A window that has seen no pointer event yet does not know where the
+    // pointer is, and it reports -1 to say so. That sentinel is indistinguishable from a REAL negative
+    // position, which a window under a pointer grab is routinely given: grabbed events are reported
+    // relative to the grab window, so everything above or left of it has negative coordinates. Code that
+    // read `x >= 0` as "we have a position" therefore threw away every genuine click above a popup —
+    // which is where a combo box sits relative to its own dropdown.
+    virtual bool  mousePosKnown() const { return true; }
     virtual bool  consumePress() { return false; }
     virtual bool  consumeRelease() { return false; }
     virtual bool  consumeRightPress() { return false; }

@@ -140,6 +140,7 @@ public:
     bool shouldClose() const override { return m_closeRequested; }
 
     float mouseX() const override { return m_mouseX; }
+    bool  mousePosKnown() const override { return m_mousePosKnown; }
     float mouseY() const override { return m_mouseY; }
     // One QUEUED event per call, front only, adopting that event's own position — see the queue below.
     bool  consumePress() override        { return _takeButton(m_leftQueue,  true);  }
@@ -409,12 +410,14 @@ private:
                 }
                 m_mouseX = static_cast<float>(GET_X_LPARAM(lParam));
                 m_mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
+                m_mousePosKnown = true;
                 qCDebug(LogWin32Backend) << "WM_MOUSEMOVE: " << m_mouseX << ", " << m_mouseY << "\n";
                 return 0;
             }
             case WM_LBUTTONDOWN: {
                 m_mouseX = static_cast<float>(GET_X_LPARAM(lParam));
                 m_mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
+                m_mousePosKnown = true;
                 m_leftQueue.push_back({ true, m_mouseX, m_mouseY, _modCtrl(), _modShift(), _modAlt() });
                 m_altDown = (GetKeyState(VK_MENU) & 0x8000) != 0;
                 SetCapture(hwnd);
@@ -431,6 +434,7 @@ private:
             case WM_RBUTTONDOWN: {
                 m_mouseX = static_cast<float>(GET_X_LPARAM(lParam));
                 m_mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
+                m_mousePosKnown = true;
                 m_rightQueue.push_back({ true, m_mouseX, m_mouseY, _modCtrl(), _modShift(), _modAlt() });
                 SetCapture(hwnd);
                 return 0;
@@ -525,6 +529,8 @@ private:
     // the first row from a pointer that was still up in the combo box. Every consumer already
     // handles -1: the mouse-leave path has always produced it.
     float m_mouseX{-1.0f};
+    // False until a pointer message has actually told us where the pointer is; see mousePosKnown().
+    bool  m_mousePosKnown{false};
     float m_mouseY{-1.0f};
     float m_wheelY{0.0f};
     // Queued button events, per button, in arrival order — see LinuxPlatformWindow for why a flag is not
@@ -566,6 +572,7 @@ private:
     bool _takeButton(std::deque<JButtonEvent>& q, bool wantPress) {
         if (q.empty() || q.front().press != wantPress) return false;
         ++(&q == &m_leftQueue ? m_leftTaken : m_rightTaken);
+        m_mousePosKnown = true;
         m_mouseX = q.front().x;
         m_mouseY = q.front().y;
         m_evCtrl  = q.front().ctrl;      // the modifiers this event happened under, not the live keyboard
