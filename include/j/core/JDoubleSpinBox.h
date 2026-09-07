@@ -254,16 +254,27 @@ public:
             uint8_t sc[4] = {Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 200};
             const float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             const std::string u = _trimmed(m_suffix);
-            JTextHelper::pushText(buf, b.x + b.width - btnW - _suffixW() + kSuffixGap, ty, u, sc,
-                                  _suffixW());
+            // WIDTH IS THE TEXT'S, NOT THE SLOT'S. _suffixW() is the unit plus the gap in front of it, so
+            // starting a gap further right AND allowing the full slot width let the unit run past its own
+            // box and into the steppers, where it was cut off mid-glyph. The box is the unit; the gap is
+            // the space before it.
+            const float uw = _suffixW() - kSuffixGap;
+            JTextHelper::pushText(buf, b.x + b.width - btnW - uw, ty, u, sc, uw);
         }
 
         // The two steppers — Button role fill, Border-role outline, tiny arrow marks.
         const float halfH = b.height * 0.5f;
         const JColor btnFill = jstyle::role(JColorRole::Button, o);
         const JColor btnBd   = jstyle::role(JColorRole::Border, o);
-        buf.pushRectangle(b.x + b.width - btnW, b.y,         btnW, halfH, btnFill.data(), 0.0f, 1.0f, btnBd.data());
-        buf.pushRectangle(b.x + b.width - btnW, b.y + halfH, btnW, halfH, btnFill.data(), 0.0f, 1.0f, btnBd.data());
+        // THE STEPPERS SIT INSIDE THE FIELD'S BORDER and carry the rounding themselves, exactly as a
+        // combo's arrow area does. Drawn square, flush against a field whose corners are rounded, they
+        // left a notch at each corner: the field's curve peels away from the stepper's flat edge and the
+        // background shows through the gap. One rounded backing, inset by the border, with a rule between
+        // up and down — the same shape the combo box next to it already had.
+        const float ins = 1.0f, sx = b.x + b.width - btnW, sw = btnW - ins;
+        buf.pushRectangle(sx, b.y + ins, sw, b.height - 2.0f * ins, btnFill.data(),
+                          JStyle::current().hint(JStyleHint::ControlRadius));
+        buf.pushRectangle(sx, b.y + halfH - 0.5f, sw, 1.0f, btnBd.data());
         const float ax = b.x + b.width - btnW + btnW * 0.3f, aw = btnW * 0.4f;
         uint8_t ac[4] = {Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 200};
         buf.pushRectangle(ax, b.y + halfH * 0.35f,          aw, 2.0f, ac);   // up mark
@@ -323,8 +334,12 @@ private:
     // the text still cannot slide under the unit.
     void _layout() {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        m_edit->setRightInset(_suffixShown() ? _suffixW() : 0.0f);
-        m_edit->setBounds({ b.x, b.y, std::max(8.0f, b.width - _btnW()), b.height });
+        // ONE CONTINUOUS FIELD, with the steppers INSIDE its right end — the shape a combo box already
+        // has. The field used to stop short by the stepper width, so it drew its own rounded corners
+        // there and the steppers sat beside it as a second box: two outlines where every other control
+        // in the form has one. The text is held off the steppers by the right inset instead.
+        m_edit->setRightInset(_btnW() + (_suffixShown() ? _suffixW() : 0.0f));
+        m_edit->setBounds({ b.x, b.y, b.width, b.height });
     }
 
     // Only characters the numeric grammar can use are offered to the field; the validator has the final say.
