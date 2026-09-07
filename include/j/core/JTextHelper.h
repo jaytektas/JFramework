@@ -134,6 +134,17 @@ public:
             uint32_t cp = _decodeUtf8(text, i);
             if (cp == 0) continue;
 
+            // A HARD LINE BREAK. Without this a newline falls through to the glyph
+            // lookup, misses, and _substitute renders it as '?' -- so a multi-line
+            // string came out as one line with a '?' at each break. Carriage
+            // returns are swallowed so CRLF text does not produce a stray glyph.
+            if (cp == '\n') {
+                penX      = x;
+                baseline += lineHeight();
+                continue;
+            }
+            if (cp == '\r') continue;
+
             auto it = atl.glyphs.find(cp);
             if (it == atl.glyphs.end()) {
                 cp = _substitute(cp);
@@ -142,7 +153,13 @@ public:
             }
             const JGlyphInfo& g = it->second;
 
-            if (maxWidth > 0.0f && (penX - x + g.advanceX) > maxWidth) break;
+            // Clipping is per LINE, and it skips to the next break rather than
+            // abandoning the string: stopping outright would drop every remaining
+            // line because one of them was too long.
+            if (maxWidth > 0.0f && (penX - x + g.advanceX) > maxWidth) {
+                while (i < text.size() && text[i] != '\n') ++i;
+                continue;
+            }
 
             penX += g.advanceX;
 
@@ -229,7 +246,13 @@ public:
                 if (it == atl.glyphs.end()) { penX += atl.ascent * 0.35f; continue; }
             }
             const JGlyphInfo& g = it->second;
-            if (maxWidth > 0.0f && (penX - x + g.advanceX) > maxWidth) break;
+            // Clipping is per LINE, and it skips to the next break rather than
+            // abandoning the string: stopping outright would drop every remaining
+            // line because one of them was too long.
+            if (maxWidth > 0.0f && (penX - x + g.advanceX) > maxWidth) {
+                while (i < text.size() && text[i] != '\n') ++i;
+                continue;
+            }
             penX += g.advanceX;
             if (g.pixelW < 0.5f || g.pixelH < 0.5f) continue;
 

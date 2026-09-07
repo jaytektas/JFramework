@@ -25,6 +25,7 @@
 #include "JStyle.h"
 #include "KeyEvent.h"
 #include <string>
+#include <cstdint>
 #include <vector>
 #include <functional>
 #include <memory>
@@ -95,6 +96,18 @@ struct JDialogRequest {
     std::string   body;
     std::string   placeholder;
     std::vector<std::string> extensions;   // file-dialog kinds: filter list ("json","gui"); empty = all
+
+    // An optional picture above the body -- a product logo on an About box being
+    // the case this exists for.
+    //
+    // RAW RGBA, OWNED BY THE REQUEST, and not a TextureHandle: a dialog is its own
+    // window with its own GPU surface, so a texture uploaded against the main
+    // window's HAL is not valid in it. The dialog uploads these pixels into its
+    // own HAL and releases them when it closes. Owning the bytes rather than
+    // pointing at them means a queued request cannot outlive the caller's buffer.
+    std::vector<uint8_t> imageRgba;
+    uint32_t             imageWidth{0};
+    uint32_t             imageHeight{0};
     JDialogOptions options;
     std::function<void()>               onOk;
     std::function<void()>               onCancel;

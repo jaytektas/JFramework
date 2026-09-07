@@ -57,7 +57,8 @@ public:
                        int screenX, int screenY,
                        NativeWinHandleType parentWindow = {})
         : m_req(std::move(req))
-        , m_winH(_calcHeight(m_req.kind, m_req.options))
+        , m_winH(_calcHeight(m_req.kind, m_req.options, m_req.imageHeight,
+                             _countLines(m_req.body)))
         , m_window(std::make_unique<PlatformWinType>(
               m_req.title.c_str(), kW, m_winH, screenX, screenY,
               JPlatformWindowStyle::Borderless,  // WM-managed: gets proper keyboard focus
@@ -113,6 +114,16 @@ public:
 
         _handleDrag();
 
+        // Uploaded on the first frame, into THIS window's HAL. A dialog has its own
+        // GPU surface, so a texture made against the main window's would not be
+        // valid here -- which is why the request carries pixels and not a handle.
+        if (!m_imageUploaded && !m_req.imageRgba.empty() &&
+            m_req.imageRgba.size() >= size_t(m_req.imageWidth) * m_req.imageHeight * 4u) {
+            m_imageTex = hal.uploadTexture(m_req.imageRgba.data(),
+                                           m_req.imageWidth, m_req.imageHeight);
+            m_imageUploaded = true;   // set even on failure: one attempt, not one per frame
+        }
+
         buf.clear();
         _render(buf);
 
@@ -122,20 +133,35 @@ public:
         return true;
     }
 
-    void destroySurface(JGpuHal& hal) { hal.destroySurface(m_surface); }
+    void destroySurface(JGpuHal& hal) {
+        if (m_imageTex != kNullTexture) { hal.releaseTexture(m_imageTex); m_imageTex = kNullTexture; }
+        hal.destroySurface(m_surface);
+    }
 
     bool isDone()  const { return m_done; }
     bool isModal() const { return m_req.options.modal; }
 
     // Height calculation is public so main.cpp can compute the initial Y position.
-    static uint32_t calcHeight(JDialogRequest::JKind k, const JDialogOptions& opts) {
-        return _calcHeight(k, opts);
+    static uint32_t calcHeight(JDialogRequest::JKind k, const JDialogOptions& opts,
+                               uint32_t imageHeight = 0, size_t bodyLines = 1) {
+        return _calcHeight(k, opts, imageHeight, bodyLines);
     }
 
 private:
-    static uint32_t _calcHeight(JDialogRequest::JKind k, const JDialogOptions& opts) {
+    static uint32_t _calcHeight(JDialogRequest::JKind k, const JDialogOptions& opts,
+                                uint32_t imageHeight = 0, size_t bodyLines = 1) {
         float contentH = (k == JDialogRequest::JKind::Input) ? 210.f : 155.f;
+        // The fixed height assumed a one-line body. A longer one used to run off
+        // the bottom of the window, which is not a thing the caller can correct
+        // for from outside.
+        if (bodyLines > 1)
+            contentH += static_cast<float>(bodyLines - 1) * JTextHelper::lineHeight();
+        if (imageHeight) contentH += static_cast<float>(imageHeight) + kImagePad * 2.f;
         return static_cast<uint32_t>((opts.showTitleBar ? kTitleH : 0.f) + contentH);
+    }
+
+    static size_t _countLines(const std::string& s) {
+        return 1u + static_cast<size_t>(std::count(s.begin(), s.end(), '\n'));
     }
 
     void _dismiss(const char* /*sig*/) {
@@ -231,6 +257,15 @@ private:
             contentY = kTitleH;
         }
 
+        // The request's picture, centred above the body. _calcHeight has already
+        // reserved the room for it.
+        if (m_imageTex != kNullTexture && m_req.imageWidth && m_req.imageHeight) {
+            const float iw = static_cast<float>(m_req.imageWidth);
+            const float ih = static_cast<float>(m_req.imageHeight);
+            buf.pushImage((W - iw) * 0.5f, contentY + kImagePad, iw, ih, m_imageTex);
+            contentY += ih + kImagePad * 2.f;
+        }
+
         // Body text
         float ty = contentY + 16.f;
         uint8_t sc[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, sc);
@@ -305,6 +340,11 @@ private:
     JDialogRequest                    m_req;
     uint32_t                         m_winH;
     std::unique_ptr<PlatformWinType> m_window;
+    // The request's picture, uploaded once into this window's own HAL.
+    TextureHandle                    m_imageTex{kNullTexture};
+    bool                             m_imageUploaded{false};
+    static constexpr float           kImagePad = 12.f;
+
     GpuSurfaceId                     m_surface{0};
     std::chrono::steady_clock::time_point m_createdAt;
     bool                             m_done{false};

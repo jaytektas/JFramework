@@ -1576,7 +1576,8 @@ private:
                                  req->kind == JDialogRequest::JKind::OpenFolder);
             const int dlgW = static_cast<int>(isFile ? JFileDialogWindow::kW : JNativeDialogWindow::kW);
             const int dlgH = static_cast<int>(isFile ? JFileDialogWindow::calcHeight()
-                                                     : JNativeDialogWindow::calcHeight(req->kind, opts));
+                                                     : JNativeDialogWindow::calcHeight(req->kind, opts, req->imageHeight,
+                                                     1u + (size_t)std::count(req->body.begin(), req->body.end(), '\n')));
             const int cW = static_cast<int>(m_w), cH = static_cast<int>(m_h);
             // Ask the windowing system where we ARE, not where we last heard we were: on a fresh session no
             // configure event has arrived yet, the cached origin is still 0, and "centre on the parent"
