@@ -24,8 +24,11 @@ public:
     // Host an arbitrary widget in the bar (an icon button, status indicator, combo, …). The bar
     // lays it into a slot `width` wide (default = a square the bar's height), renders it via its
     // own populateRenderPrimitives, and routes input to it. The widget is non-owning.
+    // `width` is a DESIGN size chosen at 100 %; 0 means "ask the widget". Both are re-resolved on every
+    // layout rather than captured here, because the interface scale can change while the bar exists and a
+    // width measured once is a width measured at the wrong scale for ever after.
     void addWidget(JWidget* w, float width = 0.f) {
-        Item it{}; it.widget = w; it.w = width; it.h = w ? w->bounds().height : 0.f;  // capture natural height
+        Item it{}; it.widget = w; it.wReq = width;
         m_items.push_back(std::move(it));
     }
     bool empty() const { return m_items.empty(); }
@@ -94,22 +97,35 @@ public:
 
 private:
     void layout() {
-        float x = m_rect.x + kPad;
+        // The bar's own spacing is a design size too — a 8 px gap on a 4K panel is not a gap.
+        const float k = JStyle::uiScale();
+        const float pad = kPad * k, gap = kGap * k, btnPad = kBtnPad * k, sep = kSep * k;
+        float x = m_rect.x + pad;
         for (auto& it : m_items) {
-            if (it.sep) { it.x = x; it.w = kSep; x += kSep; continue; }
-            if (it.widget) {                                   // widget slot: given width, or a square
-                if (it.w <= 0.f) it.w = m_rect.height - 6.f;
-                it.x = x; x += it.w + kGap; continue;
+            if (it.sep) { it.x = x; it.w = sep; x += sep; continue; }
+            if (it.widget) {
+                // The width the caller asked for, else what the WIDGET says it needs, else a square. The
+                // hint is measured against the live font, so a scaled label gets a slot that fits it
+                // instead of being clipped by a number chosen when the font was smaller.
+                float w = it.wReq * k;
+                if (w <= 0.f) {
+                    const JRect hint = it.widget->preferredSize();
+                    w = hint.width > 0.f ? hint.width : (m_rect.height - 6.f * k);
+                }
+                it.w = w;
+                it.h = it.widget->preferredSize().height;
+                it.x = x; x += it.w + gap; continue;
             }
             float tw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(it.label)
-                                               : static_cast<float>(it.label.size()) * 8.f;
-            it.w = tw + kBtnPad * 2.f;
+                                               : static_cast<float>(it.label.size()) * 8.f * k;
+            it.w = tw + btnPad * 2.f;
             it.x = x;
-            x += it.w + kGap;
+            x += it.w + gap;
         }
     }
 
-    struct Item { std::string label; std::function<void()> onClick; bool sep{false}; float x{0}, w{0}, h{0}; JWidget* widget{nullptr}; };
+    struct Item { std::string label; std::function<void()> onClick; bool sep{false};
+                  float x{0}, w{0}, h{0}, wReq{0}; JWidget* widget{nullptr}; };   // wReq: asked-for design width, 0 = ask the widget
     std::vector<Item> m_items;
     JRect m_rect{};
     int   m_hover{-1}, m_pressed{-1};

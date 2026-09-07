@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cmath>
+
 // JToggleButton.
 
 #include "JControl.h"
@@ -23,6 +25,40 @@ public:
         l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().buttonHeight;
         l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(m_label) + 24.f) : w;
         l.minHeight = h;
+    }
+
+
+    // WHAT THIS BUTTON NEEDS TO SHOW ITS LABEL, measured now rather than at construction. A caller's
+    // width is a design size chosen at 100 %; the text is measured against the live font atlas, which
+    // already carries the interface scale, so the two disagree the moment the scale is not 1 and the
+    // label is what loses ("Locked" rendered as "Locke"). Asked at LAYOUT time, when the atlas exists —
+    // the constructor runs before it does, which is why sizing there could never work.
+    // KEEP THE FLOOR HONEST. The layout engine clamps a child to its minWidth, so that is where "this
+    // button must be wide enough for its label" has to live — and it was computed ONCE, in the
+    // constructor, where JTextHelper has no atlas yet and the answer fell back to the caller's design
+    // width. It therefore never reflected the label, and never reflected the interface scale either.
+    //
+    // Re-measured whenever the button paints (the atlas certainly exists by then) and written only when
+    // it actually moves, so a steady frame dirties nothing. One call, and every button in the app is
+    // wide enough for its own text at whatever scale the screen asked for.
+    void _refreshMinWidth() const {
+        if (!JTextHelper::hasAtlas()) return;
+        const float want = JTextHelper::measureWidth(m_label) + JStyle::current().fieldPadding * 3.f;
+        auto& l = m_graph.getLayout(m_nodeId);
+        if (std::abs(l.minWidth - want) > 0.5f) {
+            l.minWidth = want;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+        }
+    }
+
+    jf::JRect preferredSize() const override {
+        const JStyle& s = JStyle::current();
+        const float pad = s.fieldPadding * 3.f;   // 24 px at 100 %, as the old fixed minimum was
+        const float tw  = JTextHelper::hasAtlas()
+                        ? JTextHelper::measureWidth(m_label)
+                        : static_cast<float>(m_label.size()) * 8.f * JStyle::uiScale();
+        const jf::JRect b = bounds();
+        return jf::JRect{ b.x, b.y, tw + pad, s.buttonHeight };
     }
 
     void setToggled(bool v) {
@@ -56,6 +92,7 @@ public:
     }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
+        _refreshMinWidth();   // the label decides the floor, not the caller's design width
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         // Base fill by ROLE: toggled=Highlight, else Button (old Accent / Surface2).
         JStyleOption o = jstyle::option(m_state, isFocused(), m_toggled, m_toggled);
