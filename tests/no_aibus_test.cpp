@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // no_aibus_test.cpp — proves the framework builds and drives widgets with the
 // AI Control Bus feature fully removed.
 //

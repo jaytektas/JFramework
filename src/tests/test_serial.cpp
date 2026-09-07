@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // test_serial.cpp — JSerialPort unit tests
 // Tests that don't require real hardware: API surface, availablePorts, AI signals.
 

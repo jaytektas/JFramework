@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Headless test for the general (format-tagged) drag & drop model in
 // DragDrop.h + the JWidget hooks + the jDragTick driver.
 // Compile:

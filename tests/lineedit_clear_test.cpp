@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // The line edit's clear button (JLineEdit::setClearButtonEnabled): an ✕ inside the right edge that
 // empties a search box in one click.
 //

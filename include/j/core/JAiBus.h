@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 #pragma once
 
 // JAiBus — the in-process server for the JFramework AI bus. Publishes a snapshot of the live widget tree

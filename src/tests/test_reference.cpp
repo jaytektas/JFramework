@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Tests for the reference scheme:
 //   ReferenceResolver  — control-domain value access by NodeId path
 //   JEvaluator          — opt-in, precompiled, pure/reentrant/thread-safe expression eval

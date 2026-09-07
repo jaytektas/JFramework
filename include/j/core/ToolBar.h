@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 #pragma once
 
 // JToolBar — a lightweight, framework-owned toolbar: a horizontal row of text buttons (with

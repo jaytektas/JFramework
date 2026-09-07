@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 /**
  * AT-SPI2 accessibility bridge — connects Genesis to screen readers via dbus.
  * Responds to Accessible.GetName/GetRole/GetState so Orca can describe widgets.

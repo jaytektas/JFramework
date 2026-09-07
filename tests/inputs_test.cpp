@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Headless unit test for the input-completeness wave: validators, JLineEdit echo
 // mode / read-only / max-length, JCheckBox tri-state, and editable JComboBox.
 //

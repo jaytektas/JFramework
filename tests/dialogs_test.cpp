@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Headless test for the standard dialog DECISION logic (no window / no GPU).
 // Compile:
 //   g++ -std=c++20 -I<repo>/include -I<repo>/third_party tests/dialogs_test.cpp -o /tmp/dlg_test

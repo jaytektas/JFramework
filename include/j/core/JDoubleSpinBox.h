@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 #pragma once
 
 // JDoubleSpinBox — floating-point spin box: a JLineEdit plus two small stepper buttons.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 #pragma once
 
 // JCloseButton — the framework's ONE canonical window close control. A rounded square that highlights on

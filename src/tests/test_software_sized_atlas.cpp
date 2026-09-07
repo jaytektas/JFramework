@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // THE SOFTWARE RENDERER CAN HOLD A SIZE-SPECIFIC GLYPH ATLAS.
 //
 // JTextCall::atlasId selects which atlas a run of glyphs was laid out against: 0 is the base UI font,

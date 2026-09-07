@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // test_scroll_track.cpp — the scrollbar of a scrolling list belongs to the scrollbar.
 //
 // A combo box's dropdown is a JScrollArea full of JPopupItems, and the row behind the scrollbar is NOT

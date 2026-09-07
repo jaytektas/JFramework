@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 #pragma once
 
 // jf::makeUuid — a random RFC-4122 version-4 UUID as a lowercase, hyphenated string with no braces,

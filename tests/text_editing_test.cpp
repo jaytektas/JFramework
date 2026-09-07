@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Headless unit test for JLineEdit commercial-grade text editing.
 //
 // Drives a real JLineEdit (backed by a JSceneGraph) through handleKeyEvent /

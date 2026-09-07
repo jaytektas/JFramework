@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 #pragma once
 
 // JAiBusAbi — the shared-memory ABI for the JFramework AI bus. POD only (no widget/toolkit deps), so

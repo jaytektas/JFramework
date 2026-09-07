@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Vector drawing showcase — exercises the Genesis 2D vector layer
 // (gradients, gauges, charts, AA strokes/fills) on the GPU vector pipeline.
 #include <j/core/ApplicationCore.h>

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Searching a tree reaches rows the app's condition filter HIDES.
 //
 // The point of the feature: the node you cannot find by browsing is exactly the feature you have not

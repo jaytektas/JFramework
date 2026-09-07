@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // gallery_test.cpp — the whole-framework "everything composes" integration gate.
 //
 // One translation unit that pulls in EVERY major JFramework widget + subsystem,

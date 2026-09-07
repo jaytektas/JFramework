@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // JVolumes — see the header. Two backends, no shared code worth sharing between them.
 
 #include <j/io/Volumes.h>

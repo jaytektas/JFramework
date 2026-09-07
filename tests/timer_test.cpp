@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // timer_test.cpp — headless (no window, no sleeping) tests for the frame-ticked
 // timer system (FrameTimer.h). JFrameTimerRegistry::tick() is driven manually with
 // fake dt, exactly as the runner would at real frame rate.

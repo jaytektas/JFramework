@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Minimal empty Genesis window — for testing window-management behavior
 // (drag, snap/tile, maximize/restore, minimize, edge-resize) in isolation,
 // without any dock content inflating the minimum size.

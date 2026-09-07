@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 #include <j/core/DockManager.h>
 #include <j/core/DockRegistry.h>
 #include <cassert>

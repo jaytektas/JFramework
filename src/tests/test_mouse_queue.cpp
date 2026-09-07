@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // test_mouse_queue.cpp — button events are a QUEUE, not a flag.
 //
 // A boolean latch loses information the moment two things happen between one frame and the next, which on

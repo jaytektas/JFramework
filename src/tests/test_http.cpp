@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // test_http.cpp — JHttpClient unit tests
 // Everything here runs without a network: URL handling, the response accessors, the
 // TLS-availability contract and the client's lifetime rules. The one test that would

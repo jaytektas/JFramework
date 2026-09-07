@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // A LIST THAT WRAPS INTO COLUMNS IS SHORTER, and the window has to be told.
 //
 // A popup too tall for the screen re-lays itself into columns (PopupWindow::wrapToHeight). The shape

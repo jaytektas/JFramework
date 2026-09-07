@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // The single-placement invariant, exercised through every route that used to break it.
 #include <j/core/DockManager.h>
 #include <cstdio>

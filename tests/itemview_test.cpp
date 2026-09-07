@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Headless test for the concrete model/view widgets (j/core/ItemView.h):
 // a JItemListView bound to a JStringListModel — model reflection, keyboard current-
 // index navigation, click-to-select through the selection model, and repaint on

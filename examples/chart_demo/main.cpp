@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // JChart showcase — a live scrolling telemetry chart + a static sweep chart,
 // both built on jf::JChart over the JVectorCanvas 2D layer.
 #include <j/core/ApplicationCore.h>

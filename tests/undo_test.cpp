@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Headless test for the JFramework undo/redo command framework.
 //
 //   g++ -std=c++20 -I../include -I../third_party undo_test.cpp -o /tmp/undo_test

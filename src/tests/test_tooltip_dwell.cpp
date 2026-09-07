@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // A tooltip appears after a DWELL, and any real movement of the pointer takes it away again.
 //
 // The dwell used to reset only when the hovered WIDGET changed. Inside one widget the tooltip

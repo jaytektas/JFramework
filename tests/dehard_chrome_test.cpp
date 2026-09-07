@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // dehard_chrome_test — BYTE-EXACT no-regression gate for the chrome/container colour/size de-hardcoding.
 //
 // Each container/chrome widget touched by the pass is constructed with a JSceneGraph, rendered into a

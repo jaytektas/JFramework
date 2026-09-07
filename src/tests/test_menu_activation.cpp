@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // test_menu_activation.cpp — a menu item fires when the button comes UP, on the item under the cursor.
 //
 // It used to fire on the press, and that is not a detail of timing: a dropdown opens UNDER the cursor

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // test_dialog.cpp — JDialog / JDialogManager unit tests
 // Tests queue logic, renderAndHandle in headless mode, and AI signal emission.
 

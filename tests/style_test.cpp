@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Headless test for the JPalette / JStyleOption / JStyle role-and-state style system.
 // Compile:
 //   g++ -std=c++20 -I<repo>/include -I<repo>/third_party tests/style_test.cpp -o /tmp/style_test

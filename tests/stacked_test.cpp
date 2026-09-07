@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Headless test for JStackedWidget: single-visible-page stack — count/index,
 // setCurrentIndex fires currentChanged + flips visibility, currentWidget,
 // removeWidget re-indexing, and paint/input reaching ONLY the current page.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 #if defined(_WIN32)
 #define VK_USE_PLATFORM_WIN32_KHR
 #elif defined(__linux__)

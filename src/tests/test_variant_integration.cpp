@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Integration tests for JVariant adoption across JSettings + models (goal 1-3).
 #include <j/config/Settings.h>
 #include <j/model/TableModel.h>

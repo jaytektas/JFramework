@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 #pragma once
 
 // JTextArea — a multi-line text editor: soft word-wrap, a vertical scrollbar, an optional syntax

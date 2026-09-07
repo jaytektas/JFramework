@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // THE NUMBER WINS THE BOX.
 //
 // A spin box draws its unit inside itself and reserves that width out of the text field. Two things went

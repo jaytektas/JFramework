@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Headless test for the layout size-policy + stretch system: per-axis JSizePolicy modes,
 // stretch-weighted distribution of leftover main-axis space, flexible spacers (addStretch/
 // addSpacing), and min/max clamping during grow/shrink. Compile:

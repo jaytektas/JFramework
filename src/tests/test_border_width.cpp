@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // A border of width N must paint N solid rows.
 //
 // It did not. The border band is d in (-borderWidth, 0) and the antialiasing ramp used to span the WHOLE

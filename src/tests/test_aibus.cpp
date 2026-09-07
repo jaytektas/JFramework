@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Headless test for JAiBus: enable → publish a widget snapshot → service a click action, all without a
 // display. Proves the transport + action dispatch work on the main thread with no per-widget AI code.
 #include <j/core/JAiBus.h>

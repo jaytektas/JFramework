@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 #include <j/core/Variant.h>
 #include <j/core/MetaObject.h>
 #include <j/core/VariantJson.h>

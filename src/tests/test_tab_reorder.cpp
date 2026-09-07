@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // test_tab_reorder.cpp — dragging a tab along its own strip rearranges the tabs.
 //
 // The gesture is shared with tearing a dock out: press a tab and move. While the cursor stays inside the

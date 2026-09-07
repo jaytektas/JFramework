@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // test_disabled_state.cpp — a disabled control must LOOK disabled, and a focused field must still
 // follow a value that changes underneath it.
 //

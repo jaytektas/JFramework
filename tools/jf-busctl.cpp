@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // jf-busctl — client for the JFramework AI bus (/jframework_ai_bus).
 //   jf-busctl dump [--json]             every visible widget node (id role "name" = "value" @rect)
 //   jf-busctl find <substr> [--json]    the nodes whose line contains substr

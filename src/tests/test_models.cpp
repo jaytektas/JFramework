@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 #include <j/model/TableModel.h>
 #include <j/model/TreeModel.h>
 #include <j/model/SortFilterModel.h>

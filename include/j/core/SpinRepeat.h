@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 #pragma once
 
 // SpinRepeat — press-and-hold auto-repeat with acceleration for spin-box up/down buttons. Shared by JSpinBox

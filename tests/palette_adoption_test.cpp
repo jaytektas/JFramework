@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Headless regression + theming proof for the palette-adoption wave.
 //
 // Proves two things for the widgets migrated off hardcoded Colors:: onto the

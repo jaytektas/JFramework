@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // test_dock_split.cpp — splitting a dock area must give BOTH sides room.
 //
 // A dock dropped onto an existing dock with a left/right bias splits that region in two. The dropped

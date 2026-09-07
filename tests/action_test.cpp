@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // action_test.cpp — headless (no window) tests for the JFramework action + shortcut system.
 //
 // Build:

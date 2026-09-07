@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Focus managers nest (main window, then one per open dialog) and s_active follows the top of that stack.
 // They are NOT guaranteed to die in creation order: a dialog opened from another dialog's callback can
 // outlive its opener. When that happened, s_active — or a survivor's m_prevActive — was left pointing at

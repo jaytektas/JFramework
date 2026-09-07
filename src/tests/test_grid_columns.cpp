@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // Column-major grid fill — what a menu WRAPPED for height needs.
 //
 // Row-major reads across, so child 1 is the second cell of row 0. A list that wraps because it is too

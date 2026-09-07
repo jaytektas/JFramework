@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // dock_window_styles — tests three window decoration strategies and
 // multi-monitor positioning.  Run it and inspect the screenshots to see
 // which approach gives borderless floating-dock windows on your setup.

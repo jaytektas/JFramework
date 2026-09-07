@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // dehard_dialogs_test.cpp — BYTE-EXACT no-regression gate for the dialog/misc
 // colour de-hardcoding pass. Two kinds of check:
 //   (A) every NEW JStyle role, under the default (dark) theme, equals the exact

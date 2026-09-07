@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 // A SIZE THE BACKEND CANNOT HOLD IS ASKED FOR ONCE.
 //
 // JTextHelper bakes a glyph atlas at a requested pixel size and keeps it, so large text is drawn from

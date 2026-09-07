@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jason Roughley <pis.controller@gmail.com>
+
 #pragma once
 //
 // FrameTimer.h — clean-room, thread-free timer / event-scheduling for JFramework.
