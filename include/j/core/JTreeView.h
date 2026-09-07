@@ -21,6 +21,11 @@ struct JTreeViewNode {
     std::string userData;   // opaque app payload (e.g. a binding path) carried by a node but not displayed
     int         icon{0};    // small type glyph drawn before the label (0 = none; app-defined kinds)
     bool        hidden{false};   // transient: run-mode visibility filter hides the row + its subtree (not persisted)
+    // DISABLED, NOT GONE. A feature whose condition is not met still EXISTS, and hiding it makes it
+    // undiscoverable: you cannot find the page carrying the switch that would enable it if the page is
+    // not in the tree. Drawn greyed and still selectable, which is what TunerStudio does with the same
+    // menu entries. Transient, like `hidden` — a property of the current tune, never persisted.
+    bool        dimmed{false};
     bool        placeholder{false};  // transient edit-mode "New node…" add-affordance row: drawn dimmed, never persisted (app owns promotion)
     bool        separator{false};    // a RULE between groups, not an entry: drawn as a line, never selectable
     // CHECKABLE ROWS. A tree is how a long list is made findable, and "choose several from a long
@@ -257,6 +262,19 @@ public:
         // selection out from under someone who deliberately went looking for a disabled feature would take
         // away the page carrying the switch that enables it.
         if (changed) { if (m_selectedNode && m_filter.empty() && _isHidden(m_root, m_selectedNode)) _selectNode(nullptr); m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    }
+    // MARK, DO NOT HIDE. The same predicate applyVisibility takes, but a node that fails it is drawn
+    // greyed and stays selectable instead of vanishing with its subtree. Use this where the condition
+    // describes whether a feature is switched ON — the page is still the place you go to switch it on.
+    void applyDimming(const std::function<bool(const JTreeViewNode&)>& enabled) {
+        bool changed = false;
+        for (auto& c : m_root.children) _applyDim(c, enabled, changed);
+        if (changed) m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+    void clearDimming() {
+        bool changed = false;
+        for (auto& c : m_root.children) _clearDim(c, changed);
+        if (changed) m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
     void clearVisibility() {
         bool changed = false;
@@ -670,7 +688,7 @@ public:
             float indent = flat.depth * 16.0f + 6.0f;
             // Row state the draw hooks need but the NODE cannot carry: "revealed by the search" is a property
             // of this flattening, not of the node (a child of a hidden node isn't itself marked hidden).
-            m_rowDimmed = flat.dimmed;
+            m_rowDimmed = flat.dimmed || (flat.node && flat.node->dimmed);
 
             // EVERY selected row is drawn as selected. This used to paint only m_selectedNode — the row
             // that happens to be current — so in a multi-selection the other rows looked untouched: the
@@ -1025,6 +1043,18 @@ private:
     // Run-mode condition filter helpers (applyVisibility / clearVisibility). A node is hidden when its own
     // predicate is false; a hidden node hides its whole subtree (children not evaluated). `changed` tracks
     // whether the visible set moved, so the caller only invalidates on a real transition.
+    // A dimmed parent does NOT dim its children: a group whose own condition is unmet can still hold
+    // pages that are perfectly live, and greying them would say something untrue about each of them.
+    static void _applyDim(JTreeViewNode& n, const std::function<bool(const JTreeViewNode&)>& enabled, bool& changed) {
+        const bool d = !enabled(n);
+        if (n.dimmed != d) { n.dimmed = d; changed = true; }
+        for (auto& c : n.children) _applyDim(c, enabled, changed);
+    }
+    static void _clearDim(JTreeViewNode& n, bool& changed) {
+        if (n.dimmed) { n.dimmed = false; changed = true; }
+        for (auto& c : n.children) _clearDim(c, changed);
+    }
+
     static void _applyVis(JTreeViewNode& n, const std::function<bool(const JTreeViewNode&)>& visible, bool& changed) {
         const bool hide = !visible(n);
         if (n.hidden != hide) { n.hidden = hide; changed = true; }
