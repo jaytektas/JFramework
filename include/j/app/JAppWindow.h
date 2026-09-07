@@ -1305,6 +1305,12 @@ private:
     // Open (or toggle/replace) a Popup-mode combo's dropdown below the combo. Installed as
     // JComboBox::onOpenPopupHook so any combo just works — the app wires nothing.
     void openComboDropdown(JComboBox* cb) {
+        if (cb && cb == m_comboDismissed) {         // this click already closed it — do not reopen
+            JLOGC("popup", jf::JLogLevel::Debug) << "TOGGLE-CLOSE: the dropdown was dismissed by the same "
+                                                    "click that is now pressing its combo";
+            m_comboDismissed = nullptr;
+            return;
+        }
         if (m_comboPopup && m_comboOwner == cb) {   // click same combo again → close
             JLOGC("popup", jf::JLogLevel::Debug) << "TOGGLE-CLOSE: the click reached the COMBO, "
                                                     "not the open dropdown";
@@ -1499,8 +1505,11 @@ private:
                                || m_comboCloseReq == m_comboPopup.get();
             m_comboCloseReq = nullptr;
             if (close) {
-                JLOGC("popup", jf::JLogLevel::Debug) << "CLOSE ("
-                    << (res.type == JPopupWindow::JPollResult::JType::Dismissed ? "dismissed" : "picked") << ")";
+                const bool dismissed = res.type == JPopupWindow::JPollResult::JType::Dismissed;
+                JLOGC("popup", jf::JLogLevel::Debug) << "CLOSE (" << (dismissed ? "dismissed" : "picked") << ")";
+                // A DISMISSAL MAY BE HALF OF A TOGGLE. If the click that dismissed this also lands on the
+                // combo later in this same pass, it must not reopen what it just closed.
+                if (dismissed) m_comboDismissed = m_comboOwner;
                 m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); m_comboOwner = nullptr; }
             else if (m_comboPopup->isViewable()) m_comboPopup->render(*m_hal, scratch);
         }
@@ -1588,6 +1597,7 @@ private:
             if (!it->pollAndRender(*m_hal, scratch)) { it->destroySurface(*m_hal); it = m_fileDialogs.erase(it); }
             else ++it;
         }
+        m_comboDismissed = nullptr;   // the guard is worth exactly one servicing pass
         return m_comboPopup != nullptr || m_colorDialog != nullptr || !m_modalStack.empty()
             || !m_dialogs.empty() || !m_fileDialogs.empty();
     }
@@ -1696,6 +1706,15 @@ private:
     // frame (like menu popups), so apps don't hand-roll JPopupWindow / JNativeDialogWindow.
     std::unique_ptr<JPopupWindow>    m_comboPopup;
     JComboBox*                       m_comboOwner{nullptr};
+    // THE COMBO WHOSE DROPDOWN THIS CLICK JUST DISMISSED. One physical click can be seen twice: the
+    // popup is a separate window, so clicking its owner both dismisses the popup (an outside click) and
+    // presses the combo. Which of those lands first decides whether a combo toggles — and it differs by
+    // where the combo IS. The main window's press is consumed before serviceComboAndDialogs runs, so the
+    // toggle-close in openComboDropdown sees the popup and closes it. A MODAL is pumped from INSIDE
+    // serviceComboAndDialogs, after the popup poll, so the popup was already gone and the press opened it
+    // straight back — a dropdown in Preferences would not close. Set for the length of one servicing pass
+    // and refused there; picking an item does not set it, because that should not block reopening.
+    JComboBox*                       m_comboDismissed{nullptr};
     std::unique_ptr<JColorPickerDialog> m_colorDialog;          // open colour dialog (own surface)
     bool m_fontPickerOpen = false;   // openFontPicker: refuse a second push of the SAME picker
     // Generic app-modal STACK (Preferences, pickers, Axis Setup…): only the top is pumped, so one modal
