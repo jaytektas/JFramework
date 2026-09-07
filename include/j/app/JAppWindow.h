@@ -291,6 +291,20 @@ public:
     }
     int              windowX() const { return m_window->screenX(); }
     int              windowY() const { return m_window->screenY(); }
+
+    // TEAR A DOCK OUT OF A HOST THE APPLICATION OWNS.
+    //
+    // The four edge hosts get this for free: JDockSpace reports a WantsFloat and the
+    // runner calls spawnFloat itself. A host embedded in the central widget -- the
+    // supported way to put docks in the centre, see JDockSpace::setCentralWidget --
+    // reports the same event to the app, and then had nowhere to send it. spawnFloat
+    // is private, so a centre dock could be tabbed and split but never floated,
+    // which is most of the reason to put it in a dock in the first place.
+    //
+    // Floating windows must be created and owned by the runner (it holds m_floating,
+    // the GPU surfaces and the drag state), so this is the one thing the app cannot
+    // do for itself and the smallest thing that has to be exposed.
+    void floatDock(JDockHost* host, JDockWidget* dock) { spawnFloat(host, dock); }
     void             setWindowPos(int x, int y) { m_window->setPosition(x, y); }
     uint32_t width()  const { return m_w; }
     uint32_t height() const { return m_h; }
