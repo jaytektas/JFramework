@@ -83,7 +83,7 @@ public:
         m_hal = JGpuHal::create(JGpuApiType::Vulkan, m_window->nativeHandle());
         if (m_hal) m_hal->resizeSwapchain(width, height);
         if (m_font.loadSystemFont() && m_hal) {
-            auto atlas = m_font.buildAtlas(14.0f * m_window->dpiScale());
+            auto atlas = m_font.buildAtlas(14.0f * m_window->dpiScale() * JStyle::uiScale());
             JTextHelper::setAtlas(atlas);
             m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
         }
@@ -185,9 +185,22 @@ public:
     // Change the whole-UI (application) font at runtime: reload the font file, rebuild the glyph atlas at the
     // given base size (scaled by DPI), repoint the text helper's metrics, and re-upload the atlas to the GPU.
     // A single global font (not simultaneous mixed fonts), so the one atlas is simply rebuilt. false on failure.
+    // THE INTERFACE SCALE, applied. Sets the style's metrics and rebuilds the font atlas against the same
+    // number, because the two must move together: bigger text in the same-sized boxes clips, and bigger
+    // boxes around the same text is just padding. One call, so a preference change cannot do half of it.
+    void setUiScale(float s) {
+        if (!(s > 0.f) || s == JStyle::uiScale()) return;
+        JStyle::setUiScale(s);
+        setAppFontSize(m_appFontPx);   // rebuilds the atlas at px * dpi * uiScale
+        m_needRedraw = true;
+    }
+    float uiScale() const { return JStyle::uiScale(); }
+    // What the SCREEN asks for, before any preference: dpi/96, the automatic default.
+    float screenScale() const { return m_window ? m_window->dpiScale() : 1.f; }
+
     bool setAppFont(const std::string& fontPath, float px = 14.0f) {
         if (!m_hal || fontPath.empty() || !m_font.loadFromFile(fontPath)) return false;
-        auto atlas = m_font.buildAtlas(px * m_window->dpiScale());
+        auto atlas = m_font.buildAtlas(px * m_window->dpiScale() * JStyle::uiScale());
         JTextHelper::setAtlas(atlas);
         m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
         JTextHelper::invalidateSized();   // new face → stale size-specific glyph atlases
@@ -198,7 +211,7 @@ public:
     // font picker. Same atlas-rebuild path as setAppFont, just from loadSystemFont() rather than a chosen file.
     bool setAppFontDefault(float px) {
         if (!m_hal || !m_font.loadSystemFont()) return false;
-        auto atlas = m_font.buildAtlas(px * m_window->dpiScale());
+        auto atlas = m_font.buildAtlas(px * m_window->dpiScale() * JStyle::uiScale());
         JTextHelper::setAtlas(atlas);
         m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
         JTextHelper::invalidateSized();   // new size → stale size-specific glyph atlases
@@ -210,7 +223,7 @@ public:
     // a file the loader might choke on; use when only the size should change. false if the HAL isn't ready.
     bool setAppFontSize(float px) {
         if (!m_hal) return false;
-        auto atlas = m_font.buildAtlas(px * m_window->dpiScale());
+        auto atlas = m_font.buildAtlas(px * m_window->dpiScale() * JStyle::uiScale());
         JTextHelper::setAtlas(atlas);
         m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
         JTextHelper::invalidateSized();   // base font changed → drop stale size-specific glyph atlases

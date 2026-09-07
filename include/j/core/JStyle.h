@@ -222,6 +222,24 @@ struct JStyle {
     static JStyle& current();
     static void   apply(JStyle t);
 
+    // ---- INTERFACE SCALE ----------------------------------------------------------------------------
+    // How big the interface is, as one number. Screens are not the same size and a 30 px control that
+    // reads well on a 1080p laptop is a smudge on a 4K panel — so every metric here is a size AT SCALE 1
+    // and this multiplies them: control heights, paddings, radii, scrollbars, grid rows, tooltips. The
+    // font atlas is built against the same number, so text and the boxes around it grow together.
+    //
+    // THIS IS NOT A ZOOM. Nothing is magnified: the style is re-measured and the layout engine reflows
+    // around the new sizes, so text stays crisp and a wider window still gets more content rather than
+    // bigger content. Anything that magnifies a fixed picture is a different mechanism and a worse one.
+    //
+    // Times and ratios are NOT scaled — a double-click is 400 ms on every screen — so animSpeed,
+    // tooltipDelayMs and doubleClickMs are deliberately absent from _scaleMetrics.
+    //
+    // The scale survives a theme change: the unscaled theme is kept as the master and apply() re-scales
+    // it, so switching dark/light never silently returns the interface to 1x.
+    static float uiScale();
+    static void  setUiScale(float s);
+
     // Optional fully-custom palette. When set, palette() returns it verbatim instead of
     // deriving one from the named colours — so a caller can install JPalette::light()/
     // dark()/bespoke and have every migrated widget follow it. Left empty by default so
@@ -345,7 +363,43 @@ inline JStyle JStyle::light() {
     return t;
 }
 inline JStyle& JStyle::current() { static JStyle inst; return inst; }
-inline void   JStyle::apply(JStyle t) { current() = std::move(t); }
+
+// The theme as authored, before the interface scale — the thing every rescale derives from, so applying
+// a scale twice cannot compound and a theme switch cannot drop it.
+inline JStyle& _jStyleMaster() { static JStyle m; return m; }
+inline float&  _jStyleScale()  { static float s = 1.f; return s; }
+
+inline void _jStyleScaleMetrics(JStyle& t, float k) {
+    for (float* f : { &t.cornerRadius, &t.menuItemHeight, &t.controlHeight, &t.buttonHeight,
+                      &t.labelHeight, &t.checkHeight, &t.sliderHeight, &t.itemPadding,
+                      &t.fieldPadding, &t.spacing, &t.borderWidth, &t.titleBarHeight,
+                      &t.focusRingWidth, &t.scrollBarWidth, &t.arrowSize,
+                      &t.gridRowHeight, &t.gridHeaderHeight, &t.gridCellPadding,
+                      &t.gridMinColumnWidth, &t.gridDefaultColumnWidth, &t.gridResizeGrab,
+                      &t.gridSortGlyphWidth, &t.tooltipMaxWidth, &t.tooltipPaddingX,
+                      &t.tooltipPaddingY, &t.tooltipCursorGap, &t.tooltipMoveResetPx,
+                      &t.tooltipRadius, &t.tooltipShadowOffset, &t.doubleClickSlop,
+                      &t.tabBarSize })
+        *f *= k;
+}
+
+inline float JStyle::uiScale() { return _jStyleScale(); }
+
+inline void JStyle::setUiScale(float s) {
+    if (!(s > 0.f)) return;
+    _jStyleScale() = s;
+    JStyle t = _jStyleMaster();
+    _jStyleScaleMetrics(t, s);
+    current() = std::move(t);
+}
+// A theme is installed UNSCALED and the interface scale is re-applied over it, so switching dark/light
+// never quietly returns the app to 1x — the scale is a property of the screen, not of the theme.
+inline void   JStyle::apply(JStyle t) {
+    _jStyleMaster() = std::move(t);
+    JStyle scaled = _jStyleMaster();
+    _jStyleScaleMetrics(scaled, _jStyleScale());
+    current() = std::move(scaled);
+}
 
 // Map the legacy named colours onto semantic roles. This is the ONE source of truth for
 // the running theme: every role resolves to a live theme field, so a widget that switches
