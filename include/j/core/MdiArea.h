@@ -30,6 +30,20 @@
 
 inline namespace jf {
 
+// A WINDOW OPENS INSIDE ITS AREA, WHOLE. Wanting more room than there is does not entitle a window to hang
+// off the bottom of the space it lives in: a page taller than the centre opened with its footer — its Burn
+// button — below the edge of the application, unreachable and with nothing to say it was there. Clamping
+// the size alone was not enough either, since the frame is offset from the corner to cascade: a height
+// clamped to the area, placed 24 px down it, still ends 24 px past the bottom. So the offset is only taken
+// while there is room to take it from, and whatever is left over the content scrolls, which is the whole
+// reason the surface underneath has scroll bars.
+inline JRect jMdiFitted(float w, float h, const JRect& a) {
+    JRect f{ a.x, a.y, std::min(w, a.width), std::min(h, a.height) };
+    f.x += std::max(0.f, std::min(24.f, a.width  - f.width));
+    f.y += std::max(0.f, std::min(24.f, a.height - f.height));
+    return f;
+}
+
 class JMdiChild {
 public:
     static constexpr float kTitleH = 26.f;
@@ -71,9 +85,8 @@ public:
     void refit(const JRect& area) {
         if (area.width <= 0.f || area.height <= 0.f) return;      // nothing to resolve against yet
         if (m_provisional) {                                      // placed before the area was known
-            m_restore = { area.x + 24.f, area.y + 24.f,
-                          m_wantW > 0.f ? std::min(m_wantW, area.width)  : std::max(320.f, area.width  * 0.66f),
-                          m_wantH > 0.f ? std::min(m_wantH, area.height) : std::max(200.f, area.height * 0.66f) };
+            m_restore = jMdiFitted(m_wantW > 0.f ? m_wantW : std::max(320.f, area.width  * 0.66f),
+                                         m_wantH > 0.f ? m_wantH : std::max(200.f, area.height * 0.66f), area);
             m_provisional = false;
             if (!m_max) m_frame = m_restore;
         }
@@ -114,6 +127,8 @@ class JMdiArea : public JWidget {
 public:
     explicit JMdiArea(JSceneGraph& g) : JWidget(g, "JMdiArea") {}
 
+    static JRect fitted(float w, float h, const JRect& a) { return jMdiFitted(w, h, a); }
+
     // Open a child, maximised, at the front. `w`/`h` are the size it restores to; 0 means "a good
     // fraction of the area", which is what a first restore should give rather than a 1x1 sliver.
     // Told when a child window has been closed by its ✕, so the owner of the CONTENT can let go of it.
@@ -132,13 +147,13 @@ public:
         const bool  hinted = (w > 0.f && h > 0.f) || (want.width > 1.f && want.height > 1.f);
         const float fw = w > 0.f ? w : want.width  + 2.f * JMdiChild::kBorder;
         const float fh = h > 0.f ? h : want.height + JMdiChild::kTitleH + JMdiChild::kBorder;
-        // `a` is empty until the first layout, and clamping to an empty area would open every child at
-        // nothing wide. Clamp only against an area that exists; the provisional heal below clamps the
-        // rest once there is something to clamp against.
+        // `a` is empty until the first layout, and fitting against an empty area would open every child at
+        // nothing wide. Fit only against an area that exists; the provisional heal below fits the rest once
+        // there is something to fit into.
         const bool haveArea = a.width > 0.f && a.height > 0.f;
-        JRect f{ a.x + 24.f, a.y + 24.f,
-                 hinted ? (haveArea ? std::min(fw, a.width)  : fw) : std::max(320.f, a.width  * 0.66f),
-                 hinted ? (haveArea ? std::min(fh, a.height) : fh) : std::max(200.f, a.height * 0.66f) };
+        JRect f = haveArea ? jMdiFitted(hinted ? fw : std::max(320.f, a.width  * 0.66f),
+                                    hinted ? fh : std::max(200.f, a.height * 0.66f), a)
+                           : JRect{ a.x + 24.f, a.y + 24.f, fw, fh };
         auto c = std::make_unique<JMdiChild>(std::move(title), content, f);
         c->m_wantW = hinted ? fw : 0.f; c->m_wantH = hinted ? fh : 0.f;
         c->m_max   = !hinted;      // a size we can trust is a size to open at, not to override
