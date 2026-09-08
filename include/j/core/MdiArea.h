@@ -329,9 +329,7 @@ private:
         // bottom and sides of the window was the hairline stroke — nothing like the border of a real
         // window. Filling it with the title-bar colour instead makes the title bar and the surround one
         // continuous piece of frame, which is what the eye reads as a window.
-        buf.pushRectangle(f.x, f.y, f.width, f.height, Colors::TitleBar, rad,
-                          activeOne ? 2.0f : 1.0f,
-                          activeOne ? Colors::WindowFrameBorder : Colors::Border);
+        buf.pushRectangle(f.x, f.y, f.width, f.height, Colors::TitleBar, rad);
         JTitleBar::draw(buf, f.x, f.y, f.width, JMdiChild::kTitleH, c.title(), rad, 0, 10.f,
                         2 * JMdiChild::kBtn + 12.f);
         // Restore/maximise, then close — drawn where handleMousePress looks for them.
@@ -363,6 +361,15 @@ private:
                 buf.pushRectangle(x1 - 2.f, y1 - d, 2.f, d, g);       // and the vertical one
             }
         }
+        // THE BORDER GOES ON LAST, AROUND EVERYTHING. Stroked with the frame fill, it was drawn and then
+        // immediately painted over along the top: the title bar covers the frame edge to edge, so the one
+        // stretch of border that frames the title — the part that says where the window starts — was the
+        // only stretch missing. Drawn over the finished window instead, it encloses the title bar, the
+        // content and the grip, which is what a border is.
+        static constexpr uint8_t kNoFill[4] = {0, 0, 0, 0};
+        buf.pushRectangle(f.x, f.y, f.width, f.height, kNoFill, rad,
+                          activeOne ? 2.0f : 1.0f,
+                          activeOne ? Colors::WindowFrameBorder : Colors::Border);
     }
 
     enum class Glyph { Close, Maximise, Restore };

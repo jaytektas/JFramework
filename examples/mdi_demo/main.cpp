@@ -25,6 +25,7 @@
 #include <j/core/JButton.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 
@@ -70,9 +71,9 @@ private:
 
 int main() {
     JGuiApplication app;
-    // The light scheme, because that is the one the frame's border has to hold up in — a near-black
-    // frame on near-black content hides exactly the problem this demo is for.
-    JStyle::apply(JStyle::light());
+    // Light by default, because a near-black frame on near-black content hides exactly the problems this
+    // demo is for; JF_DEMO_DARK=1 for the other half, since a border has to be visible in both.
+    if (!std::getenv("JF_DEMO_DARK")) JStyle::apply(JStyle::light());
     JAppWindow win("JFramework MDI", 1000, 640);
     if (!win.valid()) { std::cerr << "window/HAL init failed\n"; return -1; }
     auto& g = app.sceneGraph();
