@@ -262,7 +262,12 @@ public:
             // box and into the steppers, where it was cut off mid-glyph. The box is the unit; the gap is
             // the space before it.
             const float uw = _suffixW() - kSuffixGap;
-            JTextHelper::pushText(buf, b.x + b.width - btnW - uw, ty, u, sc, uw);
+            // …AND THE CLIP IS NOT THE MEASUREMENT. Passing exactly the measured width as the limit left
+            // no room for the difference between what measureWidth adds up and what the glyph run
+            // actually occupies, so the last character was dropped: "1500 rpm" read "1500 rp" and
+            // "0.0 sec" read "0.0 se" — one glyph short, which looks like a broken field rather than a
+            // narrow one. The position is already computed to fit; the limit only has to not be tighter.
+            JTextHelper::pushText(buf, b.x + b.width - btnW - uw, ty, u, sc, uw + 2.f);
         }
 
         // The two steppers — Button role fill, Border-role outline, tiny arrow marks.
