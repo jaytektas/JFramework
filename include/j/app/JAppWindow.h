@@ -655,7 +655,12 @@ public:
             // gesture that began in the centre — never for one aimed at the chrome itself.
             const bool captured = m_centreCapture;
 
-            const bool chromeAte = !captured && handleChrome(mx, my, pressed);
+            // Called EVERY frame, with the press suppressed rather than the call: handleChrome holds no
+            // state of its own (it hands a title-bar drag to the window manager and returns), but starving
+            // a chrome handler of frames is how a gesture gets stranded half-finished, and this one moves
+            // the whole application window. Suppressing only the press keeps it from starting anything on
+            // a gesture the centre owns, which is all the capture ever needed from it.
+            const bool chromeAte = handleChrome(mx, my, pressed && !captured) && !captured;
             const bool menusOpen = m_menuRuntime.hasOpenMenus();
             // While a menu popup is open it owns input modally (its own grab); the main UI is
             // frozen out so it can't fight the popup. The menu bar still gets hover so the
@@ -1685,6 +1690,11 @@ private:
                                       std::chrono::steady_clock::now().time_since_epoch()).count();
             if (nowMs - m_lastTitleMs < 400) { m_window->setMaximized(!m_window->isMaximized()); m_lastTitleMs = 0; return true; }
             m_lastTitleMs = nowMs;
+            // LOGGED, because the drag that follows belongs to the window manager: the WM grabs the
+            // pointer and moves the window until the button goes up, and the application never sees
+            // either end of it. When a window is reported as stuck to the cursor, the only thing this
+            // side can answer is whether it asked for one move or several.
+            JLOGC("chrome", JLogLevel::Info) << "startWindowMove at " << mx << "," << my;
             m_window->startWindowMove();
             return true;
         }
