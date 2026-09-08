@@ -801,7 +801,15 @@ private:
 
         VkImageCreateInfo imgCI{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
         imgCI.imageType     = VK_IMAGE_TYPE_2D;
-        imgCI.format        = VK_FORMAT_R8G8B8A8_SRGB;
+        // UNORM, TO MATCH WHAT WE DRAW INTO. An _SRGB image is converted sRGB->linear by the sampler,
+        // and the swapchain is B8G8R8A8_UNORM — nothing converts back on the way out. So every uploaded
+        // image was written to the screen as value^2.2: a logo whose ground is (32,35,40) arrived as
+        // (4,4,5), near black, with the colour drained out of everything on it. Solid fills never showed
+        // it because their bytes go straight through as they are; only textures took the round trip.
+        //
+        // Matching the target means the bytes an application uploads are the bytes that land, which is
+        // the same contract the rest of the renderer already keeps.
+        imgCI.format        = VK_FORMAT_R8G8B8A8_UNORM;
         imgCI.extent        = {w, h, 1};
         imgCI.mipLevels     = 1;
         imgCI.arrayLayers   = 1;
@@ -848,7 +856,7 @@ private:
         VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         vci.image            = tex.image;
         vci.viewType         = VK_IMAGE_VIEW_TYPE_2D;
-        vci.format           = VK_FORMAT_R8G8B8A8_SRGB;
+        vci.format           = VK_FORMAT_R8G8B8A8_UNORM;   // must match the image's own format, above
         vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         vkCreateImageView(m_device, &vci, nullptr, &tex.view);
 
