@@ -16,6 +16,7 @@
 // rectangle around somebody else's widget, so a page can be handed straight to it and taken back.
 
 #include "JWidget.h"
+#include "FocusManager.h"
 #include "JStyle.h"
 #include "JTitleBar.h"
 #include "JTextHelper.h"
@@ -168,6 +169,13 @@ public:
         // `f` above is a rect measured against nothing. Flag it and let the first real frame place it.
         c->m_provisional = (a.width <= 0.f || a.height <= 0.f);
         if (c->m_max) c->m_frame = a;   // no usable hint: all of it. m_restore keeps the free geometry.
+        // PARENT THE CONTENT, which is how a host says what is inside it. JWidget::collectChildren is the
+        // one edge every tree walk follows — focus traversal above all — and a widget merely POINTED at is
+        // not on it. The area routed presses to its content by hand, so the mouse worked and hid the gap:
+        // the keyboard could never reach anything in a child window, and focus given to the content was
+        // dropped again by the next syncOrder() because nothing could walk to it. Non-owning: the
+        // application still owns the widget, exactly as it did before.
+        if (content) addChild(content);
         JMdiChild* raw = c.get();
         m_children.push_back(std::move(c));
         return raw;
@@ -178,7 +186,10 @@ public:
                                         [c](const std::unique_ptr<JMdiChild>& p) { return p.get() == c; }),
                          m_children.end());
     }
-    void closeAll() { m_children.clear(); }
+    void closeAll() {
+        for (auto& c : m_children) if (c->content()) removeChild(c->content());   // drop the parent edges too
+        m_children.clear();
+    }
 
     // Front-most, which is the one a menu action means by "the open page".
     JMdiChild* active() const { return m_children.empty() ? nullptr : m_children.back().get(); }
@@ -247,6 +258,14 @@ public:
         JMdiChild* c = childAt(mx, my);
         if (!c) return;
         raise(c);
+        // CLICKING A WINDOW FOCUSES WHAT IS IN IT, which is what clicking a window does everywhere. The
+        // runner's focus-on-click runs before this and hit-tests the FOCUS ORDER; content hosted by a
+        // window is not in it, so a press inside a child window was read as a press on nothing and focus
+        // was cleared — which blurred the very content being clicked. In the studio that meant a canvas
+        // control took the keyboard on press and lost it again in the same frame, so a field could be
+        // clicked into and never typed into. Focus goes to the content BEFORE the press reaches it, so
+        // whatever the press then focuses inside the content is the thing that keeps it.
+        if (JFocusManager::s_active && c->content()) JFocusManager::s_active->setFocus(c->content());
         const JRect f = c->frame();
         // The buttons first — they sit in the title bar and would otherwise start a move.
         if (my >= f.y && my < f.y + JMdiChild::kTitleH) {
@@ -264,6 +283,18 @@ public:
             }
         }
         if (c->content()) { c->content()->setBounds(c->contentRect()); c->content()->handleMousePress(mx, my); }
+    }
+
+    // AND SO DO THE KEYS. The runner routes a key to the central widget, the central widget is this, and
+    // this had no handler — so nothing inside a child window could be typed into. A text field took its
+    // caret and then sat there while the keyboard went nowhere, which is not a text field. They go to the
+    // ACTIVE child (the front one, the one whose title bar is lit), because that is what "focused window"
+    // means everywhere else.
+    bool handleKeyEvent(const JKeyEvent& ke) override {
+        JMdiChild* c = active();
+        if (!c || !c->content()) return false;
+        c->content()->setBounds(c->contentRect());
+        return c->content()->handleKeyEvent(ke);
     }
 
     // THE WHEEL GOES TO THE CONTENT. Without this the area silently ate every scroll that landed on a
@@ -294,6 +325,7 @@ public:
             if (!m_children[i]->closeRequested()) { ++i; continue; }
             std::unique_ptr<JMdiChild> gone = std::move(m_children[i]);
             m_children.erase(m_children.begin() + static_cast<long>(i));
+            if (gone->content()) removeChild(gone->content());   // the parent edge goes with the window
             if (onChildClosed) onChildClosed(gone.get());
         }
         const JRect a = area();
