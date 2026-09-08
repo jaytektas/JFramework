@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -115,6 +116,10 @@ public:
 
     // Open a child, maximised, at the front. `w`/`h` are the size it restores to; 0 means "a good
     // fraction of the area", which is what a first restore should give rather than a 1x1 sliver.
+    // Told when a child window has been closed by its ✕, so the owner of the CONTENT can let go of it.
+    // The area owns frames, never content — it will not delete somebody else's widget.
+    std::function<void(JMdiChild*)> onChildClosed;
+
     JMdiChild* open(std::string title, JWidget* content, float w = 0.f, float h = 0.f) {
         const JRect a = area();
         // THE SIZE THE CONTENT NEEDS BEFORE IT NEEDS SCROLLBARS. A caller that says nothing gets the
@@ -254,6 +259,16 @@ public:
 
     // ---- paint ---------------------------------------------------------------------------------
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
+        // CLOSE ACTUALLY CLOSES. The button set a flag and nothing ever read it, so the only thing the ✕
+        // did was mark the window as wanting to go. Reaped here, at the top of a frame — outside every
+        // event handler, so an owner told about it (onChildClosed) can drop the content widget without
+        // pulling it out from under a call that is still running.
+        for (size_t i = 0; i < m_children.size();) {
+            if (!m_children[i]->closeRequested()) { ++i; continue; }
+            std::unique_ptr<JMdiChild> gone = std::move(m_children[i]);
+            m_children.erase(m_children.begin() + static_cast<long>(i));
+            if (onChildClosed) onChildClosed(gone.get());
+        }
         const JRect a = area();
         buf.pushRectangle(a.x, a.y, a.width, a.height, Colors::Surface0);
         // A maximised child owns the area even when the area changes under it.
