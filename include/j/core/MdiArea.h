@@ -71,8 +71,8 @@ public:
         if (area.width <= 0.f || area.height <= 0.f) return;      // nothing to resolve against yet
         if (m_provisional) {                                      // placed before the area was known
             m_restore = { area.x + 24.f, area.y + 24.f,
-                          m_wantW > 0.f ? m_wantW : std::max(320.f, area.width  * 0.66f),
-                          m_wantH > 0.f ? m_wantH : std::max(200.f, area.height * 0.66f) };
+                          m_wantW > 0.f ? std::min(m_wantW, area.width)  : std::max(320.f, area.width  * 0.66f),
+                          m_wantH > 0.f ? std::min(m_wantH, area.height) : std::max(200.f, area.height * 0.66f) };
             m_provisional = false;
             if (!m_max) m_frame = m_restore;
         }
@@ -117,15 +117,30 @@ public:
     // fraction of the area", which is what a first restore should give rather than a 1x1 sliver.
     JMdiChild* open(std::string title, JWidget* content, float w = 0.f, float h = 0.f) {
         const JRect a = area();
+        // THE SIZE THE CONTENT NEEDS BEFORE IT NEEDS SCROLLBARS. A caller that says nothing gets the
+        // content's own preferred size plus this frame's chrome — which is the size at which a page is
+        // whole: nothing clipped, nothing to scroll. Guessing a fraction of the area instead gave every
+        // window scrollbars it did not need, or empty space it could not use. Anything bigger than the
+        // area is clamped to the area (that page really does need to scroll), and content with no
+        // opinion still opens maximised, since an unknown size is best answered with all of it.
+        const JRect want = content ? content->preferredSize() : JRect{};
+        const bool  hinted = (w > 0.f && h > 0.f) || (want.width > 1.f && want.height > 1.f);
+        const float fw = w > 0.f ? w : want.width  + 2.f * JMdiChild::kBorder;
+        const float fh = h > 0.f ? h : want.height + JMdiChild::kTitleH + JMdiChild::kBorder;
+        // `a` is empty until the first layout, and clamping to an empty area would open every child at
+        // nothing wide. Clamp only against an area that exists; the provisional heal below clamps the
+        // rest once there is something to clamp against.
+        const bool haveArea = a.width > 0.f && a.height > 0.f;
         JRect f{ a.x + 24.f, a.y + 24.f,
-                 w > 0.f ? w : std::max(320.f, a.width  * 0.66f),
-                 h > 0.f ? h : std::max(200.f, a.height * 0.66f) };
+                 hinted ? (haveArea ? std::min(fw, a.width)  : fw) : std::max(320.f, a.width  * 0.66f),
+                 hinted ? (haveArea ? std::min(fh, a.height) : fh) : std::max(200.f, a.height * 0.66f) };
         auto c = std::make_unique<JMdiChild>(std::move(title), content, f);
-        c->m_wantW = w; c->m_wantH = h;
+        c->m_wantW = hinted ? fw : 0.f; c->m_wantH = hinted ? fh : 0.f;
+        c->m_max   = !hinted;      // a size we can trust is a size to open at, not to override
         // An area of no size means the layout has not run yet (a child opened during construction), so
         // `f` above is a rect measured against nothing. Flag it and let the first real frame place it.
         c->m_provisional = (a.width <= 0.f || a.height <= 0.f);
-        c->m_frame = a;            // opens maximised; m_restore keeps the free geometry above
+        if (c->m_max) c->m_frame = a;   // no usable hint: all of it. m_restore keeps the free geometry.
         JMdiChild* raw = c.get();
         m_children.push_back(std::move(c));
         return raw;
@@ -217,6 +232,16 @@ public:
             }
         }
         if (c->content()) { c->content()->setBounds(c->contentRect()); c->content()->handleMousePress(mx, my); }
+    }
+
+    // THE WHEEL GOES TO THE CONTENT. Without this the area silently ate every scroll that landed on a
+    // child: the runner routes the wheel to the central widget, the central widget is this, and this had
+    // no handler — so a page whose content overflowed could not be scrolled at all, wheel or scrollbar.
+    bool handleScroll(float mx, float my, float wheel) override {
+        JMdiChild* c = childAt(mx, my);
+        if (!c || !c->content()) return false;
+        c->content()->setBounds(c->contentRect());
+        return c->content()->handleScroll(mx, my, wheel);
     }
 
     void handleMouseRelease(float mx, float my) override {

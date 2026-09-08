@@ -24,6 +24,7 @@
 #include <j/core/JLabel.h>
 #include <j/core/JButton.h>
 
+#include <algorithm>
 #include <iostream>
 #include <string>
 
@@ -32,17 +33,39 @@ using namespace jf;
 // A scrap of content, so a child window has something in it that is plainly not the frame.
 class Pad : public JWidget {
 public:
-    Pad(JSceneGraph& g, std::string text, const uint8_t* fill)
-        : JWidget(g, "Pad"), m_text(std::move(text)), m_fill(fill) {}
+    Pad(JSceneGraph& g, std::string text, float w, float h)
+        : JWidget(g, "Pad"), m_text(std::move(text)), m_w(w), m_h(h) {}
+
+    // The size this content wants: the window opens around it, so nothing is clipped and there is
+    // nothing to scroll — which is what a page window does in every application that has them.
+    JRect preferredSize() const override { return { 0.f, 0.f, m_w, m_h }; }
+
+    // Scrolled by the wheel when the window is smaller than that. Proves the wheel reaches the content
+    // through the area rather than being eaten on the way.
+    bool handleScroll(float, float, float wheel) override {
+        const JRect& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const float hidden = std::max(0.f, m_h - b.height);
+        if (hidden <= 0.f) return false;
+        m_scroll = std::clamp(m_scroll - wheel * 24.f, 0.f, hidden);
+        return true;
+    }
+
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         const JRect& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        buf.pushRectangle(b.x, b.y, b.width, b.height, m_fill);
-        if (JTextHelper::hasAtlas())
-            JTextHelper::pushText(buf, b.x + 12.f, b.y + 12.f, m_text, Colors::TextPrimary, b.width - 24.f);
+        buf.pushRectangle(b.x, b.y, b.width, b.height, Colors::Surface0);
+        // Ruled rows, so a scroll is unmistakable: the numbers move, the window does not.
+        for (int i = 0; i * 28.f < m_h; ++i) {
+            const float y = b.y + static_cast<float>(i) * 28.f - m_scroll;
+            if (y < b.y - 28.f || y > b.y + b.height) continue;
+            if (JTextHelper::hasAtlas())
+                JTextHelper::pushText(buf, b.x + 12.f, y + 6.f,
+                                      "row " + std::to_string(i) + "  -  " + m_text,
+                                      Colors::TextPrimary, b.width - 24.f);
+        }
     }
 private:
-    std::string    m_text;
-    const uint8_t* m_fill;
+    std::string m_text;
+    float       m_w, m_h, m_scroll{0.f};
 };
 
 int main() {
@@ -68,15 +91,13 @@ int main() {
     JMdiArea mdi(g);
     win.setCentralWidget(&mdi);
 
-    Pad one(g, "First page. Drag my title bar off every edge of the area.",  Colors::Surface0);
-    Pad two(g, "Second page. Click me to raise; the active frame is heavier.", Colors::Surface0);
-    JMdiChild* a = mdi.open("First Page",  &one);
-    JMdiChild* b = mdi.open("Second Page", &two);
-    // Both restored rather than maximised: a maximised child has nothing to drag or size, and the
-    // geometry paths are the ones under test.
-    a->setMaximised(false, mdi.area());
-    b->setMaximised(false, mdi.area());
-    JRect fb = b->frame(); fb.x += 60.f; fb.y += 60.f; b->setFrame(fb);
+    // Two different content sizes, so it is obvious the window is sized by what is IN it: the short
+    // page opens small, the long one opens as tall as the area allows and scrolls the rest.
+    Pad one(g, "short page", 420.f, 220.f);
+    Pad two(g, "long page",  520.f, 1400.f);
+    mdi.open("Short Page", &one);
+    JMdiChild* b = mdi.open("Long Page", &two);
+    JRect fb = b->frame(); fb.x += 300.f; fb.y += 40.f; b->setFrame(fb);
 
     std::cerr << "[mdi_demo] two child windows in the centre\n";
     return win.run();
