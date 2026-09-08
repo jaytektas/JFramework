@@ -132,6 +132,20 @@ public:
 
     // Open a child, maximised, at the front. `w`/`h` are the size it restores to; 0 means "a good
     // fraction of the area", which is what a first restore should give rather than a 1x1 sliver.
+    // WHAT IS BEHIND THE WINDOWS. An MDI area is not a blank slab: TunerStudio keeps its gauge cluster and
+    // its live readouts on the page behind the dialogs, and a tuner reads them WHILE editing — that is the
+    // whole point of tuning against a running engine. Moving pages into windows put an empty background
+    // where the live instrumentation used to be. The background widget fills the area, paints under every
+    // child, and takes the input no child window wanted, so it behaves exactly as it did when it WAS the
+    // central widget. Non-owning: the application still owns it.
+    void setBackground(JWidget* w) {
+        if (m_background == w) return;
+        if (m_background) removeChild(m_background);
+        m_background = w;
+        if (w) addChild(w);
+    }
+    JWidget* background() const { return m_background; }
+
     // Told when a child window has been closed by its ✕, so the owner of the CONTENT can let go of it.
     // The area owns frames, never content — it will not delete somebody else's widget.
     std::function<void(JMdiChild*)> onChildClosed;
@@ -251,12 +265,18 @@ public:
         if (JMdiChild* c = childAt(mx, my); c && c->content()) {
             c->content()->setBounds(c->contentRect());
             c->content()->handleMouseMove(mx, my);
+        } else if (m_background) {
+            m_background->setBounds(area());
+            m_background->handleMouseMove(mx, my);
         }
     }
 
     void handleMousePress(float mx, float my) override {
         JMdiChild* c = childAt(mx, my);
-        if (!c) return;
+        if (!c) {                                   // nothing over it: the background has the click
+            if (m_background) { m_background->setBounds(area()); m_background->handleMousePress(mx, my); }
+            return;
+        }
         raise(c);
         // CLICKING A WINDOW FOCUSES WHAT IS IN IT, which is what clicking a window does everywhere. The
         // runner's focus-on-click runs before this and hit-tests the FOCUS ORDER; content hosted by a
@@ -292,7 +312,7 @@ public:
     // means everywhere else.
     bool handleKeyEvent(const JKeyEvent& ke) override {
         JMdiChild* c = active();
-        if (!c || !c->content()) return false;
+        if (!c || !c->content()) return m_background ? m_background->handleKeyEvent(ke) : false;
         c->content()->setBounds(c->contentRect());
         return c->content()->handleKeyEvent(ke);
     }
@@ -302,7 +322,11 @@ public:
     // no handler — so a page whose content overflowed could not be scrolled at all, wheel or scrollbar.
     bool handleScroll(float mx, float my, float wheel) override {
         JMdiChild* c = childAt(mx, my);
-        if (!c || !c->content()) return false;
+        if (!c || !c->content()) {
+            if (!m_background) return false;
+            m_background->setBounds(area());
+            return m_background->handleScroll(mx, my, wheel);
+        }
         c->content()->setBounds(c->contentRect());
         return c->content()->handleScroll(mx, my, wheel);
     }
@@ -312,6 +336,9 @@ public:
         if (JMdiChild* c = childAt(mx, my); c && c->content()) {
             c->content()->setBounds(c->contentRect());
             c->content()->handleMouseRelease(mx, my);
+        } else if (m_background) {
+            m_background->setBounds(area());
+            m_background->handleMouseRelease(mx, my);
         }
     }
 
@@ -330,6 +357,12 @@ public:
         }
         const JRect a = area();
         buf.pushRectangle(a.x, a.y, a.width, a.height, Colors::Surface0);
+        if (m_background && a.width > 1.f && a.height > 1.f) {   // behind every window, filling the area
+            buf.pushClip(a.x, a.y, a.width, a.height);
+            m_background->setBounds(a);
+            m_background->populateRenderPrimitives(buf);
+            buf.popClip();
+        }
         // A maximised child owns the area even when the area changes under it.
         for (auto& c : m_children) c->refit(a);
         // CLIPPED TO THE AREA. A child is drawn wherever its frame is, and the frame is not the area —
@@ -457,6 +490,7 @@ private:
         buf.pushRectangle(x + m, y + m + 3.f, s - 2 * m - 3.f, s - 2 * m - 3.f, clear, 0.f, 1.2f, col);
     }
 
+    JWidget* m_background{nullptr};                 // see setBackground()
     std::vector<std::unique_ptr<JMdiChild>> m_children;
     JMdiChild* m_grab{nullptr};
     Drag  m_drag{Drag::None};
