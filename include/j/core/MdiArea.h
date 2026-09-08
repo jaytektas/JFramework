@@ -156,6 +156,13 @@ public:
                            : JRect{ a.x + 24.f, a.y + 24.f, fw, fh };
         auto c = std::make_unique<JMdiChild>(std::move(title), content, f);
         c->m_wantW = hinted ? fw : 0.f; c->m_wantH = hinted ? fh : 0.f;
+        // AND THAT SIZE IS ALSO THE FLOOR. TunerStudio will not let a table window be dragged smaller
+        // than the grid inside it — measured: 1195 px wide down to 925 and it stops, while a window of
+        // plain rows shrinks freely and scrolls. That is the honest rule for content that cannot usefully
+        // compress: refuse, rather than hand back something unreadable. Capped by the area, since a floor
+        // bigger than the space it lives in would be a window that cannot be resized at all.
+        if (hinted && haveArea)
+            c->setMinSize(std::min(fw, a.width), std::min(fh, a.height));
         c->m_max   = !hinted;      // a size we can trust is a size to open at, not to override
         // An area of no size means the layout has not run yet (a child opened during construction), so
         // `f` above is a rect measured against nothing. Flag it and let the first real frame place it.
@@ -214,12 +221,17 @@ public:
             const float dx = px - m_lastX, dy = py - m_lastY;
             if (m_drag == Drag::Move) { f.x += dx; f.y += dy; }
             else {
-                if (m_edge & Left)   { f.x += dx; f.width  -= dx; }
-                if (m_edge & Right)  {            f.width  += dx; }
-                if (m_edge & Top)    { f.y += dy; f.height -= dy; }
-                if (m_edge & Bottom) {            f.height += dy; }
-                f.width  = std::max(f.width,  m_grab->minW());
-                f.height = std::max(f.height, m_grab->minH());
+                // THE FAR EDGE STAYS PUT. Dragging the left edge moves the origin and shrinks the width by
+                // the same amount, so clamping the width afterwards left the origin where the pointer had
+                // pushed it: at the minimum size the window stopped shrinking and started sliding sideways
+                // instead, out from under the cursor that was resizing it. Clamp the pair together.
+                const float minW = m_grab->minW(), minH = m_grab->minH();
+                if (m_edge & Left)   { const float nw = std::max(minW, f.width  - dx);
+                                       f.x += f.width  - nw; f.width  = nw; }
+                if (m_edge & Right)  {                       f.width  = std::max(minW, f.width  + dx); }
+                if (m_edge & Top)    { const float nh = std::max(minH, f.height - dy);
+                                       f.y += f.height - nh; f.height = nh; }
+                if (m_edge & Bottom) {                       f.height = std::max(minH, f.height + dy); }
             }
             m_grab->setFrame(f);
             m_lastX = px; m_lastY = py;
