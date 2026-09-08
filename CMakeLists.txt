@@ -227,6 +227,9 @@ if(GENESIS_BUILD_EXAMPLES)
     add_executable(j_app_shell examples/app_shell/main.cpp)
     target_link_libraries(j_app_shell PRIVATE j_platform)
 
+    add_executable(j_mdi_demo examples/mdi_demo/main.cpp)
+    target_link_libraries(j_mdi_demo PRIVATE j_platform)
+
     add_executable(j_chart_demo examples/chart_demo/main.cpp)
     target_link_libraries(j_chart_demo PRIVATE j_platform)
 endif()

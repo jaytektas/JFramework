@@ -635,13 +635,33 @@ public:
             const float wheel = m_window->consumeWheel();
             if (wheel != 0.f) activity = true;
 
-            const bool chromeAte = handleChrome(mx, my, pressed);
+            // A PRESS IN THE CENTRE OWNS THE WHOLE GESTURE, CHROME INCLUDED. The capture below used to be
+            // armed inside the centre routing, which sits behind `!chromeAte && !menuAte` — so the capture
+            // could never do its job in the one direction it was needed. The toolbar and the status strip
+            // swallow input by POSITION alone: drag something out of the centre and up over the toolbar and
+            // the centre stopped getting motion mid-drag (an MDI window froze the instant its cursor crossed
+            // the strip), and the RELEASE over the strip never reached the centre either — so the widget was
+            // left holding a button that was already up, and the next move into the centre resumed the drag
+            // from nowhere. That is the "window keeps dragging after I let go" stick. Arming here, ahead of
+            // every chrome consumer, makes the rule the same one docks already have: the presser keeps the
+            // stream until the physical release, and no chrome may act on a gesture it did not start.
+            if (m_centreCapture && !pressed && !releasedRaw && !m_window->isLeftButtonDown())
+                m_centreCapture = false;               // self-heal: a release we never saw (see the dock note)
+            if (pressed && !m_menuRuntime.hasOpenMenus() && !m_space.isResizing())
+                if (const JRect& cr = m_space.centerRect();
+                    mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height)
+                    m_centreCapture = true;
+            // Chrome is disjoint from the centre by geometry, so this only ever suppresses chrome for a
+            // gesture that began in the centre — never for one aimed at the chrome itself.
+            const bool captured = m_centreCapture;
+
+            const bool chromeAte = !captured && handleChrome(mx, my, pressed);
             const bool menusOpen = m_menuRuntime.hasOpenMenus();
             // While a menu popup is open it owns input modally (its own grab); the main UI is
             // frozen out so it can't fight the popup. The menu bar still gets hover so the
             // active title stays lit.
             bool menuAte = menusOpen;
-            if (!chromeAte && m_menuBar) {
+            if (!chromeAte && !captured && m_menuBar) {
                 // While a menu is open the popup has grabbed the pointer, so the main
                 // window's mouse is frozen. Query the GLOBAL cursor instead (works under a
                 // grab) so the menu bar can detect hover over a sibling title and switch to
@@ -661,15 +681,15 @@ public:
             if (m_toolBar && m_toolbarH > 0.f) {
                 const float ty = m_titleH + m_menuH + m_noticeH;   // the notice strip is above it
                 m_toolBar->setRect(JRect{0.f, ty, static_cast<float>(m_w), m_toolbarH});
-                const bool act = !chromeAte && !menusOpen;
-                if (m_toolBar->handleMouse(mx, my, act && pressed, act && released) && !menusOpen)
-                    menuAte = true;   // swallow input over the toolbar strip
+                const bool act = !chromeAte && !menusOpen && !captured;
+                if (m_toolBar->handleMouse(mx, my, act && pressed, act && released) && !menusOpen && !captured)
+                    menuAte = true;   // swallow input over the toolbar strip - but never mid-centre-gesture
             }
             if (m_statusH > 0.f) {
                 const float sy = static_cast<float>(m_h) - m_statusH;
                 m_statusBar.setRect(JRect{0.f, sy, static_cast<float>(m_w), m_statusH});
-                const bool act = !chromeAte && !menusOpen;
-                if (m_statusBar.handleMouse(mx, my, act && pressed, act && released) && !menusOpen)
+                const bool act = !chromeAte && !menusOpen && !captured;
+                if (m_statusBar.handleMouse(mx, my, act && pressed, act && released) && !menusOpen && !captured)
                     menuAte = true;   // swallow input over the status strip (its hosted widgets)
             }
             // Right-click → open the context menu of the top-most widget under the cursor that has
@@ -754,7 +774,7 @@ public:
             // that dock until the physical release, so a drag that leaves the dock (dragging a tree node onto a
             // surface) keeps feeding the source its motion. Without the capture the source stops getting moves
             // the instant the cursor exits its bounds, so it can never detect the leave to arm an external drag.
-            if (!chromeAte && !menuAte) {
+            if (!chromeAte && !menuAte && !captured) {
                 // A capture must never outlive the button that armed it. It is released on the physical
                 // release below — but a gesture whose release the main window never SEES (a modal dialog
                 // opening on the press and swallowing the up, a float taking the grab) left the capture
@@ -782,7 +802,7 @@ public:
             // The centre is a plain widget (not a dock host), so route its input directly — but not
             // while a dock splitter is being dragged (its grab sits on the centre boundary, and would
             // otherwise also start a surface marquee/selection).
-            if (!chromeAte && !menuAte && !m_space.isResizing())
+            if ((captured || (!chromeAte && !menuAte)) && !m_space.isResizing())
                 if (JWidget* cw = m_space.centralWidget()) {
                     const JRect& cr = m_space.centerRect();
                     const bool inside = mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height;
@@ -791,11 +811,9 @@ public:
                     // centre — including the RELEASE — so a gesture finished over a dock (scroll-thumb drag,
                     // marquee, widget move) left the surface stuck mid-drag, still following a button that was
                     // already up. Wheel stays position-gated: it is not part of the press gesture.
-                    if (m_centreCapture && !pressed && !releasedRaw && !m_window->isLeftButtonDown())
-                        m_centreCapture = false;                 // same self-heal as the dock capture above
-                                                                 // (excl. the release frame — see the note there)
-                    if (pressed && inside && !m_centreCapture) m_centreCapture = true;
-                    if (inside || m_centreCapture) {
+                    // (The capture itself is armed above, ahead of the chrome, so the chrome cannot swallow
+                    // the gesture before this ever runs — which is what `captured ||` here is for.)
+                    if (inside || captured) {
                         cw->handleMouseMove(mx, my);
                         if (pressed && inside) cw->handleMousePress(mx, my);
                         if (released)          cw->handleMouseRelease(mx, my);

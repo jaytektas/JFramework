@@ -32,7 +32,15 @@ inline namespace jf {
 class JMdiChild {
 public:
     static constexpr float kTitleH = 26.f;
-    static constexpr float kBorder = 4.f;     // the grab band on each edge
+    // The frame's own inset around the content. Wide enough to READ as a border at the bottom and the
+    // sides — 4 px of frame under a page looked like a rendering seam rather than the edge of a window.
+    static constexpr float kBorder = 6.f;
+    // WHAT YOU CAN ACTUALLY HIT. The inset is 4 px, and a 4 px target is a target nobody hits — the
+    // corner especially, which is the one people reach for. The grab band is wider than the border it
+    // belongs to, and reaches INTO the content, because catching a resize a few pixels early is a much
+    // smaller annoyance than a resize that will not start.
+    static constexpr float kGrab   = 10.f;
+    static constexpr float kGrip   = 14.f;    // the drawn corner mark, so the corner looks grabbable
     static constexpr float kBtn    = 18.f;
 
     JMdiChild(std::string title, JWidget* content, JRect frame)
@@ -52,7 +60,29 @@ public:
     }
     // A maximised child follows its area: the point of maximised is "all of it", not "the size the
     // area happened to be when I was maximised".
-    void refit(const JRect& area) { if (m_max) m_frame = area; }
+    //
+    // AND A CHILD IS NEVER LEFT SOMEWHERE IT CANNOT BE GRABBED. Two ways that happened. A child opened
+    // before the first layout pass had no area to be placed against — area() was still empty — so it
+    // took a restore rect built from nothing and came back from Restore with its title bar above the
+    // top of the area, clipped away, with no way to drag it down again. And a child positioned legally
+    // can be orphaned later by the area itself shrinking under it (the window resized, a dock opened).
+    // Both end the same way, so both are healed here, on the frame that knows what the area really is.
+    void refit(const JRect& area) {
+        if (area.width <= 0.f || area.height <= 0.f) return;      // nothing to resolve against yet
+        if (m_provisional) {                                      // placed before the area was known
+            m_restore = { area.x + 24.f, area.y + 24.f,
+                          m_wantW > 0.f ? m_wantW : std::max(320.f, area.width  * 0.66f),
+                          m_wantH > 0.f ? m_wantH : std::max(200.f, area.height * 0.66f) };
+            m_provisional = false;
+            if (!m_max) m_frame = m_restore;
+        }
+        if (m_max) { m_frame = area; return; }
+        // Keep a grabbable piece of the title bar inside the area. Enough of it to catch, not so much
+        // that a window cannot be pushed mostly off to the side and left there deliberately.
+        const float keep = std::min(m_frame.width, 80.f);
+        m_frame.x = std::clamp(m_frame.x, area.x - (m_frame.width - keep), area.x + area.width - keep);
+        m_frame.y = std::clamp(m_frame.y, area.y, area.y + area.height - kTitleH);
+    }
 
     bool closeRequested() const { return m_close; }
     void requestClose()          { m_close = true; }
@@ -74,7 +104,9 @@ private:
     JWidget*    m_content{nullptr};
     JRect       m_frame{}, m_restore{};
     float       m_minW{240.f}, m_minH{120.f};
+    float       m_wantW{0.f}, m_wantH{0.f};   // the restore size the caller asked for, 0 = "a good fraction"
     bool        m_max{true}, m_close{false};
+    bool        m_provisional{false};         // the restore rect was built before the area was known
 };
 
 class JMdiArea : public JWidget {
@@ -89,6 +121,10 @@ public:
                  w > 0.f ? w : std::max(320.f, a.width  * 0.66f),
                  h > 0.f ? h : std::max(200.f, a.height * 0.66f) };
         auto c = std::make_unique<JMdiChild>(std::move(title), content, f);
+        c->m_wantW = w; c->m_wantH = h;
+        // An area of no size means the layout has not run yet (a child opened during construction), so
+        // `f` above is a rect measured against nothing. Flag it and let the first real frame place it.
+        c->m_provisional = (a.width <= 0.f || a.height <= 0.f);
         c->m_frame = a;            // opens maximised; m_restore keeps the free geometry above
         JMdiChild* raw = c.get();
         m_children.push_back(std::move(c));
@@ -123,9 +159,24 @@ public:
 
     // ---- input ---------------------------------------------------------------------------------
     void handleMouseMove(float mx, float my) override {
+        // A DRAG CANNOT OUTLIVE THE BUTTON. The frame publishes the real button state every tick, so a
+        // release this widget never saw (something upstream swallowed it) heals here instead of leaving
+        // the window glued to the cursor until the next click — the "mouse sticking" that made a window
+        // keep dragging after it had been let go.
+        if (m_drag != Drag::None && !JWidget::s_leftDown) { m_drag = Drag::None; m_grab = nullptr; m_edge = 0; }
         if (m_drag != Drag::None && m_grab) {
+            // THE POINTER IS CLAMPED TO THE AREA FOR THE LENGTH OF THE DRAG. Clipping stops a window
+            // PAINTING over the menu and the docks, but on its own it lets a window be pushed until
+            // there is nothing of it left inside the area — dragged out of sight, with no title bar in
+            // reach to drag it back. Losing a window is worse than being unable to shove it that far.
+            // Clamping the pointer rather than the frame is what makes that stop feel right: motion
+            // beyond the edge simply stops moving the window, and coming back in resumes from the edge
+            // with no jump, so the window is always still grabbable where it was left.
+            const JRect a = area();
+            const float px = std::clamp(mx, a.x, a.x + a.width);
+            const float py = std::clamp(my, a.y, a.y + a.height);
             JRect f = m_grab->frame();
-            const float dx = mx - m_lastX, dy = my - m_lastY;
+            const float dx = px - m_lastX, dy = py - m_lastY;
             if (m_drag == Drag::Move) { f.x += dx; f.y += dy; }
             else {
                 if (m_edge & Left)   { f.x += dx; f.width  -= dx; }
@@ -136,7 +187,7 @@ public:
                 f.height = std::max(f.height, m_grab->minH());
             }
             m_grab->setFrame(f);
-            m_lastX = mx; m_lastY = my;
+            m_lastX = px; m_lastY = py;
             return;
         }
         if (JMdiChild* c = childAt(mx, my); c && c->content()) {
@@ -182,13 +233,26 @@ public:
         buf.pushRectangle(a.x, a.y, a.width, a.height, Colors::Surface0);
         // A maximised child owns the area even when the area changes under it.
         for (auto& c : m_children) c->refit(a);
+        // CLIPPED TO THE AREA. A child is drawn wherever its frame is, and the frame is not the area —
+        // so without this a window dragged upward paints its title bar straight over the menu and the
+        // toolbar, and one dragged sideways paints over the docks. The content was already clipped to the
+        // child; the child was never clipped to its own area.
+        buf.pushClip(a.x, a.y, a.width, a.height);
         // Back to front, so the front-most child is the one drawn over the others.
         for (auto& c : m_children) paintChild(buf, *c, c.get() == active());
+        buf.popClip();
     }
 
 private:
     enum Edge { Left = 1, Right = 2, Top = 4, Bottom = 8 };
     enum class Drag { None, Move, Size };
+
+    // CLIPPED, NOT CONFINED. A frame may go where it is put — half off the left edge, most of the way
+    // under the bottom — and the AREA decides what is visible of it. Clamping a window inside its parent
+    // is the easy answer and the wrong one: it fights the drag, it makes a window that is bigger than the
+    // area impossible to move around inside, and it takes away the ordinary act of pushing something
+    // mostly out of the way while you look at what is behind it. See populateRenderPrimitives for the
+    // clip that makes this safe.
 
     static bool hit(const JRect& r, float x, float y) {
         return x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
@@ -203,7 +267,7 @@ private:
 
     static int edgeAt(const JMdiChild& c, float mx, float my) {
         const JRect f = c.frame();
-        const float b = JMdiChild::kBorder + 2.f;
+        const float b = JMdiChild::kGrab;
         int e = 0;
         if (mx <= f.x + b)                 e |= Left;
         if (mx >= f.x + f.width  - b)      e |= Right;
@@ -215,8 +279,19 @@ private:
     void paintChild(JPrimitiveBuffer& buf, JMdiChild& c, bool activeOne) {
         const JRect f = c.frame();
         const float rad = JStyle::current().cornerRadius;
-        buf.pushRectangle(f.x, f.y, f.width, f.height, Colors::Surface1, rad,
-                          activeOne ? 1.5f : 1.0f, activeOne ? Colors::Accent : Colors::Border);
+        // THE FRAMEWORK'S OWN WINDOW CHROME, not a colour invented here. Colors::Accent made the focused
+        // window a blue-outlined thing that matched nothing else on screen; WindowFrameBorder is the token
+        // the theme already defines for a window frame (and re-defines per theme), so a child window is
+        // bordered like a window in whichever theme is loaded. Focus stays legible through weight — the
+        // active frame is drawn heavier, the inactive one falls back to the generic surface border.
+        // AND THE SURROUND IS CHROME, not more content. Filling the frame with Surface1 put the band
+        // around the content in very nearly the content's own colour, so the only thing marking the
+        // bottom and sides of the window was the hairline stroke — nothing like the border of a real
+        // window. Filling it with the title-bar colour instead makes the title bar and the surround one
+        // continuous piece of frame, which is what the eye reads as a window.
+        buf.pushRectangle(f.x, f.y, f.width, f.height, Colors::TitleBar, rad,
+                          activeOne ? 2.0f : 1.0f,
+                          activeOne ? Colors::WindowFrameBorder : Colors::Border);
         JTitleBar::draw(buf, f.x, f.y, f.width, JMdiChild::kTitleH, c.title(), rad, 0, 10.f,
                         2 * JMdiChild::kBtn + 12.f);
         // Restore/maximise, then close — drawn where handleMousePress looks for them.
@@ -230,6 +305,22 @@ private:
                 w->setBounds(cr);
                 w->populateRenderPrimitives(buf);
                 buf.popClip();
+            }
+        }
+        // The corner grip: three lines stepping up the diagonal, the shape every resizable corner has
+        // used for thirty years and the only hint this frame can give without a cursor to change.
+        //
+        // DRAWN AFTER THE CONTENT, which is why it was invisible. The grip reaches further in than the
+        // border it sits on (it has to — a 6 px target is not a target), so it lands inside the content
+        // rect; drawn before the content, the content simply painted over it every frame and the corner
+        // looked like any other corner. It goes on top, like the grip of a real window.
+        if (!c.maximised()) {
+            const uint8_t* g = Colors::WindowFrameBorder;
+            const float x1 = f.x + f.width - 3.f, y1 = f.y + f.height - 3.f;
+            for (int i = 1; i <= 3; ++i) {
+                const float d = static_cast<float>(i) * 4.f;   // three steps in from the corner
+                buf.pushRectangle(x1 - d, y1 - 2.f, d, 2.f, g);       // the horizontal leg
+                buf.pushRectangle(x1 - 2.f, y1 - d, 2.f, d, g);       // and the vertical one
             }
         }
     }
