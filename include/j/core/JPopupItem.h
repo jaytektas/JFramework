@@ -54,7 +54,10 @@ public:
     bool isHighlighted() const   { return m_highlighted; }
 
     void handleMouseRelease(float mx, float my) override {
-        if (m_state == JWidgetState::Pressed && isPointInside(mx, my)) {
+        // A DISABLED ROW IS NOT A CHOICE. It is still SHOWN, because an option you cannot pick teaches
+        // more than one that is not there — a pin another sensor holds, a sensor type this input cannot
+        // be given — but it does not answer to the mouse.
+        if (isEnabled() && m_state == JWidgetState::Pressed && isPointInside(mx, my)) {
             onClicked.emit();
             onActivated.emit();
         }
@@ -70,15 +73,17 @@ public:
             uint8_t sel[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 70};
             buf.pushRectangle(b.x, b.y, b.width, b.height, sel, 3.0f);
         }
-        // Hover highlight — subtle tint only; no border, no solid fill at rest.
-        if (m_state == JWidgetState::Hovered || m_state == JWidgetState::Pressed) {
+        // Hover highlight — subtle tint only; no border, no solid fill at rest. Never on a disabled row:
+        // a row that lights up under the pointer and then does nothing is worse than one that does not.
+        if (isEnabled() && (m_state == JWidgetState::Hovered || m_state == JWidgetState::Pressed)) {
             uint8_t hi[4] = {Colors::White[0], Colors::White[1], Colors::White[2], 18};
             buf.pushRectangle(b.x, b.y, b.width, b.height, hi, 3.0f);
         }
 
         // JLabel text
         if (JTextHelper::hasAtlas()) {
-            uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 230};
+            const uint8_t* base = isEnabled() ? Colors::ControlText : Colors::MutedText;
+            uint8_t tc[4] = {base[0], base[1], base[2], static_cast<uint8_t>(isEnabled() ? 230 : 140)};
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             JTextHelper::pushText(buf, b.x + 10.f, ty, tr(m_label), tc,
                                  b.width - 16.f);

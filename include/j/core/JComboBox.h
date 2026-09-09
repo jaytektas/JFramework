@@ -54,7 +54,20 @@ public:
         _updateMinSize();
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
-    void clearItems() { setItems({}); }
+    void clearItems() { setItems({}); m_itemEnabled.clear(); }
+
+    // WHICH ENTRIES MAY BE CHOSEN. Every toolkit's combo has this and it is not decoration: a list that
+    // silently omits what you cannot pick leaves you hunting for a name that is simply not there, while a
+    // list that offers it and then refuses is a lie. The studio needs it for a board pin another sensor
+    // already holds, and for a sensor type a generic input cannot be given — both shown, both greyed,
+    // both saying why. Sized to the item list; entries past what is set are enabled.
+    void setItemsEnabled(std::vector<uint8_t> flags) {
+        m_itemEnabled = std::move(flags);
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+    bool itemEnabled(int i) const {
+        return i < 0 || i >= static_cast<int>(m_itemEnabled.size()) || m_itemEnabled[i] != 0;
+    }
     void setCurrentIndex(int i) {
         int c = (m_items.empty()) ? -1 : std::clamp(i, 0, (int)m_items.size()-1);
         if (m_currentIndex != c) {
@@ -82,8 +95,15 @@ protected:
         if (m_items.empty()) return false;
         const int n = static_cast<int>(m_items.size());
         const int cur = m_currentIndex < 0 ? 0 : m_currentIndex;
-        setCurrentIndex(((cur - dir) % n + n) % n);   // Down/-1 advances, matching list convention
-        return true;
+        // …stepping OVER anything that cannot be chosen, so the arrows never park the selection on a
+        // greyed entry. A full lap that finds nothing selectable leaves the value where it was.
+        for (int k = 1; k <= n; ++k) {
+            const int i = ((cur - dir * k) % n + n) % n;   // Down/-1 advances, matching list convention
+            if (!itemEnabled(i)) continue;
+            setCurrentIndex(i);
+            return true;
+        }
+        return false;
     }
 public:
     std::string currentText()  const {
@@ -183,11 +203,18 @@ public:
         // Arrow area = ToolTipBase (old Surface3)
         buf.pushRectangle(b.x + b.width - arrowW, b.y + 1.0f, arrowW - 1.0f, b.height - 2.0f,
                           jstyle::role(JColorRole::ToolTipBase, o).data(), 5.0f);
-        // Arrow chevron (two rects forming a V)
-        float ax = b.x + b.width - arrowW * 0.62f, ay = b.y + b.height * 0.38f;
+        // THE ARROW IS A V, NOT A DASH. The two halves were drawn at the same y — two 5x2 rects side by
+        // side, which is an 11px horizontal bar — so every combo in every app showed an em-dash where its
+        // drop arrow should be, and a settings row of them read as a column of blanked-out fields. Built
+        // as a staircase of 2px steps down to the point and back up, which is a chevron at any size the
+        // atlas can draw.
+        const float ax = b.x + b.width - arrowW * 0.5f, ay = b.y + b.height * 0.5f - 2.0f;
         uint8_t ac[4] = {Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 220};
-        buf.pushRectangle(ax - 4.0f, ay, 5.0f, 2.0f, ac, 1.0f);
-        buf.pushRectangle(ax + 1.0f, ay, 5.0f, 2.0f, ac, 1.0f);
+        for (int k = 0; k < 3; ++k) {
+            const float dx = static_cast<float>(k) * 2.0f, dy = static_cast<float>(k);
+            buf.pushRectangle(ax - 5.0f + dx, ay + dy, 2.0f, 2.0f, ac, 0.5f);   // left arm, stepping down
+            buf.pushRectangle(ax + 3.0f - dx, ay + dy, 2.0f, 2.0f, ac, 0.5f);   // right arm, mirrored
+        }
         // Selected item text (or the live edit buffer in an editable combo — untranslated, it's user input).
         const std::string shown = m_editable ? currentText() : tr(currentText());
         const float textAvail = b.width - arrowW - textPadding() - 6.0f;
@@ -228,6 +255,8 @@ private:
     }
 
     std::vector<std::string> m_items;
+
+    std::vector<uint8_t>     m_itemEnabled;    // per-item; empty = every item enabled
     int m_currentIndex{-1};
     JComboBoxMode m_mode{JComboBoxMode::Popup};   // dropdown list by default (the app wires the popup hook)
     bool          m_editable{false};

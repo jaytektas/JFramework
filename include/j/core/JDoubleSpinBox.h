@@ -283,10 +283,21 @@ public:
         buf.pushRectangle(sx, b.y + ins, sw, b.height - 2.0f * ins, btnFill.data(),
                           JStyle::current().hint(JStyleHint::ControlRadius));
         buf.pushRectangle(sx, b.y + halfH - 0.5f, sw, 1.0f, btnBd.data());
-        const float ax = b.x + b.width - btnW + btnW * 0.3f, aw = btnW * 0.4f;
+        // UP AND DOWN, NOT TWO DASHES. Both marks were a single horizontal bar, so the stepper read as a
+        // pair of minus signs — an em-dash above another — and said nothing about which half raises the
+        // value and which lowers it. Chevrons, built as 2px steps like the combo's (JComboBox), pointing
+        // the way each half moves.
+        const float cx = b.x + b.width - btnW * 0.5f;
         uint8_t ac[4] = {Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 200};
-        buf.pushRectangle(ax, b.y + halfH * 0.35f,          aw, 2.0f, ac);   // up mark
-        buf.pushRectangle(ax, b.y + halfH + halfH * 0.55f,  aw, 2.0f, ac);   // down mark
+        for (int k = 0; k < 3; ++k) {
+            const float dx = static_cast<float>(k) * 2.0f, dy = static_cast<float>(k);
+            const float uy = b.y + halfH * 0.5f + 1.0f;                    // apex of the up chevron…
+            buf.pushRectangle(cx - 5.0f + dx, uy - dy, 2.0f, 2.0f, ac);    // …left arm rising to it
+            buf.pushRectangle(cx + 3.0f - dx, uy - dy, 2.0f, 2.0f, ac);    // …right arm, mirrored
+            const float dy2 = b.y + halfH + halfH * 0.5f - 2.0f;           // …and the down chevron
+            buf.pushRectangle(cx - 5.0f + dx, dy2 + dy, 2.0f, 2.0f, ac);
+            buf.pushRectangle(cx + 3.0f - dx, dy2 + dy, 2.0f, 2.0f, ac);
+        }
     }
 
 private:

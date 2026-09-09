@@ -1423,7 +1423,9 @@ private:
             << " maxH=" << maxH << " scrolls=" << int(scrolls) << " upward=" << int(upward)
             << " roomBelow=" << roomBelow << " roomAbove=" << roomAbove;
 
+        // A row the combo says cannot be chosen is built greyed and inert (JComboBox::setItemsEnabled).
         auto wire = [this, cb](JPopupItem* pi, int i) {
+            pi->setEnabled(cb->itemEnabled(i));
             pi->onActivated.connect([this, cb, i]() {
                 JLOGC("popup", jf::JLogLevel::Debug) << "PICK index=" << i
                     << " (was " << cb->currentIndex() << ")";
