@@ -83,11 +83,13 @@ public:
     // top of the area, clipped away, with no way to drag it down again. And a child positioned legally
     // can be orphaned later by the area itself shrinking under it (the window resized, a dock opened).
     // Both end the same way, so both are healed here, on the frame that knows what the area really is.
-    void refit(const JRect& area) {
+    // `place` is where a window may be PUT (the area less the band the background wants); `area` is where
+    // it may BE. They differ for a first placement and for nothing else.
+    void refit(const JRect& area, const JRect& place) {
         if (area.width <= 0.f || area.height <= 0.f) return;      // nothing to resolve against yet
         if (m_provisional) {                                      // placed before the area was known
-            m_restore = jMdiFitted(m_wantW > 0.f ? m_wantW : std::max(320.f, area.width  * 0.66f),
-                                         m_wantH > 0.f ? m_wantH : std::max(200.f, area.height * 0.66f), area);
+            m_restore = jMdiFitted(m_wantW > 0.f ? m_wantW : std::max(320.f, place.width  * 0.66f),
+                                   m_wantH > 0.f ? m_wantH : std::max(200.f, place.height * 0.66f), place);
             m_provisional = false;
             if (!m_max) m_frame = m_restore;
         }
@@ -146,12 +148,56 @@ public:
     }
     JWidget* background() const { return m_background; }
 
+    // WHERE A NEW WINDOW MAY LAND. The background is not wallpaper — it carries live readouts along its
+    // top and down its side, and a window opening at the area's own corner covers exactly the strip the
+    // reader wants to keep an eye on while they work. This is the band to stay clear of when a window is
+    // PLACED; dragging is unaffected, because a window the reader has moved is where they want it.
+    void setOpenInset(float top, float right = 0.f) { m_openTop = std::max(0.f, top); m_openRight = std::max(0.f, right); }
+
+    // …or work it out at the moment of placing, which is the only moment it is knowable. The band depends
+    // on where the background's own widgets land on screen, and that is settled by layout — asking before
+    // the first frame gets zeroes, and zeroes put the window straight over the readouts. The host supplies
+    // the question; the area asks it when it needs the answer.
+    std::function<JRect(const JRect&)> workArea;
+
+    // The area a new window is placed into: the area less the band the background wants for itself.
+    // WHAT THE WINDOWS ACTUALLY OCCUPY, relative to the area. A window can be bigger than the area (a map
+    // wider than the centre) or dragged past its edge, and a reader with no way to reach the rest is being
+    // shown a lie: the content is there, the frame simply stops. This is the box that has to be reachable.
+    JRect contentExtent() const {
+        const JRect a = area();
+        float right = a.width, bottom = a.height;
+        for (const auto& c : m_children) {
+            if (c->maximised()) continue;
+            const JRect f = c->frame();
+            right  = std::max(right,  f.x + f.width  - a.x);
+            bottom = std::max(bottom, f.y + f.height - a.y);
+        }
+        return { 0.f, 0.f, right, bottom };
+    }
+
+    JRect openArea() const {
+        JRect a = area();
+        if (workArea) {
+            const JRect w = workArea(a);
+            if (w.width > 80.f && w.height > 60.f) return w;
+        }
+        a.y += m_openTop;   a.height = std::max(80.f, a.height - m_openTop);
+        a.width = std::max(120.f, a.width - m_openRight);
+        return a;
+    }
+
     // Told when a child window has been closed by its ✕, so the owner of the CONTENT can let go of it.
     // The area owns frames, never content — it will not delete somebody else's widget.
     std::function<void(JMdiChild*)> onChildClosed;
 
     JMdiChild* open(std::string title, JWidget* content, float w = 0.f, float h = 0.f) {
-        const JRect a = area();
+        // The REAL area decides whether there is one yet; openArea only decides where inside it to land.
+        // They must not be confused: openArea floors its result so a window is never placed into nothing,
+        // and reading that floor as "the area exists" fitted every window opened before the first layout
+        // into a 120x80 box — which is exactly the size they came out.
+        const JRect real = area();
+        const JRect a    = (real.width > 0.f && real.height > 0.f) ? openArea() : real;
         // THE SIZE THE CONTENT NEEDS BEFORE IT NEEDS SCROLLBARS. A caller that says nothing gets the
         // content's own preferred size plus this frame's chrome — which is the size at which a page is
         // whole: nothing clipped, nothing to scroll. Guessing a fraction of the area instead gave every
@@ -226,6 +272,17 @@ public:
 
     // ---- input ---------------------------------------------------------------------------------
     void handleMouseMove(float mx, float my) override {
+        if (m_barDrag && !JWidget::s_leftDown) m_barDrag = 0;          // the same self-heal the drag has
+        if (m_barDrag) {
+            const JRect a = area(), ext = contentExtent();
+            if (m_barDrag == 1 && ext.width  > a.width)
+                m_scrollX += (mx - m_lastX) * (ext.width  / std::max(1.f, a.width));
+            if (m_barDrag == 2 && ext.height > a.height)
+                m_scrollY += (my - m_lastY) * (ext.height / std::max(1.f, a.height));
+            m_lastX = mx; m_lastY = my;
+            _clampScroll();
+            return;
+        }
         // A DRAG CANNOT OUTLIVE THE BUTTON. The frame publishes the real button state every tick, so a
         // release this widget never saw (something upstream swallowed it) heals here instead of leaving
         // the window glued to the cursor until the next click — the "mouse sticking" that made a window
@@ -263,7 +320,7 @@ public:
             return;
         }
         if (JMdiChild* c = childAt(mx, my); c && c->content()) {
-            c->content()->setBounds(c->contentRect());
+            c->content()->setBounds(onScreen(c->contentRect()));
             c->content()->handleMouseMove(mx, my);
         } else if (m_background) {
             m_background->setBounds(area());
@@ -272,6 +329,7 @@ public:
     }
 
     void handleMousePress(float mx, float my) override {
+        if (const int bar = _barAt(mx, my)) { m_barDrag = bar; m_lastX = mx; m_lastY = my; return; }
         JMdiChild* c = childAt(mx, my);
         if (!c) {                                   // nothing over it: the background has the click
             if (m_background) { m_background->setBounds(area()); m_background->handleMousePress(mx, my); }
@@ -286,7 +344,7 @@ public:
         // clicked into and never typed into. Focus goes to the content BEFORE the press reaches it, so
         // whatever the press then focuses inside the content is the thing that keeps it.
         if (JFocusManager::s_active && c->content()) JFocusManager::s_active->setFocus(c->content());
-        const JRect f = c->frame();
+        const JRect f = onScreen(c->frame());
         // The buttons first — they sit in the title bar and would otherwise start a move.
         if (my >= f.y && my < f.y + JMdiChild::kTitleH) {
             const float bx = f.x + f.width - 6.f;
@@ -298,11 +356,11 @@ public:
             return;
         }
         if (!c->maximised()) {
-            if (const int e = edgeAt(*c, mx, my)) {
+            if (const int e = edgeAt(onScreen(c->frame()), mx, my)) {
                 m_drag = Drag::Size; m_edge = e; m_grab = c; m_lastX = mx; m_lastY = my; return;
             }
         }
-        if (c->content()) { c->content()->setBounds(c->contentRect()); c->content()->handleMousePress(mx, my); }
+        if (c->content()) { c->content()->setBounds(onScreen(c->contentRect())); c->content()->handleMousePress(mx, my); }
     }
 
     // AND SO DO THE KEYS. The runner routes a key to the central widget, the central widget is this, and
@@ -313,7 +371,7 @@ public:
     bool handleKeyEvent(const JKeyEvent& ke) override {
         JMdiChild* c = active();
         if (!c || !c->content()) return m_background ? m_background->handleKeyEvent(ke) : false;
-        c->content()->setBounds(c->contentRect());
+        c->content()->setBounds(onScreen(c->contentRect()));
         return c->content()->handleKeyEvent(ke);
     }
 
@@ -321,25 +379,77 @@ public:
     // child: the runner routes the wheel to the central widget, the central widget is this, and this had
     // no handler — so a page whose content overflowed could not be scrolled at all, wheel or scrollbar.
     bool handleScroll(float mx, float my, float wheel) override {
+        // The area itself scrolls when it has somewhere to go and nothing under the cursor wanted the
+        // wheel — the same order every scrolling view uses: content first, then the view it sits in.
+        auto scrollArea = [&](float w) {
+            if (!_overflowY() && !_overflowX()) return false;
+            (_overflowY() ? m_scrollY : m_scrollX) -= w * 48.f;
+            _clampScroll();
+            return true;
+        };
         JMdiChild* c = childAt(mx, my);
         if (!c || !c->content()) {
-            if (!m_background) return false;
-            m_background->setBounds(area());
-            return m_background->handleScroll(mx, my, wheel);
+            if (m_background) {
+                m_background->setBounds(area());
+                if (m_background->handleScroll(mx, my, wheel)) return true;
+            }
+            return scrollArea(wheel);
         }
-        c->content()->setBounds(c->contentRect());
+        c->content()->setBounds(onScreen(c->contentRect()));
         return c->content()->handleScroll(mx, my, wheel);
     }
 
     void handleMouseRelease(float mx, float my) override {
+        if (m_barDrag) { m_barDrag = 0; return; }
         if (m_drag != Drag::None) { m_drag = Drag::None; m_grab = nullptr; m_edge = 0; return; }
         if (JMdiChild* c = childAt(mx, my); c && c->content()) {
-            c->content()->setBounds(c->contentRect());
+            c->content()->setBounds(onScreen(c->contentRect()));
             c->content()->handleMouseRelease(mx, my);
         } else if (m_background) {
             m_background->setBounds(area());
             m_background->handleMouseRelease(mx, my);
         }
+    }
+
+
+    // ---- scrolling ---------------------------------------------------------------------------------
+    static constexpr float kBarW = 10.f;      // the gutter a bar sits in
+
+    void _clampScroll() {
+        const JRect a = area(), ext = contentExtent();
+        m_scrollX = std::clamp(m_scrollX, 0.f, std::max(0.f, ext.width  - a.width));
+        m_scrollY = std::clamp(m_scrollY, 0.f, std::max(0.f, ext.height - a.height));
+    }
+
+    bool _overflowX() const { const JRect a = area(); return contentExtent().width  > a.width  + 0.5f; }
+    bool _overflowY() const { const JRect a = area(); return contentExtent().height > a.height + 0.5f; }
+
+    // A bar per overflowing axis, in the same shape the rest of the toolkit draws them: a gutter, and a
+    // thumb whose length is the visible share of the content and whose position is how far along it is.
+    void _paintScrollBars(JPrimitiveBuffer& buf, const JRect& a) {
+        const JRect ext = contentExtent();
+        if (_overflowY()) {
+            const float trackH = a.height - (_overflowX() ? kBarW : 0.f);
+            const float th = std::max(24.f, trackH * (a.height / ext.height));
+            const float ty = a.y + (trackH - th) * (m_scrollY / std::max(1.f, ext.height - a.height));
+            buf.pushRectangle(a.x + a.width - kBarW, a.y, kBarW, trackH, Colors::Surface1);
+            buf.pushRectangle(a.x + a.width - kBarW + 2.f, ty, kBarW - 4.f, th, Colors::Surface3, (kBarW - 4.f) * 0.5f);
+        }
+        if (_overflowX()) {
+            const float trackW = a.width - (_overflowY() ? kBarW : 0.f);
+            const float tw = std::max(24.f, trackW * (a.width / ext.width));
+            const float tx = a.x + (trackW - tw) * (m_scrollX / std::max(1.f, ext.width - a.width));
+            buf.pushRectangle(a.x, a.y + a.height - kBarW, trackW, kBarW, Colors::Surface1);
+            buf.pushRectangle(tx, a.y + a.height - kBarW + 2.f, tw, kBarW - 4.f, Colors::Surface3, (kBarW - 4.f) * 0.5f);
+        }
+    }
+
+    // Is the point on a bar? Pressing one drags it; the drag lives in m_barDrag.
+    int _barAt(float mx, float my) const {
+        const JRect a = area();
+        if (_overflowY() && mx >= a.x + a.width - kBarW && my < a.y + a.height - (_overflowX() ? kBarW : 0.f)) return 2;
+        if (_overflowX() && my >= a.y + a.height - kBarW) return 1;
+        return 0;
     }
 
     // ---- paint ---------------------------------------------------------------------------------
@@ -356,6 +466,17 @@ public:
             if (onChildClosed) onChildClosed(gone.get());
         }
         const JRect a = area();
+        // PINNED TO THE TOP-LEFT OF THE AREA. The area's origin moves when a dock beside it is resized or
+        // shown, and a window whose frame is stored in absolute coordinates stayed where it was on screen
+        // — which is a different place relative to everything around it, and eventually under the dock
+        // that grew. Windows travel with the corner they were placed against, so the gap a reader left
+        // between a window and the edge is the gap it still has.
+        if (m_lastArea.width > 0.f && (a.x != m_lastArea.x || a.y != m_lastArea.y)) {
+            const float dx = a.x - m_lastArea.x, dy = a.y - m_lastArea.y;
+            for (auto& c : m_children)
+                if (!c->maximised()) { JRect f = c->frame(); f.x += dx; f.y += dy; c->setFrame(f); }
+        }
+        m_lastArea = a;
         buf.pushRectangle(a.x, a.y, a.width, a.height, Colors::Surface0);
         if (m_background && a.width > 1.f && a.height > 1.f) {   // behind every window, filling the area
             buf.pushClip(a.x, a.y, a.width, a.height);
@@ -364,15 +485,19 @@ public:
             buf.popClip();
         }
         // A maximised child owns the area even when the area changes under it.
-        for (auto& c : m_children) c->refit(a);
+        const JRect place = openArea();
+        for (auto& c : m_children) c->refit(a, place);
         // CLIPPED TO THE AREA. A child is drawn wherever its frame is, and the frame is not the area —
         // so without this a window dragged upward paints its title bar straight over the menu and the
         // toolbar, and one dragged sideways paints over the docks. The content was already clipped to the
         // child; the child was never clipped to its own area.
         buf.pushClip(a.x, a.y, a.width, a.height);
-        // Back to front, so the front-most child is the one drawn over the others.
+        // Back to front, so the front-most child is the one drawn over the others, and every one of them
+        // shifted by however far the area is scrolled.
+        _clampScroll();
         for (auto& c : m_children) paintChild(buf, *c, c.get() == active());
         buf.popClip();
+        _paintScrollBars(buf, a);
     }
 
 private:
@@ -391,14 +516,17 @@ private:
     }
 
     // Front-most child under the pointer — the same order input is routed in.
+    // A frame as it is ON SCREEN: where it sits, less how far the area is scrolled. Every place a frame
+    // meets the pointer goes through this, or a scrolled area would hit-test windows where they are NOT.
+    JRect onScreen(const JRect& r) const { return { r.x - m_scrollX, r.y - m_scrollY, r.width, r.height }; }
+
     JMdiChild* childAt(float mx, float my) const {
         for (size_t i = m_children.size(); i-- > 0; )
-            if (hit(m_children[i]->frame(), mx, my)) return m_children[i].get();
+            if (hit(onScreen(m_children[i]->frame()), mx, my)) return m_children[i].get();
         return nullptr;
     }
 
-    static int edgeAt(const JMdiChild& c, float mx, float my) {
-        const JRect f = c.frame();
+    static int edgeAt(const JRect& f, float mx, float my) {
         const float b = JMdiChild::kGrab;
         int e = 0;
         if (mx <= f.x + b)                 e |= Left;
@@ -409,7 +537,11 @@ private:
     }
 
     void paintChild(JPrimitiveBuffer& buf, JMdiChild& c, bool activeOne) {
-        const JRect f = c.frame();
+        JRect f = c.frame();
+        f.x -= m_scrollX; f.y -= m_scrollY;
+        const JRect keepFrame = c.frame();
+        c.setFrame(f);                       // draw (and lay the content out) where the scroll puts it
+        struct Restore { JMdiChild& c; JRect r; ~Restore() { c.setFrame(r); } } restore{ c, keepFrame };
         const float rad = JStyle::current().cornerRadius;
         // THE FRAMEWORK'S OWN WINDOW CHROME, not a colour invented here. Colors::Accent made the focused
         // window a blue-outlined thing that matched nothing else on screen; WindowFrameBorder is the token
@@ -491,6 +623,10 @@ private:
     }
 
     JWidget* m_background{nullptr};                 // see setBackground()
+    float    m_openTop{0.f}, m_openRight{0.f};      // see setOpenInset()
+    JRect    m_lastArea{};                          // to move children with the area's corner
+    float    m_scrollX{0.f}, m_scrollY{0.f};        // how far the area is scrolled over its content
+    int      m_barDrag{0};                          // 1 = horizontal bar, 2 = vertical, 0 = none
     std::vector<std::unique_ptr<JMdiChild>> m_children;
     JMdiChild* m_grab{nullptr};
     Drag  m_drag{Drag::None};
