@@ -46,6 +46,17 @@ inline JRect jMdiFitted(float w, float h, const JRect& a) {
     return { a.x, a.y, std::min(w, a.width), std::min(h, a.height) };
 }
 
+// WHERE "RESTORE DOWN" GOES. A restored window has to be smaller than the area or the button does
+// nothing you can see — which is what happened to a page whose content wanted more room than there was:
+// its wanted size clamped to the area, so restoring it produced the same full-area rect it was already
+// showing. The size the content asked for when that genuinely fits; two thirds of the area when it does
+// not, which is what restore-down means everywhere else.
+inline JRect jMdiRestored(float wantW, float wantH, const JRect& place) {
+    const bool fits = wantW > 1.f && wantH > 1.f && wantW < place.width && wantH < place.height;
+    return fits ? jMdiFitted(wantW, wantH, place)
+                : jMdiFitted(place.width * 0.66f, place.height * 0.66f, place);
+}
+
 class JMdiChild {
 public:
     static constexpr float kTitleH = 26.f;
@@ -89,8 +100,7 @@ public:
     void refit(const JRect& area, const JRect& place) {
         if (area.width <= 0.f || area.height <= 0.f) return;      // nothing to resolve against yet
         if (m_provisional) {                                      // placed before the area was known
-            m_restore = jMdiFitted(m_wantW > 0.f ? m_wantW : std::max(320.f, place.width  * 0.66f),
-                                   m_wantH > 0.f ? m_wantH : std::max(200.f, place.height * 0.66f), place);
+            m_restore = jMdiRestored(m_wantW, m_wantH, place);
             m_provisional = false;
             if (!m_max) m_frame = m_restore;
         }
@@ -231,7 +241,18 @@ public:
         if (floorW > 0.f || floorH > 0.f)
             c->setMinSize(haveArea ? std::min(floorW, a.width)  : floorW,
                           haveArea ? std::min(floorH, a.height) : floorH);
-        c->m_max   = !hinted;      // a size we can trust is a size to open at, not to override
+        // A WINDOW THAT FILLS THE AREA IS MAXIMISED, and one that does not is not. That is the word's
+        // whole meaning, and both the frame button and the resize edges key off it — so a page whose
+        // content wanted more than the area opened clamped to it, looking maximised, while the flag said
+        // otherwise: it could be dragged smaller by a corner (a maximised window may not be), and the
+        // button then "maximised" a window that already filled the screen, after which the corner stopped
+        // working. Reversed, exactly as it looked.
+        const bool fills = haveArea && f.width >= a.width - 1.f && f.height >= a.height - 1.f;
+        c->m_max   = !hinted || fills;   // a size we can trust is a size to open at, not to override
+        // …and RESTORE has to go somewhere smaller, or the button does nothing visible. The size the
+        // content asked for, when that fits; two thirds of the area when it does not, which is what a
+        // restored window is everywhere else.
+        if (c->m_max && haveArea) c->m_restore = jMdiRestored(fw, fh, a);
         // An area of no size means the layout has not run yet (a child opened during construction), so
         // `f` above is a rect measured against nothing. Flag it and let the first real frame place it.
         c->m_provisional = (a.width <= 0.f || a.height <= 0.f);
@@ -261,6 +282,13 @@ public:
     // Front-most, which is the one a menu action means by "the open page".
     JMdiChild* active() const { return m_children.empty() ? nullptr : m_children.back().get(); }
     size_t     count()  const { return m_children.size(); }
+
+    // The window showing this content, or null. A host that opens a tool twice wants to bring the one it
+    // already has forward rather than open a second window onto the same widget.
+    JMdiChild* childFor(const JWidget* content) const {
+        for (const auto& c : m_children) if (c->content() == content) return c.get();
+        return nullptr;
+    }
 
     void raise(JMdiChild* c) {
         for (size_t i = 0; i < m_children.size(); ++i)
