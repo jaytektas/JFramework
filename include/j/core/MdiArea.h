@@ -38,11 +38,12 @@ inline namespace jf {
 // clamped to the area, placed 24 px down it, still ends 24 px past the bottom. So the offset is only taken
 // while there is room to take it from, and whatever is left over the content scrolls, which is the whole
 // reason the surface underneath has scroll bars.
+// ONE CORNER, WHATEVER THE SIZE. The inset used to be "up to 24 px, or whatever room is left" — a
+// cascade offset — so a window's top-left moved with its width: a narrow page landed 24 px in, a page as
+// wide as the area landed flush, and opening one page after another walked the corner around the screen.
+// A page window opens in the same place every time; only its size says what page it is.
 inline JRect jMdiFitted(float w, float h, const JRect& a) {
-    JRect f{ a.x, a.y, std::min(w, a.width), std::min(h, a.height) };
-    f.x += std::max(0.f, std::min(24.f, a.width  - f.width));
-    f.y += std::max(0.f, std::min(24.f, a.height - f.height));
-    return f;
+    return { a.x, a.y, std::min(w, a.width), std::min(h, a.height) };
 }
 
 class JMdiChild {
