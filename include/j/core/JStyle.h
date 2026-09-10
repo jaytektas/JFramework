@@ -217,6 +217,9 @@ struct JStyle {
 
     // Dock tabs (formerly JStyle — unified here as the one stylesheet).
     JTabBarEdge tabEdge{JTabBarEdge::Top};
+    // See JStyleHint::ControlInsetY — one pixel of air above and below a field's drawn box, so a column
+    // of them does not run together. Scaled with everything else by apply().
+    float       controlInsetY{1.f};
     JTabFill    tabFill{JTabFill::Fill};
     float       tabBarSize = 28.f;
 
@@ -459,6 +462,7 @@ inline float JStyle::hint(JStyleHint h) const {
         case JStyleHint::ControlHeight:  return controlHeight;
         case JStyleHint::ItemPadding:    return itemPadding;
         case JStyleHint::Spacing:        return spacing;
+        case JStyleHint::ControlInsetY:  return controlInsetY;
     }
     return 0.f;
 }

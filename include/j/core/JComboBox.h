@@ -196,8 +196,10 @@ public:
         // is a selection FIELD, not a button, so its body stays recessed like the other inputs (and no hover
         // lift on the body). The drop-arrow area below keeps the lifted ToolTipBase to read as clickable.
         const JColor fill = jstyle::fieldFill(o);
-        // Main box
-        buf.pushRectangle(b.x, b.y, b.width, b.height, fill.data(),
+        const float inset = JStyle::current().hint(JStyleHint::ControlInsetY);
+        // Main box — one pixel in from the top and bottom, so a column of controls does not draw as one
+        // ruled block. Same rule as JLineEdit; the arrow well below was already inset by it.
+        buf.pushRectangle(b.x, b.y + inset, b.width, b.height - 2.0f * inset, fill.data(),
                           JStyle::current().hint(JStyleHint::ControlRadius),
                           jstyle::borderW(focused), jstyle::border(o).data());
         // Arrow area = ToolTipBase (old Surface3)

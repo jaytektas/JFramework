@@ -165,8 +165,15 @@ public:
         if (m_wasFocused && !focused) _enforceValidatorOnCommit();   // focus-out commits (clamp/revert)
         m_wasFocused = focused;
         JStyleOption o = jstyle::option(m_state, focused);
+        const float inset = JStyle::current().hint(JStyleHint::ControlInsetY);
 
-        buf.pushRectangle(b.x, b.y, b.width, b.height, jstyle::fieldFill(o).data(),
+        // A CONTROL DOES NOT FILL ITS ROW. Drawn to the full height of the box it is given, two fields on
+        // consecutive rows meet edge to edge — a column of them reads as one ruled block rather than as
+        // separate things you can click into. One pixel off the top and bottom of the DRAWN box leaves a
+        // two-pixel gap between neighbours and changes no geometry: the text stays centred on the box the
+        // layout gave, the hit area is untouched, and a spin box gets it too (it is a line edit with
+        // steppers, and their backing is already inset by the same one).
+        buf.pushRectangle(b.x, b.y + inset, b.width, b.height - 2.0f * inset, jstyle::fieldFill(o).data(),
                           JStyle::current().hint(JStyleHint::ControlRadius),
                           jstyle::borderW(focused), jstyle::border(o).data());
 

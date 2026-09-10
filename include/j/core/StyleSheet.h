@@ -107,6 +107,7 @@ inline JStyle parseStyleSheet(const std::string& text) {
         {"tooltipcursorgap", &t.tooltipCursorGap}, {"tooltipradius", &t.tooltipRadius},
         {"tooltipshadowoffset", &t.tooltipShadowOffset},
         {"doubleclickms", &t.doubleClickMs}, {"doubleclickslop", &t.doubleClickSlop},
+        {"controlinsety", &t.controlInsetY},
     };
 
     std::istringstream in(text);

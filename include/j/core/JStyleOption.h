@@ -55,6 +55,11 @@ enum class JStyleHint : uint16_t {
     ControlHeight,    // default interactive-field height
     ItemPadding,      // interior padding
     Spacing,          // gap between items
+    // How far a field's DRAWN box sits inside the row it was given, top and bottom. Without it a control
+    // fills its row, and two on consecutive rows meet edge to edge — a column of them reads as one ruled
+    // block instead of separate things to click into. A metric rather than a literal in each control, so
+    // a theme can say how much air its inputs have (and a dense one can say none).
+    ControlInsetY,
 };
 
 } // inline namespace jf
