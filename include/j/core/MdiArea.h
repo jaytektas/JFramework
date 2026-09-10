@@ -111,7 +111,12 @@ public:
             m_provisional = false;
             if (!m_max) m_frame = m_restore;
         }
-        if (m_max) { m_frame = area; return; }
+        // MAXIMISED MEANS THE ROOM A WINDOW MAY HAVE, WHICH IS `place` — not the whole area. The area
+        // includes whatever the background has put around the edges: a strip of live readouts across the
+        // top, a channel rail down the right. A page too big for the room is marked maximised on the way
+        // in, and filling `area` here meant it covered exactly the instruments the host had reserved
+        // space to keep clear. Too big for the room means take the room and scroll, never take everything.
+        if (m_max) { m_frame = place; return; }
         // Keep a grabbable piece of the title bar inside the area. Enough of it to catch, not so much
         // that a window cannot be pushed mostly off to the side and left there deliberately.
         const float keep = std::min(m_frame.width, 80.f);
