@@ -52,9 +52,16 @@ inline JRect jMdiFitted(float w, float h, const JRect& a) {
 // showing. The size the content asked for when that genuinely fits; two thirds of the area when it does
 // not, which is what restore-down means everywhere else.
 inline JRect jMdiRestored(float wantW, float wantH, const JRect& place) {
-    const bool fits = wantW > 1.f && wantH > 1.f && wantW < place.width && wantH < place.height;
-    return fits ? jMdiFitted(wantW, wantH, place)
-                : jMdiFitted(place.width * 0.66f, place.height * 0.66f, place);
+    // THE SIZE IT ASKED FOR, CLAMPED — never a fraction of the area. This dropped to two thirds whenever
+    // the wanted size did not fit, which is the opposite of what a window that is too big for the space
+    // should do: a page wanting 1290 px in a 1276 px area missed by FOURTEEN PIXELS and opened at 842,
+    // two-thirds wide, with scroll bars, and two hundred pixels of empty space beside it. Too big for the
+    // space means take the space and scroll; it never means take less than the space.
+    //
+    // The fraction is only for a window with NO wanted size at all — content that has no opinion — where
+    // something has to be chosen and all of it would be indistinguishable from maximised.
+    if (wantW > 1.f && wantH > 1.f) return jMdiFitted(wantW, wantH, place);
+    return jMdiFitted(place.width * 0.66f, place.height * 0.66f, place);
 }
 
 class JMdiChild {
