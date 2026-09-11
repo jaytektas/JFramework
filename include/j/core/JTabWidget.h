@@ -87,6 +87,14 @@ public:
     JWidget* content(int i) const { return (i >= 0 && i < (int)m_tabs.size()) ? m_tabs[i].content : nullptr; }
     JWidget* activeContent() const { return content(m_active); }
 
+    // WHERE THE PAGE GOES, asked from outside. A host that places something over the active page needs the
+    // same rectangle the page itself is given — and must not get it by reading the page widget's bounds,
+    // which are stale until that page has been laid out at least once: a tab shown for the first time
+    // answers with whatever it had before (often nothing), and the same tab answers differently the
+    // second time. One rule, one answer, available before the first paint.
+    JRect contentRect() const { return _contentRect(m_graph.getLayoutConst(m_nodeId).boundingBox); }
+
+
     void     setTabLabel(int i, const std::string& s) { if (i >= 0 && i < (int)m_tabs.size()) { m_tabs[i].label = s; m_graph.invalidateNode(m_nodeId, DirtySelf); } }
 
     JA11yNode a11yNode() const override {
