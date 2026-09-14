@@ -54,6 +54,7 @@
 #include <j/platforms/FileDialogWindow.h>    // JFileDialogWindow (in-app file/folder picker)
 #include <j/core/JAiBus.h>                    // opt-in AI bus (introspect/drive over shared memory)
 #include <cstdlib>                            // getenv (JF_AI_BUS opt-in)
+#include <cmath>                              // std::fabs (title-drag travel threshold)
 #  include <j/platforms/FloatingDockWindow.h>   // tear-out / floating docks
 #include <j/graphics/GpuHal.h>
 #include <j/graphics/FontEngine.h>
@@ -1673,8 +1674,28 @@ private:
     std::chrono::steady_clock::time_point m_lastPressAt{};
     float m_lastPressX{0.f}, m_lastPressY{0.f};
     bool  m_titleDownMax{false};   // maximized-ness at the first click of a title-bar double-click
+    // A title-bar press on a MAXIMIZED window, waiting to see whether it becomes a drag.
+    static constexpr float kMoveSlop = 5.0f;   // travel before a click becomes a move
+    bool  m_pendingMove{false};
+    float m_pendingMoveX{0.f}, m_pendingMoveY{0.f};
 
     bool handleChrome(float mx, float my, bool pressed) {
+        // A PRESS ON A MAXIMIZED TITLE BAR ARMS A MOVE; the move only STARTS once the pointer has
+        // actually travelled. Restoring on the press itself — which is what handing straight to
+        // startWindowMove() does, since that un-maximizes — meant a plain click came out of maximized,
+        // and no other window behaves that way. You have to be able to click a title bar, and
+        // double-click it, without the window changing size underneath you. This is why the frame loop
+        // calls handleChrome unconditionally rather than only on a press.
+        if (m_pendingMove) {
+            if (!(m_leftHeld || m_window->isLeftButtonDown())) {
+                m_pendingMove = false;               // released without travelling: it was a click
+            } else if (std::fabs(mx - m_pendingMoveX) + std::fabs(my - m_pendingMoveY) >= kMoveSlop) {
+                m_pendingMove = false;
+                JLOGC("chrome", JLogLevel::Info) << "startWindowMove (restoring) at " << mx << "," << my;
+                m_window->startWindowMove();          // un-maximizes first — see startWindowMove
+                return true;
+            }
+        }
         if (!pressed) return false;
         const float W = static_cast<float>(m_w);
 
@@ -1698,6 +1719,13 @@ private:
             if (nowMs - m_lastTitleMs < 400) { m_window->setMaximized(!m_titleDownMax); m_lastTitleMs = 0; return true; }
             m_lastTitleMs   = nowMs;
             m_titleDownMax  = m_window->isMaximized();
+            if (m_titleDownMax) {
+                // Arm only. Starting the move here would restore the window on the click.
+                m_pendingMove  = true;
+                m_pendingMoveX = mx;
+                m_pendingMoveY = my;
+                return true;
+            }
             // LOGGED, because the drag that follows belongs to the window manager: the WM grabs the
             // pointer and moves the window until the button goes up, and the application never sees
             // either end of it. When a window is reported as stuck to the cursor, the only thing this
