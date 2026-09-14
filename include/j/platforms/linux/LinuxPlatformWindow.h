@@ -450,13 +450,18 @@ public:
                 case XCB_PROPERTY_NOTIFY: {
                     auto* pn = reinterpret_cast<xcb_property_notify_event_t*>(ev);
                     xcb_atom_t netState = _internAtom("_NET_WM_STATE");
-                    // When WE own the maximize state (button/double-click), Mutter does
-                    // not track it — its MAXIMIZED atoms stay false, so a _NET_WM_STATE
-                    // PropertyNotify (e.g. from minimize/un-minimize) would otherwise look
-                    // like a phantom un-maximize and wrongly restore the window. Ignore
-                    // _NET_WM_STATE in self-managed mode; only react to genuine
-                    // WM-initiated snaps (drag-to-edge), where m_selfMaximized is false.
-                    if (pn->atom == netState && !m_selfMaximized) {
+                    // THE WM'S ATOMS ARE THE TRUTH ABOUT MAXIMIZED, ALWAYS. This used to be skipped
+                    // whenever the maximize came from our own button, on the grounds that Mutter does
+                    // not track the state of an undecorated window and a minimize would then read as a
+                    // phantom un-maximize. Measured on GNOME/Mutter 2026-09-14 with a bare X client
+                    // carrying the same _MOTIF_WM_HINTS (decorations = 0), and on openbox: BOTH set the
+                    // MAXIMIZED atoms from the client message, resize the window themselves, and KEEP
+                    // those atoms across a minimize/un-minimize (which only adds and removes HIDDEN).
+                    // There is no phantom. What the guard did instead was leave m_isMaximized with no
+                    // route back down — the WM would clear the atoms when the user dragged the window
+                    // off a snap and we ignored it, so the window called itself maximized forever and
+                    // every edge grab and the button glyph went with it.
+                    if (pn->atom == netState) {
                         xcb_atom_t maxV = _internAtom("_NET_WM_STATE_MAXIMIZED_VERT");
                         xcb_atom_t maxH = _internAtom("_NET_WM_STATE_MAXIMIZED_HORZ");
                         auto cookie = xcb_get_property(m_connection, 0, m_windowId,
@@ -815,12 +820,14 @@ public:
 
     // Toggle maximize via _NET_WM_STATE_MAXIMIZED_VERT + _HORZ.
     //
-    // Mutter/GNOME does NOT honor a client-message maximize for our borderless
-    // (CSD) window — it sends no PropertyNotify and does not resize. So we drive
-    // the geometry and state ourselves here. The atom is still sent to keep the
-    // WM's notion of the window state in sync (taskbar, alt-tab, etc.). The
-    // PropertyNotify path remains for WM-INITIATED snaps (drag-to-edge), which
-    // see no transition here because we set m_isMaximized synchronously.
+    // The client message is what actually maximizes the window: both Mutter and openbox honour it on
+    // an undecorated window and resize it to the work area themselves (measured 2026-09-14). The
+    // geometry applied here is a fallback for a WM that sets the atoms without resizing — it computes
+    // the same rect the WM does, so where the WM acts this is a no-op it beats us to.
+    //
+    // The resulting PropertyNotify is NOT suppressed. It is what keeps m_isMaximized honest when the
+    // state changes without going through this function at all — the user dragging the window off a
+    // snap being the case that matters.
     void setMaximized(bool on) override {
         if (m_style == jf::JPlatformWindowStyle::Popup) return;
         if (on == m_isMaximized) return;  // no-op (also tames repeated button fires)
@@ -843,17 +850,19 @@ public:
                        reinterpret_cast<const char*>(&ev));
         xcb_flush(m_connection);
 
-        // Apply the geometry ourselves (the WM won't for a CSD window) and mark the
-        // maximize as self-managed so the PropertyNotify path ignores Mutter's atoms.
+        // Track it synchronously as well, so a caller that asks isMaximized() on the next line gets
+        // the answer it just set rather than racing the WM's reply. The PropertyNotify that follows
+        // agrees with this and does nothing; one that DISagrees is the WM telling us something we did
+        // not do, and it wins.
         if (on) {
             m_preMaxX = m_screenX; m_preMaxY = m_screenY;
             m_preMaxW = m_width;   m_preMaxH = m_height;
-            m_isMaximized   = true;
-            m_selfMaximized = true;
+            m_isMaximized = true;
             _applyWorkArea();
         } else {
-            m_isMaximized   = false;
-            m_selfMaximized = false;
+            m_isMaximized = false;
+            // Ordering matters and is load-bearing: a configure is DROPPED while the WM still thinks
+            // the window is maximized (measured on both WMs), so the REMOVE above has to go first.
             _restorePreMax();
             m_wasUnsnapped = false;  // a button restore is not a drag
         }
@@ -892,13 +901,12 @@ public:
         m_wasUnsnapped = false;
         _ungrabPointer();
         auto [gx, gy] = globalCursorPos();
-        // DRAGGING A MAXIMIZED TITLE BAR RESTORES THE WINDOW, as every window manager does. It has to
-        // happen here rather than in the caller: a maximize we drove ourselves (setMaximized) marks
-        // m_selfMaximized, which makes the _NET_WM_STATE PropertyNotify path ignore Mutter's atoms, so
-        // setMaximized() is the ONLY thing that can clear m_isMaximized. Hand the drag to the WM without
-        // this and the window moves off the work area while still calling itself maximized — the restore
-        // glyph stays on the button and every edge grab is refused (see _resizeDirAt), permanently,
-        // because the flag has no other way back down.
+        // DRAGGING A MAXIMIZED TITLE BAR RESTORES THE WINDOW, as every window manager does — and it is
+        // the CLIENT that has to do it, not the WM we are about to hand the drag to: openbox simply
+        // declines _NET_WM_MOVERESIZE on a maximized window, so without this the window does not move
+        // at all (measured 2026-09-14). Restoring first means the WM only ever sees an ordinary window
+        // to drag, on every WM, rather than each one having its own opinion about what a drag off a
+        // maximized state means.
         if (m_isMaximized) _unmaximizeUnderCursor(gx, gy);
         xcb_client_message_event_t ev{};
         ev.response_type  = XCB_CLIENT_MESSAGE;
@@ -1443,7 +1451,6 @@ private:
     bool m_isMaximized{false};
     bool m_mapped{true};             // mapped at construction (see setMapped)
     bool m_wasUnsnapped{false};
-    bool m_selfMaximized{false};
     int      m_preMaxX{0}, m_preMaxY{0};
     uint32_t m_preMaxW{0}, m_preMaxH{0};
     float m_dpiScale{1.0f};
