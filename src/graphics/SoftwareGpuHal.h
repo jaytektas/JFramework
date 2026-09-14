@@ -370,6 +370,26 @@ public:
                     float u1 = call.verts[i + 2].u;
                     float v1 = call.verts[i + 2].v;
 
+                    // A GLYPH QUAD IS NOT ALWAYS AXIS-ALIGNED. The fast path below reads vertex 0 as
+                    // the top-left corner and vertex 2 as the bottom-right, and fills the box between
+                    // them — which is exactly right for horizontal text and silently WRONG for
+                    // rotated text. pushTextVertical (the vertical tab labels) turns each glyph a
+                    // quarter turn, and after that rotation vertex 2 is to the LEFT of vertex 0: the
+                    // box comes out with drawX2 < drawX1, the fill loop never runs a single
+                    // iteration, and the label is simply absent. Every dock tab on the software
+                    // renderer had a blank strip where its name should be — and only there, because
+                    // the GPU path rasterises the real triangles and never cared.
+                    const auto& v_a = call.verts[i];
+                    const auto& v_b = call.verts[i + 1];
+                    const auto& v_d = call.verts[i + 4];
+                    const bool axisAligned = std::fabs(v_a.y - v_b.y) < 0.01f &&
+                                             std::fabs(v_a.x - v_d.x) < 0.01f;
+                    if (!axisAligned) {
+                        _blitGlyphQuad(surf, call, *atlasPx, atlasW, atlasH,
+                                       i, cx1, cy1, cx2, cy2);
+                        continue;
+                    }
+
                     int drawX1 = std::max(cx1, static_cast<int>(std::floor(x1)));
                     int drawY1 = std::max(cy1, static_cast<int>(std::floor(y1)));
                     int drawX2 = std::min(cx2, static_cast<int>(std::ceil(x2)));
@@ -496,6 +516,70 @@ private:
     std::vector<uint8_t> m_fontAtlas;
     uint32_t m_fontAtlasW{0};
     uint32_t m_fontAtlasH{0};
+
+    // One ROTATED glyph quad, rasterised as the two triangles it actually is.
+    //
+    // The axis-aligned fast path cannot express a quarter turn (see the call site). This walks the
+    // quad's bounding box and, for each covered pixel, recovers the texture coordinate by
+    // barycentric interpolation across whichever of the two triangles contains it — the same method
+    // the vector path above uses, with the atlas alpha standing in for a vertex colour.
+    //
+    // Vertex order from JTextHelper is a,b,c,c,d,a: a and c are opposite corners, so the two
+    // triangles are (a,b,c) and (c,d,a).
+    void _blitGlyphQuad(SoftwareSurface& surf,
+                        const JPrimitiveBuffer::JTextCall& call,
+                        const std::vector<uint8_t>& atlasPx,
+                        uint32_t atlasW, uint32_t atlasH,
+                        size_t i, int cx1, int cy1, int cx2, int cy2)
+    {
+        const auto& a = call.verts[i];
+        const auto& b = call.verts[i + 1];
+        const auto& c = call.verts[i + 2];
+        const auto& d = call.verts[i + 4];
+
+        const float minXf = std::min({a.x, b.x, c.x, d.x}), maxXf = std::max({a.x, b.x, c.x, d.x});
+        const float minYf = std::min({a.y, b.y, c.y, d.y}), maxYf = std::max({a.y, b.y, c.y, d.y});
+        const int x1 = std::max(cx1, static_cast<int>(std::floor(minXf)));
+        const int y1 = std::max(cy1, static_cast<int>(std::floor(minYf)));
+        const int x2 = std::min(cx2, static_cast<int>(std::ceil(maxXf)) + 1);
+        const int y2 = std::min(cy2, static_cast<int>(std::ceil(maxYf)) + 1);
+        if (x1 >= x2 || y1 >= y2) return;
+
+        // Sample one triangle; returns false when the point is outside it. Winding is not
+        // normalised, so both orientations are accepted rather than culling half the glyphs.
+        auto sample = [&](const JPrimitiveBuffer::JTextVertex& p0,
+                          const JPrimitiveBuffer::JTextVertex& p1,
+                          const JPrimitiveBuffer::JTextVertex& p2,
+                          float sx, float sy, float& u, float& v) -> bool {
+            const float area = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
+            if (std::fabs(area) < 1e-6f) return false;
+            const float inv = 1.0f / area;
+            float w0 = ((p1.x - p0.x) * (sy - p0.y) - (p1.y - p0.y) * (sx - p0.x)) * inv;
+            float w1 = ((p2.x - p1.x) * (sy - p1.y) - (p2.y - p1.y) * (sx - p1.x)) * inv;
+            float w2 = ((p0.x - p2.x) * (sy - p2.y) - (p0.y - p2.y) * (sx - p2.x)) * inv;
+            if (w0 < 0.0f || w1 < 0.0f || w2 < 0.0f) return false;
+            // Each edge function is opposite its vertex: w1 weights p0, w2 weights p1, w0 weights p2.
+            u = w1 * p0.u + w2 * p1.u + w0 * p2.u;
+            v = w1 * p0.v + w2 * p1.v + w0 * p2.v;
+            return true;
+        };
+
+        for (int py = y1; py < y2; ++py) {
+            const float sy = static_cast<float>(py) + 0.5f;
+            for (int px = x1; px < x2; ++px) {
+                const float sx = static_cast<float>(px) + 0.5f;
+                float u, v;
+                if (!sample(a, b, c, sx, sy, u, v) && !sample(c, d, a, sx, sy, u, v)) continue;
+                const int texX = std::clamp(static_cast<int>(u * atlasW), 0, static_cast<int>(atlasW) - 1);
+                const int texY = std::clamp(static_cast<int>(v * atlasH), 0, static_cast<int>(atlasH) - 1);
+                const uint8_t alpha = atlasPx[texY * atlasW + texX];
+                if (alpha == 0) continue;
+                const uint8_t al = static_cast<uint8_t>((static_cast<uint32_t>(call.color[3]) * alpha) / 255);
+                uint32_t& dest = surf.pixels[py * surf.width + px];
+                dest = blend(dest, call.color[0], call.color[1], call.color[2], al);
+            }
+        }
+    }
 
     // The size-specific atlases, by the id handed to JTextCall::atlasId. Ids never repeat within a HAL,
     // so a stale id from a freed atlas is a miss (skipped) rather than someone else's glyphs.
