@@ -104,19 +104,19 @@ public:
     // Both end the same way, so both are healed here, on the frame that knows what the area really is.
     // `place` is where a window may be PUT (the area less the band the background wants); `area` is where
     // it may BE. They differ for a first placement and for nothing else.
-    void refit(const JRect& area, const JRect& place) {
+    void refit(const JRect& area, const JRect& place, const JRect& maxTo) {
         if (area.width <= 0.f || area.height <= 0.f) return;      // nothing to resolve against yet
         if (m_provisional) {                                      // placed before the area was known
             m_restore = jMdiRestored(m_wantW, m_wantH, place);
             m_provisional = false;
             if (!m_max) m_frame = m_restore;
         }
-        // MAXIMISED MEANS THE ROOM A WINDOW MAY HAVE, WHICH IS `place` — not the whole area. The area
-        // includes whatever the background has put around the edges: a strip of live readouts across the
-        // top, a channel rail down the right. A page too big for the room is marked maximised on the way
-        // in, and filling `area` here meant it covered exactly the instruments the host had reserved
-        // space to keep clear. Too big for the room means take the room and scroll, never take everything.
-        if (m_max) { m_frame = place; return; }
+        // MAXIMISED GOES WHERE THE HOST SAYS (MdiArea::maxRect, from setMaximiseFillsArea): the whole
+        // area, or the room left after whatever the background reserved around the edges — a strip of
+        // live readouts across the top, a channel rail down the right. This used to force the latter
+        // while the maximise BUTTON passed the former, so pressing it filled the tab for one frame and
+        // then snapped back inside the bands.
+        if (m_max) { m_frame = maxTo; return; }
         // Keep a grabbable piece of the title bar inside the area. Enough of it to catch, not so much
         // that a window cannot be pushed mostly off to the side and left there deliberately.
         const float keep = std::min(m_frame.width, 80.f);
@@ -199,6 +199,24 @@ public:
         return { 0.f, 0.f, right, bottom };
     }
 
+    // WHAT MAXIMISED MEANS, which is a host decision and not this widget's.
+    //
+    // `place` is the room a window may have — the area less whatever the background reserved around the
+    // edges (a strip of live readouts across the top, a channel rail down the right). Filling it keeps
+    // those instruments visible; filling the whole AREA covers them, and is what "maximise" means to
+    // most people: all of the tab.
+    //
+    // Both are defensible and the argument does not resolve, so it is a preference. The default is the
+    // whole area, because that is what the button did before and what a maximise button is expected to
+    // do. Set false to keep the reserved bands clear.
+    void setMaximiseFillsArea(bool on) { m_maxFillsArea = on; }
+    bool maximiseFillsArea() const     { return m_maxFillsArea; }
+
+    // Where a maximised child goes, under the current policy. ONE answer, used by the button and by
+    // refit alike — they used to disagree (the button passed area(), refit forced place), so a maximise
+    // filled the tab for a single frame and then snapped back inside the bands.
+    JRect maxRect() const { return m_maxFillsArea ? area() : openArea(); }
+
     JRect openArea() const {
         JRect a = area();
         if (workArea) {
@@ -213,6 +231,8 @@ public:
     // Told when a child window has been closed by its ✕, so the owner of the CONTENT can let go of it.
     // The area owns frames, never content — it will not delete somebody else's widget.
     std::function<void(JMdiChild*)> onChildClosed;
+
+    bool m_maxFillsArea{true};   // see setMaximiseFillsArea
 
     JMdiChild* open(std::string title, JWidget* content, float w = 0.f, float h = 0.f) {
         // The REAL area decides whether there is one yet; openArea only decides where inside it to land.
@@ -397,7 +417,7 @@ public:
             const float bx = f.x + f.width - 6.f;
             if (mx >= bx - JMdiChild::kBtn && mx < bx)                       { c->requestClose(); return; }
             if (mx >= bx - 2 * JMdiChild::kBtn - 6.f && mx < bx - JMdiChild::kBtn - 6.f) {
-                c->setMaximised(!c->maximised(), area()); return;
+                c->setMaximised(!c->maximised(), maxRect()); return;
             }
             if (!c->maximised()) { m_drag = Drag::Move; m_grab = c; m_lastX = mx; m_lastY = my; }
             return;
@@ -533,7 +553,10 @@ public:
         }
         // A maximised child owns the area even when the area changes under it.
         const JRect place = openArea();
-        for (auto& c : m_children) c->refit(a, place);
+        // `place` is where a window may be PUT; `maxRect()` is where a MAXIMISED one goes, and which of
+        // the two that is belongs to the host (setMaximiseFillsArea). They used to be the same thing by
+        // assumption, which is why the button and this disagreed.
+        for (auto& c : m_children) c->refit(a, place, maxRect());
         // CLIPPED TO THE AREA. A child is drawn wherever its frame is, and the frame is not the area —
         // so without this a window dragged upward paints its title bar straight over the menu and the
         // toolbar, and one dragged sideways paints over the docks. The content was already clipped to the
