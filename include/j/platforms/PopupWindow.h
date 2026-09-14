@@ -495,7 +495,6 @@ public:
         // immediately so the window follows the cursor with no extra click needed.
         if (!m_floatFirstPollDone) {
             m_floatFirstPollDone = true;
-#if !defined(_WIN32)
             if (m_window->isLeftButtonDown()) {
                 auto [gx, gy] = m_window->globalCursorPos();
                 m_floatDragging   = true;
@@ -504,7 +503,6 @@ public:
                 m_floatWinStartX  = m_window->screenX();
                 m_floatWinStartY  = m_window->screenY();
             }
-#endif
         }
 
         bool inHandle = (my >= 0.f && my <= kFloatHandleH);
@@ -517,19 +515,25 @@ public:
         // Drag-to-move: press in the handle strip (but not close button) starts a move.
         // Consuming the press prevents it reaching JTearOffHandle (would fire onTornOff again).
         if (pressed && inHandle) {
-#if !defined(_WIN32)
             auto [gx, gy] = m_window->globalCursorPos();
             m_floatDragging   = true;
             m_floatDragStartX = gx;
             m_floatDragStartY = gy;
             m_floatWinStartX  = m_window->screenX();
             m_floatWinStartY  = m_window->screenY();
-#endif
             pressed = false;  // consumed — don't pass to widgets
         }
 
+        // A TORN-OFF MENU IS DRAGGED THE SAME WAY ON BOTH PLATFORMS. All three of these blocks used
+        // to be #if !defined(_WIN32), so on Windows the handle was drawn and hit-tested, the press
+        // was swallowed as "consumed by the drag", and then nothing moved: m_floatDragging was set
+        // by a branch that did not exist, and the else that clears it did not exist either. The menu
+        // tore off, refused to move, and — floating mode having no dismiss-on-outside by design —
+        // sat there until the close button was found. That is "tear off is 1/2 working".
+        //
+        // Nothing here is X11-specific: globalCursorPos, screenX/Y, setPosition and
+        // isLeftButtonDown are all implemented on the Windows backend too.
         if (m_floatDragging) {
-#if !defined(_WIN32)
             if (m_window->isLeftButtonDown()) {
                 auto [gx, gy] = m_window->globalCursorPos();
                 int nx = m_floatWinStartX + (gx - m_floatDragStartX);
@@ -538,7 +542,6 @@ public:
             } else {
                 m_floatDragging = false;
             }
-#endif
         }
 
         // Route input to all widgets normally.

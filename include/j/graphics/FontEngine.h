@@ -149,7 +149,26 @@ public:
         static bool s_fbLoaded = false, s_fbTried = false;
         if (!s_fbTried) {
             s_fbTried = true;
-            std::ifstream ff("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", std::ios::binary | std::ios::ate);
+            // PER PLATFORM, like the primary font above. This used to name the Linux DejaVu path and
+            // nothing else, so on Windows there was no fallback at all and every codepoint Arial
+            // lacks — the arrows, the geometric shapes — had nothing to fall back TO. Segoe UI
+            // Symbol is the Windows equivalent: it ships with the OS and carries the same ranges.
+            static const char* kFallbacks[] = {
+#if defined(_WIN32)
+                "C:\\Windows\\Fonts\\seguisym.ttf",   // Segoe UI Symbol — arrows, shapes, dingbats
+                "C:\\Windows\\Fonts\\arialuni.ttf",   // Arial Unicode MS, where it is installed
+                "C:\\Windows\\Fonts\\segoeui.ttf",
+#else
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/TTF/DejaVuSans.ttf",
+#endif
+            };
+            std::ifstream ff;
+            for (const char* cand : kFallbacks) {
+                ff.open(cand, std::ios::binary | std::ios::ate);
+                if (ff) break;
+                ff.clear();
+            }
             if (ff) {
                 const auto n = static_cast<size_t>(ff.tellg()); ff.seekg(0);
                 s_fbData.resize(n); ff.read(reinterpret_cast<char*>(s_fbData.data()), n);
