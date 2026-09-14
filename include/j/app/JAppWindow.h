@@ -1672,6 +1672,7 @@ private:
     // Double-click classification state (see the press site above).
     std::chrono::steady_clock::time_point m_lastPressAt{};
     float m_lastPressX{0.f}, m_lastPressY{0.f};
+    bool  m_titleDownMax{false};   // maximized-ness at the first click of a title-bar double-click
 
     bool handleChrome(float mx, float my, bool pressed) {
         if (!pressed) return false;
@@ -1690,8 +1691,13 @@ private:
             // Double-click the title bar → expand / restore (before starting a move-drag).
             const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                       std::chrono::steady_clock::now().time_since_epoch()).count();
-            if (nowMs - m_lastTitleMs < 400) { m_window->setMaximized(!m_window->isMaximized()); m_lastTitleMs = 0; return true; }
-            m_lastTitleMs = nowMs;
+            // Toggle against the state at the FIRST click of the pair, not the current one: the move-drag
+            // started by that first click restores a maximized window (startWindowMove), so by the time
+            // the second click lands isMaximized() has already flipped and a plain toggle would put it
+            // straight back where it was.
+            if (nowMs - m_lastTitleMs < 400) { m_window->setMaximized(!m_titleDownMax); m_lastTitleMs = 0; return true; }
+            m_lastTitleMs   = nowMs;
+            m_titleDownMax  = m_window->isMaximized();
             // LOGGED, because the drag that follows belongs to the window manager: the WM grabs the
             // pointer and moves the window until the button goes up, and the application never sees
             // either end of it. When a window is reported as stuck to the cursor, the only thing this

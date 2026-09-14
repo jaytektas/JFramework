@@ -892,6 +892,14 @@ public:
         m_wasUnsnapped = false;
         _ungrabPointer();
         auto [gx, gy] = globalCursorPos();
+        // DRAGGING A MAXIMIZED TITLE BAR RESTORES THE WINDOW, as every window manager does. It has to
+        // happen here rather than in the caller: a maximize we drove ourselves (setMaximized) marks
+        // m_selfMaximized, which makes the _NET_WM_STATE PropertyNotify path ignore Mutter's atoms, so
+        // setMaximized() is the ONLY thing that can clear m_isMaximized. Hand the drag to the WM without
+        // this and the window moves off the work area while still calling itself maximized — the restore
+        // glyph stays on the button and every edge grab is refused (see _resizeDirAt), permanently,
+        // because the flag has no other way back down.
+        if (m_isMaximized) _unmaximizeUnderCursor(gx, gy);
         xcb_client_message_event_t ev{};
         ev.response_type  = XCB_CLIENT_MESSAGE;
         ev.type           = atom;
@@ -960,6 +968,38 @@ public:
         m_screenX = wx; m_screenY = wy;
         m_width   = ww; m_height  = wh;
         m_wasResized = true;
+    }
+
+    // Un-maximize mid-grab, leaving the same point of the title bar under the cursor.
+    //
+    // Restoring to the saved x/y alone teleports the window out from under the pointer; the WM's move
+    // then drags it from wherever it landed instead of from the hand. So the grab's position ALONG the
+    // maximized title bar is kept as a fraction, and its offset down from the top kept in pixels.
+    void _unmaximizeUnderCursor(int gx, int gy) {
+        if (m_preMaxW == 0) return;   // no geometry to go back to — stay maximized rather than guess
+        const float    fx   = (m_width > 0) ? float(gx - m_screenX) / float(m_width) : 0.5f;
+        const int      offY = gy - m_screenY;
+        const uint32_t w    = m_preMaxW, h = m_preMaxH;
+        setMaximized(false);          // the restore button's own path: state atoms + pre-max geometry
+        int nx = gx - static_cast<int>(fx * static_cast<float>(w));
+        int ny = gy - offY;
+        // Keep the title bar on the work area of whichever monitor the cursor is over, or the drag
+        // starts with the bar already off-screen and there is nothing left to grab.
+        const JScreenRect wa = workAreaAt(gx, gy);
+        if (static_cast<int>(w) <= wa.w) {
+            if (nx < wa.x)                                  nx = wa.x;
+            if (nx > wa.x + wa.w - static_cast<int>(w))      nx = wa.x + wa.w - static_cast<int>(w);
+        }
+        if (ny < wa.y) ny = wa.y;
+        uint32_t vals[4] = { static_cast<uint32_t>(nx), static_cast<uint32_t>(ny), w, h };
+        xcb_configure_window(m_connection, m_windowId,
+                             XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+                             XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, vals);
+        xcb_flush(m_connection);
+        // _restorePreMax() leaves these to the ConfigureNotify; the drag about to start needs them now.
+        m_screenX = nx; m_screenY = ny; m_width = w; m_height = h;
+        m_wasResized   = true;
+        m_wasUnsnapped = false;   // a deliberate drag-out, not a snap the WM released underneath us
     }
 
     // Restore the geometry saved before the last WM-initiated snap.
