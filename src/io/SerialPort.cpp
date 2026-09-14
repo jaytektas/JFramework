@@ -48,6 +48,21 @@ struct JSerialPort::Impl {
     HANDLE m_handle{INVALID_HANDLE_VALUE};
     HANDLE m_cancelEvent{nullptr};
     static DWORD _winBaud(JBaudRate b) { return static_cast<DWORD>(b); }
+
+    // The system's own words for a failure code — "Access is denied." rather than "5". The two that
+    // matter on a serial port are ACCESS_DENIED (something else has it open) and FILE_NOT_FOUND (it
+    // is gone), and both are worth reading rather than decoding.
+    static std::string _winError(DWORD e) {
+        char* msg = nullptr;
+        const DWORD n = FormatMessageA(
+            FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            nullptr, e, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&msg, 0, nullptr);
+        std::string out = (n && msg) ? std::string(msg, n) : ("error " + std::to_string(e));
+        if (msg) LocalFree(msg);
+        while (!out.empty() && (out.back() == '\n' || out.back() == '\r' || out.back() == ' ')) out.pop_back();
+        if (out.empty()) out = "error " + std::to_string(e);
+        return out;
+    }
 #else
     int m_fd{-1};
     int m_pipeFd[2]{-1, -1};
@@ -94,13 +109,25 @@ struct JSerialPort::Impl {
             GENERIC_READ | GENERIC_WRITE, 0, nullptr,
             OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
         if (m_handle == INVALID_HANDLE_VALUE) {
+            const DWORD e = GetLastError();
             CloseHandle(m_cancelEvent); m_cancelEvent = nullptr;
-            _postError("Failed to open port: " + port);
+            // WHY it failed, not just that it did. The POSIX branch has always said strerror(errno);
+            // this one said "Failed to open port: COM5" and nothing else, which cannot tell "another
+            // program holds it" from "it is no longer there" — the two things you actually do
+            // something about.
+            _postError("Failed to open " + port + ": " + _winError(e));
             return false;
         }
         DCB dcb{};
         dcb.DCBlength = sizeof(DCB);
-        GetCommState(m_handle, &dcb);
+        // CHECKED, because an unchecked failure here leaves dcb zeroed and the SetCommState below
+        // fails on a structure we filled in ourselves — reported as a baud-rate problem when the
+        // truth is that the port never answered.
+        if (!GetCommState(m_handle, &dcb)) {
+            _postError("Cannot read the port settings of " + port + ": " + _winError(GetLastError()));
+            _closeHandles();
+            return false;
+        }
         dcb.BaudRate = _winBaud(baud);
         dcb.ByteSize = static_cast<BYTE>(dataBits);
         dcb.StopBits = (stopBits == JStopBits::Two) ? TWOSTOPBITS : ONESTOPBIT;
@@ -111,7 +138,8 @@ struct JSerialPort::Impl {
         dcb.fOutX        = (flow == JFlowCtrl::Software) ? TRUE : FALSE;
         dcb.fInX         = (flow == JFlowCtrl::Software) ? TRUE : FALSE;
         if (!SetCommState(m_handle, &dcb)) {
-            _postError("SetCommState failed"); _closeHandles(); return false;
+            _postError("Cannot configure " + port + ": " + _winError(GetLastError()));
+            _closeHandles(); return false;
         }
         COMMTIMEOUTS to{};
         to.ReadIntervalTimeout = MAXDWORD;
