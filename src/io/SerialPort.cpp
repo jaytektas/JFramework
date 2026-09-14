@@ -8,6 +8,7 @@
 #include <atomic>
 #include <mutex>
 #include <algorithm>
+#include <cstring>
 
 // Everything platform-specific is confined to this translation unit — the public
 // SerialPort.h header carries no HANDLE / termios / windows.h. See CLAUDE.md
@@ -15,6 +16,9 @@
 #if defined(_WIN32)
   #define WIN32_LEAN_AND_MEAN
   #include <windows.h>
+  #include <setupapi.h>          // port ENUMERATION: the registry knows the COM names, not the devices
+  #include <initguid.h>          // BEFORE devguid.h: this is what turns the GUID declarations into
+  #include <devguid.h>           // definitions, and without it GUID_DEVCLASS_PORTS fails to link
 #else
   #include <termios.h>
   #include <fcntl.h>
@@ -332,6 +336,70 @@ bool JSerialPort::writeLine(const std::string& s) {
 std::vector<JSerialPortInfo> JSerialPort::availablePorts() {
     std::vector<JSerialPortInfo> out;
 #if defined(_WIN32)
+    // SETUP API FIRST, because HARDWARE\DEVICEMAP\SERIALCOMM knows only that a COM number exists —
+    // not what is behind it. Without a vendor and product id every USB adapter looks alike, and a
+    // caller that wants "the one that is my hardware" has nothing to choose on. The device class is
+    // what carries VID/PID, the manufacturer, and a name a person would recognise.
+    const HDEVINFO set = SetupDiGetClassDevsA(&GUID_DEVCLASS_PORTS, nullptr, nullptr, DIGCF_PRESENT);
+    if (set != INVALID_HANDLE_VALUE) {
+        SP_DEVINFO_DATA dev{};
+        dev.cbSize = sizeof(dev);
+        for (DWORD i = 0; SetupDiEnumDeviceInfo(set, i, &dev); ++i) {
+            // The COM name lives under the device's own key, not in the property store.
+            char portName[64] = {0};
+            const HKEY devKey = SetupDiOpenDevRegKey(set, &dev, DICS_FLAG_GLOBAL, 0,
+                                                     DIREG_DEV, KEY_READ);
+            if (devKey == INVALID_HANDLE_VALUE) continue;
+            DWORD len = sizeof(portName) - 1, type = 0;   // -1: the registry does not promise a NUL,
+            const LONG r = RegQueryValueExA(devKey, "PortName", nullptr, &type,
+                                            (LPBYTE)portName, &len);
+            RegCloseKey(devKey);
+            portName[sizeof(portName) - 1] = '\0';        // and a value that fills the buffer would
+                                                          // otherwise be read past its end
+            // LPT ports are in this class too, and they are not serial ports.
+            if (r != ERROR_SUCCESS || type != REG_SZ || std::strncmp(portName, "COM", 3) != 0)
+                continue;
+
+            JSerialPortInfo info;
+            info.port = portName;
+
+            char buf[512] = {0};
+            if (SetupDiGetDeviceRegistryPropertyA(set, &dev, SPDRP_FRIENDLYNAME, nullptr,
+                                                  (PBYTE)buf, sizeof(buf), nullptr))
+                info.description = buf;
+            if (SetupDiGetDeviceRegistryPropertyA(set, &dev, SPDRP_MFG, nullptr,
+                                                  (PBYTE)buf, sizeof(buf), nullptr))
+                info.manufacturer = buf;
+
+            // "USB\VID_0483&PID_5740\<serial>" — the instance id carries all three, so it is parsed
+            // rather than queried three ways. A built-in COM port has no VID_ in it and keeps
+            // hasVidPid false, which is exactly what it should report.
+            char id[512] = {0};
+            if (SetupDiGetDeviceInstanceIdA(set, &dev, id, sizeof(id), nullptr)) {
+                const std::string s(id);
+                const size_t v = s.find("VID_"), p = s.find("PID_");
+                if (v != std::string::npos && p != std::string::npos &&
+                    v + 8 <= s.size() && p + 8 <= s.size()) {
+                    try {
+                        info.vendorId  = static_cast<uint16_t>(std::stoul(s.substr(v + 4, 4), nullptr, 16));
+                        info.productId = static_cast<uint16_t>(std::stoul(s.substr(p + 4, 4), nullptr, 16));
+                        info.hasVidPid = true;
+                    } catch (...) { /* a malformed id is a port without ids, not a failure to enumerate */ }
+                }
+                // The tail after the last backslash is the device's serial number when it has one.
+                const size_t last = s.rfind('\\');
+                if (info.hasVidPid && last != std::string::npos && last + 1 < s.size() &&
+                    s.find('&', last) == std::string::npos)
+                    info.serialNumber = s.substr(last + 1);
+            }
+            if (info.description.empty()) info.description = info.port;
+            out.push_back(std::move(info));
+        }
+        SetupDiDestroyDeviceInfoList(set);
+    }
+
+    // Anything SERIALCOMM lists that the device class did not (a port with no PnP device behind it —
+    // some virtual and Bluetooth ports) is still a port somebody may want to open.
     HKEY key;
     if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
             "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0, KEY_READ, &key) == ERROR_SUCCESS) {
@@ -341,6 +409,8 @@ std::vector<JSerialPortInfo> JSerialPort::availablePorts() {
             nameLen = sizeof(name); valueLen = sizeof(value);
             if (RegEnumValueA(key, idx++, name, &nameLen, nullptr,
                               &type, (LPBYTE)value, &valueLen) != ERROR_SUCCESS) break;
+            if (std::any_of(out.begin(), out.end(),
+                            [&](const JSerialPortInfo& e) { return e.port == value; })) continue;
             JSerialPortInfo info;
             info.port        = value;
             info.description = name;
@@ -348,6 +418,14 @@ std::vector<JSerialPortInfo> JSerialPort::availablePorts() {
         }
         RegCloseKey(key);
     }
+
+    // COM10 after COM9, not before it: the numeric tail is what a person is reading.
+    std::sort(out.begin(), out.end(), [](const JSerialPortInfo& a, const JSerialPortInfo& b) {
+        auto num = [](const std::string& p) {
+            return p.size() > 3 ? std::strtol(p.c_str() + 3, nullptr, 10) : 0L;
+        };
+        return num(a.port) < num(b.port);
+    });
 #else
     const char* sysPath = "/sys/class/tty";
     DIR* dir = opendir(sysPath);

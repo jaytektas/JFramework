@@ -191,6 +191,8 @@ elseif(WIN32)
         gdi32
         user32
         shell32
+        setupapi   # JSerialPort::availablePorts — the device class, for VID/PID and friendly names
+        cfgmgr32
     )
     # Static link runtime libraries for standalone Win32 binaries
     add_link_options(-static -static-libgcc -static-libstdc++)
