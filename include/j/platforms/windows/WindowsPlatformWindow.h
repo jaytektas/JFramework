@@ -54,6 +54,20 @@ public:
         wc.lpfnWndProc = JWindowsPlatformWindow::StaticWindowProc;
         wc.hInstance = m_hInstance;
         wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
+        // THE APPLICATION'S OWN ICON, if it shipped one. An icon compiled into the executable is
+        // what Explorer draws for the file, but the WINDOW takes its icon from the class — so
+        // without this the title bar, the Alt-Tab switcher and the taskbar button all showed the
+        // Windows default even for an executable carrying its own artwork.
+        //
+        // Resource id 1 by convention: it is what the first ICON statement in a .rc is given, and
+        // what every toolchain's resource compiler emits for a single-icon application. An app that
+        // ships none gets nullptr here, which is exactly the default behaviour it had before.
+        wc.hIcon   = (HICON)LoadImageW(m_hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON,
+                                       GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON),
+                                       LR_DEFAULTCOLOR);
+        wc.hIconSm = (HICON)LoadImageW(m_hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON,
+                                       GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+                                       LR_DEFAULTCOLOR);
         wc.lpszClassName = className;
 
         RegisterClassExW(&wc);
@@ -390,6 +404,45 @@ private:
 
     LRESULT handleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
         switch (uMsg) {
+            // ---- KEYBOARD ------------------------------------------------------------------------
+            //
+            // Win32 splits what X11 delivers as one event: WM_KEYDOWN carries the KEY, and the
+            // WM_CHAR that TranslateMessage synthesises from it carries the TEXT. JKeyEvent is the
+            // X11 shape — identity and glyph together — so the char is folded back onto the key
+            // event it belongs to rather than queued as a second event. TranslateMessage posts the
+            // WM_CHAR immediately after the WM_KEYDOWN it came from, so that event is still the one
+            // at the back of the queue when it arrives.
+            case WM_KEYDOWN:
+            case WM_SYSKEYDOWN:
+            case WM_KEYUP:
+            case WM_SYSKEYUP: {
+                const bool pressed = (uMsg == WM_KEYDOWN || uMsg == WM_SYSKEYDOWN);
+                jf::JKeyEvent ev;
+                ev.pressed = pressed;
+                ev.shift   = _modShift();
+                ev.ctrl    = _modCtrl();
+                ev.alt     = _modAlt();
+                ev.keysym  = static_cast<uint32_t>(wParam);
+                ev.key     = _vkToKey(static_cast<UINT>(wParam));
+                m_keyQueue.push_back(ev);
+                // A system key still needs its default handling (Alt+F4, menu activation), so fall
+                // through to DefWindowProc for those; a plain key is ours and is consumed.
+                if (uMsg == WM_SYSKEYDOWN || uMsg == WM_SYSKEYUP) break;
+                return 0;
+            }
+            case WM_CHAR:
+            case WM_SYSCHAR: {
+                // Control characters are not text: Ctrl+A arrives here as 0x01, and inserting that
+                // into a field is how a shortcut turns into a stray glyph. Printable only — which is
+                // also exactly the range the X11 side fills utf8 for.
+                const uint32_t cp = static_cast<uint32_t>(wParam);
+                if (cp >= 0x20 && cp != 0x7F && !m_keyQueue.empty()) {
+                    auto& back = m_keyQueue.back();
+                    if (back.pressed && back.utf8[0] == '\0') _encodeUtf8(cp, back.utf8);
+                }
+                if (uMsg == WM_SYSCHAR) break;
+                return 0;
+            }
             case WM_SETCURSOR: {
                 // Windows reasserts the window class's cursor constantly; without answering here,
                 // setCursor() would be undone before the user saw it. Only over the client area --
@@ -540,6 +593,64 @@ private:
     // queue it may be consumed a frame later, after a key event has moved the window-global state on.
     struct JButtonEvent { bool press; float x, y; bool ctrl, shift, alt; };
     bool m_evCtrl = false, m_evShift = false, m_evAlt = false;   // …as reported by isCtrlDown() etc.
+    // A virtual-key code as the toolkit's canonical KEY IDENTITY.
+    //
+    // Letters and digits need no table: VK_A..VK_Z are 0x41..0x5A and VK_0..VK_9 are 0x30..0x39,
+    // which are the ASCII values JKey::A..Z and JKey::_0.._9 already carry. The identity is the
+    // UNSHIFTED key — the glyph that was actually typed rides in utf8 — so a letter maps the same
+    // whether Shift or Caps was down, and Ctrl+Z reaches a handler looking for JKey::Z.
+    //
+    // Shift+Tab is deliberately left as Tab with shift set: that is the Win32 spelling, and
+    // KeyEvent.h documents that a focus domain must accept both it and X11's BackTab.
+    static jf::JKeyEvent::JKey _vkToKey(UINT vk) {
+        using K = jf::JKeyEvent::JKey;
+        switch (vk) {
+            case VK_TAB:    return K::Tab;
+            case VK_RETURN: return K::Return;
+            case VK_SPACE:  return K::Space;
+            case VK_ESCAPE: return K::Escape;
+            case VK_BACK:   return K::Backspace;
+            case VK_DELETE: return K::Delete;
+            case VK_LEFT:   return K::Left;
+            case VK_RIGHT:  return K::Right;
+            case VK_UP:     return K::Up;
+            case VK_DOWN:   return K::Down;
+            case VK_HOME:   return K::Home;
+            case VK_END:    return K::End;
+            case VK_PRIOR:  return K::PageUp;
+            case VK_NEXT:   return K::PageDown;
+            case VK_F1:     return K::F1;   case VK_F2:  return K::F2;
+            case VK_F3:     return K::F3;   case VK_F4:  return K::F4;
+            case VK_F5:     return K::F5;   case VK_F6:  return K::F6;
+            case VK_F7:     return K::F7;   case VK_F8:  return K::F8;
+            case VK_F9:     return K::F9;   case VK_F10: return K::F10;
+            case VK_F11:    return K::F11;  case VK_F12: return K::F12;
+            default: break;
+        }
+        if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9'))
+            return static_cast<K>(vk);
+        return K::Unknown;
+    }
+
+    // One code point as UTF-8, into JKeyEvent::utf8 (8 bytes, NUL-terminated). The WndProc is the
+    // wide one, so wParam is UTF-16; anything outside the BMP arrives as a surrogate pair in two
+    // WM_CHARs, and a lone surrogate is not text worth inserting.
+    static void _encodeUtf8(uint32_t cp, char* out) {
+        if (cp >= 0xD800 && cp <= 0xDFFF) return;          // half of a surrogate pair — not a glyph
+        if (cp < 0x80) {
+            out[0] = static_cast<char>(cp); out[1] = '\0';
+        } else if (cp < 0x800) {
+            out[0] = static_cast<char>((cp >> 6) | 0xC0);
+            out[1] = static_cast<char>((cp & 0x3F) | 0x80);
+            out[2] = '\0';
+        } else {
+            out[0] = static_cast<char>((cp >> 12) | 0xE0);
+            out[1] = static_cast<char>(((cp >> 6) & 0x3F) | 0x80);
+            out[2] = static_cast<char>((cp & 0x3F) | 0x80);
+            out[3] = '\0';
+        }
+    }
+
     // The live keyboard modifiers, at the moment an event is recorded.
     static bool _modCtrl()  { return (GetKeyState(VK_CONTROL) & 0x8000) != 0; }
     static bool _modShift() { return (GetKeyState(VK_SHIFT)   & 0x8000) != 0; }
