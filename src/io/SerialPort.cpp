@@ -132,6 +132,7 @@ struct JSerialPort::Impl {
 
     bool open(const std::string& port, JBaudRate baud, JDataBits dataBits,
               JStopBits stopBits, JParity parity, JFlowCtrl flow) {
+        _setLastError({});            // a fresh attempt: do not report the previous one's reason
 #if defined(_WIN32)
         m_cancelEvent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
 
@@ -415,7 +416,20 @@ struct JSerialPort::Impl {
         return out;
     }
 
+    mutable std::mutex m_errMutex;
+    std::string        m_lastError;   // why the last operation failed, readable synchronously
+
+    std::string lastError() const {
+        std::lock_guard<std::mutex> lk(m_errMutex);
+        return m_lastError;
+    }
+    void _setLastError(const std::string& msg) {
+        std::lock_guard<std::mutex> lk(m_errMutex);
+        m_lastError = msg;
+    }
+
     void _postError(const std::string& msg) {
+        _setLastError(msg);
         JSerialPort* o = &owner;
         JMainThreadDispatcher::instance().post([o, msg]{ o->onError.emit(msg); });
     }
@@ -439,6 +453,7 @@ void JSerialPort::close()             { m_impl->close(); }
 bool JSerialPort::isOpen() const      { return m_impl->isOpen(); }
 void JSerialPort::flushInput()        { m_impl->flushInput(); }
 bool JSerialPort::write(const std::vector<uint8_t>& data) { return m_impl->write(data); }
+std::string JSerialPort::lastError() const            { return m_impl->lastError(); }
 bool JSerialPort::claim()                            { return m_impl->claim(); }
 void JSerialPort::release()                          { m_impl->release(); }
 bool JSerialPort::isClaimed() const                  { return m_impl->isClaimed(); }

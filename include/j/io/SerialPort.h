@@ -67,6 +67,16 @@ public:
     void close();
     bool isOpen() const;
 
+    // Why the last operation failed, in the system's own words ("Access is denied.", "The system
+    // cannot find the file specified."). onError carries the same text, but it is POSTED to the
+    // main thread, so a caller that logs at the point open() returns false has already moved on by
+    // the time it arrives — and logs "failed" with no reason, which is what a serial port failing
+    // must never do. Empty when the last open succeeded.
+    //
+    // BY VALUE, under a lock: the reader thread reports errors of its own, so handing out a
+    // reference to a string another thread may be assigning is a race.
+    std::string lastError() const;
+
     // Discard any bytes the OS has already buffered on the receive side. open()
     // calls this so a stale or mid-frame buffer from a previous session can't
     // corrupt the first parse; callers may also use it to resync after an error.

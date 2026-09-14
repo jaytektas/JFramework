@@ -314,6 +314,19 @@ public:
     // superseded window's capture is dropped. ReleaseCapture() no-ops if nothing is captured.
     static void releaseActivePointerGrab() { ReleaseCapture(); }
 
+    // A STICKY capture, for a popup that must keep seeing the mouse after the button is released.
+    //
+    // A drag's capture is taken on button-down and dropped on button-up, which is right for a drag
+    // and fatal for a menu: the popup takes the capture when it opens, the release of the very click
+    // that opened it dropped that capture, and from then on every click landed on the window
+    // underneath. The popup was never told, so it stayed on screen — "clicking off a context menu
+    // does not dismiss it". While this is set the button-up handlers leave the capture alone.
+    void setPointerGrab(bool on) {
+        m_stickyCapture = on;
+        if (on) { if (m_hwnd) SetCapture(m_hwnd); }
+        else if (m_hwnd && GetCapture() == m_hwnd) ReleaseCapture();
+    }
+
     // Raw HWND (as uintptr_t) of the most recently created window — the modal stack reads this straight
     // after constructing a dialog so the NEXT nested modal can be parented to its opener. See the Linux
     // counterpart for the full rationale.
@@ -480,7 +493,7 @@ private:
             case WM_LBUTTONUP: {
                 m_leftQueue.push_back({ false, static_cast<float>(GET_X_LPARAM(lParam)),
                                                static_cast<float>(GET_Y_LPARAM(lParam)), _modCtrl(), _modShift(), _modAlt() });
-                ReleaseCapture();
+                if (!m_stickyCapture) ReleaseCapture();   // a popup's grab outlives the button (see setPointerGrab)
                 qCDebug(LogWin32Backend) << "WM_LBUTTONUP: " << m_mouseX << ", " << m_mouseY << "\n";
                 return 0;
             }
@@ -495,7 +508,7 @@ private:
             case WM_RBUTTONUP: {
                 m_rightQueue.push_back({ false, static_cast<float>(GET_X_LPARAM(lParam)),
                                                 static_cast<float>(GET_Y_LPARAM(lParam)), _modCtrl(), _modShift(), _modAlt() });
-                ReleaseCapture();
+                if (!m_stickyCapture) ReleaseCapture();   // right-click opens context menus: same rule
                 return 0;
             }
             case WM_MOUSEWHEEL: {
@@ -693,6 +706,7 @@ private:
         return true;
     }
     bool  m_focusLost{false};
+    bool  m_stickyCapture{false};   // a popup holds the mouse until IT says otherwise
     bool  m_mouseLeft{false};      // WM_MOUSELEAVE seen; consumed by consumeMouseLeave()
     bool  m_mouseTracking{false};  // a TrackMouseEvent request is outstanding
     bool  m_mapped{true};          // windows are created shown

@@ -627,7 +627,8 @@ public:
 
     void releasePointerGrab() {
 #if defined(_WIN32)
-        ReleaseCapture();
+        m_window->setPointerGrab(false);
+        m_hasPointerGrab = false;
 #else
         if (m_hasPointerGrab) {
             xcb_ungrab_pointer(m_window->nativeConnection(), XCB_CURRENT_TIME);
@@ -706,7 +707,10 @@ private:
         if (m_focusSet) return;
 #if defined(_WIN32)
         SetFocus(m_window->nativeWindow());
-        SetCapture(m_window->nativeWindow());
+        // STICKY, not a drag's capture: a plain SetCapture here was dropped by the button-up of the
+        // very click that opened the popup, after which every click outside went to the window
+        // underneath and the popup was never told to go away.
+        m_window->setPointerGrab(true);
         m_hasPointerGrab = true;
 #else
         xcb_connection_t* conn = m_window->nativeConnection();
