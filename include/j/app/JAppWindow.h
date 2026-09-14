@@ -508,6 +508,31 @@ public:
             // the runner. Any work done arms a redraw so the UI reflects it this frame.
             if (JMainThreadDispatcher::instance().drain() > 0) activity = true;
 
+            // A SUBSYSTEM MID-TRANSFER IS SERVICED AT ITS OWN PACE, not the paint rate.
+            //
+            // A request/reply protocol that keeps one frame in flight advances by exactly one
+            // reply per drain, so with a drain per rendered frame its throughput becomes the
+            // frame rate: the studio's 140 KB tune image, read in 1 KB replies, cost 140 frames.
+            // On a GPU that is a fifth of a second and nobody noticed. On a software rasteriser
+            // — a VM with no Vulkan — it is tens of seconds, and every one of those frames is
+            // redundant, because nothing on screen changes between one chunk and the next.
+            //
+            // So while a transfer is running, keep servicing it here for a bounded slice instead
+            // of painting between each reply. Bounded two ways: the slice ends on the clock, and
+            // it ends the moment a wait expires with nothing posted — a stalled transfer must
+            // never hold the UI. Either way the loop falls through and paints as usual, so the
+            // interface keeps drawing and stays responsive for the whole transfer.
+            if (JMainThreadDispatcher::instance().bursting()) {
+                const auto sliceEnd = std::chrono::steady_clock::now()
+                                    + std::chrono::milliseconds(kBurstSliceMs);
+                while (JMainThreadDispatcher::instance().bursting()
+                       && std::chrono::steady_clock::now() < sliceEnd) {
+                    if (JMainThreadDispatcher::instance().drainFor(kBurstWaitMs) == 0)
+                        break;                       // went quiet — give the frame back
+                    activity = true;
+                }
+            }
+
             // Animation tick: advance every registered tween by the real wall-clock delta
             // since the previous frame, then reap finished ones. While anything is active we
             // arm a redraw so the animation keeps producing frames (event-driven presenter).
@@ -1015,6 +1040,18 @@ public:
 
 
 private:
+    // How long one iteration may spend servicing a subsystem mid-transfer before it must give
+    // the frame back (see the burst block in run()). 50 ms is the whole budget, so the interface
+    // still paints at ~20 fps throughout even on a renderer that manages nothing better — while
+    // a transfer that would otherwise take one frame per reply gets as many replies as the link
+    // can actually deliver in that time.
+    static constexpr int kBurstSliceMs = 50;
+    // How long to wait for the NEXT reply before concluding the transfer has gone quiet. It is a
+    // condition-variable wait, not a sleep, so a reply landing in 300 us is serviced in 300 us;
+    // this is only the giving-up point, and it must comfortably exceed one request/reply
+    // round-trip or a healthy transfer would be abandoned every slice.
+    static constexpr int kBurstWaitMs  = 5;
+
     static constexpr float kBtnW = 28.0f;   // width of each window-control button (toolkit value)
     // The window's resize band. It is a HIT TARGET, so it owns its pixels: the content is inset by it
     // (see layoutDocks) rather than drawn underneath. Sharing them is what left a dock's scroll bar at
