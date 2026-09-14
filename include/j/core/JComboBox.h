@@ -27,6 +27,7 @@ public:
     jf::JSignal<std::string> onTextChanged;       // committed text (selection or typed value on Return)
     jf::JSignal<std::string> onEditTextChanged;   // live text while typing in an editable combo
     jf::JSignal<JComboBox*>   onPopupRequested;
+    jf::JSignal<>             onCleared;          // the ✕ was pressed — see setClearable()
     // Framework hook: the app runner installs this to OWN the dropdown — it creates, polls,
     // dismisses the popup window and sets the selected index. When set, it fires on a
     // Popup-mode click so the app needn't wire or service anything. (The per-instance
@@ -141,12 +142,43 @@ public:
     }
     const std::string& editText() const { return m_editText; }
 
+    // CLEARABLE: an ✕ inside the field, left of the drop arrow, that unsets the selection.
+    //
+    // "Not chosen" is a real answer for a selector — an unassigned input, a slot naming no table — and
+    // without somewhere to say it, a combo is a control you can change but never take back. Putting the
+    // clear inside the POPUP was the first attempt and it is the wrong place twice over: it is two
+    // clicks and a search dialog away from the thing being cleared, and half these controls never open
+    // a popup at all. The affordance belongs on the control, where the value is.
+    //
+    // It draws only while there is something TO clear, so an empty selector shows no ✕ to press.
+    void setClearable(bool on) {
+        if (m_clearable == on) return;
+        m_clearable = on;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+    bool clearable() const { return m_clearable; }
+
+    // Whether the ✕ is currently offered: clearable, and something is selected. The host decides what
+    // "selected" means for its own data (a signal id of -1 is unset, index 0 might be "None"), so it
+    // says so rather than this guessing from m_currentIndex.
+    void setShowClear(bool on) {
+        if (m_showClear == on) return;
+        m_showClear = on;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+
     void handleMousePress(float mx, float my) override {
         if (!isPointInside(mx, my)) return;
         if (acceptsClickFocus()) requestFocus();   // clicking a combo focuses it — every toolkit does this
         onClicked.emit();
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         const float arrowW = b.height * 0.75f;
+        // The ✕ comes FIRST, before the arrow and before the editable text area: it sits inside the
+        // field, so without this every press on it would open the list it is meant to avoid.
+        if (_clearShown() && mx >= _clearX(b) && mx < _clearX(b) + arrowW) {
+            onCleared.emit();
+            return;
+        }
         const bool onArrow = mx >= b.x + b.width - arrowW;
         if (m_editable && !onArrow) {          // click the text area → focus for typing (no cycle/popup)
             requestFocus();
@@ -217,9 +249,23 @@ public:
             buf.pushRectangle(ax - 5.0f + dx, ay + dy, 2.0f, 2.0f, ac, 0.5f);   // left arm, stepping down
             buf.pushRectangle(ax + 3.0f - dx, ay + dy, 2.0f, 2.0f, ac, 0.5f);   // right arm, mirrored
         }
+        // The ✕, left of the arrow well and inside the field. Two strokes of 2px squares, the same way
+        // the chevron is built, so it draws at any size the atlas can manage.
+        if (_clearShown()) {
+            const float cx = _clearX(b) + arrowW * 0.5f, cy = b.y + b.height * 0.5f;
+            uint8_t xc[4] = {Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 220};
+            for (int k = -3; k <= 3; ++k) {
+                buf.pushRectangle(cx + static_cast<float>(k) - 1.0f, cy + static_cast<float>(k) - 1.0f,
+                                  2.0f, 2.0f, xc, 0.5f);
+                buf.pushRectangle(cx + static_cast<float>(k) - 1.0f, cy - static_cast<float>(k) - 1.0f,
+                                  2.0f, 2.0f, xc, 0.5f);
+            }
+        }
         // Selected item text (or the live edit buffer in an editable combo — untranslated, it's user input).
         const std::string shown = m_editable ? currentText() : tr(currentText());
-        const float textAvail = b.width - arrowW - textPadding() - 6.0f;
+        // …and the text gives way to it, or a long channel name draws straight through the ✕.
+        const float textAvail = b.width - arrowW - textPadding() - 6.0f
+                              - (_clearShown() ? arrowW : 0.0f);
         if (JTextHelper::hasAtlas() && !shown.empty()) {
             uint8_t tc[4] = {Colors::FieldText[0], Colors::FieldText[1], Colors::FieldText[2], 220};
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
@@ -238,6 +284,12 @@ public:
 
 
 private:
+    bool _clearShown() const { return m_clearable && m_showClear; }
+    float _clearX(const JRect& b) const { return b.x + b.width - b.height * 0.75f * 2.0f; }
+
+    bool m_clearable = false;    // offer an ✕ at all — see setClearable()
+    bool m_showClear = false;    // …and right now there is something to clear — see setShowClear()
+
     void _updateMinSize() {
         auto& l = m_graph.getLayout(m_nodeId);
         float maxItemW = 0.f;
