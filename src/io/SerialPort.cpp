@@ -6,6 +6,7 @@
 
 #include <thread>
 #include <atomic>
+#include <condition_variable>
 #include <mutex>
 #include <algorithm>
 #include <cstring>
@@ -29,6 +30,7 @@
   #include <cstdio>
   #include <sys/ioctl.h>
   #include <sys/select.h>
+  #include <cstdlib>              // realpath — the tty's device link is followed, not guessed at
 #endif
 
 inline namespace jf {
@@ -43,6 +45,12 @@ struct JSerialPort::Impl {
     std::thread       m_thread;
     std::atomic<bool> m_running{false};
     std::mutex        m_writeMutex;
+    // A claim redirects _dispatch into this queue; readClaimed() blocks on it. Its own mutex, so a
+    // worker taking delivery never contends with a write going the other way.
+    mutable std::mutex      m_claimMutex;
+    std::condition_variable m_claimCv;
+    std::vector<uint8_t>    m_claimQueue;
+    bool                    m_claimed = false;
 
 #if defined(_WIN32)
     HANDLE m_handle{INVALID_HANDLE_VALUE};
@@ -80,6 +88,29 @@ struct JSerialPort::Impl {
             case JBaudRate::B921600_: return B921600;
             default:                  return B115200;
         }
+    }
+
+    // THE USB DEVICE BEHIND A TTY, found by walking up rather than by counting directories.
+    //
+    // /sys/class/tty/<name>/device does not sit at a fixed depth: for a CDC port (ttyACM — what the
+    // jayecu is) it points at the USB interface, so the device is one level up; for a converter
+    // (ttyUSB — a CH340, an FTDI) there is an extra node in between and one level up is still the
+    // interface, which has no idVendor. The old code assumed the CDC shape, so every ttyUSB came
+    // back with no vendor or product id at all and nothing could be told apart by descriptor.
+    //
+    // idVendor is the marker for "this is the USB device", so climb until it appears. Empty when
+    // there is none — an on-board UART (ttyS*) is not a USB device and correctly has no ids.
+    static std::string _usbDeviceDir(const std::string& ttyBase) {
+        char resolved[4096];
+        if (!realpath((ttyBase + "/device").c_str(), resolved)) return {};
+        std::string dir(resolved);
+        for (int up = 0; up < 8 && dir.size() > 1; ++up) {
+            if (access((dir + "/idVendor").c_str(), R_OK) == 0) return dir;
+            const size_t slash = dir.rfind('/');
+            if (slash == std::string::npos || slash == 0) break;
+            dir.resize(slash);
+        }
+        return {};
     }
 
     static std::string _sysfsAttr(const std::string& base, const std::string& rel) {
@@ -200,6 +231,9 @@ struct JSerialPort::Impl {
     void close() {
         if (!m_running.exchange(false)) return;
         m_port.clear();
+        // End any claim FIRST, so a worker blocked in readClaimed() wakes now rather than sitting
+        // out its timeout against a port that is already going away.
+        release();
         _wakeReadThread();
         if (m_thread.joinable()) m_thread.join();
         _closeHandles();
@@ -322,11 +356,63 @@ struct JSerialPort::Impl {
 #endif
     }
 
+    // The ONE place received bytes go, so a claim only has to change their destination.
     void _dispatch(std::vector<uint8_t> data) {
+        {
+            std::lock_guard<std::mutex> lk(m_claimMutex);
+            if (m_claimed) {
+                m_claimQueue.insert(m_claimQueue.end(), data.begin(), data.end());
+                m_claimCv.notify_all();
+                return;
+            }
+        }
         JSerialPort* o = &owner;
         JMainThreadDispatcher::instance().post([o, d = std::move(data)]() mutable {
             o->onData.emit(std::move(d));
         });
+    }
+
+    bool claim() {
+        std::lock_guard<std::mutex> lk(m_claimMutex);
+        if (m_claimed) return false;
+        m_claimed = true;
+        m_claimQueue.clear();   // a claim starts on a clean stream, not on the previous owner's tail
+        return true;
+    }
+
+    // Hand anything still queued back to the async path rather than dropping it: a reply that
+    // landed just as the transfer finished is still a reply somebody may be waiting for.
+    void release() {
+        std::vector<uint8_t> leftover;
+        {
+            std::lock_guard<std::mutex> lk(m_claimMutex);
+            if (!m_claimed) return;
+            m_claimed = false;
+            leftover.swap(m_claimQueue);
+        }
+        if (!leftover.empty()) {
+            JSerialPort* o = &owner;
+            JMainThreadDispatcher::instance().post([o, d = std::move(leftover)]() mutable {
+                o->onData.emit(std::move(d));
+            });
+        }
+        m_claimCv.notify_all();   // wake a reader blocked on a claim that has just ended
+    }
+
+    bool isClaimed() const {
+        std::lock_guard<std::mutex> lk(m_claimMutex);
+        return m_claimed;
+    }
+
+    std::vector<uint8_t> readClaimed(int timeoutMs) {
+        std::unique_lock<std::mutex> lk(m_claimMutex);
+        if (m_claimQueue.empty() && m_claimed && timeoutMs > 0) {
+            m_claimCv.wait_for(lk, std::chrono::milliseconds(timeoutMs),
+                               [this] { return !m_claimQueue.empty() || !m_claimed; });
+        }
+        std::vector<uint8_t> out;
+        out.swap(m_claimQueue);
+        return out;
     }
 
     void _postError(const std::string& msg) {
@@ -353,6 +439,10 @@ void JSerialPort::close()             { m_impl->close(); }
 bool JSerialPort::isOpen() const      { return m_impl->isOpen(); }
 void JSerialPort::flushInput()        { m_impl->flushInput(); }
 bool JSerialPort::write(const std::vector<uint8_t>& data) { return m_impl->write(data); }
+bool JSerialPort::claim()                            { return m_impl->claim(); }
+void JSerialPort::release()                          { m_impl->release(); }
+bool JSerialPort::isClaimed() const                  { return m_impl->isClaimed(); }
+std::vector<uint8_t> JSerialPort::readClaimed(int ms) { return m_impl->readClaimed(ms); }
 void JSerialPort::flush()             { m_impl->flush(); }
 
 bool JSerialPort::writeLine(const std::string& s) {
@@ -471,11 +561,12 @@ std::vector<JSerialPortInfo> JSerialPort::availablePorts() {
         JSerialPortInfo info;
         info.port         = devNode;
         std::string base  = std::string(sysPath) + "/" + name;
-        info.description  = Impl::_sysfsAttr(base, "device/../product");
-        info.manufacturer = Impl::_sysfsAttr(base, "device/../manufacturer");
-        info.serialNumber = Impl::_sysfsAttr(base, "device/../serial");
-        std::string vidStr = Impl::_sysfsAttr(base, "device/../idVendor");
-        std::string pidStr = Impl::_sysfsAttr(base, "device/../idProduct");
+        const std::string usbDir = Impl::_usbDeviceDir(base);
+        info.description  = Impl::_sysfsAttr(usbDir, "product");
+        info.manufacturer = Impl::_sysfsAttr(usbDir, "manufacturer");
+        info.serialNumber = Impl::_sysfsAttr(usbDir, "serial");
+        std::string vidStr = Impl::_sysfsAttr(usbDir, "idVendor");
+        std::string pidStr = Impl::_sysfsAttr(usbDir, "idProduct");
         if (!vidStr.empty() && !pidStr.empty()) {
             info.vendorId  = static_cast<uint16_t>(std::stoul(vidStr, nullptr, 16));
             info.productId = static_cast<uint16_t>(std::stoul(pidStr, nullptr, 16));

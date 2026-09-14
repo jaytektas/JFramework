@@ -76,6 +76,33 @@ public:
     bool write(const std::vector<uint8_t>& data);
     bool writeLine(const std::string& s);
 
+    // ---- Taking delivery on YOUR thread -------------------------------------------------------
+    //
+    // Normally the reader thread posts every chunk to the main thread and onData fires there. That
+    // is what makes the port safe to use from widget code, and it is the right default — but it
+    // ties the RATE of a request/reply exchange to the main loop, because the reply cannot be seen
+    // until the main thread comes round again. A transfer of hundreds of chunks then runs at the
+    // main loop's pace rather than the link's.
+    //
+    // A claim redirects the SAME reader thread into an internal queue, and readClaimed() blocks on
+    // it, so one worker can drive a whole transfer — write, wait, read, repeat — at wire speed with
+    // the UI untouched. There is no second read path and no duplicated platform code: only the
+    // destination of the bytes changes.
+    //
+    // Exactly one claimant at a time; claim() returns false if the port is closed or already
+    // claimed. While claimed, onData does NOT fire — so the owner of the port must make sure
+    // nothing else is mid-exchange before claiming (for a one-frame-in-flight protocol, that means
+    // stopping the poll first). release() returns to main-thread delivery and hands back anything
+    // still queued, so a reply that arrived as the transfer ended is not lost.
+    bool claim();
+    void release();
+    bool isClaimed() const;
+
+    // Blocking take of whatever the reader thread has collected, up to timeoutMs. Returns empty on
+    // timeout — which is the caller's signal that the link has gone quiet, not an error. Waits on a
+    // condition variable, so a byte arriving in 200 us is returned in 200 us.
+    std::vector<uint8_t> readClaimed(int timeoutMs);
+
     // Discard buffered input and output.
     void flush();
 
