@@ -287,10 +287,13 @@ if(GENESIS_BUILD_TESTS)
     add_genesis_test(test_aibus            src/tests/test_aibus.cpp)
 
     # jf-busctl — external client for the AI bus (POD ABI only; needs the include dir + rt for shm).
-    add_executable(jf-busctl tools/jf-busctl.cpp)
-    target_include_directories(jf-busctl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    if(UNIX AND NOT APPLE)
-        target_link_libraries(jf-busctl PRIVATE rt)
+    # POSIX shared memory: mmap/shm_open have no Windows equivalent, so the tool is UNIX-only.
+    if(UNIX)
+        add_executable(jf-busctl tools/jf-busctl.cpp)
+        target_include_directories(jf-busctl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        if(NOT APPLE)
+            target_link_libraries(jf-busctl PRIVATE rt)
+        endif()
     endif()
     add_genesis_test(test_models           src/tests/test_models.cpp)
     add_genesis_test(test_new_features     src/tests/test_new_features.cpp)
