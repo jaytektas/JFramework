@@ -246,6 +246,11 @@ public:
         packRange(160, 255);  // Latin-1 supplement
         packRange(0x2013, 0x2022); // dashes, typographic quotes, dagger, bullet (•)
         packRange(0x2026, 0x2026); // ellipsis (…)
+        // MENU PATHS. The studio writes them as "View ▸ Lua Script" / "Logging › Onboard Logging",
+        // and both separators were outside every range — so page text that had used them for a long time
+        // rendered a tofu box mid-sentence, which reads as a typo rather than as a missing glyph.
+        packRange(0x2039, 0x203A); // ‹ › single angle quotation marks
+        packRange(0x25B6, 0x25B8); // ▶ ▷ ▸ right-pointing triangles
         packRange(0x2190, 0x2195); // arrows ← ↑ → ↓ ↔ ↕ (↔/↕ = table axis-name bar; the toolbar's "Verify ↔ ECU" etc.)
         packRange(0x25CF, 0x25CF); // black circle (●) — present in DejaVu/Noto (absent in Ubuntu)
         // The three Greek letters engineering units are actually written with: λ (lambda — the mixture

@@ -379,6 +379,13 @@ public:
     // as runs of equal colour. Null (default) → the whole text draws in one colour. Used by the Lua editor.
     void setHighlighter(std::function<void(const std::string&, std::vector<uint8_t>&)> h) { m_highlighter = std::move(h); m_layoutDirty = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
 
+    // RE-RUN THE HIGHLIGHTER OVER UNCHANGED TEXT. The highlighter runs once per layout, so colours that
+    // depend on anything OUTSIDE the text never refresh on their own: the Lua editor tints the line the
+    // ECU is reporting an error on, and that line changes while the script sits untouched. setText() with
+    // the same string is not a way to force it — it early-outs on an equal value, which is exactly why
+    // the tint used to appear only after the next keystroke or resize.
+    void refreshHighlight() { m_layoutDirty = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+
 private:
     std::function<void(const std::string&, std::vector<uint8_t>&)> m_highlighter;   // null = plain single-colour text
 
