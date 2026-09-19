@@ -44,12 +44,25 @@ public:
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
+    // THE SCROLL POSITION SURVIVES. setRows is how a grid is refreshed in place — one row removed,
+    // one value changed — and jumping to the top on every refresh means deleting the tenth row of a
+    // long list sends you back to the first, every time. The paint clamps m_scrollY to the content,
+    // so a list that got shorter settles on its own; a caller that really is showing a DIFFERENT
+    // dataset says so with scrollToTop().
     void setRows(const std::vector<std::vector<std::string>>& rows) {
         m_rows = rows;
         _applyOrder();                 // rebuild view order (identity, or re-apply the active sort)
         if (m_selectedIndex != -1) {
             m_selectedIndex = m_rows.empty() ? -1 : std::clamp(m_selectedIndex, 0, (int)m_rows.size()-1);
         }
+        for (auto it = m_selected.begin(); it != m_selected.end(); ) {
+            if (*it >= (int)m_rows.size()) it = m_selected.erase(it); else ++it;
+        }
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+
+    // Back to the first row — for a caller genuinely replacing the contents rather than refreshing.
+    void scrollToTop() {
         m_scrollY = 0.0f;
         m_scrollX = 0.0f;
         m_graph.invalidateNode(m_nodeId, DirtySelf);
