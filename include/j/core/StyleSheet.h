@@ -44,9 +44,16 @@ namespace style_detail {
 }
 
 // Parse a stylesheet into a JStyle (starting from dark() so partial sheets are fine).
-inline JStyle parseStyleSheet(const std::string& text) {
+// `base` is what the sheet is an OVERRIDE OF: keys the text does not mention keep the base's value.
+// It defaults to dark(), which is what every existing caller got when this built from scratch.
+//
+// The point of the parameter is that a stylesheet is two different things at once — a PALETTE and a
+// set of PROPORTIONS — and an app usually wants to vary one without the other. Parsing onto a base
+// lets a light theme take the framework's light palette and the app's own control heights, tab
+// behaviour and radii, instead of having to restate all of one to change the other.
+inline JStyle parseStyleSheet(const std::string& text, JStyle base = JStyle::dark()) {
     using namespace style_detail;
-    JStyle t = JStyle::dark();
+    JStyle t = std::move(base);
 
     struct CRef { const char* n; uint8_t* p; };
     CRef colors[] = {
@@ -136,18 +143,18 @@ inline JStyle parseStyleSheet(const std::string& text) {
 }
 
 // Read + parse a stylesheet file. Returns false if the file can't be opened.
-inline bool loadStyleSheet(const std::string& path, JStyle& out) {
+inline bool loadStyleSheet(const std::string& path, JStyle& out, JStyle base = JStyle::dark()) {
     std::ifstream f(path);
     if (!f) return false;
     std::stringstream ss; ss << f.rdbuf();
-    out = parseStyleSheet(ss.str());
+    out = parseStyleSheet(ss.str(), std::move(base));
     return true;
 }
 
 // Load a stylesheet file and make it the live theme (reskins the GUI). False if unreadable.
-inline bool applyStyleSheetFile(const std::string& path) {
+inline bool applyStyleSheetFile(const std::string& path, JStyle base = JStyle::dark()) {
     JStyle t;
-    if (!loadStyleSheet(path, t)) return false;
+    if (!loadStyleSheet(path, t, std::move(base))) return false;
     JStyle::apply(std::move(t));
     return true;
 }
