@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <cctype>
 #include <numeric>
+#include <set>
+#include <vector>
 #include <string>
 
 inline namespace jf {
@@ -154,15 +156,47 @@ public:
         return -1;
     }
 
+    // A NEGATIVE INDEX CLEARS. It used to be clamped into range, so a non-empty grid could never be
+    // deselected and setSelectedIndex(-1) silently meant row 0 — which reads back as "row 0 is
+    // selected" to everyone who asks, including the caller who had just tried to clear it.
     void setSelectedIndex(int index) {
-        int nextIdx = (m_rows.empty()) ? -1 : std::clamp(index, 0, (int)m_rows.size()-1);
-        if (m_selectedIndex != nextIdx) {
+        const int nextIdx = (m_rows.empty() || index < 0)
+                          ? -1 : std::clamp(index, 0, (int)m_rows.size() - 1);
+        const bool setChanged = _selectOnly(nextIdx);
+        if (m_selectedIndex != nextIdx || setChanged) {
             m_selectedIndex = nextIdx;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
             onSelectionChanged.emit(nextIdx);
         }
     }
     int selectedIndex() const { return m_selectedIndex; }
+
+    // ---- Multi-selection -----------------------------------------------------------------------
+    // Shift extends from the anchor, Ctrl toggles one row — the same two gestures ItemView already
+    // implements, so a grid behaves like every other list in the framework rather than being the one
+    // that only takes one row at a time. Single is the default, so nothing that does not ask changes.
+    enum class SelectionMode : uint8_t { Single, Extended };
+    void setSelectionMode(SelectionMode m) {
+        m_selMode = m;
+        if (m == SelectionMode::Single) _selectOnly(m_selectedIndex);
+    }
+    SelectionMode selectionMode() const { return m_selMode; }
+
+    // Every selected row, ascending. In Single mode that is selectedIndex() or nothing, so a caller
+    // can read this one accessor whatever the mode is.
+    std::vector<int> selectedIndices() const {
+        std::vector<int> out(m_selected.begin(), m_selected.end());
+        std::sort(out.begin(), out.end());
+        return out;
+    }
+    bool isSelected(int row) const { return m_selected.count(row) != 0; }
+    void clearSelection() {
+        if (m_selected.empty() && m_selectedIndex < 0) return;
+        m_selected.clear();
+        m_selectedIndex = -1;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+        onSelectionChanged.emit(-1);
+    }
 
     float rowHeight() const { return m_rowHeight; }
     void setRowHeight(float h) { m_rowHeight = h; m_graph.invalidateNode(m_nodeId, DirtySelf); }
@@ -242,7 +276,28 @@ public:
             if (my >= b.y + headerH && my < b.y + b.height - (hasHScroll(b) ? scrollBarW : 0.0f)) {
                 const int clickedIndex = rowAtY(my);                 // one mapping, shared with callers
                 if (clickedIndex >= 0) {
-                    setSelectedIndex(clickedIndex);
+                    if (m_selMode == SelectionMode::Extended && JWidget::s_shiftDown) {
+                        // A range from the anchor. With no anchor yet the click IS the anchor, so a
+                        // shift-click into an empty selection selects one row rather than nothing.
+                        const int from = (m_anchor >= 0) ? m_anchor : clickedIndex;
+                        m_selected.clear();
+                        for (int i = std::min(from, clickedIndex); i <= std::max(from, clickedIndex); ++i)
+                            m_selected.insert(i);
+                        m_selectedIndex = clickedIndex;
+                    } else if (m_selMode == SelectionMode::Extended && JWidget::s_ctrlDown) {
+                        if (!m_selected.erase(clickedIndex)) m_selected.insert(clickedIndex);
+                        m_anchor = clickedIndex;
+                        // The "current" row follows the click while it is still selected; when the
+                        // click DEselected it, current falls back to whatever is left.
+                        m_selectedIndex = m_selected.count(clickedIndex) ? clickedIndex
+                                        : (m_selected.empty() ? -1 : *m_selected.begin());
+                    } else {
+                        _selectOnly(clickedIndex);
+                        m_anchor = clickedIndex;
+                        m_selectedIndex = clickedIndex;
+                    }
+                    m_graph.invalidateNode(m_nodeId, DirtySelf);
+                    onSelectionChanged.emit(m_selectedIndex);
                     onRowActivated.emit(clickedIndex);
                 }
             }
@@ -434,7 +489,7 @@ public:
             if (v % 2 == 1) buf.pushRectangle(b.x + 1.0f, rowY, visibleW, rowH, Colors::RowAltBg);
             if (r < (int)m_rowTints.size() && m_rowTints[r][3] != 0)
                 buf.pushRectangle(b.x + 1.0f, rowY, visibleW, rowH, m_rowTints[r].data());
-            if (r == m_selectedIndex) {
+            if (m_selected.count(r) || r == m_selectedIndex) {
                 uint8_t selBg[4] = {Colors::Accent[0], Colors::Accent[1], Colors::Accent[2], 60};
                 buf.pushRectangle(b.x + 1.0f, rowY, visibleW, rowH, selBg);   // over the tint, not under
             }
@@ -443,7 +498,8 @@ public:
                 float colW = columnWidth(c, b.width);
                 float cellX = b.x + 1.0f + colStartX[c] - m_scrollX;
 
-                drawRowCell(buf, r, c, {cellX, rowY, colW, rowH}, m_rows[r][c], r == m_selectedIndex);
+                drawRowCell(buf, r, c, {cellX, rowY, colW, rowH}, m_rows[r][c],
+                            m_selected.count(r) != 0 || r == m_selectedIndex);
 
                 if (c > 0) {
                     buf.pushRectangle(cellX, rowY, 1.0f, rowH, Colors::GridLine);
@@ -533,6 +589,16 @@ protected:
 private:
     // Rebuild the view order: identity, or the active sort applied over it. Called whenever rows or the
     // sort change, so m_order is always a valid permutation of [0, m_rows.size()).
+    // Make `row` the entire selection. Returns whether the SET changed, which is what lets
+    // setSelectedIndex notice a multi-row selection collapsing onto the row it already had.
+    bool _selectOnly(int row) {
+        const bool changed = !(m_selected.size() == (row >= 0 ? 1u : 0u) &&
+                               (row < 0 || m_selected.count(row)));
+        m_selected.clear();
+        if (row >= 0) m_selected.insert(row);
+        return changed;
+    }
+
     void _applyOrder() {
         m_order.resize(m_rows.size());
         std::iota(m_order.begin(), m_order.end(), 0);
@@ -642,6 +708,12 @@ private:
     float                                 m_defaultColW{JStyle::current().gridDefaultColumnWidth};
     std::vector<std::vector<std::string>> m_rows;
     int                                   m_selectedIndex{-1};
+    // Extended selection. m_selected is the whole set — it mirrors m_selectedIndex in Single mode, so
+    // selectedIndices() answers the same question whichever mode the grid is in — and m_anchor is the
+    // row a shift-range measures from.
+    SelectionMode                         m_selMode{SelectionMode::Single};
+    std::set<int>                         m_selected;
+    int                                   m_anchor{-1};
     float                                 m_scrollY{0.0f};
     float                                 m_scrollX{0.0f};
     float                                 m_rowHeight{JStyle::current().gridRowHeight};
