@@ -87,8 +87,11 @@ private:
     struct Entry { JButton* btn; Role role; };
     static constexpr float kGap = 8.f;
 
+    // A DISABLED BUTTON IS NOT THERE FOR THE KEYBOARD EITHER. Return fires the accept role directly,
+    // without going through the button, so a greyed-out OK still committed when you pressed Return —
+    // which is the whole point of greying it out, undone by the one input that skips the mouse.
     bool _has(Role r) const {
-        for (const auto& e : m_buttons) if (e.role == r) return true;
+        for (const auto& e : m_buttons) if (e.role == r) return e.btn->isEnabled();
         return false;
     }
     void _fire(Role r) {

@@ -225,6 +225,49 @@ void test_scrollarea_logic() {
     std::cout << "test_scrollarea_logic passed" << std::endl;
 }
 
+// A ROW THAT CANNOT BE CHOSEN. The list keeps it, dims it, and refuses to let the selection or an
+// activation land on it — which only means anything if the same steps land normally when nothing is
+// disabled, so the control case below is part of the test rather than a courtesy.
+void test_listview_disabled_rows() {
+    JSceneGraph graph;
+    JListView lv(graph, {"a", "b", "c", "d", "e"});
+    int activated = -1;
+    lv.onItemActivated.connect([&activated](int i) { activated = i; });
+
+    lv.setEnabledFlags({1, 0, 0, 0, 1});          // only a and e
+    assert(lv.isItemEnabled(0) && !lv.isItemEnabled(1) && !lv.isItemEnabled(3));
+    assert(lv.anyItemEnabled());
+
+    lv.setSelectedIndex(0);
+    assert(lv.selectedIndex() == 0);
+    lv.setSelectedIndex(1);                       // down, into the disabled run
+    assert(lv.selectedIndex() == 4);              // steps over the WHOLE run, not just the first
+    lv.setSelectedIndex(3);                       // up, into it
+    assert(lv.selectedIndex() == 0);
+    lv.setSelectedIndex(2);
+    assert(lv.selectedIndex() != 2);              // never rests on one
+
+    JKeyEvent ke; ke.pressed = true; ke.key = JKeyEvent::JKey::Return;
+    lv.setSelectedIndex(4); activated = -1;
+    lv.handleKeyEvent(ke);
+    assert(activated == 4);                       // an available row still activates
+
+    lv.setEnabledFlags({1, 1, 1, 1, 1});          // CONTROL: without the flags the step is ordinary
+    lv.setSelectedIndex(0); lv.setSelectedIndex(1);
+    assert(lv.selectedIndex() == 1);
+
+    lv.setEnabledFlags({0, 0, 0, 0, 0});          // nothing at all can be chosen
+    assert(!lv.anyItemEnabled());
+    lv.setSelectedIndex(2);
+    assert(lv.selectedIndex() == -1);             // no selection, rather than a dead highlight
+    activated = -1; lv.handleKeyEvent(ke);
+    assert(activated == -1);
+
+    lv.setItems({"x", "y"});                      // the flags described rows that are gone
+    assert(lv.isItemEnabled(0) && lv.isItemEnabled(1));
+    std::cout << "test_listview_disabled_rows passed" << std::endl;
+}
+
 void test_listview_logic() {
     JSceneGraph graph;
     JListView lv(graph, {"Item 1", "Item 2", "Item 3"});
@@ -702,6 +745,7 @@ int main() {
     test_textarea_logic();
     test_scrollarea_logic();
     test_listview_logic();
+    test_listview_disabled_rows();
     test_treeview_logic();
     test_treeview_keeps_scroll_on_rebuild();
     test_datagrid_logic();

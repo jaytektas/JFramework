@@ -32,14 +32,58 @@ public:
 
     void setItems(const std::vector<std::string>& items) {
         m_items = items;
+        m_enabled.clear();                 // the flags described the rows that just went away
         m_selectedIndex = (m_items.empty()) ? -1 : std::clamp(m_selectedIndex, 0, (int)m_items.size()-1);
         m_scrollY = 0.0f;
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
     const std::vector<std::string>& items() const { return m_items; }
 
+    // A ROW THAT CANNOT BE CHOSEN SAYS SO AND STAYS. Dropping it from the list instead hides the
+    // fact that the thing exists at all, which reads as "we do not have one" rather than "not here,
+    // not on these settings" — the user then goes looking for a choice that IS on the list, or
+    // re-adds the setting that would have made it available, blind. A disabled row is drawn dimmed,
+    // takes no selection, and cannot be activated by mouse or key.
+    void setItemEnabled(int index, bool on) {
+        if (index < 0 || index >= (int)m_items.size()) return;
+        m_enabled.resize(m_items.size(), 1);
+        if (m_enabled[(size_t)index] == (on ? 1 : 0)) return;
+        m_enabled[(size_t)index] = on ? 1 : 0;
+        if (!on && m_selectedIndex == index) setSelectedIndex(index);   // moves off it
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+    // One flag per item, in item order. Short vectors are padded with "enabled" rather than refused:
+    // a caller that knows about two disabled rows should not have to enumerate two hundred enabled ones.
+    void setEnabledFlags(std::vector<uint8_t> flags) {
+        m_enabled = std::move(flags);
+        m_enabled.resize(m_items.size(), 1);
+        if (!isItemEnabled(m_selectedIndex)) setSelectedIndex(m_selectedIndex);
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+    bool isItemEnabled(int index) const {
+        if (index < 0 || index >= (int)m_items.size()) return false;
+        return index >= (int)m_enabled.size() || m_enabled[(size_t)index] != 0;
+    }
+    bool anyItemEnabled() const {
+        for (int i = 0; i < (int)m_items.size(); ++i) if (isItemEnabled(i)) return true;
+        return false;
+    }
+
     void setSelectedIndex(int index) {
         int nextIdx = (m_items.empty()) ? -1 : std::clamp(index, 0, (int)m_items.size()-1);
+        // Land on an ENABLED row. Keep going the way the caller was going — an arrow key into a run
+        // of disabled rows steps over the whole run rather than sticking against the first one — and
+        // fall back the other way at the end of the list, so Down at the bottom does not deselect.
+        if (nextIdx >= 0 && !isItemEnabled(nextIdx)) {
+            const int dir = (nextIdx >= m_selectedIndex) ? 1 : -1;
+            int j = nextIdx;
+            while (j >= 0 && j < (int)m_items.size() && !isItemEnabled(j)) j += dir;
+            if (j < 0 || j >= (int)m_items.size()) {
+                j = nextIdx;
+                while (j >= 0 && j < (int)m_items.size() && !isItemEnabled(j)) j -= dir;
+            }
+            nextIdx = (j >= 0 && j < (int)m_items.size()) ? j : -1;
+        }
         if (m_selectedIndex != nextIdx) {
             m_selectedIndex = nextIdx;
             m_graph.invalidateNode(m_nodeId, DirtySelf);
@@ -94,7 +138,8 @@ public:
                 float itemH = JTextHelper::hasAtlas() ? JTextHelper::lineHeight() + 8.0f : 20.0f;
                 float relativeY = my - b.y + m_scrollY - 4.0f;
                 int clickedIndex = static_cast<int>(relativeY / itemH);
-                if (clickedIndex >= 0 && clickedIndex < (int)m_items.size()) {
+                if (clickedIndex >= 0 && clickedIndex < (int)m_items.size() &&
+                    isItemEnabled(clickedIndex)) {
                     setSelectedIndex(clickedIndex);
                     onItemActivated.emit(clickedIndex);
                 }
@@ -133,7 +178,7 @@ public:
             _ensureIndexVisible(m_selectedIndex);
             return true;
         } else if (ke.key == K::Return || ke.key == K::Space) {
-            if (m_selectedIndex >= 0 && m_selectedIndex < (int)m_items.size()) {
+            if (isItemEnabled(m_selectedIndex)) {
                 onItemActivated.emit(m_selectedIndex);
             }
             return true;
@@ -169,7 +214,9 @@ public:
             float itemY = b.y + 4.0f + i * itemH - m_scrollY;
             float itemW = b.width - 14.0f;
 
-            if (i == m_selectedIndex) {
+            const bool rowOn = isItemEnabled(i);
+
+            if (i == m_selectedIndex && rowOn) {
                 // Selection fill = Highlight role (old Accent).
                 buf.pushRectangle(b.x + 4.0f, itemY, itemW - 4.0f, itemH - 2.0f,
                                   jstyle::role(JColorRole::Highlight, o).data(), 3.0f);
@@ -177,9 +224,16 @@ public:
 
             if (JTextHelper::hasAtlas()) {
                 uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 220};
-                if (i == m_selectedIndex) {   // selected text takes HighlightedText's rgb (white), same alpha
+                if (i == m_selectedIndex && rowOn) {   // selected text takes HighlightedText's rgb (white)
                     const JColor ht = jstyle::role(JColorRole::HighlightedText, o);
                     tc[0] = ht.r; tc[1] = ht.g; tc[2] = ht.b;
+                }
+                // A DISABLED ROW IS THE PALETTE'S DISABLED TEXT, not this one at a lower alpha: the
+                // dark themes put ordinary text close enough to the fill that a fade reads as a
+                // rendering glitch rather than as a state.
+                if (!rowOn) {
+                    const JColor dt = jstyle::pal().color(JColorRole::Text, JColorGroup::Disabled);
+                    tc[0] = dt.r; tc[1] = dt.g; tc[2] = dt.b; tc[3] = 220;
                 }
                 JTextHelper::pushText(buf, b.x + 8.0f, itemY + 4.0f, tr(m_items[i]), tc, itemW - 12.0f);
             } else {
@@ -228,6 +282,7 @@ private:
     }
 
     std::vector<std::string> m_items;
+    std::vector<uint8_t>     m_enabled;   // per item; short or empty means "the rest are enabled"
     int                      m_selectedIndex{-1};
     float                    m_scrollY{0.0f};
     bool                     m_draggingScroll{false};
