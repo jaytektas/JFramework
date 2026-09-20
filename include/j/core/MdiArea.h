@@ -279,7 +279,18 @@ public:
         // otherwise: it could be dragged smaller by a corner (a maximised window may not be), and the
         // button then "maximised" a window that already filled the screen, after which the corner stopped
         // working. Reversed, exactly as it looked.
-        const bool fills = haveArea && f.width >= a.width - 1.f && f.height >= a.height - 1.f;
+        // …and MAXIMISED IS MEASURED AGAINST THE MAXIMISED RECTANGLE, not against the room a window is
+        // opened into. Where those two differ — the host says maximise means the whole tab, while a
+        // window opens inside the bands the background reserved — a page too big for the open area was
+        // clamped to it, called maximised on that basis, and then moved OUT to the whole tab on the next
+        // refit. So a large page opened covering the live strip and the channel rail while a small one
+        // opened neatly inside them: the same page, two different windows, decided by its own width.
+        // Against maxRect() the clamped page simply does not fill anything, which is the truth: it is an
+        // ordinary window that happens to be as wide as it is allowed to be, its corner still works, and
+        // the maximise button still has somewhere to go. Where the policy makes the two rectangles the
+        // same this is the identical test it was before.
+        const JRect mr = haveArea ? maxRect() : a;
+        const bool fills = haveArea && f.width >= mr.width - 1.f && f.height >= mr.height - 1.f;
         c->m_max   = !hinted || fills;   // a size we can trust is a size to open at, not to override
         // …and RESTORE has to go somewhere smaller, or the button does nothing visible. The size the
         // content asked for, when that fits; two thirds of the area when it does not, which is what a
@@ -288,7 +299,10 @@ public:
         // An area of no size means the layout has not run yet (a child opened during construction), so
         // `f` above is a rect measured against nothing. Flag it and let the first real frame place it.
         c->m_provisional = (a.width <= 0.f || a.height <= 0.f);
-        if (c->m_max) c->m_frame = a;   // no usable hint: all of it. m_restore keeps the free geometry.
+        if (c->m_max) c->m_frame = mr;  // no usable hint: all of it. m_restore keeps the free geometry.
+                                        // mr, not the open area: the next refit puts a maximised child
+                                        // on maxRect() anyway, and opening it anywhere else is one
+                                        // frame of the window being somewhere it is about to leave.
         // PARENT THE CONTENT, which is how a host says what is inside it. JWidget::collectChildren is the
         // one edge every tree walk follows — focus traversal above all — and a widget merely POINTED at is
         // not on it. The area routed presses to its content by hand, so the mouse worked and hid the gap:
