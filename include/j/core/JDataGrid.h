@@ -51,6 +51,7 @@ public:
     // dataset says so with scrollToTop().
     void setRows(const std::vector<std::vector<std::string>>& rows) {
         m_rows = rows;
+        m_enabled.clear();             // the flags described the rows that just went away
         _applyOrder();                 // rebuild view order (identity, or re-apply the active sort)
         if (m_selectedIndex != -1) {
             m_selectedIndex = m_rows.empty() ? -1 : std::clamp(m_selectedIndex, 0, (int)m_rows.size()-1);
@@ -81,6 +82,26 @@ public:
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
     void clearRowTints() { m_rowTints.clear(); m_graph.invalidateNode(m_nodeId, DirtySelf); }
+
+    // ---- Row availability ------------------------------------------------
+    // Same contract as JListView: a row that cannot be chosen STAYS on the grid, dimmed, and takes
+    // neither selection nor activation. Indexed by SOURCE row, so sorting does not shuffle the flags.
+    // Dropping the row instead would answer a different question — "there is no such template" rather
+    // than "there is one and this bus is not set up for it" — and only the second says what to change.
+    void setEnabledFlags(std::vector<uint8_t> flags) {
+        m_enabled = std::move(flags);
+        m_enabled.resize(m_rows.size(), 1);
+        if (!isRowEnabled(m_selectedIndex)) setSelectedIndex(m_selectedIndex);
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+    bool isRowEnabled(int row) const {
+        if (row < 0 || row >= (int)m_rows.size()) return false;
+        return row >= (int)m_enabled.size() || m_enabled[(size_t)row] != 0;
+    }
+    bool anyRowEnabled() const {
+        for (int i = 0; i < (int)m_rows.size(); ++i) if (isRowEnabled(i)) return true;
+        return false;
+    }
 
     // ---- Sorting ---------------------------------------------------------
     // Click a header to sort by that column; clicking the sorted column flips direction. Off by default,
@@ -173,8 +194,20 @@ public:
     // deselected and setSelectedIndex(-1) silently meant row 0 — which reads back as "row 0 is
     // selected" to everyone who asks, including the caller who had just tried to clear it.
     void setSelectedIndex(int index) {
-        const int nextIdx = (m_rows.empty() || index < 0)
-                          ? -1 : std::clamp(index, 0, (int)m_rows.size() - 1);
+        int nextIdx = (m_rows.empty() || index < 0)
+                    ? -1 : std::clamp(index, 0, (int)m_rows.size() - 1);
+        // Step OVER an unavailable run rather than sticking against the first row of it, and fall
+        // back the other way at the end, so Down at the bottom does not silently deselect.
+        if (nextIdx >= 0 && !isRowEnabled(nextIdx)) {
+            const int dir = (nextIdx >= m_selectedIndex) ? 1 : -1;
+            int j = nextIdx;
+            while (j >= 0 && j < (int)m_rows.size() && !isRowEnabled(j)) j += dir;
+            if (j < 0 || j >= (int)m_rows.size()) {
+                j = nextIdx;
+                while (j >= 0 && j < (int)m_rows.size() && !isRowEnabled(j)) j -= dir;
+            }
+            nextIdx = (j >= 0 && j < (int)m_rows.size()) ? j : -1;
+        }
         const bool setChanged = _selectOnly(nextIdx);
         if (m_selectedIndex != nextIdx || setChanged) {
             m_selectedIndex = nextIdx;
@@ -288,7 +321,7 @@ public:
 
             if (my >= b.y + headerH && my < b.y + b.height - (hasHScroll(b) ? scrollBarW : 0.0f)) {
                 const int clickedIndex = rowAtY(my);                 // one mapping, shared with callers
-                if (clickedIndex >= 0) {
+                if (clickedIndex >= 0 && isRowEnabled(clickedIndex)) {
                     if (m_selMode == SelectionMode::Extended && JWidget::s_shiftDown) {
                         // A range from the anchor. With no anchor yet the click IS the anchor, so a
                         // shift-click into an empty selection selects one row rather than nothing.
@@ -400,7 +433,7 @@ public:
             _ensureRowVisible(m_selectedIndex);
             return true;
         } else if (ke.key == K::Return || ke.key == K::Space) {
-            if (m_selectedIndex >= 0 && m_selectedIndex < (int)m_rows.size()) {
+            if (isRowEnabled(m_selectedIndex)) {
                 onRowActivated.emit(m_selectedIndex);
             }
             return true;
@@ -590,6 +623,12 @@ protected:
     virtual void drawRowCell(JPrimitiveBuffer& buf, int rowIdx, int colIdx, const JRect& bounds, const std::string& val, bool selected) {
         if (JTextHelper::hasAtlas()) {
             uint8_t tc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 220};
+            // An unavailable row is the palette's DISABLED text, not this one faded: on the dark
+            // themes a lower alpha reads as a rendering glitch rather than as a state.
+            if (!isRowEnabled(rowIdx)) {
+                const JColor dt = jstyle::pal().color(JColorRole::Text, JColorGroup::Disabled);
+                tc[0] = dt.r; tc[1] = dt.g; tc[2] = dt.b;
+            }
             const std::string t = tr(val);
             float ty = bounds.y + (bounds.height - JTextHelper::lineHeight()) * 0.5f;
             // Same guard as the header: at or below twice the padding this expression reaches zero,
@@ -713,6 +752,7 @@ private:
     SortComparator                        m_sortCmp;
     int                                   m_sortCol{-1};
     bool                                  m_sortAsc{true};
+    std::vector<uint8_t>                  m_enabled;   // per source row; short/empty = the rest are on
     bool                                  m_sortable{false};
     bool                                  m_colResizable{false};
     int                                   m_resizeCol{-1};

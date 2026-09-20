@@ -357,6 +357,50 @@ void test_treeview_logic() {
     std::cout << "test_treeview_logic passed" << std::endl;
 }
 
+// The same contract as the list: a row that cannot be chosen stays, dimmed, and takes neither the
+// selection nor an activation. Flags are SOURCE indices, so sorting must not shuffle them.
+void test_datagrid_disabled_rows() {
+    JSceneGraph graph;
+    JDataGrid g(graph, {"name", "rate"});
+    g.setRows({{"a", "1"}, {"b", "2"}, {"c", "3"}, {"d", "4"}});
+    int activated = -1;
+    g.onRowActivated.connect([&activated](int i) { activated = i; });
+
+    g.setEnabledFlags({1, 0, 0, 1});
+    assert(g.isRowEnabled(0) && !g.isRowEnabled(1) && !g.isRowEnabled(2) && g.isRowEnabled(3));
+    assert(g.anyRowEnabled());
+
+    g.setSelectedIndex(0);
+    assert(g.selectedIndex() == 0);
+    g.setSelectedIndex(1);
+    assert(g.selectedIndex() == 3);               // over the run, not onto the first of it
+    g.setSelectedIndex(2);
+    assert(g.selectedIndex() == 0);               // and back the other way
+
+    JKeyEvent ke; ke.pressed = true; ke.key = JKeyEvent::JKey::Return;
+    g.setSelectedIndex(3); activated = -1;
+    g.handleKeyEvent(ke);
+    assert(activated == 3);
+
+    // SORTING MUST NOT MOVE THE FLAGS. Descending by name puts row "d" (source 3, available) first;
+    // if the flags were read by view index, source 3 would take row 0's answer and the grid would
+    // disagree with itself about which rows are live.
+    g.setSortable(true);
+    g.sortByColumn(0, false);
+    assert(g.isRowEnabled(3) && !g.isRowEnabled(1));
+
+    g.setEnabledFlags({0, 0, 0, 0});
+    assert(!g.anyRowEnabled());
+    g.setSelectedIndex(1);
+    assert(g.selectedIndex() == -1);
+    activated = -1; g.handleKeyEvent(ke);
+    assert(activated == -1);
+
+    g.setRows({{"x", "9"}});                      // flags described rows that are gone
+    assert(g.isRowEnabled(0));
+    std::cout << "test_datagrid_disabled_rows passed" << std::endl;
+}
+
 void test_datagrid_logic() {
     JSceneGraph graph;
     JDataGrid dg(graph, {"ID", "Name", "Role"});
@@ -749,6 +793,7 @@ int main() {
     test_treeview_logic();
     test_treeview_keeps_scroll_on_rebuild();
     test_datagrid_logic();
+    test_datagrid_disabled_rows();
     test_menu_and_shortcuts();
     test_tooltips();
     std::cout << "All tests passed!" << std::endl;
