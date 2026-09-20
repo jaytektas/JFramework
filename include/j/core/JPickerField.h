@@ -20,6 +20,7 @@
 // list, which is why it does not care how long one is.
 
 #include "JControl.h"
+#include "JClearMark.h"                    // the one ✕ every clear/remove control draws
 #include "JTextHelper.h"
 #include "KeyEvent.h"
 #include <string>
@@ -116,18 +117,12 @@ public:
         for (int k = -1; k <= 1; ++k)
             buf.pushRectangle(ex + static_cast<float>(k) * 5.0f - 1.0f, ey, 2.0f, 2.0f, dc, 1.0f);
 
-        // The ✕, in its own square left of the well. Brighter under the pointer, so it reads as its own
-        // target rather than as decoration on the field.
-        if (_clearShown()) {
-            const float cx = _clearX(b) + wellW * 0.5f, cy = b.y + b.height * 0.5f;
-            const uint8_t a = m_hoverClear ? 255 : 170;
-            const uint8_t xc[4] = {Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], a};
-            for (int k = -3; k <= 3; ++k) {
-                const float d = static_cast<float>(k);
-                buf.pushRectangle(cx + d - 1.0f, cy + d - 1.0f, 2.0f, 2.0f, xc, 0.5f);
-                buf.pushRectangle(cx + d - 1.0f, cy - d - 1.0f, 2.0f, 2.0f, xc, 0.5f);
-            }
-        }
+        // The ✕, in its own square left of the well. It used to be stamped here from a loop of little
+        // squares, which put a second, chunkier ✕ next to every clearable line edit's.
+        if (_clearShown())
+            JClearMark::draw(buf, {_clearX(b), b.y, wellW, b.height},
+                             JColor{Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2], 255},
+                             m_hoverClear);
 
         if (!JTextHelper::hasAtlas()) return;
         const float avail = b.width - wellW - textPadding() - 6.0f - (_clearShown() ? wellW : 0.0f);

@@ -13,7 +13,7 @@
 #include "JTextEditCore.h"
 #include "KeyEvent.h"
 #include "Validator.h"
-#include "../graphics/VectorGraphics.h"   // JVectorCanvas — the clear button's ✕
+#include "JClearMark.h"                    // the one ✕ every clear/remove control draws
 
 inline namespace jf {
 
@@ -262,18 +262,7 @@ private:
     }
     void _drawClearButton(JPrimitiveBuffer& buf, const JStyleOption& o) {
         float x, y, s; _clearBoxRect(x, y, s);
-        const float cx = x + s * 0.5f, cy = y + s * 0.5f, r = s * 0.28f;
-        // Hover gives the glyph a disc behind it, so it reads as a pressable target rather than decoration.
-        const JColor tint = jstyle::role(JColorRole::Text, o);
-        if (m_clearHover)
-            buf.pushRectangle(x - 1.0f, y - 1.0f, s + 2.0f, s + 2.0f,
-                              withAlpha(tint, 38).data(), (s + 2.0f) * 0.5f);
-        JVectorCanvas vc;
-        vc.setAntiAlias(1.0f);
-        const JPaint p{withAlpha(tint, m_clearHover ? 235 : 165)};
-        vc.drawLine(cx - r, cy - r, cx + r, cy + r, 1.4f, p);
-        vc.drawLine(cx + r, cy - r, cx - r, cy + r, 1.4f, p);
-        vc.flush(buf);
+        JClearMark::draw(buf, {x, y, s, s}, jstyle::role(JColorRole::Text, o), m_clearHover);
     }
 
     // Nearest character boundary to a screen x — click + drag-select. Delegates the scan to the core with a

@@ -253,6 +253,12 @@ public:
         packRange(0x25B6, 0x25B8); // ▶ ▷ ▸ right-pointing triangles
         packRange(0x2190, 0x2195); // arrows ← ↑ → ↓ ↔ ↕ (↔/↕ = table axis-name bar; the toolbar's "Verify ↔ ECU" etc.)
         packRange(0x25CF, 0x25CF); // black circle (●) — present in DejaVu/Noto (absent in Ubuntu)
+        // MARKS THAT ARE WORDS IN A SENTENCE, and so cannot be drawn as a control: "⚠ missing: 0x2C0"
+        // on a dangling CAN field, "○ read-only" against the "● writable" already packed above it.
+        // A codepoint the atlas lacks is substituted with '?', which in running text reads as a typo.
+        // A ✕ is NOT here: a clear or remove mark is a control, and JClearMark draws it.
+        packRange(0x25CB, 0x25CB); // ○ white circle — read-only, the counterpart to ●
+        packRange(0x26A0, 0x26A0); // ⚠ warning sign — "missing:" on a dangling CAN field
         // The three Greek letters engineering units are actually written with: λ (lambda — the mixture
         // an ECU targets, and the reason this range exists), Ω (resistance) and Δ (a difference). Packed
         // individually rather than as the Greek block: the atlas is a fixed 512x256 shelf and fifty-odd
