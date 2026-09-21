@@ -322,10 +322,22 @@ public:
     // underneath. The popup was never told, so it stayed on screen — "clicking off a context menu
     // does not dismiss it". While this is set the button-up handlers leave the capture alone.
     void setPointerGrab(bool on) {
+        // COUNTED PROCESS-WIDE, because ReleaseCapture() is process-wide. The button-up handlers each
+        // ask their OWN m_stickyCapture before releasing, which is the wrong window to ask: the POPUP
+        // holds the grab and the MAIN window is the one handling the button. Its flag is false, so it
+        // calls ReleaseCapture(), and that drops whichever window is captured rather than its own.
+        // After that every click lands on the window underneath and the menu is never told to go —
+        // "clicking off a context menu does not dismiss it", which is the very report the sticky
+        // capture was added to fix, coming back through a door beside the one that was closed.
+        if (on != m_stickyCapture) s_stickyGrabs += on ? 1 : -1;
+        if (s_stickyGrabs < 0) s_stickyGrabs = 0;
         m_stickyCapture = on;
         if (on) { if (m_hwnd) SetCapture(m_hwnd); }
         else if (m_hwnd && GetCapture() == m_hwnd) ReleaseCapture();
     }
+
+    // Is ANY window in this process holding a popup's sticky grab?
+    static bool stickyGrabActive() { return s_stickyGrabs > 0; }
 
     // Raw HWND (as uintptr_t) of the most recently created window — the modal stack reads this straight
     // after constructing a dialog so the NEXT nested modal can be parented to its opener. See the Linux
@@ -493,7 +505,9 @@ private:
             case WM_LBUTTONUP: {
                 m_leftQueue.push_back({ false, static_cast<float>(GET_X_LPARAM(lParam)),
                                                static_cast<float>(GET_Y_LPARAM(lParam)), _modCtrl(), _modShift(), _modAlt() });
-                if (!m_stickyCapture) ReleaseCapture();   // a popup's grab outlives the button (see setPointerGrab)
+                // Not m_stickyCapture alone: ReleaseCapture() is process-wide, so this must not fire
+                // while ANOTHER window — a popup — is holding one. See setPointerGrab.
+                if (!m_stickyCapture && !stickyGrabActive()) ReleaseCapture();
                 qCDebug(LogWin32Backend) << "WM_LBUTTONUP: " << m_mouseX << ", " << m_mouseY << "\n";
                 return 0;
             }
@@ -508,7 +522,7 @@ private:
             case WM_RBUTTONUP: {
                 m_rightQueue.push_back({ false, static_cast<float>(GET_X_LPARAM(lParam)),
                                                 static_cast<float>(GET_Y_LPARAM(lParam)), _modCtrl(), _modShift(), _modAlt() });
-                if (!m_stickyCapture) ReleaseCapture();   // right-click opens context menus: same rule
+                if (!m_stickyCapture && !stickyGrabActive()) ReleaseCapture();   // right-click opens context menus: same rule
                 return 0;
             }
             case WM_MOUSEWHEEL: {
@@ -707,6 +721,7 @@ private:
     }
     bool  m_focusLost{false};
     bool  m_stickyCapture{false};   // a popup holds the mouse until IT says otherwise
+    inline static int s_stickyGrabs{0};   // how many popups hold one, process-wide (see setPointerGrab)
     bool  m_mouseLeft{false};      // WM_MOUSELEAVE seen; consumed by consumeMouseLeave()
     bool  m_mouseTracking{false};  // a TrackMouseEvent request is outstanding
     bool  m_mapped{true};          // windows are created shown
