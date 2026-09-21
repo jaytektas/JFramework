@@ -707,7 +707,28 @@ private:
     // when the popup opens on a button PRESS the parent still holds an implicit grab for;
     // without the retry the popup never captures the pointer and its hover/clicks stall.
     void _ensureGrab() {
-        if (m_focusSet) return;
+        if (m_focusSet) {
+#if defined(_WIN32)
+            // RE-ASSERTED EVERY FRAME, because opening a SUBMENU costs the root its capture.
+            //
+            // The root of a menu stack owns the pointer for the whole cascade — the children are only
+            // pumped (pumpManaged), deliberately, so a child cannot steal the grab and freeze or
+            // dismiss its parent. But a child is still a NEW NATIVE WINDOW, and creating and mapping
+            // one takes the capture off the root. Nothing put it back: this function grabs once and
+            // then returns early for ever after, because m_focusSet is already set.
+            //
+            // The symptom is precise and was reported as such: a context menu with no submenu open
+            // dismisses on a click outside, and the same menu with a submenu showing does not — nor
+            // does Escape close it, because the keys are gone with the presses. Hover still tracks,
+            // which is what makes it look alive rather than wedged: hover is driven by polling
+            // GetCursorPos every frame, and polling needs no grab at all.
+            //
+            // setPointerGrab(true) is idempotent — it only counts the transition — so this is a
+            // SetCapture on a window that already ought to have it, every frame the menu is up.
+            if (m_hasPointerGrab) m_window->setPointerGrab(true);
+#endif
+            return;
+        }
 #if defined(_WIN32)
         SetFocus(m_window->nativeWindow());
         // STICKY, not a drag's capture: a plain SetCapture here was dropped by the button-up of the
