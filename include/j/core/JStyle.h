@@ -174,6 +174,7 @@ struct JStyle {
     float labelHeight    = 20.f;   // form labels (text)
     float checkHeight    = 22.f;   // check box / radio
     float sliderHeight   = 24.f;   // slider track + thumb
+    float progressHeight = 14.f;   // progress bar track
     float itemPadding    = 8.f;
     float fieldPadding   = 8.f;   // interior text padding for input fields (JLineEdit/JSpinBox/JComboBox…)
     float spacing        = 4.f;

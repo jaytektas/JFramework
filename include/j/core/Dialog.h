@@ -203,8 +203,14 @@ public:
         }
 
         // --- Box geometry (position may be offset by drag) ---
+        // The body is WRAPPED to the box and the box grows to hold it: a sentence longer than one line
+        // used to run off the right edge, and a paragraph off the bottom, so every caller hand-wrapped
+        // its text to a column count and hoped. The height below is the old fixed one at the least.
         float boxW = std::min(440.f, screenW * 0.8f);
-        float boxH = kTitleH + (needsInput ? 200.f : 140.f);
+        const std::string body = JTextHelper::wrapToWidth(req->body, boxW - 32.f);
+        const float bodyLines = 1.f + static_cast<float>(std::count(body.begin(), body.end(), '\n'));
+        const float bodyExtra = std::max(0.f, (bodyLines - 1.f) * JTextHelper::lineHeight() - 30.f);
+        float boxH = kTitleH + (needsInput ? 200.f : 140.f) + bodyExtra;
 
         // Initialise drag offset on first frame for this dialog
         if (!dm.m_dragInit) {
@@ -277,8 +283,8 @@ public:
         // --- Body / prompt ---
         float ty = boxY + kTitleH + 16.f;
         uint8_t sc[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, sc);
-        JTextHelper::pushText(buf, boxX + 16.f, ty, req->body, sc, boxW - 32.f);
-        ty += lh + 10.f;
+        JTextHelper::pushText(buf, boxX + 16.f, ty, body, sc, boxW - 32.f);
+        ty += lh * bodyLines + 10.f;
 
         // --- Input field (always active — dialog owns keyboard) ---
         if (needsInput) {

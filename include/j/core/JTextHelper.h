@@ -447,6 +447,27 @@ public:
         return hasAtlas() ? get().lineHeight : 16.0f;
     }
 
+    /** Break `text` into lines no wider than `maxWidth`, at spaces, measured with the shared atlas.
+     *  Existing line breaks are kept. A single word wider than the line is left whole on a line of its
+     *  own (pushText clips it) rather than split mid-word. Returns the text with '\n' at every break. */
+    static std::string wrapToWidth(const std::string& text, float maxWidth) {
+        if (maxWidth <= 0.0f) return text;
+        std::string out, line, word;
+        auto flushWord = [&] {
+            if (word.empty()) return;
+            if (!line.empty() && measureWidth(line + " " + word) > maxWidth) { out += line + "\n"; line.clear(); }
+            line += (line.empty() ? "" : " ") + word;
+            word.clear();
+        };
+        for (char c : text) {
+            if (c == ' ')       { flushWord(); }
+            else if (c == '\n') { flushWord(); out += line + "\n"; line.clear(); }
+            else                 { word += c; }
+        }
+        flushWord();
+        return out + line;
+    }
+
 private:
     static JFontAtlas& get() { static JFontAtlas s; return s; }
 };

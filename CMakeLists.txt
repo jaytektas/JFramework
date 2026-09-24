@@ -135,6 +135,10 @@ target_sources(j_platform PRIVATE src/platform/Clipboard.cpp)
 # client still builds and still serves http://, and answers an https:// request with an error saying so —
 # it never silently downgrades a secure request to a plaintext one.
 target_sources(j_platform PRIVATE src/io/HttpClient.cpp)
+# Self-update (JSelfInstaller) — the AppImage swap on Linux, the silent installer run on Windows.
+target_sources(j_platform PRIVATE src/update/JSelfInstaller.cpp)
+# USB access on Linux (JUdevRule) — an application installing its own udev rule through pkexec.
+target_sources(j_platform PRIVATE src/platform/JUdevRule.cpp)
 if(WIN32)
     target_link_libraries(j_platform PRIVATE winhttp ws2_32)
     target_compile_definitions(j_platform PRIVATE JF_HAVE_OPENSSL=0)
@@ -248,6 +252,7 @@ if(GENESIS_BUILD_TESTS)
     add_genesis_test(test_dock_placement   src/tests/test_dock_placement.cpp)
     add_genesis_test(test_focus_stack      src/tests/test_focus_stack.cpp)
     add_genesis_test(test_signal           src/tests/test_signal.cpp)
+    add_genesis_test(test_update           src/tests/test_update.cpp)
     add_genesis_test(test_application      src/tests/test_application.cpp)
     add_genesis_test(test_scenegraph       src/tests/test_scenegraph.cpp)
     add_genesis_test(test_primitives       src/tests/test_primitives.cpp)
