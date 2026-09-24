@@ -327,6 +327,26 @@ public:
 
     const std::vector<std::unique_ptr<JWidget>>& items() const noexcept { return m_items; }
 
+    // What a popup of this menu shows, in order. A HIDDEN item is not offered at all -- an application
+    // hides what does not apply (a tool the connected device does not have), where it DISABLES what
+    // applies but cannot be done right now. Hiding can empty the stretch between two separators, so a
+    // separator is kept only between two shown items: never first, never last, never two in a row.
+    std::vector<JWidget*> shownItems() const {
+        std::vector<JWidget*> out;
+        JWidget* separatorPending = nullptr;
+        for (const auto& item : m_items) {
+            if (!item) continue;
+            if (dynamic_cast<JMenuSeparator*>(item.get())) {
+                if (!out.empty()) separatorPending = item.get();
+                continue;
+            }
+            if (item->isHidden()) continue;
+            if (separatorPending) { out.push_back(separatorPending); separatorPending = nullptr; }
+            out.push_back(item.get());
+        }
+        return out;
+    }
+
     // Drop all items — for a submenu whose entries are rebuilt on demand (e.g. a count-dependent list
     // repopulated each time its parent menu opens). The owning JMenu keeps its identity/title.
     void clear() noexcept { m_items.clear(); }

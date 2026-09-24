@@ -46,6 +46,7 @@ public:
         m_hover = -1;
         for (size_t i = 0; i < m_items.size(); ++i) {
             auto& it = m_items[i];
+            if (!it.shown) continue;
             if (it.widget) {                       // hosted widget: route input; it hit-tests itself
                 it.widget->handleMouseMove(mx, my);
                 if (pressed)  it.widget->handleMousePress(mx, my);
@@ -69,6 +70,7 @@ public:
         const float h = m_rect.height;
         for (size_t i = 0; i < m_items.size(); ++i) {
             const auto& it = m_items[i];
+            if (!it.shown) continue;
             if (it.sep) {
                 uint8_t s[4] = {Colors::Border[0], Colors::Border[1], Colors::Border[2], 160};
                 buf.pushRectangle(it.x + kSep * 0.5f, m_rect.y + 8.f, 1.f, h - 16.f, s, 0.f);
@@ -103,8 +105,23 @@ private:
         // The bar's own spacing is a design size too — a 8 px gap on a 4K panel is not a gap.
         const float k = JStyle::uiScale();
         const float pad = kPad * k, gap = kGap * k, btnPad = kBtnPad * k, sep = kSep * k;
+        // A HIDDEN widget takes no slot, no input and no paint -- an application hides what does not
+        // apply to what it is connected to. Separators then follow the same rule as a menu's: only
+        // between two shown items, never at either end, never two in a row.
+        for (auto& it : m_items) it.shown = it.sep || !it.widget || !it.widget->isHidden();
+        {
+            Item* pendingSep = nullptr;
+            bool anyBefore = false;
+            for (auto& it : m_items) {
+                if (it.sep) { it.shown = false; if (anyBefore) pendingSep = &it; continue; }
+                if (!it.shown) continue;
+                if (pendingSep) { pendingSep->shown = true; pendingSep = nullptr; }
+                anyBefore = true;
+            }
+        }
         float x = m_rect.x + pad;
         for (auto& it : m_items) {
+            if (!it.shown) { it.x = x; it.w = 0.f; continue; }
             if (it.sep) { it.x = x; it.w = sep; x += sep; continue; }
             if (it.widget) {
                 // The width the caller asked for, else what the WIDGET says it needs, else a square. The
@@ -128,7 +145,8 @@ private:
     }
 
     struct Item { std::string label; std::function<void()> onClick; bool sep{false};
-                  float x{0}, w{0}, h{0}, wReq{0}; JWidget* widget{nullptr}; };   // wReq: asked-for design width, 0 = ask the widget
+                  float x{0}, w{0}, h{0}, wReq{0}; JWidget* widget{nullptr};
+                  bool shown{true}; };   // shown: recomputed by layout() -- hidden widgets and orphaned separators   // wReq: asked-for design width, 0 = ask the widget
     std::vector<Item> m_items;
     JRect m_rect{};
     int   m_hover{-1}, m_pressed{-1};

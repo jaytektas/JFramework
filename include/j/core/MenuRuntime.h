@@ -220,9 +220,10 @@ private:
                 [this, self]() { m_deferred.push_back([this, self]() { _tearOff(self); }); });
         }
 
-        for (const auto& item : menu->items()) {
-            if (!item) continue;
-            if (auto* mi = dynamic_cast<JMenuItem*>(item.get())) {
+        // shownItems(): hidden items left out, separators only between shown ones (see JMenu).
+        for (JWidget* item : menu->shownItems()) {
+            if (dynamic_cast<JMenuSeparator*>(item)) { popup->add<JMenuSeparator>(); continue; }
+            if (auto* mi = dynamic_cast<JMenuItem*>(item)) {
                 auto* added = popup->add<JMenuItem>(mi->label(), mi->shortcut(), mi->submenu());
                 added->setCheckable(mi->isCheckable());
                 added->setChecked(mi->isChecked());
@@ -260,8 +261,6 @@ private:
                     JMenu*        sub    = mi->submenu();   // nullptr for leaf items
                     added->onHoverEntered.connect([this, a, parent, sub]() { hoverItem(parent, a, sub); });
                 }
-            } else if (dynamic_cast<JMenuSeparator*>(item.get())) {
-                popup->add<JMenuSeparator>();
             }
         }
 
