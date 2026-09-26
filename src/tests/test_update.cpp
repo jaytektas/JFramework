@@ -40,8 +40,9 @@ static void testParse() {
     check(a.valid && a.major == 1 && a.minor == 2 && a.patch == 3, "v1.2.3 parses");
     const auto b = jf::JVersion::parse("0.4");
     check(b.valid && b.major == 0 && b.minor == 4 && b.patch == 0, "0.4 parses as 0.4.0");
-    const auto c = jf::JVersion::parse("1.0.0-rc1");
-    check(c.valid && c.major == 1 && c.patch == 0, "a suffix after the numbers is ignored");
+    const auto c = jf::JVersion::parse("1.0.0-rc1+build.7");
+    check(c.valid && c.major == 1 && c.patch == 0 && c.pre == "rc1" && c.text() == "1.0.0-rc1",
+          "a pre-release is kept, build metadata after + is dropped");
     check(!jf::JVersion::parse("latest").valid, "a tag with no number is not a version");
     check(!jf::JVersion::parse("").valid, "an empty tag is not a version");
 }
@@ -51,6 +52,14 @@ static void testCompare() {
     check(jf::JVersion::parse("1.0.0").isNewerThan(jf::JVersion::parse("0.99.99")), "a major bump wins");
     check(!jf::JVersion::parse("0.1.0").isNewerThan(jf::JVersion::parse("0.1.0")), "the same version is not newer");
     check(!jf::JVersion::parse("0.1.0").isNewerThan(jf::JVersion::parse("0.2.0")), "an older release is not newer");
+    auto newer = [](const char* a, const char* b) { return jf::JVersion::parse(a).isNewerThan(jf::JVersion::parse(b)); };
+    check(newer("0.5.0", "0.5.0-beta.1") && !newer("0.5.0-beta.1", "0.5.0"), "a release is newer than its own beta");
+    check(newer("0.5.0-beta.1", "0.4.9"), "a beta is newer than the release before it");
+    check(newer("0.5.0-beta.10", "0.5.0-beta.2"), "beta.10 is newer than beta.2 (numbers, not text)");
+    check(newer("0.5.0-rc.1", "0.5.0-beta.9"), "rc is newer than beta");
+    check(newer("0.5.0-beta.1", "0.5.0-beta") , "more parts is newer when the rest is equal");
+    check(newer("0.5.0-beta", "0.5.0-1"), "a word ranks above a number");
+    check(!newer("0.5.0-beta.1", "0.5.0-beta.1+other"), "build metadata does not make a version newer");
 }
 
 static void testInterpret() {
