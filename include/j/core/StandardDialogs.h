@@ -215,12 +215,25 @@ public:
         return out;
     }
 
+    // THE TEXT WRAPS and the box grows to hold it. It was drawn into a fixed 170px box that clipped at
+    // its width, so a message longer than one line was cut off mid-sentence. render() and
+    // handleMousePress() both size from here, so the buttons are hit where they are drawn.
+    float boxHeight(float boxW) const {
+        constexpr float kTitleH = 32.f;
+        const std::string t = _wrappedText(boxW);
+        const float lines = 1.f + static_cast<float>(std::count(t.begin(), t.end(), '\n'));
+        const float need  = kTitleH + 18.f + lines * JTextHelper::lineHeight() + 20.f
+                          + JStyle::current().buttonHeight + 14.f;
+        return std::max(170.f, need);
+    }
+
     // Draw the box; call once per frame. Does not consume input.
     void render(JPrimitiveBuffer& buf, float screenW, float screenH,
                 float mx = -1.f, float my = -1.f) const {
         constexpr float kRadius = 8.f, kTitleH = 32.f;
         const float boxW = std::min(440.f, screenW * 0.8f);
-        const float boxH = 170.f;
+        const std::string text = _wrappedText(boxW);
+        const float boxH = boxHeight(boxW);
         const float boxX = (screenW - boxW) * 0.5f;
         const float boxY = (screenH - boxH) * 0.5f;
         const float lh   = JTextHelper::lineHeight();
@@ -234,7 +247,7 @@ public:
 
         if (JTextHelper::hasAtlas()) {
             uint8_t sc[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, sc);
-            JTextHelper::pushText(buf, boxX + 16.f, boxY + kTitleH + 18.f, m_text, sc, boxW - 32.f);
+            JTextHelper::pushText(buf, boxX + 16.f, boxY + kTitleH + 18.f, text, sc, boxW - 32.f);
         }
 
         const JDialogButton def = defaultButton();
@@ -262,7 +275,7 @@ public:
     // Route a mouse press. Returns true (and finishes) if a button was hit.
     bool handleMousePress(float mx, float my, float screenW, float screenH) {
         const float boxW = std::min(440.f, screenW * 0.8f);
-        const float boxH = 170.f;
+        const float boxH = boxHeight(boxW);
         const float boxX = (screenW - boxW) * 0.5f;
         const float boxY = (screenH - boxH) * 0.5f;
         auto rects = buttonRects(boxX, boxY, boxW, boxH);
@@ -286,6 +299,10 @@ public:
     }
 
 private:
+    std::string _wrappedText(float boxW) const {
+        return JTextHelper::hasAtlas() ? JTextHelper::wrapToWidth(m_text, boxW - 32.f) : m_text;
+    }
+
     static JMessageBox _make(JMessageIcon icon, std::string title, std::string text,
                              std::vector<JDialogButton> buttons,
                              JDialogButton def, JDialogButton esc) {

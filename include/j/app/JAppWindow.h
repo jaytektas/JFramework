@@ -449,8 +449,9 @@ public:
         const bool had = m_noticeH > 0.f;
         m_notice = std::move(text); m_noticeDetail = std::move(detail);
         if (accent) std::copy(accent, accent + 4, m_noticeAccent);
-        m_noticeH = m_notice.empty() ? 0.f : JStyle::current().buttonHeight + 4.f;
-        if (had != (m_noticeH > 0.f)) layoutDocks();   // the content moved; docks must be re-laid out
+        const float oldH = m_noticeH;
+        _layoutNotice();
+        if (had != (m_noticeH > 0.f) || oldH != m_noticeH) layoutDocks();   // the content moved; docks must be re-laid out
     }
     const std::string& notice() const { return m_notice; }
 
@@ -1080,9 +1081,33 @@ private:
 
     std::string m_notice, m_noticeDetail;      // chrome notice strip (see setNotice)
     float       m_noticeH = 0.f;               // 0 = no strip, and it costs no content space
+    std::string m_noticeWrap, m_noticeDetailWrap;   // the two, wrapped to the window width
+    bool        m_noticeInline = true;         // detail fits beside the notice on its one line
     uint8_t     m_noticeAccent[4] = {255, 159, 10, 255};   // Warning by default
 
+    // THE NOTICE WRAPS and the strip grows to hold it. It was one line clipped at the window width,
+    // so a long notice (or its detail) was cut off mid-sentence. Short ones keep the detail beside
+    // the notice; long ones put it on the lines below. Re-run on every width change (layoutDocks).
+    void _layoutNotice() {
+        if (m_notice.empty()) { m_noticeH = 0.f; m_noticeWrap.clear(); m_noticeDetailWrap.clear(); return; }
+        const float base = JStyle::current().buttonHeight + 4.f;
+        if (!JTextHelper::hasAtlas() || m_w == 0) {   // nothing to measure against yet
+            m_noticeH = base; m_noticeWrap = m_notice; m_noticeDetailWrap = m_noticeDetail; m_noticeInline = true;
+            return;
+        }
+        const float avail = std::max(1.f, static_cast<float>(m_w) - 28.f);
+        m_noticeInline = m_noticeDetail.empty()
+            || JTextHelper::measureWidth(m_notice) + 12.f + JTextHelper::measureWidth(m_noticeDetail) <= avail;
+        m_noticeWrap       = JTextHelper::wrapToWidth(m_notice, avail);
+        m_noticeDetailWrap = m_noticeInline ? m_noticeDetail : JTextHelper::wrapToWidth(m_noticeDetail, avail);
+        const auto count = [](const std::string& t) { return t.empty() ? 0.f : 1.f + static_cast<float>(std::count(t.begin(), t.end(), '\n')); };
+        const float lines = count(m_noticeWrap) + (m_noticeInline ? 0.f : count(m_noticeDetailWrap));
+        const float lh = JTextHelper::lineHeight();
+        m_noticeH = std::max(base, lines * lh + (base - lh));
+    }
+
     void layoutDocks() {
+        _layoutNotice();   // its height depends on the width, and it sits above the dock space
         const float top = contentTop();
         // Inset by the resize band on the sides, and along the bottom too when no status bar already
         // covers it. Without this the dock space ran under the band and every scroll bar, splitter and
@@ -1132,13 +1157,21 @@ private:
             buf.pushRectangle(0.f, y + m_noticeH - 1.f, W, 1.f, sep, 0.f);
             if (JTextHelper::hasAtlas()) {
                 const float lh = JTextHelper::lineHeight();
-                const float ty = y + (m_noticeH - lh) * 0.5f;
-                JTextHelper::pushText(buf, 14.f, ty, m_notice, m_noticeAccent, W - 28.f);
-                if (!m_noticeDetail.empty()) {
-                    const float dx = 14.f + JTextHelper::measureWidth(m_notice) + 12.f;
-                    if (dx < W - 20.f)
-                        JTextHelper::pushText(buf, dx, ty, m_noticeDetail,
-                                              Colors::TextSecondary, W - dx - 14.f);
+                const auto count = [](const std::string& t) { return t.empty() ? 0.f : 1.f + static_cast<float>(std::count(t.begin(), t.end(), '\n')); };
+                const float nLines = count(m_noticeWrap);
+                const float lines  = nLines + (m_noticeInline ? 0.f : count(m_noticeDetailWrap));
+                const float ty = y + (m_noticeH - lines * lh) * 0.5f;
+                JTextHelper::pushText(buf, 14.f, ty, m_noticeWrap, m_noticeAccent, W - 28.f);
+                if (!m_noticeDetailWrap.empty()) {
+                    if (m_noticeInline) {
+                        const float dx = 14.f + JTextHelper::measureWidth(m_notice) + 12.f;
+                        if (dx < W - 20.f)
+                            JTextHelper::pushText(buf, dx, ty, m_noticeDetailWrap,
+                                                  Colors::TextSecondary, W - dx - 14.f);
+                    } else {
+                        JTextHelper::pushText(buf, 14.f, ty + nLines * lh, m_noticeDetailWrap,
+                                              Colors::TextSecondary, W - 28.f);
+                    }
                 }
             }
         }
@@ -1640,7 +1673,7 @@ private:
             const int dlgW = static_cast<int>(isFile ? JFileDialogWindow::kW : JNativeDialogWindow::kW);
             const int dlgH = static_cast<int>(isFile ? JFileDialogWindow::calcHeight()
                                                      : JNativeDialogWindow::calcHeight(req->kind, opts, req->imageHeight,
-                                                     1u + (size_t)std::count(req->body.begin(), req->body.end(), '\n')));
+                                                     JNativeDialogWindow::bodyLines(req->body)));
             const int cW = static_cast<int>(m_w), cH = static_cast<int>(m_h);
             // Ask the windowing system where we ARE, not where we last heard we were: on a fresh session no
             // configure event has arrived yet, the cached origin is still 0, and "centre on the parent"

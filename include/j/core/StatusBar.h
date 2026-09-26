@@ -84,8 +84,11 @@ public:
         const std::string& t = text();
         if (JTextHelper::hasAtlas() && !t.empty()) {
             uint8_t tc[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, tc);
+            // A ONE-LINE STRIP: the message stops where the readout and widgets begin rather than
+            // running under them (it was drawn with no width at all).
             JTextHelper::pushText(buf, m_rect.x + 10.f,
-                                  m_rect.y + (h - JTextHelper::lineHeight()) * 0.5f, t, tc);
+                                  m_rect.y + (h - JTextHelper::lineHeight()) * 0.5f, t, tc,
+                                  std::max(1.f, m_freeRight - (m_rect.x + 10.f)));
         }
         // Live readout on the right (refreshed by m_liveTimer), then widgets to its left.
         if (JTextHelper::hasAtlas() && !m_liveText.empty()) {
@@ -115,6 +118,7 @@ private:
             it->x = x;
             x -= kGap;
         }
+        m_freeRight = x;
     }
 
     struct WItem { JWidget* w; float width, x; };
@@ -129,6 +133,7 @@ private:
     JTimer               m_liveTimer;
     std::string          m_liveText;
     float                m_liveX{0.f};
+    float                m_freeRight{0.f};   // right edge of the space the message may use
     static constexpr float kPad = 8.f, kGap = 6.f;
 };
 

@@ -57,8 +57,8 @@ public:
                        int screenX, int screenY,
                        NativeWinHandleType parentWindow = {})
         : m_req(std::move(req))
-        , m_winH(_calcHeight(m_req.kind, m_req.options, m_req.imageHeight,
-                             _countLines(m_req.body)))
+        , m_body(JTextHelper::wrapToWidth(m_req.body, kBodyW))
+        , m_winH(_calcHeight(m_req.kind, m_req.options, m_req.imageHeight, _countLines(m_body)))
         , m_window(std::make_unique<PlatformWinType>(
               m_req.title.c_str(), kW, m_winH, screenX, screenY,
               JPlatformWindowStyle::Borderless,  // WM-managed: gets proper keyboard focus
@@ -140,6 +140,13 @@ public:
 
     bool isDone()  const { return m_done; }
     bool isModal() const { return m_req.options.modal; }
+
+    // THE BODY WRAPS. It is drawn at kBodyW and pushText clips at the width it is given, so a line longer
+    // than the box was cut off mid-sentence — and the height, counted from '\n' alone, never made room
+    // for the lines it should have become. Every body is broken at spaces to kBodyW, and the height is
+    // counted from the wrapped text; callers sizing the window ask bodyLines() for the same count.
+    static constexpr float kBodyW = static_cast<float>(kW) - 32.f;
+    static size_t bodyLines(const std::string& body) { return _countLines(JTextHelper::wrapToWidth(body, kBodyW)); }
 
     // Height calculation is public so main.cpp can compute the initial Y position.
     static uint32_t calcHeight(JDialogRequest::JKind k, const JDialogOptions& opts,
@@ -269,8 +276,8 @@ private:
         // Body text
         float ty = contentY + 16.f;
         uint8_t sc[4]; std::copy(Colors::TextSecondary, Colors::TextSecondary + 4, sc);
-        JTextHelper::pushText(buf, 16.f, ty, m_req.body, sc, W - 32.f);
-        ty += lh + 10.f;
+        JTextHelper::pushText(buf, 16.f, ty, m_body, sc, W - 32.f);
+        ty += lh * static_cast<float>(_countLines(m_body)) + 10.f;   // below the LAST line, not the first
 
         // Input field
         if (needsInput) {
@@ -338,6 +345,7 @@ private:
     }
 
     JDialogRequest                    m_req;
+    std::string                       m_body;     // m_req.body wrapped to kBodyW (before m_winH: it sizes it)
     uint32_t                         m_winH;
     std::unique_ptr<PlatformWinType> m_window;
     // The request's picture, uploaded once into this window's own HAL.

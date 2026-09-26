@@ -21,6 +21,8 @@
 #include <j/core/JProgressBar.h>
 #include <j/core/JStyle.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -39,6 +41,7 @@ public:
         m_what = std::make_unique<JLabel>(graph(), what, cw);
         m_bar  = std::make_unique<JProgressBar>(graph(), cw, JStyle::current().progressHeight);
         m_note = std::make_unique<JLabel>(graph(), "starting\xE2\x80\xA6", cw);
+        m_what->setWordWrap(true); m_note->setWordWrap(true);
         add(m_what.get()); add(m_bar.get()); add(m_note.get());
         s_active = this;
     }
@@ -65,10 +68,17 @@ protected:
     void layout(float w, float) override {
         const JStyle& st = JStyle::current();
         const float x = pad(), cw = w - 2 * pad(), gap = 3 * st.spacing;
+        // THE TWO LINES WRAP and the window grows to hold them. A long file name or an error note was
+        // one line clipped at the dialog's width; now each takes the lines it needs, and the window
+        // is kH plus whatever they need beyond one line each.
+        const float whatH = std::max(st.labelHeight, m_what->heightFor(cw));
+        const float noteH = std::max(st.labelHeight, m_note->heightFor(cw));
+        const uint32_t wantH = kH + static_cast<uint32_t>(std::ceil(whatH + noteH - 2.f * st.labelHeight));
+        if (wantH != m_askedH) { m_askedH = wantH; window().setSize(kW, wantH); }   // once per change, not per frame
         float y = contentTop();
-        m_what->setBounds({ x, y, cw, st.labelHeight });    y += st.labelHeight + gap;
+        m_what->setBounds({ x, y, cw, whatH });             y += whatH + gap;
         m_bar ->setBounds({ x, y, cw, st.progressHeight }); y += st.progressHeight + gap;
-        m_note->setBounds({ x, y, cw, st.labelHeight });
+        m_note->setBounds({ x, y, cw, noteH });
     }
 
 private:
@@ -77,6 +87,7 @@ private:
     inline static JProgressDialog* s_active = nullptr;
     std::unique_ptr<JLabel>       m_what, m_note;
     std::unique_ptr<JProgressBar> m_bar;
+    uint32_t                      m_askedH = kH;   // the height last asked of the window
 };
 
 } // inline namespace jf

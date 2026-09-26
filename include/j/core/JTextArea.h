@@ -295,7 +295,8 @@ public:
             const uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 220};
             if (text.empty() && !m_placeholder.empty()) {
                 uint8_t pc[4] = {Colors::FieldPlaceholder[0], Colors::FieldPlaceholder[1], Colors::FieldPlaceholder[2], 160};
-                JTextHelper::pushText(buf, innerX, innerY, m_placeholder, pc, innerW);
+                // Wrapped: the area is already many lines tall, so a sentence of hint needs no clipping.
+                JTextHelper::pushText(buf, innerX, innerY, JTextHelper::wrapToWidth(m_placeholder, innerW), pc, innerW);
             } else {
                 for (size_t i = 0; i < rows.size(); ++i) {
                     const float lineY = innerY + i * lh - m_scrollOffset;
