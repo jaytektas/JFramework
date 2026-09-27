@@ -1658,6 +1658,19 @@ private:
                 // idx+1). Popping back() here would wrongly drop the child and leave the DONE parent lingering,
                 // re-polled next frame against a torn-down state (the intermittent Open-ECU crash).
                 if (idx < m_modalStack.size()) {
+                    // A CHILD OPENED FROM ITS PARENT'S LAST ACT OUTLIVES IT. The child was parented to the
+                    // modal on top — this one — which is now closing. Windows DESTROYS a window's owned
+                    // windows with it, so the child vanished the moment it appeared, while the code driving
+                    // it carried on: a dialog's accept that opened a progress window ran a whole firmware
+                    // flash behind a window that no longer existed. Hand the child to this modal's own
+                    // parent first. (X11 keeps a transient whose parent went, so there is nothing to do.)
+#if defined(_WIN32)
+                    const uintptr_t newOwner = idx > 0 ? m_modalStack[idx - 1].handle : m_window->rawWindowId();
+                    for (size_t c = idx + 1; c < m_modalStack.size(); ++c)
+                        if (m_modalStack[c].handle)
+                            SetWindowLongPtrW(reinterpret_cast<HWND>(m_modalStack[c].handle), GWLP_HWNDPARENT,
+                                              static_cast<LONG_PTR>(newOwner));
+#endif
                     if (m_modalStack[idx].destroy) m_modalStack[idx].destroy(*m_hal);
                     m_modalStack.erase(m_modalStack.begin() + idx);
                 }
