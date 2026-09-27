@@ -153,7 +153,10 @@ public:
         if (!ke.pressed) return false;
         m_core.setCopyEnabled(!_masked());   // masked field: don't lift the text to the clipboard
         const auto res = m_core.handleKey(ke);
-        if (res.returnPressed) { _enforceValidatorOnCommit(); onReturnPressed.emit(); return true; }
+        // RETURN IS NOT KEPT. The field does its part (commit, onReturnPressed) and lets the key go on, as Qt's
+        // line edit does, so in a dialog it reaches the default button: type a name, press Return, and the
+        // dialog accepts. Kept here, Return in any dialog's field did nothing at all.
+        if (res.returnPressed) { _enforceValidatorOnCommit(); onReturnPressed.emit(); m_graph.invalidateNode(m_nodeId, DirtySelf); return false; }
         if (res.changed)       { m_graph.invalidateNode(m_nodeId, DirtySelf); onTextChanged.emit(m_core.text()); notifyAccessibility(); }
         else if (res.consumed) { m_graph.invalidateNode(m_nodeId, DirtySelf); }   // caret / selection moved
         return res.consumed;

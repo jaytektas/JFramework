@@ -43,6 +43,7 @@
 #include <j/core/JStyle.h>
 #include <j/core/JTitleBar.h>
 #include <j/core/JCloseButton.h>
+#include <j/core/JDialogButtonBox.h>
 #include <j/core/JTextHelper.h>
 #include <j/core/FocusManager.h>
 #include <j/core/SceneGraph.h>
@@ -119,6 +120,13 @@ public:
             if (onKey(ke)) { if (m_done) return false; continue; }   // the dialog's own keys win
             _refreshFocus();
             if (jRouteKey(ke, m_focus)) continue;                    // focused control, then Tab
+            // Then the dialog's button row: Return accepts, Escape rejects. A field that has done its part
+            // with Return lets it go on (JLineEdit, JListView), so it lands here, as a dialog's default
+            // button does in any toolkit.
+            bool boxed = false;
+            for (JWidget* w : m_widgets)
+                if (auto* box = dynamic_cast<JDialogButtonBox*>(w); box && box->handleKeyEvent(ke)) { boxed = true; break; }
+            if (boxed) { if (m_done) return false; continue; }
             if (ke.key == JKeyEvent::JKey::Escape) return false;
         }
 

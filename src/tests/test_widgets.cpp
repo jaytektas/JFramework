@@ -542,7 +542,8 @@ void test_spinbox_text_editing() {
     assert(press(JKeyEvent::JKey::Backspace));
     assert(ch('7'));
     assert(spin.text() == "12.7");
-    assert(press(JKeyEvent::JKey::Return));
+    // Return commits, and is NOT kept: it goes on to the window, so in a dialog it reaches the default button.
+    assert(!press(JKeyEvent::JKey::Return));
     assert(spin.value() == 12.7);
     // Return leaves you IN the field with the caret where it was -- re-selecting the whole value would mean the
     // next keystroke silently wiped it.
@@ -568,7 +569,7 @@ void test_spinbox_text_editing() {
     assert(ch('8'));                       // replaces the selection Escape left
     assert(ch('.')); assert(ch('5'));
     assert(spin.text() == "8.5");
-    assert(press(JKeyEvent::JKey::Return));
+    assert(!press(JKeyEvent::JKey::Return));   // commits, and goes on to the window
     assert(spin.value() == 8.5);
 
     // Ctrl+C lifts the selected text to the clipboard -- what copying a value out of a properties panel needs.
@@ -612,7 +613,7 @@ void test_spinbox_text_editing() {
     ke.utf8[0] = '7';
     assert(ispin.handleKeyEvent(ke));
     ke.key = JKeyEvent::JKey::Return; ke.utf8[0] = '\0';
-    assert(ispin.handleKeyEvent(ke));
+    assert(!ispin.handleKeyEvent(ke));    // Return commits, and goes on to the window
     assert(ispin.value() == 427);          // appended a digit instead of replacing the value
 
     std::cout << "test_spinbox_text_editing passed" << std::endl;

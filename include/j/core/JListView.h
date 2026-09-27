@@ -181,7 +181,10 @@ public:
             if (isItemEnabled(m_selectedIndex)) {
                 onItemActivated.emit(m_selectedIndex);
             }
-            return true;
+            // Return goes on to the window after activating (Qt's item views do the same), so in a dialog it
+            // also reaches the default button: pick a row, press Return, the dialog accepts. Space is the
+            // list's alone.
+            return ke.key == K::Space;
         }
         return false;
     }

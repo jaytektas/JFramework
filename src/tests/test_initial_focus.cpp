@@ -9,6 +9,7 @@
 #include <j/core/FocusManager.h>
 #include <j/core/JLineEdit.h>
 #include <j/core/JDialogButtonBox.h>
+#include <j/core/JListView.h>
 #include <cstdio>
 
 static int fails = 0;
@@ -86,6 +87,25 @@ int main() {
         focus.focusFirst();
         focus.nextFocus();
         check(focus.focused() == cancel, "Tab from the field goes to the row's first button");
+    }
+
+    std::puts("6. Return in a field or a list does its part and goes on to the default button");
+    {
+        jf::JSceneGraph g;
+        jf::JLineEdit name(g, "");
+        bool fired = false;
+        name.onReturnPressed.connect([&fired] { fired = true; });
+        jf::JKeyEvent ret; ret.key = jf::JKeyEvent::JKey::Return; ret.pressed = true;
+        const bool kept = name.handleKeyEvent(ret);
+        check(fired && !kept, "a line edit emits onReturnPressed and lets Return go on");
+
+        jf::JListView list(g, { "one", "two" });
+        list.setSelectedIndex(1);
+        int activated = -1;
+        list.onItemActivated.connect([&activated](int i) { activated = i; });
+        check(!list.handleKeyEvent(ret) && activated == 1, "a list activates its row and lets Return go on");
+        jf::JKeyEvent space; space.key = jf::JKeyEvent::JKey::Space; space.pressed = true;
+        check(list.handleKeyEvent(space), "Space stays the list's own");
     }
 
     std::printf(fails ? "\n%d FAILED\n" : "\nall passed\n", fails);
