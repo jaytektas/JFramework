@@ -46,14 +46,30 @@ public:
     jf::JSignal<> onAccept;
     jf::JSignal<> onReject;
 
+    // The buttons are placed the moment the row has a place (and again when one is added), not first when
+    // it paints. Placing them only at paint time left them at (0,0) for the window's first frame — which is
+    // when the window gives its first focus, in reading order, so the first-declared button won it: Return
+    // on open cancelled a form, discarded unsaved changes, or started a firmware update.
     explicit JDialogButtonBox(JSceneGraph& graph, JDialogOptions opts = {})
-        : JWidget(graph, "JDialogButtonBox"), m_opts(opts) {}
+        : JWidget(graph, "JDialogButtonBox"), m_opts(opts) {
+        onGeometryChanged.connect([this] { _layout(); });
+    }
 
     JButton* addButton(const std::string& label, Role role, float w = 84.f) {
         auto* b = adopt(std::make_unique<JButton>(m_graph, label, w, JStyle::current().buttonHeight));
         b->onClicked.connect([this, role] { _fire(role); });
         m_buttons.push_back({ b, role });
+        _layout();
         return b;
+    }
+
+    // A dialog opens in its own content; the row takes the first focus only when nothing else can, and then
+    // on the safe default: Accept (Return's button anyway), else Reject. Never Destructive or Action.
+    JWidget* initialFocusFallback() override {
+        for (Role want : { Role::Accept, Role::Reject })
+            for (const auto& e : m_buttons)
+                if (e.role == want && e.btn->isEnabled() && e.btn->isVisibleSelf()) return e.btn;
+        return this;   // non-null all the same: the row's buttons never win the first pick
     }
 
     // Natural width of the row, so a dialog can size/position its footer without knowing the layout rules.

@@ -255,6 +255,7 @@ if(GENESIS_BUILD_TESTS)
 
     add_genesis_test(test_dock_placement   src/tests/test_dock_placement.cpp)
     add_genesis_test(test_focus_stack      src/tests/test_focus_stack.cpp)
+    add_genesis_test(test_initial_focus    src/tests/test_initial_focus.cpp)
     add_genesis_test(test_signal           src/tests/test_signal.cpp)
     add_genesis_test(test_update           src/tests/test_update.cpp)
     add_genesis_test(test_application      src/tests/test_application.cpp)

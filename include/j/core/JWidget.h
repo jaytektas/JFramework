@@ -487,6 +487,12 @@ public:
     virtual bool isFocusable() const { return m_focusPolicy & JFocusPolicy::TabFocus; }
     // Takes focus on a mouse press.
     bool acceptsClickFocus() const { return m_focusPolicy & JFocusPolicy::ClickFocus; }
+    // WHERE A WINDOW'S FIRST FOCUS GOES (JFocusManager::focusFirst). A container that returns non-null here
+    // keeps its children out of the first pick: if any other control in the window can take focus, that
+    // control gets it; only when none can does the window focus the child this names. A dialog's button
+    // row is the case — the keyboard should open in the dialog's field, and a dialog of buttons alone
+    // should open on its safe default, never on whichever button happened to be declared first.
+    virtual JWidget* initialFocusFallback() { return nullptr; }
 
     // ------------------------------------------------------------------
     // Visibility nuance + opacity.

@@ -170,14 +170,7 @@ public:
         m_order.clear();
         std::unordered_set<const JWidget*> seen;
         for (JWidget* root : m_roots) if (root) _collect(root, seen);
-        constexpr float kRowBand = 6.0f;
-        std::stable_sort(m_order.begin(), m_order.end(), [](JWidget* a, JWidget* b) {
-            const auto ba = a->getBoundingBox(), bb = b->getBoundingBox();
-            const float dy = ba.y - bb.y;
-            if (dy < -kRowBand) return true;
-            if (dy >  kRowBand) return false;
-            return ba.x < bb.x;
-        });
+        std::stable_sort(m_order.begin(), m_order.end(), _readingOrder);
         // The focused widget left the order: its page hid, or its dock tabbed behind. Clear it PROPERLY --
         // nulling the pointer alone leaves the widget flagged focused, so it keeps painting a focus ring for
         // ever and the next focus produces a second one. A DESTROYED widget never reaches here: it is dropped
@@ -215,8 +208,21 @@ public:
 
     // Give a freshly-opened window its initial focus: the first widget in reading order. Every toolkit
     // focuses something when a window opens — without it the keyboard does nothing until the user clicks.
+    //
+    // A subtree whose root names an initialFocusFallback() (a dialog's button row) is left out of that first
+    // pick, so a dialog opens in its field rather than on a button; with nothing else to take it, the focus
+    // goes to the widget the row names (its Accept button, else its Reject), never to a destructive one.
     void focusFirst() {
         syncOrder();
+        std::vector<JWidget*> pick, fallbacks;
+        std::unordered_set<const JWidget*> seen;
+        for (JWidget* root : m_roots) if (root) _collectFirst(root, seen, pick, fallbacks);
+        std::stable_sort(pick.begin(), pick.end(), _readingOrder);
+        const auto inOrder = [this](JWidget* w) {
+            return w && std::find(m_order.begin(), m_order.end(), w) != m_order.end();
+        };
+        if (!pick.empty()) { setFocus(pick.front()); return; }
+        for (JWidget* f : fallbacks) if (inOrder(f)) { setFocus(f); return; }
         if (!m_order.empty()) setFocus(m_order.front());
     }
 
@@ -237,6 +243,29 @@ private:
         std::vector<JWidget*> kids;
         w->collectChildren(kids);
         for (JWidget* k : kids) _collectInto(k, seen, out);
+    }
+
+    // Reading order: rows top to bottom (within a few pixels counts as one row), then left to right.
+    static bool _readingOrder(JWidget* a, JWidget* b) {
+        constexpr float kRowBand = 6.0f;
+        const auto ba = a->getBoundingBox(), bb = b->getBoundingBox();
+        const float dy = ba.y - bb.y;
+        if (dy < -kRowBand) return true;
+        if (dy >  kRowBand) return false;
+        return ba.x < bb.x;
+    }
+
+    // The walk focusFirst() picks from: _collect's rules, except that a subtree naming an initial-focus
+    // fallback is not descended — its fallback is noted instead.
+    void _collectFirst(JWidget* w, std::unordered_set<const JWidget*>& seen,
+                       std::vector<JWidget*>& out, std::vector<JWidget*>& fallbacks) {
+        if (!w || !seen.insert(w).second) return;
+        if (!w->isVisibleSelf() || w->isScanExcludedSelf()) return;
+        if (JWidget* f = w->initialFocusFallback()) { fallbacks.push_back(f); return; }
+        if (w->isFocusable() && w->isEnabled()) out.push_back(w);
+        std::vector<JWidget*> kids;
+        w->collectChildren(kids);
+        for (JWidget* k : kids) _collectFirst(k, seen, out, fallbacks);
     }
 
     void _collect(JWidget* w, std::unordered_set<const JWidget*>& seen) {
