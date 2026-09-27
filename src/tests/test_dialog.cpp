@@ -124,6 +124,32 @@ static void test_execute_action() {
     std::cout << "  [OK] JDialogManager::executeAction(\"ok\") fires callback\n";
 }
 
+// The tick box: a BUTTON answer carries the tick (the window reports it through onCheck first); closing
+// the window answers no and never carries a tick, whatever the box showed.
+static void test_confirm_with_check() {
+    _clearDialogs();
+    int calls = 0; bool yes = false, ticked = false;
+    auto answer = [&](bool y, bool t) { ++calls; yes = y; ticked = t; };
+
+    JDialog::confirmWithCheck("Update?", "Body", "Don't ask about 0.2.0 again", answer);
+    auto* req = JDialogManager::instance().front();
+    assert(req && req->kind == JDialogRequest::JKind::Confirm);
+    assert(req->options.checkLabel == "Don't ask about 0.2.0 again");
+    req->onCheck(true); req->onCancel(); JDialogManager::instance().pop();      // ticked, then Not now
+    assert(calls == 1 && !yes && ticked);
+
+    JDialog::confirmWithCheck("Update?", "Body", "x", answer);
+    req = JDialogManager::instance().front();
+    req->onCheck(false); req->onOk(); JDialogManager::instance().pop();         // unticked, then Update
+    assert(calls == 2 && yes && !ticked);
+
+    JDialog::confirmWithCheck("Update?", "Body", "x", answer);
+    req = JDialogManager::instance().front();
+    req->onCancel(); JDialogManager::instance().pop();                          // closed: no onCheck at all
+    assert(calls == 3 && !yes && !ticked);
+    std::cout << "  [OK] confirmWithCheck() reports the tick only with a button answer\n";
+}
+
 int main() {
     std::cout << "JDialog tests:\n";
     test_message_queues();
@@ -134,6 +160,7 @@ int main() {
     test_render_message_dialog_draws_overlay();
     test_render_ok_click_dismisses();
     test_execute_action();
+    test_confirm_with_check();
     std::cout << "All JDialog tests passed.\n";
     return 0;
 }

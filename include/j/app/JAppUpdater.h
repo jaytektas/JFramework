@@ -28,6 +28,7 @@
 
 #include <j/app/JAppWindow.h>
 #include <j/app/JProgressDialog.h>
+#include <j/config/Settings.h>
 #include <j/core/Dialog.h>
 #include <j/core/Log.h>
 #include <j/io/HttpClient.h>
@@ -85,7 +86,15 @@ public:
                 << "update check: " << releasesUrl() << " -> status " << r.status
                 << (r.error.empty() ? "" : " (" + r.error + ")") << ", latest '" << rel.tag << "'";
             switch (rel.kind) {
-            case JRelease::JKind::NewerAvailable: offer(rel); break;
+            case JRelease::JKind::NewerAvailable:
+                // "Don't ask about <version> again" was ticked for this one. Asked for by hand, it is
+                // offered anyway — that is someone asking — and a newer release is offered as usual.
+                if (!manual && JSettings::instance().get<std::string>(kSkipKey, "") == rel.version) {
+                    JLOGC("updates", JLogLevel::Info) << m_cfg.appName << " " << rel.version << " is skipped";
+                    break;
+                }
+                offer(rel);
+                break;
             case JRelease::JKind::UpToDate:
                 if (manual) m_win.showStatus(m_cfg.appName + " is up to date (" + m_cfg.version + ")", kStatusMs);
                 break;
@@ -114,6 +123,7 @@ public:
 private:
     static constexpr int kStatusMs   = 6000;
     static constexpr int kCheckingMs = 15000;
+    static constexpr const char* kSkipKey = "updates.skipVersion";   // the release not to offer again
 
     void offer(const JRelease& rel) {
         const std::string head = m_cfg.appName + " " + rel.version + " is available. You have " + m_cfg.version + ".";
@@ -128,8 +138,19 @@ private:
         } else {
             const std::string size = rel.assetSize > 0
                 ? " (" + std::to_string((rel.assetSize + 1024 * 1024 - 1) / (1024 * 1024)) + " MB)" : "";
-            JDialog::confirm(title, head + "\n\nDownload and install it now" + size + "?",
-                             [this, rel] { download(rel); }, {}, yesNo());
+            // [ ] Don't ask about <version> again      [Not now] [Update]. Ticked with Not now, this release
+            // is not offered again at startup; the next one is. Ticked with Update, there is nothing to skip.
+            JDialogOptions o; o.okLabel = "Update"; o.cancelLabel = "Not now";
+            JDialog::confirmWithCheck(title, head + "\n\nDownload and install it now" + size + "?",
+                "Don't ask about " + rel.version + " again",
+                [this, rel](bool yes, bool ticked) {
+                    if (yes) { download(rel); return; }
+                    if (ticked) {
+                        JSettings::instance().set(kSkipKey, rel.version);
+                        m_win.showStatus(m_cfg.appName + " " + rel.version + " will not be offered again "
+                                         "\xE2\x80\x94 Check now still finds it", kStatusMs);
+                    }
+                }, o);
         }
     }
 

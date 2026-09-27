@@ -84,6 +84,12 @@ struct JDialogOptions {
     bool  okOnRight         = true;   // false = OK left, Cancel right (legacy/Linux convention)
     std::string okLabel     = "OK";
     std::string cancelLabel = "Cancel";
+
+    // --- A tick box at the left of the button row ---------------------------
+    // "[ ] Remember my choice      [Cancel] [OK]". Empty: no tick box. Only a BUTTON answer reports it
+    // (JDialogRequest::onCheck, just before onOk / onCancel): closing the window or Escape is not a
+    // choice to keep, so they report nothing. Drawn by the native dialog window.
+    std::string checkLabel;
 };
 
 // ---- JDialogRequest ---------------------------------------------------------
@@ -112,6 +118,7 @@ struct JDialogRequest {
     std::function<void()>               onOk;
     std::function<void()>               onCancel;
     std::function<void(std::string)>    onInput;
+    std::function<void(bool)>           onCheck;   // the tick box's state, when a button answered (options.checkLabel)
 };
 
 // ---- JDialogManager ---------------------------------------------------------
@@ -424,6 +431,25 @@ public:
         req.title = title; req.body = body;
         req.options = opts;
         req.onOk = std::move(onDismiss);
+        JDialogManager::instance().push(std::move(req));
+    }
+
+    // ---- Confirm with a tick box ---------------------------------------------
+    // A yes/no question with "[ ] <checkLabel>" at the left of the buttons. onAnswer(yes, ticked): ticked
+    // is only ever true for a button press — closing the window answers no, unticked.
+    static void confirmWithCheck(const std::string& title, const std::string& body,
+                                 const std::string& checkLabel,
+                                 std::function<void(bool yes, bool ticked)> onAnswer,
+                                 JDialogOptions opts = {}) {
+        auto ticked = std::make_shared<bool>(false);
+        JDialogRequest req;
+        req.kind = JDialogRequest::JKind::Confirm;
+        req.title = title; req.body = body;
+        req.options = opts;
+        req.options.checkLabel = checkLabel;
+        req.onCheck  = [ticked](bool t) { *ticked = t; };
+        req.onOk     = [ticked, onAnswer] { if (onAnswer) onAnswer(true,  *ticked); };
+        req.onCancel = [ticked, onAnswer] { if (onAnswer) onAnswer(false, *ticked); };
         JDialogManager::instance().push(std::move(req));
     }
 

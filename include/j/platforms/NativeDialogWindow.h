@@ -175,6 +175,11 @@ private:
         m_done = true;
     }
 
+    // A button answered: the tick box, if there is one, says what it was first.
+    void _reportCheck() {
+        if (!m_req.options.checkLabel.empty() && m_req.onCheck) m_req.onCheck(m_checked);
+    }
+
     void _handleKeys() {
         const auto& opts      = m_req.options;
         const bool needsInput = (m_req.kind == JDialogRequest::JKind::Input);
@@ -195,6 +200,7 @@ private:
                 if      (ke.key == kb.nextBtn)                      { m_focusedBtn = (m_focusedBtn + 1) % n; }
                 else if (ke.key == kb.prevBtn)                      { m_focusedBtn = (m_focusedBtn + n - 1) % n; }
                 else if (ke.key == kb.accept || ke.key == K::Space) {
+                    _reportCheck();
                     if (m_focusedBtn == 0) { if (m_req.onOk) m_req.onOk(); _dismiss("ok"); }
                     else                   { if (m_req.onCancel) m_req.onCancel(); _dismiss("cancel"); }
                     return;
@@ -311,6 +317,19 @@ private:
             okX     = hasCancel ? W - btnW * 2.f - 20.f : (W - btnW) * 0.5f;
         }
 
+        // The tick box, at the left of the same row: a box and its label, both of them the click target.
+        if (!opts.checkLabel.empty()) {
+            const float box = 16.f, bx = 16.f, by = btnY + (btnH - box) * 0.5f;
+            const float lw = JTextHelper::measureWidth(opts.checkLabel.c_str());
+            const bool hovCheck = (m_mx >= bx && m_mx < bx + box + 8.f + lw && m_my >= btnY && m_my < btnY + btnH);
+            if (m_pressed && hovCheck) m_checked = !m_checked;
+            buf.pushRectangle(bx, by, box, box, Colors::InputFieldBg, 3.f, hovCheck ? 2.f : 1.5f,
+                              hovCheck ? Colors::Accent : Colors::Border);
+            if (m_checked) buf.pushRectangle(bx + 4.f, by + 4.f, box - 8.f, box - 8.f, Colors::Accent, 2.f);
+            JTextHelper::pushText(buf, bx + box + 8.f, btnY + (btnH - lh) * 0.5f, opts.checkLabel,
+                                  Colors::TextSecondary);
+        }
+
         bool hovOk = (m_mx >= okX && m_mx < okX + btnW && m_my >= btnY && m_my < btnY + btnH);
         bool kbOk  = !needsInput && (m_focusedBtn == 0);
         uint8_t okBg[4] = {Colors::PrimaryBtnBg[0], Colors::PrimaryBtnBg[1], Colors::PrimaryBtnBg[2],
@@ -323,7 +342,7 @@ private:
                              btnY + (btnH - lh) * 0.5f, okLbl, Colors::PrimaryBtnText);
         if (m_pressed && hovOk) {
             if (needsInput) { if (m_req.onInput) m_req.onInput(m_inputText); }
-            else             { if (m_req.onOk)   m_req.onOk(); }
+            else             { _reportCheck(); if (m_req.onOk) m_req.onOk(); }
             _dismiss("ok"); return;
         }
 
@@ -338,6 +357,7 @@ private:
             JTextHelper::pushText(buf, cancelX + (btnW - JTextHelper::measureWidth(cancelLbl.c_str())) * 0.5f,
                                  btnY + (btnH - lh) * 0.5f, cancelLbl, Colors::CancelBtnText);
             if (m_pressed && hovCancel) {
+                _reportCheck();
                 if (m_req.onCancel) m_req.onCancel();
                 _dismiss("cancel"); return;
             }
@@ -360,6 +380,7 @@ private:
     float                            m_dragAnchorX{0}, m_dragAnchorY{0};
     std::string                      m_inputText;
     int                              m_focusedBtn{0};
+    bool                             m_checked{false};   // the tick box (options.checkLabel)
     float                            m_mx{0}, m_my{0};
     bool                             m_pressed{false}, m_held{false};
     std::vector<JKeyEvent>            m_keys;
