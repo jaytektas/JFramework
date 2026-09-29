@@ -174,6 +174,16 @@ public:
     bool valid() const { return m_window && m_hal; }
 
     JPlatformWindow& window() { return *m_window; }
+
+    // THE TITLE THE USER SEES. The window is borderless and draws its own title bar from m_title, so
+    // setting the platform window's title changed only what the taskbar says: an app that put the open
+    // document and the connected device in its title never showed either. This sets both.
+    void setTitle(const std::string& title) {
+        if (title == m_title) return;
+        m_title = title;
+        if (m_window) m_window->setTitle(title);
+    }
+    const std::string& title() const { return m_title; }
     JGpuHal&         hal()    { return *m_hal; }
     void             requestClose() { m_window->requestClose(); }   // e.g. File▸Quit
 
