@@ -1748,9 +1748,36 @@ private:
             else ++it;
         }
         m_comboDismissed = nullptr;   // the guard is worth exactly one servicing pass
+        // WORK THAT WAITS FOR A CLEAR SCREEN (whenNoDialog), one item per pass: the item may open a dialog
+        // of its own, and the next must then wait for that one too.
+        if (!m_whenNoDialog.empty() && !hasDialog()) {
+            auto fn = std::move(m_whenNoDialog.front());
+            m_whenNoDialog.erase(m_whenNoDialog.begin());
+            if (fn) fn();
+        }
         return m_comboPopup != nullptr || m_colorDialog != nullptr || !m_modalStack.empty()
             || !m_dialogs.empty() || !m_fileDialogs.empty();
     }
+
+public:
+    // IS ANY DIALOG UP — an app modal (Preferences, a picker, a progress window), a message / confirm, a
+    // file dialog or the colour picker. A combo drop-down is not a dialog.
+    bool hasDialog() const {
+        return m_colorDialog != nullptr || !m_modalStack.empty() || !m_dialogs.empty() || !m_fileDialogs.empty()
+            || JDialogManager::instance().hasPending();
+    }
+    // RUN `fn` WHEN NO DIALOG IS UP — at once if none is, else on the first frame after the last one closes,
+    // in the order queued. For what the APP starts on its own (a firmware update offered on connect, a
+    // question about new pages, an update offer): opened while the user has Preferences up, it became a
+    // CHILD of Preferences — the whole update drawn on top of an unrelated settings dialog, with nothing to
+    // say which window was in charge. Queued, it opens over the main window once the screen is clear.
+    // What a dialog opens FROM ITSELF (a picker from Axis Setup) still nests, which is right.
+    void whenNoDialog(std::function<void()> fn) {
+        if (!fn) return;
+        if (!hasDialog() && m_whenNoDialog.empty()) { fn(); return; }
+        m_whenNoDialog.push_back(std::move(fn));
+    }
+private:
 
     static JPlatformCursor cursorForDir(int d) {
         switch (d) {
@@ -1915,6 +1942,7 @@ private:
         const char*                                      kind{nullptr};   // typeid name — see openModal's guard
     };
     std::vector<JModalEntry> m_modalStack;
+    std::vector<std::function<void()>> m_whenNoDialog;   // see whenNoDialog()
     JPopupWindow*                    m_comboCloseReq{nullptr};
     std::vector<JNativeDialogWindow> m_dialogs;
     std::vector<JFileDialogWindow>   m_fileDialogs;
