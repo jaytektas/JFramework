@@ -340,7 +340,8 @@ public:
     // surface) and returns false once the dialog has closed, at which point `destroy` is called.
     // The app owns the dialog object/lifetime; this only drives it. Used for Preferences, etc.
     void setModalDialog(std::function<bool(JGpuHal&, JPrimitiveBuffer&)> poll, std::function<void(JGpuHal&)> destroy,
-                        uintptr_t nativeHandle = 0, const char* kind = nullptr) {
+                        uintptr_t nativeHandle = 0, const char* kind = nullptr,
+                        std::function<bool()> closing = {}) {
         // The opener (main window, or a modal already on the stack) grabbed the pointer on the very
         // button-press that is opening this dialog, and — because it is about to be frozen out of the
         // pump (only the TOP of the stack polls) — will never see its own release to drop that grab.
@@ -354,7 +355,7 @@ public:
 #endif
         // nativeHandle = this modal's OWN window id; a nested child pushed later parents to it (see
         // _parentForChildModal) so the WM stacks the child above its opener rather than the root window.
-        m_modalStack.push_back({ std::move(poll), std::move(destroy), nativeHandle, kind });   // push: modals STACK, so a modal can open another (e.g. Axis Setup -> channel picker) without destroying its parent
+        m_modalStack.push_back({ std::move(poll), std::move(destroy), nativeHandle, kind, std::move(closing) });   // push: modals STACK, so a modal can open another (e.g. Axis Setup -> channel picker) without destroying its parent
     }
 
     // The parent window for a NEW modal: the modal currently on top of the stack (its opener) so the WM
@@ -390,7 +391,13 @@ public:
         // Refused by TYPE, and only against the TOP of the stack: a genuinely different child still opens,
         // and a picker that opens the same type deeper down (an editor reopening from within a dialog it
         // spawned) is unaffected.
-        if (!m_modalStack.empty() && m_modalStack.back().kind == typeid(T).name()) return;
+        //
+        // NOT AGAINST ONE ON ITS WAY OUT. A closed modal stays on the stack until the next pump takes it off,
+        // so "close this, open the next" in one frame — one progress window handing over to the next step's
+        // — was refused as a duplicate, and the next step ran with no window at all (a firmware update went
+        // from "Turn the ignition off" straight to flashing with nothing on screen).
+        if (!m_modalStack.empty() && m_modalStack.back().kind == typeid(T).name() &&
+            !(m_modalStack.back().closing && m_modalStack.back().closing())) return;
         m_window->refreshScreenPosition();   // see the dialog-placement note: the cached origin can be stale
         const int cx = m_window->screenX() + (static_cast<int>(m_w) - static_cast<int>(T::kW)) / 2;
         const int cy = m_window->screenY() + (static_cast<int>(m_h) - static_cast<int>(T::kH)) / 2;
@@ -398,8 +405,11 @@ public:
         auto dlg = std::make_shared<T>(std::forward<Args>(args)..., *m_hal, cx, cy,
                                        (typename T::NativeWinHandleType)(_parentForChildModal()));
         const uintptr_t handle = _lastCreatedNativeId();   // dlg just created its window -> its own id
+        std::function<bool()> closing;
+        if constexpr (requires { dlg->closing(); }) closing = [w = std::weak_ptr<T>(dlg)] {
+            const auto d = w.lock(); return !d || d->closing(); };
         setModalDialog([dlg](JGpuHal& h, JPrimitiveBuffer& b) { return dlg->pollAndRender(h, b); },
-                       [dlg](JGpuHal& h) { dlg->destroySurface(h); }, handle, typeid(T).name());
+                       [dlg](JGpuHal& h) { dlg->destroySurface(h); }, handle, typeid(T).name(), std::move(closing));
     }
 
     // The window's menu bar — built lazily on first call (reserves a 28px strip below the
@@ -1658,6 +1668,21 @@ private:
         // frame. poll() returns false when it closed; then run its destroy hook and pop, resuming its parent.
         // Copy the top's poll out first — the call may push a child modal (realloc), which would otherwise
         // free the std::function mid-invocation; guard the pop on the stack not having grown during the poll.
+        // A MODAL CLOSED UNDER ANOTHER. Only the top is pumped, so one that closed and was covered in the same
+        // frame — a progress window handing over to the next step's — would never be polled again, and would
+        // stay on screen, frozen, until everything above it went. Take any such off the stack now (its
+        // children above passed to its own parent first, as below).
+        for (size_t i = 0; i + 1 < m_modalStack.size();) {
+            if (!(m_modalStack[i].closing && m_modalStack[i].closing())) { ++i; continue; }
+#if defined(_WIN32)
+            const uintptr_t newOwner = i > 0 ? m_modalStack[i - 1].handle : m_window->rawWindowId();
+            if (m_modalStack[i + 1].handle)
+                SetWindowLongPtrW(reinterpret_cast<HWND>(m_modalStack[i + 1].handle), GWLP_HWNDPARENT,
+                                  static_cast<LONG_PTR>(newOwner));
+#endif
+            if (m_modalStack[i].destroy) m_modalStack[i].destroy(*m_hal);
+            m_modalStack.erase(m_modalStack.begin() + static_cast<long>(i));
+        }
         if (!m_modalStack.empty()) {
             const size_t idx = m_modalStack.size() - 1;   // the top being pumped
             auto poll = m_modalStack[idx].poll;           // copy: poll() may push a child (realloc) and would
@@ -1940,6 +1965,7 @@ private:
         std::function<void(JGpuHal&)>                    destroy;
         uintptr_t                                        handle{0};   // this modal's own native window id
         const char*                                      kind{nullptr};   // typeid name — see openModal's guard
+        std::function<bool()>                            closing;         // closed, waiting to be popped (openModal's guard)
     };
     std::vector<JModalEntry> m_modalStack;
     std::vector<std::function<void()>> m_whenNoDialog;   // see whenNoDialog()

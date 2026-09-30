@@ -88,6 +88,7 @@ public:
 
     // openModal's contract.
     void destroySurface(JGpuHal& hal) { hal.destroySurface(m_surface); }
+    bool closing() const { return m_done; }   // closed, not yet taken off the stack (JAppWindow::openModal)
 
     bool pollAndRender(JGpuHal& hal, JPrimitiveBuffer& buf) {
         if (m_done) return false;
