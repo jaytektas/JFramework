@@ -60,16 +60,45 @@ struct JRelease {
         if (status < 200 || status >= 300) { r.error = "HTTP " + std::to_string(status); return r; }
 
         const auto parsed = JJson::tryParse(body);
-        if (!parsed || !parsed->isObject()) { r.error = "the answer was not a release"; return r; }
+        if (!parsed || !(parsed->isObject() || parsed->isArray())) { r.error = "the answer was not a release"; return r; }
         // CONST, deliberately: on a non-const JJson, ["assets"] inserts a null for a missing key and
         // .arr() then throws — a release with no files attached would have crashed the application.
         const JJson& doc = *parsed;
+        const JVersion mine = JVersion::parse(currentVersion);
+
+        // ONE RELEASE (/releases/latest — never a draft or a pre-release) or THE LIST (/releases, for someone
+        // who opted into betas): from the list, the NEWEST non-draft release that carries a package for this
+        // platform. A release with none — firmware kits only — is not an update for the application, and a
+        // tag that is not a version ("firmware-…") is not one either.
+        if (doc.isArray()) {
+            JRelease best; bool have = false;
+            for (const auto& one : doc.arr()) {
+                if (one["draft"].isBool() && one["draft"].boolean()) continue;
+                JRelease c = fromRelease(one);
+                if (!c.error.empty() || c.assetUrl.empty()) continue;
+                if (!have || JVersion::parse(c.version).isNewerThan(JVersion::parse(best.version))) { best = c; have = true; }
+            }
+            if (!have) { r.kind = JKind::NoReleases; return r; }
+            best.kind = (mine.valid && !JVersion::parse(best.version).isNewerThan(mine)) ? JKind::UpToDate
+                                                                                         : JKind::NewerAvailable;
+            return best;
+        }
+        r = fromRelease(doc);
+        if (!r.error.empty()) return r;
+        const JVersion latest = JVersion::parse(r.version);
+        r.kind = (mine.valid && !latest.isNewerThan(mine)) ? JKind::UpToDate : JKind::NewerAvailable;
+        return r;
+    }
+
+private:
+    // One GitHub release object: its tag, page, version and this platform's package + checksums.
+    static JRelease fromRelease(const JJson& doc) {
+        JRelease r;
         r.tag = doc["tag_name"].str();
         r.url = doc["html_url"].str();
-        const JVersion latest = JVersion::parse(r.tag);
-        if (!latest.valid) { r.error = "the release tag '" + r.tag + "' is not a version"; return r; }
-        r.version = latest.text();
-
+        const JVersion v = JVersion::parse(r.tag);
+        if (!v.valid) { r.error = "the release tag '" + r.tag + "' is not a version"; return r; }
+        r.version = v.text();
         const std::string suffix = platformAssetSuffix();
         for (const auto& a : doc["assets"].arr()) {
             const std::string name = a["name"].str();
@@ -80,9 +109,6 @@ struct JRelease {
                 r.assetName = name; r.assetUrl = url; r.assetSize = a["size"].number<long long>(0);
             }
         }
-
-        const JVersion mine = JVersion::parse(currentVersion);
-        r.kind = (mine.valid && !latest.isNewerThan(mine)) ? JKind::UpToDate : JKind::NewerAvailable;
         return r;
     }
 };

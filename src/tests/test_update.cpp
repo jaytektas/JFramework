@@ -116,6 +116,28 @@ static void testAssets() {
     check(jf::JSha256::sumFor(sums, "app-0.2.0").empty(), "sumFor: a name that is only a prefix is not listed");
 }
 
+// THE BETA CHANNEL reads the release LIST: the newest non-draft release with a package for this platform
+// wins, a beta included; a firmware-only release (no package) and a draft are passed over.
+static void testList() {
+    auto rel = [](const char* tag, bool pre, bool draft, bool pkg) {
+        std::string s = std::string("{\"tag_name\":\"") + tag + "\",\"prerelease\":" + (pre ? "true" : "false") +
+                        ",\"draft\":" + (draft ? "true" : "false") + ",\"assets\":[";
+        if (pkg) s += std::string("{\"name\":\"app-") + tag + "-setup.exe\",\"size\":1,\"browser_download_url\":\"https://x/w\"},"
+                      "{\"name\":\"app-" + tag + "-x86_64.AppImage\",\"size\":1,\"browser_download_url\":\"https://x/" + tag + "\"}";
+        return s + "]}";
+    };
+    const std::string list = "[" + rel("v0.4.0-beta.1", true, true, true) + "," +          // a draft: never
+                              rel("firmware-0.5.0-beta.3", true, false, false) + "," +     // no package, not a version
+                              rel("v0.3.8-beta.2", true, false, true) + "," +
+                              rel("v0.3.8-beta.1", true, false, true) + "," +
+                              rel("v0.3.7", false, false, true) + "]";
+    const JRelease r = JRelease::fromGitHub(200, list, "", "0.3.7");
+    check(r.kind == K::NewerAvailable && r.version == "0.3.8-beta.2", "the list offers the newest beta with a package");
+    check(JRelease::fromGitHub(200, list, "", "0.3.8-beta.2").kind == K::UpToDate, "…and nothing to someone on it");
+    check(JRelease::fromGitHub(200, list, "", "0.3.8").kind == K::UpToDate, "…nor to someone on the release after it");
+    check(JRelease::fromGitHub(200, "[]", "", "0.3.7").kind == K::NoReleases, "an empty list: no releases");
+}
+
 #if !defined(_WIN32)
 // The Linux swap for real, on files in a scratch folder: stage beside the "running" AppImage, rename
 // over it, start it. The "new AppImage" is a script that leaves a mark, so starting it can be seen.
@@ -151,6 +173,7 @@ int main() {
     testInterpret();
     testSha256();
     testAssets();
+    testList();
 #if !defined(_WIN32)
     testLinuxSwap();
 #endif

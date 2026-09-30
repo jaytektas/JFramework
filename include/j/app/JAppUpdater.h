@@ -48,6 +48,10 @@ public:
         std::string version;       // this build, "0.1.0"
         std::string releasesApi;   // https://api.github.com/repos/<owner>/<repo>/releases/latest
         std::string overrideEnv;   // environment variable that replaces releasesApi, for testing
+        // THE BETA CHANNEL: a JSettings key (bool). While it is on, the check reads every release rather than
+        // /releases/latest — which never returns a pre-release — and offers the newest that has a package for
+        // this platform, beta or not. Empty: releases only.
+        std::string betaSetting;
     };
 
     JAppUpdater(JAppWindow& win, JConfig cfg) : m_win(win), m_cfg(std::move(cfg)) {
@@ -68,7 +72,13 @@ public:
 
     std::string releasesUrl() const {
         const char* over = m_cfg.overrideEnv.empty() ? nullptr : std::getenv(m_cfg.overrideEnv.c_str());
-        return (over && *over) ? std::string(over) : m_cfg.releasesApi;
+        std::string u = (over && *over) ? std::string(over) : m_cfg.releasesApi;
+        if (!m_cfg.betaSetting.empty() && JSettings::instance().get<bool>(m_cfg.betaSetting, false)) {
+            const std::string tail = "/releases/latest";
+            if (u.size() > tail.size() && u.compare(u.size() - tail.size(), tail.size(), tail) == 0)
+                u = u.substr(0, u.size() - tail.size()) + "/releases?per_page=30";
+        }
+        return u;
     }
 
     // Is there a newer release? `manual`: a person asked, so every outcome is reported.
