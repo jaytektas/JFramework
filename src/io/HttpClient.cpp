@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cstring>
 #include <memory>
@@ -153,6 +154,13 @@ bool dechunk(const std::string& in, std::vector<uint8_t>& out, bool& done) {
 // Everything below is one transfer's worth of connection state. It owns its fd
 // and TLS session and closes both on the way out, so every early return in the
 // transfer path is leak-free without a single explicit cleanup call.
+//
+// A STALL IS NOT A SLOW DOWNLOAD. The socket's receive timeout was the whole transfer's timeout — ten
+// minutes for an update download — so a connection that simply stopped sending (flaky wifi, a dropped
+// route) sat behind a progress window that never moved for ten minutes. The whole transfer still gets
+// its time; any one wait for data gets at most this.
+constexpr int kStallMs = 30000;
+
 class Connection {
 public:
     ~Connection() { close(); }
@@ -181,7 +189,7 @@ public:
 
         int one = 1;
         ::setsockopt(m_fd, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&one), sizeof(one));
-        setSocketTimeout(timeoutMs);
+        setSocketTimeout(std::min(timeoutMs, kStallMs));
 
         if (!url.secure) return true;
         return startTls(url.host, err);
@@ -208,17 +216,22 @@ public:
         return true;
     }
 
-    // >0 bytes read, 0 clean EOF, <0 error.
+    // >0 bytes read, 0 clean EOF, kStalled nothing arrived within the stall limit, <0 error.
+    static constexpr int kStalled = -2;
     int read(char* buf, int cap) {
 #if JF_HAVE_OPENSSL && !defined(_WIN32)
         if (m_ssl) {
             const int n = SSL_read(m_ssl, buf, cap);
             if (n > 0) return n;
             const int e = SSL_get_error(m_ssl, n);
+            // The receive timeout surfaces as a SYSCALL error with EAGAIN — which used to read as EOF, so a
+            // stalled download came back as a SHORT one.
+            if (e == SSL_ERROR_SYSCALL && (errno == EAGAIN || errno == EWOULDBLOCK)) return kStalled;
             return (e == SSL_ERROR_ZERO_RETURN || e == SSL_ERROR_SYSCALL) ? 0 : -1;
         }
 #endif
         const auto n = ::recv(m_fd, buf, static_cast<size_t>(cap), 0);
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return kStalled;
         return n < 0 ? -1 : static_cast<int>(n);
     }
 
@@ -326,7 +339,7 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
     session.h = ::WinHttpOpen(L"JFramework/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                               WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session.h) { r.error = "WinHttpOpen failed"; return r; }
-    ::WinHttpSetTimeouts(session.h, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
+    ::WinHttpSetTimeouts(session.h, timeoutMs, timeoutMs, timeoutMs, std::min(timeoutMs, kStallMs));   // receive: a stall
 
     connect.h = ::WinHttpConnect(session.h, widen(u.host).c_str(), u.port, 0);
     if (!connect.h) { r.error = "cannot connect to " + u.host; return r; }
@@ -426,6 +439,10 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
             return r;
         }
         const int n = conn.read(buf, static_cast<int>(sizeof(buf)));
+        if (n == Connection::kStalled) {
+            r.error = "the connection stalled (no data for " + std::to_string(std::min(timeoutMs, kStallMs) / 1000) + " s)";
+            return r;
+        }
         if (n < 0) { r.error = "read failed"; return r; }
         if (n == 0) break;                                        // server closed: everything we get
         raw.append(buf, static_cast<size_t>(n));
@@ -455,6 +472,13 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
     if (chunked) {
         bool done = false;
         if (!dechunk(raw.substr(bodyAt), r.body, done)) { r.error = "malformed chunked response"; return r; }
+        return r;
+    }
+    // CUT OFF PART-WAY is a failure, not a smaller file: the caller would otherwise get 24 MB of a 26 MB
+    // download as the whole of it, and only a checksum further on stood between that and an install.
+    if (declared > 0 && static_cast<int64_t>(raw.size() - bodyAt) < declared) {
+        auto size = [](int64_t b) { return b < 10240 ? std::to_string(b) + " bytes" : std::to_string(b / 1024) + " KB"; };
+        r.error = "the connection closed after " + size(static_cast<int64_t>(raw.size() - bodyAt)) + " of " + size(declared);
         return r;
     }
     r.body.assign(raw.begin() + static_cast<long>(bodyAt), raw.end());
