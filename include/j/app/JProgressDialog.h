@@ -15,15 +15,24 @@
 //     win.openModal<JProgressDialog>("Downloading jscope 0.2.0", "jscope-0.2.0-x86_64.AppImage");
 //     ... later, from the transfer's progress signal:
 //     if (auto* d = JProgressDialog::active()) d->setProgress(got, total);
+//
+// CANCEL, for work that can wait on something outside the program — a download that stalls, a person who
+// has to turn a key. setCancel() adds the button; it, the [x] and Escape all end the same way: the window
+// goes and `onCancel` runs once, posted to the main loop (never from inside the modal stack's teardown).
+// dismiss() — the work finishing — does not call it. Without setCancel a closed window still goes, and
+// the work carries on unseen, which is why anything that can block should have one.
 
 #include <j/app/JDialogWindow.h>
+#include <j/core/JDialogButtonBox.h>
 #include <j/core/JLabel.h>
+#include <j/core/MainThreadDispatcher.h>
 #include <j/core/JProgressBar.h>
 #include <j/core/JStyle.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -45,7 +54,21 @@ public:
         add(m_what.get()); add(m_bar.get()); add(m_note.get());
         s_active = this;
     }
-    ~JProgressDialog() override { if (s_active == this) s_active = nullptr; }
+    ~JProgressDialog() override {
+        if (s_active == this) s_active = nullptr;
+        if (m_onCancel && !m_finished)                      // closed by the person, not by the work finishing
+            JMainThreadDispatcher::instance().post(std::move(m_onCancel));
+    }
+
+    // Offer a way out (see the top of this file). Call straight after opening, through active().
+    void setCancel(std::function<void()> onCancel, const std::string& label = "Cancel") {
+        m_onCancel = std::move(onCancel);
+        if (m_buttons) return;
+        m_buttons = std::make_unique<JDialogButtonBox>(graph());
+        m_buttons->addButton(label, JDialogButtonBox::Role::Reject);
+        m_buttons->onReject.connect([this] { close(); });
+        add(m_buttons.get());
+    }
 
     // The dialog currently on screen, or nullptr.
     static JProgressDialog* active() { return s_active; }
@@ -62,7 +85,7 @@ public:
     // The work is finished, one way or the other. It stops being active() AT ONCE, not when the modal
     // stack gets round to destroying it: a caller that dismisses one box and opens the next straight
     // after must get the new box, not the one on its way out.
-    void dismiss() { if (s_active == this) s_active = nullptr; close(); }
+    void dismiss() { if (s_active == this) s_active = nullptr; m_finished = true; close(); }
 
 protected:
     void layout(float w, float) override {
@@ -73,12 +96,14 @@ protected:
         // is kH plus whatever they need beyond one line each.
         const float whatH = std::max(st.labelHeight, m_what->heightFor(cw));
         const float noteH = std::max(st.labelHeight, m_note->heightFor(cw));
-        const uint32_t wantH = kH + static_cast<uint32_t>(std::ceil(whatH + noteH - 2.f * st.labelHeight));
+        const float    btnH  = m_buttons ? st.buttonHeight + gap : 0.f;
+        const uint32_t wantH = kH + static_cast<uint32_t>(std::ceil(whatH + noteH - 2.f * st.labelHeight + btnH));
         if (wantH != m_askedH) { m_askedH = wantH; window().setSize(kW, wantH); }   // once per change, not per frame
         float y = contentTop();
         m_what->setBounds({ x, y, cw, whatH });             y += whatH + gap;
         m_bar ->setBounds({ x, y, cw, st.progressHeight }); y += st.progressHeight + gap;
-        m_note->setBounds({ x, y, cw, noteH });
+        m_note->setBounds({ x, y, cw, noteH });             y += noteH + gap;
+        if (m_buttons) m_buttons->setBounds({ x, y, cw, st.buttonHeight });
     }
 
 private:
@@ -87,6 +112,9 @@ private:
     inline static JProgressDialog* s_active = nullptr;
     std::unique_ptr<JLabel>       m_what, m_note;
     std::unique_ptr<JProgressBar> m_bar;
+    std::unique_ptr<JDialogButtonBox> m_buttons;       // only with setCancel
+    std::function<void()>         m_onCancel;
+    bool                          m_finished = false;  // dismiss(): the work ended it, so no cancel
     uint32_t                      m_askedH = kH;   // the height last asked of the window
 };
 

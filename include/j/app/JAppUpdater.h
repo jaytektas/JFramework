@@ -37,6 +37,7 @@
 #include <j/update/JSha256.h>
 
 #include <cstdlib>
+#include <memory>
 #include <string>
 
 inline namespace jf {
@@ -60,11 +61,7 @@ public:
         m_check.setTimeout(15000);
         m_check.setHeader("User-Agent", agent);
         m_check.setHeader("Accept", "application/vnd.github+json");
-        m_download.setTimeout(10 * 60 * 1000);   // a whole release, on a slow connection
-        m_download.setHeader("User-Agent", agent);
-        m_download.onProgress.connect([](int64_t got, int64_t total) {
-            if (auto* d = JProgressDialog::active()) d->setProgress(got, total);
-        });
+        newDownloadClient();
     }
 
     JAppUpdater(const JAppUpdater&)            = delete;
@@ -188,15 +185,32 @@ private:
         return r.error.empty() ? "HTTP " + std::to_string(r.status) : r.error;
     }
 
+    // A FRESH CLIENT PER CANCEL. Destroying a client abandons its transfer's callbacks — the progress and the
+    // result — so a cancelled download can neither move the next progress bar nor install itself later.
+    void newDownloadClient() {
+        m_download = std::make_unique<JHttpClient>();
+        m_download->setTimeout(10 * 60 * 1000);   // a whole release, on a slow connection (a stall fails sooner)
+        m_download->setHeader("User-Agent", m_cfg.appName + "/" + m_cfg.version);
+        m_download->onProgress.connect([](int64_t got, int64_t total) {
+            if (auto* d = JProgressDialog::active()) d->setProgress(got, total);
+        });
+    }
+
     void download(const JRelease& rel) {
         m_busy = true;
         m_win.openModal<JProgressDialog>("Downloading " + m_cfg.appName + " " + rel.version, rel.assetName);
+        if (auto* d = JProgressDialog::active())
+            d->setCancel([this] {
+                newDownloadClient();
+                m_busy = false;
+                m_win.showStatus(m_cfg.appName + " update cancelled \xE2\x80\x94 nothing was changed", kStatusMs);
+            });
         // The checksums first: they are small, and without them the big download could not be trusted.
-        m_download.get(rel.sumsUrl, [this, rel](const JHttpResponse& sr) {
+        m_download->get(rel.sumsUrl, [this, rel](const JHttpResponse& sr) {
             if (!sr.ok()) { fail(rel, "Could not download the release's checksums (" + failure(sr) + ").", true); return; }
             const std::string want = JSha256::sumFor(sr.text(), rel.assetName);
             if (want.empty()) { fail(rel, "The release's checksums do not list " + rel.assetName + ".", false); return; }
-            m_download.get(rel.assetUrl, [this, rel, want](const JHttpResponse& ar) {
+            m_download->get(rel.assetUrl, [this, rel, want](const JHttpResponse& ar) {
                 if (!ar.ok()) { fail(rel, "The download did not complete (" + failure(ar) + ").", true); return; }
                 if (JSha256::hex(ar.body) != want) {
                     fail(rel, "The downloaded file does not match its published checksum, so it was not installed.", true);
@@ -217,7 +231,8 @@ private:
 
     JAppWindow& m_win;
     JConfig     m_cfg;
-    JHttpClient m_check, m_download;
+    JHttpClient m_check;
+    std::unique_ptr<JHttpClient> m_download;
     std::string m_staged;      // installed by installStaged(); "" = nothing to do
     bool        m_busy = false;
 };
