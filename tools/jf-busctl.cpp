@@ -4,7 +4,7 @@
 // jf-busctl — client for the JFramework AI bus (/jframework_ai_bus).
 //   jf-busctl dump [--json]             every visible widget node (id role "name" = "value" @rect)
 //   jf-busctl find <substr> [--json]    the nodes whose line contains substr
-//   jf-busctl act <id|name> <action>    click, focus, set_value:0.5, select:foo, … ; waits for the ack
+//   jf-busctl act <id|name> <action>    click, focus, type:<text>, key:Return, … ; waits for the ack
 //   jf-busctl get <name>                one node's value, nothing else — for scripts
 //   jf-busctl wait <substr> [secs]      block until a node matches (default 10s); exit 0 found, 4 timeout
 //

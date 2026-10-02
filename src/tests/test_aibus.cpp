@@ -7,6 +7,7 @@
 #include <j/core/JAiBusAbi.h>
 #include <j/core/SceneGraph.h>
 #include <j/core/JButton.h>
+#include <j/core/JLineEdit.h>
 #include <j/core/FocusManager.h>
 
 #include <cassert>
@@ -29,6 +30,10 @@ int main() {
     btn.setBounds({10.f, 10.f, 80.f, 24.f});
     bool clicked = false;
     btn.onClicked.connect([&]{ clicked = true; });
+    JLineEdit field(g, "value");
+    field.setBounds({10.f, 40.f, 120.f, 24.f});
+    bool returned = false;
+    field.onReturnPressed.connect([&]{ returned = true; });
 
     JAiBus::instance().enable(kName);
     assert(JAiBus::instance().enabled() && "bus should enable");
@@ -73,6 +78,25 @@ int main() {
     JAiBus::instance().tick(JWidget::s_activeWidgets, &focus);
     assert(bus->action.resultCode == -1 && "bad target → -1");
     std::printf("  [OK] bad target id → resultCode -1\n");
+
+    // Typing into a field, then Return, through the field's own keyboard path.
+    JAiBus::instance().tick(JWidget::s_activeWidgets, &focus);   // publish the field
+    uint32_t fieldId = 0;
+    for (uint32_t i = 0; i < bus->nodeCount; ++i)
+        if (std::string(bus->nodes[i].role) == "JLineEdit") fieldId = bus->nodes[i].id;
+    assert(fieldId && "field published");
+    auto act = [&](const char* action, uint32_t seq) {
+        bus->action.targetId = fieldId;
+        aiBusCopy(bus->action.action, sizeof(bus->action.action), action);
+        bus->action.requestSeq.store(seq);
+        JAiBus::instance().tick(JWidget::s_activeWidgets, &focus);
+        return bus->action.resultCode;
+    };
+    assert(act("type:137.5", req + 2) == 1);
+    assert(field.text() == "137.5" && "typed text arrives");
+    assert(act("key:Return", req + 3) == 1 && returned && "Return reaches onReturnPressed");
+    assert(act("key:NoSuchKey", req + 4) == 0 && "an unknown key is not handled");
+    std::printf("  [OK] type: and key: drive a field through its keyboard path\n");
 
     munmap(bus, sizeof(JAiBusShared)); ::close(fd); shm_unlink(kName);
     std::printf("All JAiBus tests passed.\n");

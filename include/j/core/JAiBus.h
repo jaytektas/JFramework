@@ -21,11 +21,13 @@
 #include "JAiBusAbi.h"
 #include "JWidget.h"
 #include "FocusManager.h"
+#include "KeyEvent.h"
 
 #include <functional>
 #include <iterator>
 #include <new>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -122,6 +124,42 @@ private:
             w->handleMousePress(cx, cy);
             w->handleMouseRelease(cx, cy);
             return 1;
+        }
+        // TYPING, through the widget's own keyboard path: "type:12.5" sends one key press a character, as a
+        // person typing would, and "key:Return" (Escape, Tab, Backspace, Up, Down…) sends that key. No widget
+        // needs code of its own for it, and whatever the widget does with keys (validation, Return to commit)
+        // is what is exercised. The widget is given focus first, as a click into it would.
+        constexpr std::string_view kType = "type:", kKey = "key:";
+        if (action.rfind(kType, 0) == 0) {
+            if (focus) focus->setFocus(w);
+            const std::string text = action.substr(kType.size());
+            for (size_t i = 0; i < text.size();) {
+                // One UTF-8 character: its lead byte says how many bytes follow.
+                const unsigned char c = static_cast<unsigned char>(text[i]);
+                const size_t n = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xE ? 3 : 4;
+                JKeyEvent ke;
+                for (size_t k = 0; k < n && i + k < text.size() && k < sizeof ke.utf8 - 1; ++k) ke.utf8[k] = text[i + k];
+                w->handleKeyEvent(ke);
+                i += n;
+            }
+            return 1;
+        }
+        if (action.rfind(kKey, 0) == 0) {
+            using K = JKeyEvent::JKey;
+            static const std::pair<std::string_view, K> keys[] = {
+                { "Return", K::Return }, { "Escape", K::Escape }, { "Tab", K::Tab }, { "Backspace", K::Backspace },
+                { "Delete", K::Delete }, { "Left", K::Left }, { "Right", K::Right }, { "Up", K::Up },
+                { "Down", K::Down }, { "Home", K::Home }, { "End", K::End }, { "Space", K::Space } };
+            const std::string name = action.substr(kKey.size());
+            for (const auto& [label, key] : keys)
+                if (name == label) {
+                    if (focus) focus->setFocus(w);
+                    JKeyEvent ke;
+                    ke.key = key;
+                    w->handleKeyEvent(ke);
+                    return 1;
+                }
+            return 0;
         }
         return 0;
     }
