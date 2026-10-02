@@ -38,11 +38,17 @@ public:
     JDockHost& bottom() { return m_host[Bottom]; }
     JDockHost& host(Area a) { return m_host[a]; }
 
-    // The window's central content. The centre is NOT a dock host — it holds one widget directly, while
-    // the four edges are the dock hosts. If you actually want docks in the centre, opt in by making that
-    // widget a dock host. Layout/render/input for the centre rect route straight to this widget.
+    // The window's central content. By default the centre is NOT a dock host — it holds one widget
+    // directly, while the four edges are the dock hosts. Layout/render/input for the centre rect route
+    // straight to this widget.
     void         setCentralWidget(JWidget* w) { m_central = w; }
-    JWidget*     centralWidget() const { return m_central; }
+    JWidget*     centralWidget() const { return m_centreDocks ? nullptr : m_central; }
+    // DOCKS IN THE CENTRE. Opted in, the centre is a dock host like the edges (host(Center)): its docks
+    // tab, split, tear out and take drops, laid out over the whole centre rect, and the central widget
+    // is set aside. For an application whose main content is several peers (cameras, editors) rather
+    // than one surface.
+    void setCentreDocks(bool on) { m_centreDocks = on; }
+    bool centreDocks() const { return m_centreDocks; }
     const JRect& centerRect() const { return m_rect[Center]; }
 
     // An outer area is shown only when it has a reserved size; the centre is always present.
@@ -65,13 +71,15 @@ public:
     bool active(Area a) const {
         return a == Center ? true : (m_size[a] > 0.f && m_host[a].dockCount() > 0);
     }
+    // Whether an area is a dock host now: the edges always, the centre when opted in.
+    bool isHost(Area a) const { return a != Center || m_centreDocks; }
     const JRect& rect(Area a) const { return m_rect[a]; }
 
     // The active-tab dock whose content area contains (mx,my) across all active areas, or
     // nullptr. Lets the runner route content input (clicks / wheel) to the dock's hook.
     JDockWidget* contentDockAt(float mx, float my) {
         for (int a = 0; a < AreaCount; ++a)
-            if (a != Center && active(Area(a)))
+            if (isHost(Area(a)) && active(Area(a)))
                 if (JDockWidget* d = m_host[a].contentDockAt(mx, my)) return d;
         return nullptr;
     }
@@ -114,8 +122,8 @@ public:
             m_rect[Center] = {x + lw, cy, W - lw - rw, ch};
         }
         for (int a = 0; a < AreaCount; ++a)
-            if (a != Center && active(Area(a))) m_host[a].computeLayout(m_rect[a]);
-        if (m_central) m_central->setBounds(m_rect[Center]);   // the centre is a widget, not a host
+            if (isHost(Area(a)) && active(Area(a))) m_host[a].computeLayout(m_rect[a]);
+        if (JWidget* cw = centralWidget()) cw->setBounds(m_rect[Center]);   // a widget, unless the centre is a host
 
         // Collapsed-but-reserved areas get an invisible edge strip — a drop zone so a float
         // dragged to the window edge can restore that side (re-dock into its host). Must be
@@ -145,7 +153,7 @@ public:
     // but shares the window's coordinate origin, so its nodes stay in window space.
     void registerAll(int winSx, int winSy) {
         for (int a = 0; a < AreaCount; ++a) {
-            if (a == Center) continue;   // the centre is a plain widget — nothing docks into it
+            if (!isHost(Area(a))) continue;   // a plain-widget centre — nothing docks into it
             // Active areas register their full rect; a collapsed-but-reserved area registers
             // its edge strip (so it can be restored); a truly-unused area unregisters.
             const JRect* r = active(Area(a)) ? &m_rect[a]
@@ -187,8 +195,8 @@ public:
             if (h && !ownsHost(h)) continue;
             d->content()->setVisible(false);
         }
-        for (int a = 0; a < AreaCount; ++a) if (a != Center && active(Area(a))) m_host[a].populateRenderPrimitives(buf);
-        if (m_central) m_central->populateRenderPrimitives(buf);   // centre content (not a host)
+        for (int a = 0; a < AreaCount; ++a) if (isHost(Area(a)) && active(Area(a))) m_host[a].populateRenderPrimitives(buf);
+        if (JWidget* cw = centralWidget()) cw->populateRenderPrimitives(buf);   // centre content (not a host)
 
         // Divider lines at the seams, following corner ownership: the corner owner's seam
         // runs the FULL content extent (its column/row spans the corners); the other runs
@@ -210,7 +218,7 @@ public:
         // Overlays (drop indicators) for active areas AND collapsed-but-reserved edge strips,
         // so the restore drop zone shows a preview while dragging toward the window edge.
         for (int a = 0; a < AreaCount; ++a)
-            if (a != Center && (active(Area(a)) || m_size[a] > 0.f))
+            if (isHost(Area(a)) && (active(Area(a)) || m_size[a] > 0.f))
                 m_host[a].populateOverlay(buf);
     }
 
@@ -305,20 +313,21 @@ private:
 
     Area areaAt(float mx, float my) const {
         for (int a = 0; a < AreaCount; ++a) {
-            if (a == Center || !active(Area(a))) continue;   // centre isn't a host — routed to the central widget
+            if (!isHost(Area(a)) || !active(Area(a))) continue;   // a plain-widget centre is routed to the central widget
             const JRect& r = m_rect[a];
             if (mx >= r.x && mx < r.x + r.width && my >= r.y && my < r.y + r.height) return Area(a);
         }
         return AreaCount;
     }
 
-    std::array<JDockHost, AreaCount> m_host;      // the Center slot is inert — the centre is a widget
+    std::array<JDockHost, AreaCount> m_host;      // the Center slot is used only with centre docks
     JWidget*                         m_central{nullptr};   // the window's central content
     std::array<float, AreaCount>     m_size{};    // Left/Right = width, Top/Bottom = height
     std::array<JRect, AreaCount>     m_rect{};
     std::array<JRect, AreaCount>     m_strip{};   // edge drop-zone for a collapsed area
     JRect m_content{};
     bool  m_sidesOwnCorners{true};
+    bool  m_centreDocks{false};
     int   m_dragSplit{-1};
     Area  m_captureArea{AreaCount};   // host that owns the in-progress press gesture (capture)
     float m_dragStart{0.f}, m_dragStartSize{0.f};
