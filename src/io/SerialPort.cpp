@@ -28,6 +28,7 @@
   #include <errno.h>
   #include <cstring>
   #include <cstdio>
+  #include <sys/file.h>
   #include <sys/ioctl.h>
   #include <sys/select.h>
   #include <cstdlib>              // realpath — the tty's device link is followed, not guessed at
@@ -179,9 +180,23 @@ struct JSerialPort::Impl {
 #else
         m_fd = ::open(port.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
         if (m_fd < 0) {
-            _postError("Failed to open " + port + ": " + std::strerror(errno));
+            const int e = errno;   // EBUSY: another owner set TIOCEXCL (below)
+            _postError(e == EBUSY ? port + " is in use by another program"
+                                  : "Failed to open " + port + ": " + std::strerror(e));
             return false;
         }
+        // ONE OWNER. Linux lets any number of processes open a tty, and each read takes bytes the others
+        // then never see: a second program on the port does not fail, it silently halves both streams (a
+        // reply arrives with lines missing, on both sides). Windows opens COM ports exclusively; do the
+        // same here. The lock refuses another program that asks for it (and says so); TIOCEXCL refuses
+        // every later open() of the device, lock or not. Both end with the last close.
+        if (::flock(m_fd, LOCK_EX | LOCK_NB) != 0) {
+            const int e = errno;
+            _postError(e == EWOULDBLOCK ? port + " is in use by another program"
+                                        : "Failed to lock " + port + ": " + std::strerror(e));
+            ::close(m_fd); m_fd = -1; return false;
+        }
+        ::ioctl(m_fd, TIOCEXCL);
         struct termios tty{};
         if (tcgetattr(m_fd, &tty) != 0) {
             _postError("tcgetattr failed"); ::close(m_fd); m_fd = -1; return false;
@@ -351,7 +366,9 @@ struct JSerialPort::Impl {
         if (m_handle != INVALID_HANDLE_VALUE) { CloseHandle(m_handle); m_handle = INVALID_HANDLE_VALUE; }
         if (m_cancelEvent)                    { CloseHandle(m_cancelEvent); m_cancelEvent = nullptr; }
 #else
-        if (m_fd >= 0)        { ::close(m_fd);        m_fd = -1; }
+        // Give the port back: exclusive mode is the device's, and a pty (or a driver that keeps the device
+        // open) does not drop it on our close, so the next owner would be refused for nothing.
+        if (m_fd >= 0)        { ::ioctl(m_fd, TIOCNXCL); ::close(m_fd); m_fd = -1; }
         if (m_pipeFd[0] >= 0) { ::close(m_pipeFd[0]); m_pipeFd[0] = -1; }
         if (m_pipeFd[1] >= 0) { ::close(m_pipeFd[1]); m_pipeFd[1] = -1; }
 #endif
