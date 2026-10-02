@@ -872,7 +872,15 @@ private:
         dsai.descriptorPool     = m_imageDescPool;
         dsai.descriptorSetCount = 1;
         dsai.pSetLayouts        = &m_textDescSetLayout; // same layout as text
-        vkAllocateDescriptorSets(m_device, &dsai, &tex.descSet);
+        if (vkAllocateDescriptorSets(m_device, &dsai, &tex.descSet) != VK_SUCCESS) {
+            // The pool is full: say so by returning no texture (the caller draws nothing), rather than
+            // writing through a set that does not exist.
+            vkDestroySampler(m_device, tex.sampler, nullptr);
+            vkDestroyImageView(m_device, tex.view, nullptr);
+            vkDestroyImage(m_device, tex.image, nullptr);
+            vkFreeMemory(m_device, tex.memory, nullptr);
+            return kNullTexture;
+        }
 
         VkDescriptorImageInfo dii{};
         dii.sampler     = tex.sampler;
@@ -900,7 +908,11 @@ private:
         if (tex.image)   vkDestroyImage(m_device, tex.image, nullptr);
         if (tex.memory)  vkFreeMemory(m_device, tex.memory, nullptr);
         if (tex.sampler) vkDestroySampler(m_device, tex.sampler, nullptr);
-        // descriptor set freed with pool on shutdown
+        // Return the descriptor set to the pool (created with FREE_DESCRIPTOR_SET_BIT), as freeFontAtlas
+        // does. Leaving it "for the pool to free on shutdown" leaked one per texture: a live camera
+        // uploads a texture a frame, used up the pool's 256 sets in seconds, and the next upload went on
+        // with an invalid set and crashed in the driver.
+        if (tex.descSet) vkFreeDescriptorSets(m_device, m_imageDescPool, 1, &tex.descSet);
         m_textures.erase(it);
     }
 
