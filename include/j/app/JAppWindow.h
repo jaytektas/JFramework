@@ -109,8 +109,29 @@ public:
 
         // AI bus: opt-in via env (JF_AI_BUS=1). Off by default → zero overhead. When on, the frame loop
         // publishes the widget snapshot + services actions over shared memory (see tick() below).
-        if (const char* e = std::getenv("JF_AI_BUS"); e && *e && *e != '0')
+        if (const char* e = std::getenv("JF_AI_BUS"); e && *e && *e != '0') {
             JAiBus::instance().enable();
+            // The native dialogs draw no widgets: the bus sees each as a node (title, body) and answers the
+            // frontmost with "dialog:ok" / "dialog:cancel".
+            JAiBus::instance().windowNodes = [this] {
+                std::vector<JA11yNode> out;
+                for (const JNativeDialogWindow& d : m_dialogs) {
+                    if (d.isDone()) continue;
+                    JA11yNode a;
+                    jA11yCopyStr(a.role,  sizeof(a.role),  "Dialog");
+                    jA11yCopyStr(a.name,  sizeof(a.name),  d.request().title);
+                    jA11yCopyStr(a.value, sizeof(a.value), d.request().body);
+                    out.push_back(a);
+                }
+                return out;
+            };
+            JAiBus::instance().onWindowAction = [this](uint32_t, const std::string& action) {
+                if (action != "dialog:ok" && action != "dialog:cancel") return 0;
+                for (auto it = m_dialogs.rbegin(); it != m_dialogs.rend(); ++it)
+                    if (!it->isDone()) return it->answer(action == "dialog:ok") ? 1 : 0;
+                return -1;   // no dialog open to answer
+            };
+        }
     }
 
     // Quit teardown. Members die in REVERSE declaration order — m_floating first, m_hal after it — and a

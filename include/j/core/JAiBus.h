@@ -66,6 +66,13 @@ public:
     // Optional richer-action handler (set_value:X, select:foo, …) the generic dispatch can't do without
     // per-widget knowledge. Return 1 handled / 0 not handled / -1 bad id. Runs on the MAIN thread.
     std::function<int(uint32_t id, const std::string& action)> onAction;
+    // The WINDOW's own, for what it draws without widgets (a native dialog draws primitives, so it is in no
+    // widget list): nodes it publishes after the widgets (ids from kWindowNodeIds up, in order), and the
+    // actions it answers ("dialog:ok"), asked after the generic dispatch and before the app's onAction.
+    // Same return convention as onAction. Installed by JAppWindow.
+    std::function<std::vector<JA11yNode>()>                    windowNodes;
+    std::function<int(uint32_t id, const std::string& action)> onWindowAction;
+    static constexpr uint32_t kWindowNodeIds = 0x40000000u;
 
     // Once per frame, MAIN thread: service a pending action then publish the snapshot. Returns true if an
     // action was serviced this frame (so the caller can force a repaint). No-op + false when disabled.
@@ -81,6 +88,10 @@ private:
         const uint32_t req = m_shm->action.requestSeq.load(std::memory_order_acquire);
         if (req == m_lastHandled) return false;
         int rc = dispatchDefault(widgets, focus, m_shm->action.targetId, m_shm->action.action);
+        if (rc != 1 && onWindowAction) {
+            const int winRc = onWindowAction(m_shm->action.targetId, m_shm->action.action);
+            if (winRc != 0) rc = winRc;
+        }
         // The app gets a shot at anything the generic dispatch did not HANDLE — including actions with no
         // widget target at all. It used to be asked only when rc == 0, so "unknown id" (-1) went straight
         // back to the client: an action addressed at the application rather than at a widget ("go to this
@@ -193,6 +204,20 @@ private:
             aiBusCopy(node.role,  sizeof(node.role),  a.role);
             aiBusCopy(node.name,  sizeof(node.name),  a.name);
             aiBusCopy(node.value, sizeof(node.value), a.value);
+        }
+        if (windowNodes) {
+            uint32_t k = 0;
+            for (const JA11yNode& a : windowNodes()) {
+                if (n >= kAiBusMaxNodes) break;
+                JAiBusNode& node = m_shm->nodes[n++];
+                node.id = kWindowNodeIds + k++;
+                node.stateFlags = a.stateFlags;
+                node.x = a.x; node.y = a.y; node.w = a.width; node.h = a.height;
+                node.hasRange = 0u;
+                aiBusCopy(node.role,  sizeof(node.role),  a.role);
+                aiBusCopy(node.name,  sizeof(node.name),  a.name);
+                aiBusCopy(node.value, sizeof(node.value), a.value);
+            }
         }
         m_shm->nodeCount = n;
         // Forget widgets that were not published this frame. Done here rather than on destruction because

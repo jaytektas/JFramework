@@ -155,6 +155,22 @@ public:
     }
 
     bool isDone()  const { return m_done; }
+    const JDialogRequest& request() const { return m_req; }
+
+    // Answer it as its own buttons would: OK (an input dialog hands over what was typed) or Cancel. For a
+    // driver that has no pointer on this window (the AI bus). False when it was already answered.
+    bool answer(bool ok) {
+        if (m_done) return false;
+        _reportCheck();
+        if (ok) {
+            if (m_req.kind == JDialogRequest::JKind::Input) { if (m_req.onInput) m_req.onInput(m_inputText); }
+            else if (m_req.onOk) m_req.onOk();
+        } else if (m_req.onCancel) {
+            m_req.onCancel();
+        }
+        _dismiss(ok ? "ok" : "cancel");
+        return true;
+    }
     bool isModal() const { return m_req.options.modal; }
 
     // THE BODY WRAPS. It is drawn at kBodyW and pushText clips at the width it is given, so a line longer

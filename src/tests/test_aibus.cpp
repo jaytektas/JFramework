@@ -98,6 +98,39 @@ int main() {
     assert(act("key:NoSuchKey", req + 4) == 0 && "an unknown key is not handled");
     std::printf("  [OK] type: and key: drive a field through its keyboard path\n");
 
+    // The window's own nodes and actions: a native dialog draws no widgets, so the window publishes it and
+    // answers it ("dialog:ok") before the app's handler is asked.
+    bool answered = false, appAsked = false;
+    JAiBus::instance().windowNodes = [] {
+        JA11yNode d;
+        jA11yCopyStr(d.role, sizeof(d.role), "Dialog");
+        jA11yCopyStr(d.name, sizeof(d.name), "Square the Machine");
+        jA11yCopyStr(d.value, sizeof(d.value), "Correct for it?");
+        return std::vector<JA11yNode>{ d };
+    };
+    JAiBus::instance().onWindowAction = [&](uint32_t, const std::string& action) {
+        if (action != "dialog:ok") return 0;
+        answered = true;
+        return 1;
+    };
+    JAiBus::instance().onAction = [&](uint32_t, const std::string&) { appAsked = true; return 0; };
+    JAiBus::instance().tick(JWidget::s_activeWidgets, &focus);
+    bool dialogSeen = false;
+    for (uint32_t i = 0; i < bus->nodeCount; ++i)
+        if (std::string(bus->nodes[i].role) == "Dialog" && std::string(bus->nodes[i].name) == "Square the Machine")
+            dialogSeen = bus->nodes[i].id >= JAiBus::kWindowNodeIds;
+    assert(dialogSeen && "a window node is published after the widgets");
+    bus->action.targetId = 0;
+    aiBusCopy(bus->action.action, sizeof(bus->action.action), "dialog:ok");
+    bus->action.requestSeq.store(req + 5);
+    JAiBus::instance().tick(JWidget::s_activeWidgets, &focus);
+    assert(bus->action.resultCode == 1 && answered && !appAsked && "the window answers before the app");
+    aiBusCopy(bus->action.action, sizeof(bus->action.action), "dock:Jog");
+    bus->action.requestSeq.store(req + 6);
+    JAiBus::instance().tick(JWidget::s_activeWidgets, &focus);
+    assert(appAsked && "what the window does not answer goes on to the app");
+    std::printf("  [OK] window nodes published, window actions before the app's\n");
+
     munmap(bus, sizeof(JAiBusShared)); ::close(fd); shm_unlink(kName);
     std::printf("All JAiBus tests passed.\n");
     return 0;
