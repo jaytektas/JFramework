@@ -21,6 +21,7 @@
 // ============================================================================
 
 #include <j/core/Dialog.h>
+#include <j/core/JButton.h>
 #include <j/core/JCheckBox.h>
 #include <j/core/SceneGraph.h>
 #include <j/core/JTitleBar.h>
@@ -397,7 +398,10 @@ private:
         // ---- Show hidden + filter hint + buttons ---------------------------
         // The tick box is a real JCheckBox (its own drawing, one code path), placed here and given the
         // press; _applyHidden() then re-lists the folder, as Ctrl+H does.
-        const float bW = 96.f, by = H - btnH - kPad;
+        const char* okLbl = (m_req.kind == JDialogRequest::JKind::SaveFile) ? "Save"
+                          : (m_req.kind == JDialogRequest::JKind::OpenFolder) ? "Choose" : "Open";
+        const float bW = JButton::dialogButtonWidth({ okLbl, "Cancel" }), by = H - btnH - kPad;
+        const float okX = W - bW - kPad, cancelX = okX - kPad - bW;
         const float checkH = th.checkHeight;
         const float checkW = checkH + th.itemPadding + JTextHelper::measureWidth("Show hidden");
         m_hidden->setBounds({ kPad, by + (btnH - checkH) * 0.5f, checkW, checkH });
@@ -405,11 +409,7 @@ private:
         if (m_pressed && _hit(kPad, by, checkW, btnH)) { m_hidden->handleMousePress(m_mx, m_my); _applyHidden(); return; }
         const float hintX = kPad + checkW + kPad;
         JTextHelper::pushText(buf, hintX, by + (btnH - lh) * 0.5f, _filterHint(), Colors::MutedText,
-                              W - 2 * bW - 3 * kPad - hintX);
-
-        const char* okLbl = (m_req.kind == JDialogRequest::JKind::SaveFile) ? "Save"
-                          : (m_req.kind == JDialogRequest::JKind::OpenFolder) ? "Choose" : "Open";
-        float okX = W - bW - kPad, cancelX = W - 2 * bW - kPad - 8.f;
+                              cancelX - kPad - hintX);
 
         bool hovCancel = _hit(cancelX, by, bW, btnH);
         buf.pushRectangle(cancelX, by, bW, btnH, Colors::CancelBtnBg, R, 1.f, Colors::CancelBtnBorder);

@@ -1718,7 +1718,7 @@ private:
             const bool isFile = (req->kind == JDialogRequest::JKind::OpenFile ||
                                  req->kind == JDialogRequest::JKind::SaveFile ||
                                  req->kind == JDialogRequest::JKind::OpenFolder);
-            const int dlgW = static_cast<int>(isFile ? JFileDialogWindow::kW : JNativeDialogWindow::kW);
+            const int dlgW = static_cast<int>(isFile ? JFileDialogWindow::kW : JNativeDialogWindow::calcWidth(*req));
             const int dlgH = static_cast<int>(isFile ? JFileDialogWindow::calcHeight()
                                                      : JNativeDialogWindow::calcHeight(req->kind, opts, req->imageHeight,
                                                      JNativeDialogWindow::bodyLines(req->body)));

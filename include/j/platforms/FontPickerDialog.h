@@ -11,6 +11,7 @@
 // compact spec "family|size|b|i". In app-font mode (setAppFontMode) Select returns the FILE PATH + size px.
 // NOTE: browsing does NOT change the app font — only the preview line renders the chosen face (its own atlas).
 
+#include <j/core/JButton.h>
 #include <j/core/JSpinBox.h>
 #include <j/core/JSlider.h>
 #include <j/core/JToggleButton.h>    // compact B / I style toggles in the size row
@@ -42,12 +43,13 @@ public:
     static constexpr float kPad = 12.f, kRowH = 30.f;
     static constexpr float kSizeRowH = 48.f;    // size row: slider + a tick/label strip of common sizes beneath it
     static constexpr float kFooterH  = 58.f;    // bottom OK/Cancel button bar — a normal dialog, buttons at the bottom
-    static constexpr float kDlgBtnW = 88.f;                    // footer button WIDTH (JStyle has no button-width metric)
+    // Footer button WIDTH: what "Select" and "Cancel" need, never under the theme's buttonMinWidth.
+    static float dlgBtnW() { return JButton::dialogButtonWidth({ "Select", "Cancel" }); }
     static float kDlgBtnH() { return JStyle::current().buttonHeight; }   // HEIGHT from JStyle — single source of truth
     static float hdrH()      { return JStyle::current().titleBarHeight; }              // title bar height from the theme
     static float btnBarY()   { return static_cast<float>(kH) - kDlgBtnH() - 14.f; }
-    static float selBtnX()   { return static_cast<float>(kW) - kDlgBtnW - 12.f; }        // Select (accent), rightmost
-    static float cancelBtnX(){ return static_cast<float>(kW) - kDlgBtnW * 2.f - 20.f; }  // Cancel, to its left
+    static float selBtnX()   { return static_cast<float>(kW) - dlgBtnW() - 12.f; }        // Select (accent), rightmost
+    static float cancelBtnX(){ return static_cast<float>(kW) - dlgBtnW() * 2.f - 20.f; }  // Cancel, to its left
     // Common point sizes marked on the size slider. Every entry gets a tick; the sparser labelled subset
     // also shows the number (the slider is linear in px, so the small sizes crowd — don't label them all).
     static constexpr int kTickSizes[]  = { 8, 10, 12, 14, 16, 18, 24, 36, 48, 60, 72, 96 };
@@ -175,8 +177,8 @@ public:
 
         // Footer buttons (bottom of the dialog): Select (accent) and Cancel.
         if (pressed && my >= btnBarY() && my < btnBarY() + kDlgBtnH()) {
-            if (mx >= selBtnX()    && mx < selBtnX()    + kDlgBtnW) { _accept(); return false; }
-            if (mx >= cancelBtnX() && mx < cancelBtnX() + kDlgBtnW) { _cancel(); return false; }
+            if (mx >= selBtnX()    && mx < selBtnX()    + dlgBtnW()) { _accept(); return false; }
+            if (mx >= cancelBtnX() && mx < cancelBtnX() + dlgBtnW()) { _cancel(); return false; }
         }
 
         _render(buf, mx, my, prevY, prevH);
@@ -313,14 +315,14 @@ private:
         // Footer button bar (bottom of the dialog) — Cancel + Select, mirroring JNativeDialogWindow's layout.
         const float by = btnBarY(), okX = selBtnX(), caX = cancelBtnX();
         uint8_t cBg[4] = { Colors::CancelBtnBg[0], Colors::CancelBtnBg[1], Colors::CancelBtnBg[2],
-                           static_cast<uint8_t>((mx >= caX && mx < caX + kDlgBtnW && my >= by && my < by + kDlgBtnH()) ? 255 : 220) };
-        buf.pushRectangle(caX, by, kDlgBtnW, kDlgBtnH(), cBg, JStyle::current().cornerRadius, 1.f, Colors::CancelBtnBorder);
-        const bool hovOk = (mx >= okX && mx < okX + kDlgBtnW && my >= by && my < by + kDlgBtnH());
+                           static_cast<uint8_t>((mx >= caX && mx < caX + dlgBtnW() && my >= by && my < by + kDlgBtnH()) ? 255 : 220) };
+        buf.pushRectangle(caX, by, dlgBtnW(), kDlgBtnH(), cBg, JStyle::current().cornerRadius, 1.f, Colors::CancelBtnBorder);
+        const bool hovOk = (mx >= okX && mx < okX + dlgBtnW() && my >= by && my < by + kDlgBtnH());
         uint8_t okBg[4] = { Colors::PrimaryBtnBg[0], Colors::PrimaryBtnBg[1], Colors::PrimaryBtnBg[2], static_cast<uint8_t>(hovOk ? 255 : 220) };
-        buf.pushRectangle(okX, by, kDlgBtnW, kDlgBtnH(), okBg, JStyle::current().cornerRadius, 1.f, Colors::PrimaryBtnBorder);
+        buf.pushRectangle(okX, by, dlgBtnW(), kDlgBtnH(), okBg, JStyle::current().cornerRadius, 1.f, Colors::PrimaryBtnBorder);
         if (JTextHelper::hasAtlas()) {
-            JTextHelper::pushText(buf, caX + (kDlgBtnW - JTextHelper::measureWidth("Cancel")) * 0.5f, by + (kDlgBtnH() - lh) * 0.5f, "Cancel", Colors::CancelBtnText);
-            JTextHelper::pushText(buf, okX + (kDlgBtnW - JTextHelper::measureWidth("Select")) * 0.5f, by + (kDlgBtnH() - lh) * 0.5f, "Select", Colors::PrimaryBtnText);
+            JTextHelper::pushText(buf, caX + (dlgBtnW() - JTextHelper::measureWidth("Cancel")) * 0.5f, by + (kDlgBtnH() - lh) * 0.5f, "Cancel", Colors::CancelBtnText);
+            JTextHelper::pushText(buf, okX + (dlgBtnW() - JTextHelper::measureWidth("Select")) * 0.5f, by + (kDlgBtnH() - lh) * 0.5f, "Select", Colors::PrimaryBtnText);
         }
     }
 

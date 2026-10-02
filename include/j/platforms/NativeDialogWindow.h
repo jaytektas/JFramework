@@ -19,6 +19,7 @@
 // ============================================================================
 
 #include <j/core/Dialog.h>
+#include <j/core/JButton.h>
 #include <j/core/JWindowControls.h>
 #include <j/core/JCloseButton.h>
 #include <j/core/JTitleBar.h>
@@ -32,6 +33,7 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <memory>
 #include <string>
@@ -41,7 +43,7 @@ inline namespace jf {
 
 class JNativeDialogWindow {
 public:
-    static constexpr uint32_t kW      = 440;
+    static constexpr uint32_t kW      = 440;   // the usual width; wider when the button row needs it (calcWidth)
     static constexpr float    kTitleH = 32.f;
     static constexpr float    kCloseW = 28.f;
 
@@ -58,12 +60,13 @@ public:
                        NativeWinHandleType parentWindow = {})
         : m_req(std::move(req))
         , m_body(JTextHelper::wrapToWidth(m_req.body, kBodyW))
+        , m_winW(calcWidth(m_req))
         , m_winH(_calcHeight(m_req.kind, m_req.options, m_req.imageHeight, _countLines(m_body)))
         , m_window(std::make_unique<PlatformWinType>(
-              m_req.title.c_str(), kW, m_winH, screenX, screenY,
+              m_req.title.c_str(), m_winW, m_winH, screenX, screenY,
               JPlatformWindowStyle::Borderless,  // WM-managed: gets proper keyboard focus
               parentWindow))
-        , m_surface(hal.createSurface(m_window->nativeHandle(), kW, m_winH))
+        , m_surface(hal.createSurface(m_window->nativeHandle(), m_winW, m_winH))
         , m_createdAt(std::chrono::steady_clock::now())
     {}
 
@@ -71,6 +74,19 @@ public:
     JNativeDialogWindow& operator=(const JNativeDialogWindow&) = delete;
     JNativeDialogWindow(JNativeDialogWindow&&)                 = default;
     JNativeDialogWindow& operator=(JNativeDialogWindow&&)      = default;
+
+    // THE WINDOW'S WIDTH for `req`: kW, or as wide as its button row needs — the buttons at the width their
+    // labels need (JButton::dialogButtonWidth), the gap between them, and the tick box with its label at
+    // the left. A label is never clipped by its button, and a button row never runs off the window.
+    static uint32_t calcWidth(const JDialogRequest& req) {
+        const auto& o = req.options;
+        const bool hasCancel = (req.kind != JDialogRequest::JKind::Message);
+        const float bw = _buttonWidth(req);
+        float row = kBtnEdge + bw + (hasCancel ? kBtnGap + bw : 0.f);
+        row += o.checkLabel.empty() ? kBtnEdge
+                                    : kCheckX + kCheckBox + kCheckGap + JTextHelper::measureWidth(o.checkLabel) + kBtnGap;
+        return std::max(kW, static_cast<uint32_t>(std::ceil(row)));
+    }
 
     // Returns false when dismissed — caller should destroySurface() then erase.
     bool pollAndRender(JGpuHal& hal, JPrimitiveBuffer& buf) {
@@ -146,6 +162,19 @@ public:
     // for the lines it should have become. Every body is broken at spaces to kBodyW, and the height is
     // counted from the wrapped text; callers sizing the window ask bodyLines() for the same count.
     static constexpr float kBodyW = static_cast<float>(kW) - 32.f;
+
+    // The button row's geometry (this window's own layout data), shared by calcWidth() and the render
+    // so the window is exactly as wide as the row it draws.
+    static constexpr float kBtnEdge  = 12.f;   // right margin
+    static constexpr float kBtnGap   = 8.f;    // between buttons, and between the tick box's label and them
+    static constexpr float kCheckX   = 16.f;   // tick box's left edge
+    static constexpr float kCheckBox = 16.f;   // tick box edge
+    static constexpr float kCheckGap = 8.f;    // box to its label
+
+    static float _buttonWidth(const JDialogRequest& req) {
+        if (req.kind == JDialogRequest::JKind::Message) return JButton::dialogButtonWidth({ req.options.okLabel });
+        return JButton::dialogButtonWidth({ req.options.okLabel, req.options.cancelLabel });
+    }
     static size_t bodyLines(const std::string& body) { return _countLines(JTextHelper::wrapToWidth(body, kBodyW)); }
 
     // Height calculation is public so main.cpp can compute the initial Y position.
@@ -218,7 +247,7 @@ private:
         const auto& opts = m_req.options;
         if (!opts.draggable || !opts.showTitleBar) return;
 
-        float titleDragW = (float)kW - (opts.showCloseButton ? kCloseW : 0.f);
+        float titleDragW = (float)m_winW - (opts.showCloseButton ? kCloseW : 0.f);
         bool inTitle = (m_mx >= 0.f && m_mx < titleDragW && m_my >= 0.f && m_my < kTitleH);
 
         if (m_held && inTitle && !m_dragging) {
@@ -232,7 +261,7 @@ private:
             int ny = gy - static_cast<int>(m_dragAnchorY);
             if (opts.constrainToScreen) {
                 auto [sw, sh] = m_window->virtualDesktopSize();
-                nx = std::max(0, std::min(nx, sw - (int)kW));
+                nx = std::max(0, std::min(nx, sw - (int)m_winW));
                 ny = std::max(0, std::min(ny, sh - (int)m_winH));
             }
             m_window->setPosition(nx, ny);
@@ -242,7 +271,7 @@ private:
 
     void _render(JPrimitiveBuffer& buf) {
         const auto& opts = m_req.options;
-        const float W = static_cast<float>(kW);
+        const float W = static_cast<float>(m_winW);
         const float H = static_cast<float>(m_winH);
         const bool  needsInput = (m_req.kind == JDialogRequest::JKind::Input);
         const bool  hasCancel  = (m_req.kind != JDialogRequest::JKind::Message);
@@ -306,27 +335,27 @@ private:
         // Buttons — order driven by opts.okOnRight
         const auto& okLbl     = opts.okLabel;
         const auto& cancelLbl = opts.cancelLabel;
-        const float btnW = 88.f, btnH = JStyle::current().buttonHeight;   // height from JStyle (single source of truth)
+        const float btnW = _buttonWidth(m_req), btnH = JStyle::current().buttonHeight;
         float btnY = H - btnH - 14.f;
         float okX, cancelX;
         if (opts.okOnRight) {
-            okX     = W - btnW - 12.f;
-            cancelX = hasCancel ? W - btnW * 2.f - 20.f : 0.f;
+            okX     = W - btnW - kBtnEdge;
+            cancelX = hasCancel ? okX - kBtnGap - btnW : 0.f;
         } else {
-            cancelX = hasCancel ? W - btnW - 12.f : 0.f;
-            okX     = hasCancel ? W - btnW * 2.f - 20.f : (W - btnW) * 0.5f;
+            cancelX = hasCancel ? W - btnW - kBtnEdge : 0.f;
+            okX     = hasCancel ? cancelX - kBtnGap - btnW : (W - btnW) * 0.5f;
         }
 
         // The tick box, at the left of the same row: a box and its label, both of them the click target.
         if (!opts.checkLabel.empty()) {
-            const float box = 16.f, bx = 16.f, by = btnY + (btnH - box) * 0.5f;
+            const float box = kCheckBox, bx = kCheckX, by = btnY + (btnH - box) * 0.5f;
             const float lw = JTextHelper::measureWidth(opts.checkLabel.c_str());
-            const bool hovCheck = (m_mx >= bx && m_mx < bx + box + 8.f + lw && m_my >= btnY && m_my < btnY + btnH);
+            const bool hovCheck = (m_mx >= bx && m_mx < bx + box + kCheckGap + lw && m_my >= btnY && m_my < btnY + btnH);
             if (m_pressed && hovCheck) m_checked = !m_checked;
             buf.pushRectangle(bx, by, box, box, Colors::InputFieldBg, 3.f, hovCheck ? 2.f : 1.5f,
                               hovCheck ? Colors::Accent : Colors::Border);
             if (m_checked) buf.pushRectangle(bx + 4.f, by + 4.f, box - 8.f, box - 8.f, Colors::Accent, 2.f);
-            JTextHelper::pushText(buf, bx + box + 8.f, btnY + (btnH - lh) * 0.5f, opts.checkLabel,
+            JTextHelper::pushText(buf, bx + box + kCheckGap, btnY + (btnH - lh) * 0.5f, opts.checkLabel,
                                   Colors::TextSecondary);
         }
 
@@ -366,6 +395,7 @@ private:
 
     JDialogRequest                    m_req;
     std::string                       m_body;     // m_req.body wrapped to kBodyW (before m_winH: it sizes it)
+    uint32_t                         m_winW;
     uint32_t                         m_winH;
     std::unique_ptr<PlatformWinType> m_window;
     // The request's picture, uploaded once into this window's own HAL.

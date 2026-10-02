@@ -3,7 +3,11 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cmath>
+#include <initializer_list>
+#include <string>
+#include <string_view>
 
 // JButton.
 
@@ -45,7 +49,7 @@ public:
     // wide enough for its own text at whatever scale the screen asked for.
     void _refreshMinWidth() const {
         if (!JTextHelper::hasAtlas()) return;
-        const float want = JTextHelper::measureWidth(m_label) + JStyle::current().fieldPadding * 3.f;
+        const float want = labelWidth(m_label);
         auto& l = m_graph.getLayout(m_nodeId);
         if (std::abs(l.minWidth - want) > 0.5f) {
             l.minWidth = want;
@@ -54,13 +58,25 @@ public:
     }
 
     jf::JRect preferredSize() const override {
-        const JStyle& s = JStyle::current();
-        const float pad = s.fieldPadding * 3.f;   // 24 px at 100 %, as the old fixed minimum was
-        const float tw  = JTextHelper::hasAtlas()
-                        ? JTextHelper::measureWidth(m_label)
-                        : static_cast<float>(m_label.size()) * 8.f * JStyle::uiScale();
         const jf::JRect b = bounds();
-        return jf::JRect{ b.x, b.y, tw + pad, s.buttonHeight };
+        return jf::JRect{ b.x, b.y, labelWidth(m_label), JStyle::current().buttonHeight };
+    }
+
+    // THE WIDTH A BUTTON NEEDS FOR `label`: the text at the live font and scale, plus the padding either
+    // side. Every button sizes itself from this, and so does every window that draws button-shaped
+    // controls by hand (the dialogs) — one rule, so no label is ever wider than its button.
+    static float labelWidth(const std::string& label) {
+        const float tw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(label)
+                       : static_cast<float>(label.size()) * 8.f * JStyle::uiScale();
+        return tw + JStyle::current().fieldPadding * 3.f;   // 24 px at 100 %, as the old fixed minimum was
+    }
+
+    // The width every button in one dialog row shares: the widest label's need, and never narrower than
+    // the theme's buttonMinWidth, so short labels ("OK") still make a decent target and a row stays even.
+    static float dialogButtonWidth(std::initializer_list<std::string_view> labels) {
+        float w = JStyle::current().buttonMinWidth;
+        for (std::string_view l : labels) w = std::max(w, labelWidth(std::string(l)));
+        return w;
     }
     void setLabel(const std::string& label) { m_label = label; m_graph.invalidateNode(m_nodeId, DirtySelf); notifyAccessibility(); }
     const std::string& label() const { return m_label; }

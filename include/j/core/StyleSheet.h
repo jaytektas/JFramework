@@ -100,6 +100,7 @@ inline JStyle parseStyleSheet(const std::string& text, JStyle base = JStyle::dar
     FRef floats[] = {
         {"cornerradius", &t.cornerRadius}, {"menuitemheight", &t.menuItemHeight},
         {"controlheight", &t.controlHeight}, {"buttonheight", &t.buttonHeight},
+        {"buttonminwidth", &t.buttonMinWidth},
         {"labelheight", &t.labelHeight}, {"checkheight", &t.checkHeight}, {"sliderheight", &t.sliderHeight},
         {"itempadding", &t.itemPadding}, {"spacing", &t.spacing}, {"borderwidth", &t.borderWidth},
         {"titlebarheight", &t.titleBarHeight}, {"focusringwidth", &t.focusRingWidth},

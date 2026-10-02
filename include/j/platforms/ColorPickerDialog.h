@@ -17,6 +17,7 @@
 // On the editor page Cancel returns to the palette; Select applies + remembers the custom.
 // ============================================================================
 
+#include <j/core/JButton.h>
 #include <j/core/ColorPicker.h>
 #include <j/core/JTitleBar.h>       // shared styled title bar (JStyle) — same one every other window uses
 #include <j/core/JCloseButton.h>    // canonical window close control
@@ -44,15 +45,16 @@ class JColorPickerDialog {
 public:
     static constexpr uint32_t kW = 452;
     static constexpr float    kFooterH = 58.f;                 // bottom OK/Cancel button bar
-    static constexpr float    kDlgBtnW = 88.f;                            // button WIDTH (JStyle has no button-width metric)
+    // Footer button WIDTH: what "Select" and "Cancel" need, never under the theme's buttonMinWidth.
+    static float dlgBtnW() { return JButton::dialogButtonWidth({ "Select", "Cancel" }); }
     static float kDlgBtnH() { return JStyle::current().buttonHeight; }    // HEIGHT from JStyle — single source of truth
     // Palette-page grid.
     static constexpr int   kCols = 8, kRows = 5;
     static constexpr float kCellW = 48.f, kCellH = 32.f, kGap = 6.f, kPad = 13.f;
     static float hdrH()       { return JStyle::current().titleBarHeight; }   // title bar height from the theme
     static float btnBarY(float H) { return H - kDlgBtnH() - 14.f; }
-    static float selBtnX()   { return static_cast<float>(kW) - kDlgBtnW - 12.f; }        // Select (accent), rightmost
-    static float cancelBtnX(){ return static_cast<float>(kW) - kDlgBtnW * 2.f - 20.f; }  // Cancel, to its left
+    static float selBtnX()   { return static_cast<float>(kW) - dlgBtnW() - 12.f; }        // Select (accent), rightmost
+    static float cancelBtnX(){ return static_cast<float>(kW) - dlgBtnW() * 2.f - 20.f; }  // Cancel, to its left
     // Window heights per page (runtime — the title bar height comes from the theme). Include the footer.
     static float paletteH() { return hdrH() + 16.f + (kRows * kCellH + (kRows - 1) * kGap) + 16.f + 22.f + kCellH + 14.f + kFooterH; }
     static float editorH()  { return hdrH() + 10.f + JColorPicker::kH + 14.f + kFooterH; }
@@ -120,8 +122,8 @@ public:
         const float by = btnBarY(H);
         bool footerHit = false;
         if (pressed && my >= by && my < by + kDlgBtnH()) {
-            if      (mx >= cancelBtnX() && mx < cancelBtnX() + kDlgBtnW) { footerHit = true; _cancelBtn(); if (m_done) return false; }
-            else if (mx >= selBtnX()    && mx < selBtnX()    + kDlgBtnW) { footerHit = true; _select();    if (m_done) return false; }
+            if      (mx >= cancelBtnX() && mx < cancelBtnX() + dlgBtnW()) { footerHit = true; _cancelBtn(); if (m_done) return false; }
+            else if (mx >= selBtnX()    && mx < selBtnX()    + dlgBtnW()) { footerHit = true; _select();    if (m_done) return false; }
         }
 
         if (m_page == Page::Editor) {
@@ -219,14 +221,14 @@ private:
         const float lh = JTextHelper::lineHeight();
         const float by = btnBarY(H), okX = selBtnX(), caX = cancelBtnX();
         uint8_t cBg[4] = { Colors::CancelBtnBg[0], Colors::CancelBtnBg[1], Colors::CancelBtnBg[2],
-                           static_cast<uint8_t>((mx >= caX && mx < caX + kDlgBtnW && my >= by && my < by + kDlgBtnH()) ? 255 : 220) };
-        buf.pushRectangle(caX, by, kDlgBtnW, kDlgBtnH(), cBg, JStyle::current().cornerRadius, 1.f, Colors::CancelBtnBorder);
-        const bool hovOk = (mx >= okX && mx < okX + kDlgBtnW && my >= by && my < by + kDlgBtnH());
+                           static_cast<uint8_t>((mx >= caX && mx < caX + dlgBtnW() && my >= by && my < by + kDlgBtnH()) ? 255 : 220) };
+        buf.pushRectangle(caX, by, dlgBtnW(), kDlgBtnH(), cBg, JStyle::current().cornerRadius, 1.f, Colors::CancelBtnBorder);
+        const bool hovOk = (mx >= okX && mx < okX + dlgBtnW() && my >= by && my < by + kDlgBtnH());
         uint8_t okBg[4] = { Colors::PrimaryBtnBg[0], Colors::PrimaryBtnBg[1], Colors::PrimaryBtnBg[2], static_cast<uint8_t>(hovOk ? 255 : 220) };
-        buf.pushRectangle(okX, by, kDlgBtnW, kDlgBtnH(), okBg, JStyle::current().cornerRadius, 1.f, Colors::PrimaryBtnBorder);
+        buf.pushRectangle(okX, by, dlgBtnW(), kDlgBtnH(), okBg, JStyle::current().cornerRadius, 1.f, Colors::PrimaryBtnBorder);
         if (JTextHelper::hasAtlas()) {
-            JTextHelper::pushText(buf, caX + (kDlgBtnW - JTextHelper::measureWidth("Cancel")) * 0.5f, by + (kDlgBtnH() - lh) * 0.5f, "Cancel", Colors::CancelBtnText);
-            JTextHelper::pushText(buf, okX + (kDlgBtnW - JTextHelper::measureWidth("Select")) * 0.5f, by + (kDlgBtnH() - lh) * 0.5f, "Select", Colors::PrimaryBtnText);
+            JTextHelper::pushText(buf, caX + (dlgBtnW() - JTextHelper::measureWidth("Cancel")) * 0.5f, by + (kDlgBtnH() - lh) * 0.5f, "Cancel", Colors::CancelBtnText);
+            JTextHelper::pushText(buf, okX + (dlgBtnW() - JTextHelper::measureWidth("Select")) * 0.5f, by + (kDlgBtnH() - lh) * 0.5f, "Select", Colors::PrimaryBtnText);
         }
     }
 

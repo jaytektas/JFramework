@@ -171,6 +171,8 @@ struct JStyle {
     // Authorable in the stylesheet (controlHeight / buttonHeight / labelHeight / checkHeight / sliderHeight).
     float controlHeight  = 30.f;   // interactive fields: combo / spin box / line edit / colour+font button
     float buttonHeight   = 32.f;   // push buttons
+    float buttonMinWidth = 88.f;   // the narrowest a dialog's button row draws a button; a longer label
+                                   // widens it (JButton::dialogButtonWidth) — never clips it
     float labelHeight    = 20.f;   // form labels (text)
     float checkHeight    = 22.f;   // check box / radio
     float sliderHeight   = 24.f;   // slider track + thumb
@@ -377,7 +379,7 @@ inline JStyle& _jStyleMaster() { static JStyle m; return m; }
 inline float&  _jStyleScale()  { static float s = 1.f; return s; }
 
 inline void _jStyleScaleMetrics(JStyle& t, float k) {
-    for (float* f : { &t.cornerRadius, &t.menuItemHeight, &t.controlHeight, &t.buttonHeight,
+    for (float* f : { &t.cornerRadius, &t.menuItemHeight, &t.controlHeight, &t.buttonHeight, &t.buttonMinWidth,
                       &t.labelHeight, &t.checkHeight, &t.sliderHeight, &t.itemPadding,
                       &t.fieldPadding, &t.spacing, &t.borderWidth, &t.titleBarHeight,
                       &t.focusRingWidth, &t.scrollBarWidth, &t.arrowSize,
