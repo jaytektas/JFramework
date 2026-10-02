@@ -934,12 +934,17 @@ private:
             std::copy(img.tint, img.tint+4, r.tint);
             r.first = static_cast<uint32_t>(verts.size() / 4);
 
-            float x0 = img.x, y0 = img.y, x1 = img.x + img.w, y1 = img.y + img.h;
-            float u0 = img.u0, v0 = img.v0, u1 = img.u1, v1 = img.v1;
-            // Triangle 1: top-left, top-right, bottom-left
-            verts.insert(verts.end(), {x0,y0,u0,v0, x1,y0,u1,v0, x0,y1,u0,v1});
-            // Triangle 2: top-right, bottom-right, bottom-left
-            verts.insert(verts.end(), {x1,y0,u1,v0, x1,y1,u1,v1, x0,y1,u0,v1});
+            if (!img.mesh.empty()) {
+                // A warped image: its own triangles, through the same pipeline.
+                for (const auto& v : img.mesh) verts.insert(verts.end(), {v.x, v.y, v.u, v.v});
+            } else {
+                float x0 = img.x, y0 = img.y, x1 = img.x + img.w, y1 = img.y + img.h;
+                float u0 = img.u0, v0 = img.v0, u1 = img.u1, v1 = img.v1;
+                // Triangle 1: top-left, top-right, bottom-left
+                verts.insert(verts.end(), {x0,y0,u0,v0, x1,y0,u1,v0, x0,y1,u0,v1});
+                // Triangle 2: top-right, bottom-right, bottom-left
+                verts.insert(verts.end(), {x1,y0,u1,v0, x1,y1,u1,v1, x0,y1,u0,v1});
+            }
             r.count = static_cast<uint32_t>(verts.size() / 4) - r.first;
             ranges.push_back(r);
         }

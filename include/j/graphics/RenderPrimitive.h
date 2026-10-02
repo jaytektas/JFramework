@@ -80,11 +80,17 @@ public:
     };
 
     // ---- Image draw data ----
+    struct JImageVertex { float x, y, u, v; };   // window pixels; texture coordinates 0..1
     struct JImageData {
         float x{0}, y{0}, w{0}, h{0};   // destination rect in window pixels
         float u0{0}, v0{0}, u1{1}, v1{1}; // source UV rect (default = full texture)
         TextureHandle tex{kNullTexture};
         uint8_t tint[4]{255, 255, 255, 255}; // RGBA tint (255,255,255,255 = no tint)
+        // When not empty, the image is drawn as these triangles (three vertices each) instead of
+        // the rect: a texture warped through a mesh (a camera picture with its lens's bending
+        // taken out, say). The GPU interpolates within each triangle, so a fine mesh follows any
+        // smooth warp to well under a pixel.
+        std::vector<JImageVertex> mesh;
     };
 
     // ---- Vector geometry (anti-aliased 2D paths, per-vertex color) ----
@@ -168,6 +174,23 @@ public:
         cmd.image.u0  = u0; cmd.image.v0 = v0;
         cmd.image.u1  = u1; cmd.image.v1 = v1;
         cmd.image.tex = tex;
+        if (tint) {
+            for (int i = 0; i < 4; ++i) cmd.image.tint[i] = tint[i];
+        }
+        cmd.clip = currentClip();
+        m_commands.push_back(std::move(cmd));
+    }
+
+    // An image warped through a mesh: `triangles` (a multiple of three vertices) each carry where
+    // they are in the window and where in the texture. The same pipeline as pushImage on the GPU;
+    // the software renderer interpolates the texture across each triangle itself.
+    void pushImageMesh(TextureHandle tex, std::vector<JImageVertex> triangles, const uint8_t tint[4] = nullptr) {
+        if (tex == kNullTexture || triangles.size() < 3) return;
+        JDrawCommand cmd;
+        cmd.kind       = JDrawCommand::JKind::Image;
+        cmd.image.tex  = tex;
+        cmd.image.mesh = std::move(triangles);
+        cmd.image.mesh.resize(cmd.image.mesh.size() / 3 * 3);
         if (tint) {
             for (int i = 0; i < 4; ++i) cmd.image.tint[i] = tint[i];
         }

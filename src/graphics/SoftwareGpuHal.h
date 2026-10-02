@@ -245,6 +245,10 @@ public:
                 if (texIt == m_textures.end()) continue;
                 const SoftwareTexture& tex = texIt->second;
                 if (tex.w == 0 || tex.h == 0) continue;
+                if (!img.mesh.empty()) {
+                    _drawImageMesh(surf, tex, img, cx1, cy1, cx2, cy2);
+                    continue;
+                }
 
                 int ix1 = std::max(cx1, static_cast<int>(img.x));
                 int iy1 = std::max(cy1, static_cast<int>(img.y));
@@ -506,6 +510,53 @@ public:
     }
 
 private:
+    // A texture warped through a triangle mesh (JPrimitiveBuffer::pushImageMesh): each triangle
+    // filled by barycentric interpolation of its texture coordinates, sampled bilinearly (a warped
+    // camera picture sampled nearest would shimmer), tinted and blended like pushImage.
+    template <class Surface>
+    void _drawImageMesh(Surface& surf, const SoftwareTexture& tex, const JPrimitiveBuffer::JImageData& img,
+                        int cx1, int cy1, int cx2, int cy2) {
+        auto texel = [&tex](int x, int y) { return tex.pixels[size_t(y) * tex.w + size_t(x)]; };
+        const auto& m = img.mesh;
+        for (size_t t = 0; t + 2 < m.size(); t += 3) {
+            const auto &a = m[t], &b = m[t + 1], &c = m[t + 2];
+            const float area = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
+            if (std::abs(area) < 1e-6f) continue;
+            const int x1 = std::max(cx1, int(std::floor(std::min({ a.x, b.x, c.x }))));
+            const int y1 = std::max(cy1, int(std::floor(std::min({ a.y, b.y, c.y }))));
+            const int x2 = std::min(cx2, int(std::ceil(std::max({ a.x, b.x, c.x }))));
+            const int y2 = std::min(cy2, int(std::ceil(std::max({ a.y, b.y, c.y }))));
+            for (int py = y1; py < y2; ++py)
+                for (int px = x1; px < x2; ++px) {
+                    // Pixel centres; a shared edge is filled once (top-left rule, by the >= / > split).
+                    const float sx = px + 0.5f, sy = py + 0.5f;
+                    float w0 = ((b.x - sx) * (c.y - sy) - (c.x - sx) * (b.y - sy)) / area;
+                    float w1 = ((c.x - sx) * (a.y - sy) - (a.x - sx) * (c.y - sy)) / area;
+                    float w2 = 1.f - w0 - w1;
+                    if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+                    const float u = (w0 * a.u + w1 * b.u + w2 * c.u) * float(tex.w) - 0.5f;
+                    const float v = (w0 * a.v + w1 * b.v + w2 * c.v) * float(tex.h) - 0.5f;
+                    const int tx0 = std::clamp(int(std::floor(u)), 0, int(tex.w) - 1);
+                    const int ty0 = std::clamp(int(std::floor(v)), 0, int(tex.h) - 1);
+                    const int tx1 = std::min(tx0 + 1, int(tex.w) - 1), ty1 = std::min(ty0 + 1, int(tex.h) - 1);
+                    const float fx = std::clamp(u - float(tx0), 0.f, 1.f), fy = std::clamp(v - float(ty0), 0.f, 1.f);
+                    const uint32_t p00 = texel(tx0, ty0), p10 = texel(tx1, ty0), p01 = texel(tx0, ty1), p11 = texel(tx1, ty1);
+                    auto mix = [&](int shift) {
+                        const float top = float((p00 >> shift) & 0xFF) * (1 - fx) + float((p10 >> shift) & 0xFF) * fx;
+                        const float bot = float((p01 >> shift) & 0xFF) * (1 - fx) + float((p11 >> shift) & 0xFF) * fx;
+                        return top * (1 - fy) + bot * fy;
+                    };
+                    const uint8_t tr = uint8_t(mix(16) * img.tint[0] / 255.f + 0.5f);
+                    const uint8_t tg = uint8_t(mix(8)  * img.tint[1] / 255.f + 0.5f);
+                    const uint8_t tb = uint8_t(mix(0)  * img.tint[2] / 255.f + 0.5f);
+                    const uint8_t ta = uint8_t(mix(24) * img.tint[3] / 255.f + 0.5f);
+                    if (ta == 0) continue;
+                    uint32_t& dest = surf.pixels[size_t(py) * surf.width + size_t(px)];
+                    dest = blend(dest, tr, tg, tb, ta);
+                }
+        }
+    }
+
     JNativeWindowHandle m_mainHandle;
     std::mutex m_mutex;
     uint32_t m_frameIndex{0};
