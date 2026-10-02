@@ -15,15 +15,21 @@
 //   extensions  — filter list ("json", "gui"); empty = show every file
 //   onInput     — accept callback, receives the chosen absolute path
 //   onCancel    — cancel / close / Escape
+//
+// Hidden entries (a leading '.') are shown when "Show hidden" is ticked or Ctrl+H is pressed; the
+// choice, like the last folder, is remembered across opens.
 // ============================================================================
 
 #include <j/core/Dialog.h>
+#include <j/core/JCheckBox.h>
+#include <j/core/SceneGraph.h>
 #include <j/core/JTitleBar.h>
 #include <j/core/JCloseButton.h>
 #include <j/core/JTextHelper.h>
 #include <j/core/JStyle.h>
 #include <j/graphics/GpuHal.h>
 #include <j/graphics/RenderPrimitive.h>
+#include <j/io/DirectoryListing.h>
 
 #if defined(_WIN32)
   #include <j/platforms/windows/WindowsPlatformWindow.h>
@@ -62,7 +68,10 @@ public:
               m_req.title.c_str(), kW, m_winH, screenX, screenY,
               JPlatformWindowStyle::Borderless, parentWindow))
         , m_surface(hal.createSurface(m_window->nativeHandle(), kW, m_winH))
+        , m_graph(std::make_unique<JSceneGraph>())
+        , m_hidden(std::make_unique<JCheckBox>(*m_graph, "Show hidden"))
     {
+        m_hidden->setChecked(s_showHidden);
         namespace fs = std::filesystem;
         std::error_code ec;
         fs::path start = s_lastDir.empty() ? fs::current_path(ec) : fs::path(s_lastDir);
@@ -127,7 +136,7 @@ public:
     bool isModal() const { return m_req.options.modal; }
 
 private:
-    struct Entry { std::string name; bool isDir; };
+    using Entry = JDirectoryListing::Entry;
 
     static constexpr float kPad     = 12.f;   // uniform layout gutter for this window
     static constexpr float kRowIcon = 8.f;    // dir/file marker square edge
@@ -135,6 +144,7 @@ private:
     static constexpr int   kDblMs   = 400;    // double-click window
 
     static std::string s_lastDir;             // remembered across opens
+    static bool        s_showHidden;          // likewise
 
     // ---- Directory model ---------------------------------------------------
     void _navigate(const std::filesystem::path& dir) {
@@ -148,35 +158,7 @@ private:
         m_selected = -1;
         m_scroll = 0;
 
-        std::vector<Entry> dirs, files;
-        for (fs::directory_iterator it(m_cwd, fs::directory_options::skip_permission_denied, ec), end;
-             !ec && it != end; it.increment(ec)) {
-            const fs::path& p = it->path();
-            std::string name = p.filename().string();
-            if (name.empty() || name[0] == '.') continue;   // hide dotfiles
-            std::error_code dec;
-            if (it->is_directory(dec)) dirs.push_back({name, true});
-            else if (_passesFilter(name)) files.push_back({name, false});
-        }
-        auto byName = [](const Entry& a, const Entry& b){ return a.name < b.name; };
-        std::sort(dirs.begin(), dirs.end(), byName);
-        std::sort(files.begin(), files.end(), byName);
-        m_entries = std::move(dirs);
-        m_entries.insert(m_entries.end(), files.begin(), files.end());
-    }
-
-    bool _passesFilter(const std::string& name) const {
-        if (m_req.extensions.empty()) return true;
-        auto dot = name.rfind('.');
-        if (dot == std::string::npos) return false;
-        std::string ext = name.substr(dot + 1);
-        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
-        for (const auto& e : m_req.extensions) {
-            std::string want = e;
-            std::transform(want.begin(), want.end(), want.begin(), [](unsigned char c){ return std::tolower(c); });
-            if (ext == want) return true;
-        }
-        return false;
+        m_entries = JDirectoryListing::list(m_cwd, m_req.extensions, s_showHidden);
     }
 
     std::string _defaultSaveName() const {
@@ -241,6 +223,7 @@ private:
             if (!ke.pressed) continue;
             using K = JKeyEvent::JKey;
             if      (ke.key == kb.cancel)        { _cancel(); return; }
+            else if (ke.ctrl && ke.key == K::H)  { m_hidden->setChecked(!m_hidden->isChecked()); _applyHidden(); }
             else if (ke.key == K::Up)            { if (m_selected > 0) { m_selected--; _syncName(); _ensureVisible(); } }
             else if (ke.key == K::Down)          { if (m_selected + 1 < (int)m_entries.size()) { m_selected++; _syncName(); _ensureVisible(); } }
             else if (ke.key == K::PageUp)        { m_selected = std::max(0, m_selected - kVisibleRows); _syncName(); _ensureVisible(); }
@@ -251,6 +234,15 @@ private:
             else if (ke.key == K::Backspace)     { if (typing && !m_filename.empty()) m_filename.pop_back(); else if (!typing) _goUp(); }
             else if (typing && ke.utf8[0] >= 0x20) { m_filename += ke.utf8; }
         }
+    }
+
+    // The box's state is the setting: remember it, and re-list the folder when it changed. (Applied by
+    // the click and the key directly rather than through onStateChanged: this window is movable, and a
+    // slot holding `this` would outlive a move.)
+    void _applyHidden() {
+        if (m_hidden->isChecked() == s_showHidden) return;
+        s_showHidden = m_hidden->isChecked();
+        _navigate(m_cwd);
     }
 
     void _syncName() {
@@ -402,9 +394,18 @@ private:
         }
         y += rowH + kPad;
 
-        // ---- Buttons + filter hint ----------------------------------------
+        // ---- Show hidden + filter hint + buttons ---------------------------
+        // The tick box is a real JCheckBox (its own drawing, one code path), placed here and given the
+        // press; _applyHidden() then re-lists the folder, as Ctrl+H does.
         const float bW = 96.f, by = H - btnH - kPad;
-        JTextHelper::pushText(buf, kPad, by + (btnH - lh) * 0.5f, _filterHint(), Colors::MutedText, W * 0.4f);
+        const float checkH = th.checkHeight;
+        const float checkW = checkH + th.itemPadding + JTextHelper::measureWidth("Show hidden");
+        m_hidden->setBounds({ kPad, by + (btnH - checkH) * 0.5f, checkW, checkH });
+        m_hidden->populateRenderPrimitives(buf);
+        if (m_pressed && _hit(kPad, by, checkW, btnH)) { m_hidden->handleMousePress(m_mx, m_my); _applyHidden(); return; }
+        const float hintX = kPad + checkW + kPad;
+        JTextHelper::pushText(buf, hintX, by + (btnH - lh) * 0.5f, _filterHint(), Colors::MutedText,
+                              W - 2 * bW - 3 * kPad - hintX);
 
         const char* okLbl = (m_req.kind == JDialogRequest::JKind::SaveFile) ? "Save"
                           : (m_req.kind == JDialogRequest::JKind::OpenFolder) ? "Choose" : "Open";
@@ -452,8 +453,14 @@ private:
     float m_barGrab{0.f};                     // cursor offset within the thumb when the drag began
     float m_wheel{0};
     std::vector<JKeyEvent> m_keys;
+
+    // The "Show hidden" tick box lives in a scene graph of its own: this window draws itself, and a
+    // widget needs a graph. Held by pointer so a moved dialog's box still points at its graph.
+    std::unique_ptr<JSceneGraph> m_graph;
+    std::unique_ptr<JCheckBox>   m_hidden;
 };
 
 inline std::string JFileDialogWindow::s_lastDir;
+inline bool        JFileDialogWindow::s_showHidden = false;
 
 } // inline namespace jf
