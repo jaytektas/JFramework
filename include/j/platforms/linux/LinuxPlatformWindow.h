@@ -134,9 +134,18 @@ public:
                               screen->root_visual, mask, vals);
         }
 
-        xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
-                            XCB_ATOM_WM_NAME, XCB_ATOM_STRING,
-                            8, static_cast<uint32_t>(title.size()), title.c_str());
+        _setTitleProperties(title);
+
+        // WM_CLIENT_MACHINE — the host the window's process runs on. ICCCM asks for it beside _NET_WM_PID
+        // (a pid means nothing without the machine it is on), and tools take it as always there: without
+        // it `wmctrl -l` dereferences a null and crashes, every time it lists the windows.
+        {
+            char host[256] = {};
+            if (gethostname(host, sizeof host - 1) == 0 && host[0])
+                xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId,
+                                    XCB_ATOM_WM_CLIENT_MACHINE, XCB_ATOM_STRING, 8,
+                                    static_cast<uint32_t>(std::strlen(host)), host);
+        }
 
         // WM_CLASS — THE APPLICATION'S IDENTITY, NOT THE TOOLKIT'S.
         //
@@ -649,11 +658,22 @@ public:
         xcb_flush(m_connection);
     }
 
-    // Runtime WM title (title-bar text). Mirrors the WM_NAME set at creation.
+    // Runtime WM title (title-bar text). Mirrors the title set at creation.
     void setTitle(const std::string& title) override {
+        _setTitleProperties(title);
+        xcb_flush(m_connection);
+    }
+
+    // The title, both ways a window manager reads it: WM_NAME (ICCCM, Latin-1 STRING, for old tools) and
+    // _NET_WM_NAME (EWMH, UTF8_STRING, which every current one prefers — without it a title with any
+    // non-ASCII character, an en dash, an accent, shows mangled in the task list).
+    void _setTitleProperties(const std::string& title) {
         xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId, XCB_ATOM_WM_NAME,
                             XCB_ATOM_STRING, 8, static_cast<uint32_t>(title.size()), title.c_str());
-        xcb_flush(m_connection);
+        const xcb_atom_t name = _internAtom("_NET_WM_NAME"), utf8 = _internAtom("UTF8_STRING");
+        if (name != XCB_ATOM_NONE && utf8 != XCB_ATOM_NONE)
+            xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId, name, utf8, 8,
+                                static_cast<uint32_t>(title.size()), title.c_str());
     }
 
     // Resize the window.
