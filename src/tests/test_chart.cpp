@@ -128,6 +128,11 @@ void test_hover_and_zoom() {
     c.render(buf);
     // pixelToDataX is monotonic increasing.
     assert(c.pixelToDataX(200) < c.pixelToDataX(500));
+    // The plotting area is inside the chart, and its left edge is the range's start.
+    float ax, ay, aw, ah;
+    c.plotArea(ax, ay, aw, ah);
+    assert(ax > 0 && ay > 0 && aw > 0 && ah > 0 && ax + aw <= 600 && ay + ah <= 300);
+    assert(std::abs(c.pixelToDataX(ax)) < 1e-6 && std::abs(c.pixelToDataX(ax + aw) - 100) < 1e-6);
     // Same pixel span maps to a smaller data span after zooming in.
     double span0 = c.pixelToDataX(500) - c.pixelToDataX(200);
     c.zoomX(0.5, 50.0);

@@ -111,6 +111,8 @@ public:
         m_autoX = false;
     }
     void panX(double deltaData) { m_xLo = m_curXLo + deltaData; m_xHi = m_curXHi + deltaData; m_autoX = false; }
+    // Where the last render put the plotting area (inside the axes), in pixels.
+    void plotArea(float& x, float& y, float& w, float& h) const { x = m_plotX; y = m_plotY; w = m_plotW; h = m_plotH; }
     // Convert a pixel X to a data-space X using the last rendered layout.
     double pixelToDataX(float pxX) const {
         if (m_plotW <= 0) return 0;
