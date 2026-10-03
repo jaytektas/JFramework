@@ -160,7 +160,9 @@ public:
         for (int a = 0; a < JDockSpace::AreaCount; ++a)
             m_space.host(static_cast<JDockSpace::Area>(a)).forEachDockPanel(
                 [&roots](JDockWidget* d, const JRect&, bool activeTab, int) {
-                    if (d && activeTab && d->content()) roots.push_back(d->content());
+                    if (!d || !activeTab) return;
+                    if (d->content()) roots.push_back(d->content());
+                    for (const auto& t : d->titleWidgets()) roots.push_back(t.widget);   // in its tab
                 });
         // FLOATING panels too. They were left out on the grounds that they "run their own focus", but
         // nothing implemented that — and syncOrder() clears focus from any widget outside the order, so a

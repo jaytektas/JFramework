@@ -118,6 +118,7 @@ public:
         , onRenderContent(std::move(o.onRenderContent))
         , onInputContent(std::move(o.onInputContent))
         , m_content(o.m_content)
+        , m_titleWidgets(std::move(o.m_titleWidgets))
     {
         // Replace old pointer in registry with this
         auto& v = s_activeDocks;
@@ -252,6 +253,17 @@ public:
     // controls). The pointer is non-owning; the app owns the widget (as it owns the dock).
     void     setContent(JWidget* w) { m_content = w; }
     JWidget* content() const        { return m_content; }
+
+    // WIDGETS IN THE TAB. Small controls that act on this panel (icon buttons: show it another way,
+    // save what it shows), sitting in its own tab bar, at the end beside the close button, while it is
+    // the front tab — where a panel's tools belong when the panel's own space is precious (a picture).
+    // Not owned; each is `width` wide and as tall as the bar allows. The host lays them out, draws
+    // them and hands them the mouse (move, press, release); a press on one is theirs, not the start of
+    // dragging the tab. Shown on a horizontal tab bar (top or bottom edge).
+    struct JTitleWidget { JWidget* widget; float width; };
+    void addTitleWidget(JWidget* w, float width) { if (w) m_titleWidgets.push_back({ w, width }); }
+    void clearTitleWidgets() { m_titleWidgets.clear(); }
+    const std::vector<JTitleWidget>& titleWidgets() const { return m_titleWidgets; }
 
     // Render this dock's content into `area` (host-local). Prefers the hosted content widget
     // (placed at `area` then drawn via its own render); else the paint hook. Called by
@@ -456,6 +468,7 @@ private:
 
     // Framework-hosted content widget tree (non-owning); null = use the paint/input hooks.
     JWidget* m_content{nullptr};
+    std::vector<JTitleWidget> m_titleWidgets;   // in the tab bar (addTitleWidget)
 };
 
 } // inline namespace jf

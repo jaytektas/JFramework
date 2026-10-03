@@ -733,14 +733,16 @@ public:
                       std::max(1.f, static_cast<float>(h) - top - kEdgeGrip) };
     }
 
-    // This window's tooltip roots: the content of each panel it holds, ACTIVE TAB ONLY — a panel
-    // tabbed behind another is not on screen, so nothing in it can be hovered. Mirrors the main
-    // window's _tooltipRoots(); the two never overlap, which is the point.
+    // This window's tooltip roots: the content of each panel it holds, and the widgets in its tab,
+    // ACTIVE TAB ONLY — a panel tabbed behind another is not on screen, so nothing in it can be
+    // hovered. Mirrors the main window's _tooltipRoots(); the two never overlap, which is the point.
     std::vector<JWidget*> _tooltipRoots() const {
         std::vector<JWidget*> roots;
         if (m_dockHost)
             m_dockHost->forEachDockPanel([&roots](JDockWidget* d, const JRect&, bool activeTab, int) {
-                if (d && activeTab && d->content()) roots.push_back(d->content());
+                if (!d || !activeTab) return;
+                if (d->content()) roots.push_back(d->content());
+                for (const auto& t : d->titleWidgets()) roots.push_back(t.widget);
             });
         return roots;
     }

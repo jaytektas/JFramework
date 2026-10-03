@@ -350,6 +350,7 @@ public:
     static constexpr float HANDLE_VIS   = 2.0f;   // visible divider line thickness
     static constexpr float ARROW_SZ     = 32.0f;  // drop indicator icon size
     static constexpr float BTN_SZ       = 14.0f;  // close button size on tabs
+    static constexpr float TITLE_WIDGET_GAP = 2.0f;   // between a dock's widgets in its tab bar
 
     float handleHoverPad() const {
         if (m_options.handleHoverPad.has_value()) return *m_options.handleHoverPad;
@@ -736,6 +737,10 @@ public:
             m_handleDrag = {};
             m_titleDrag  = {};
         }
+
+        // 0. The front tabs' own widgets in their tab bars (JDockWidget::addTitleWidget): a press on
+        // one is its, not the start of a resize or a tab drag.
+        if (_routeTitleWidgets(mx, my, pressed, released)) return std::nullopt;
 
         // 1. Resize handles take priority.
         if (m_handleDrag.active) {
@@ -1331,7 +1336,8 @@ private:
         if (n <= 0 || _leafHeaderless(leaf)) return out;
         const JTabBarEdge edge = effectiveTabEdge();
         const bool vert = (edge == JTabBarEdge::Left || edge == JTabBarEdge::Right);
-        const float barLen = vert ? bar.height : bar.width;
+        // The front tab's widgets take the end of the bar; the tabs share the rest.
+        const float barLen = std::max(0.f, (vert ? bar.height : bar.width) - _titleWidgetsSpan(leaf));
         std::vector<float> ext(n);
         float sum = 0.f;
         for (int i = 0; i < n; ++i) {
@@ -1493,7 +1499,8 @@ private:
                     JTextHelper::pushTextVertical(buf, px, py, title, tc, bar.height - 12.f, cw);
                 } else {
                     float ty = bar.y + (bar.height - lineH) * 0.5f;
-                    JTextHelper::pushText(buf, bar.x + 10.f, ty, title, tc, bar.width - BTN_SZ - 24.f);
+                    JTextHelper::pushText(buf, bar.x + 10.f, ty, title, tc,
+                                          bar.width - BTN_SZ - 24.f - _titleWidgetsSpan(leaf));
                 }
             }
         } else {
@@ -1570,6 +1577,77 @@ private:
             uint8_t needle[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 180};
             buf.pushRectangle(pinX + BTN_SZ * 0.42f, closeR.y + 2.f, 2.0f, BTN_SZ - 4.f, needle, 1.0f);
         }
+
+        // The front tab's own widgets, at the end of the bar.
+        if (JDockWidget* front = _frontTab(leaf)) {
+            const std::vector<JRect> rects = _titleWidgetRects(leaf);
+            const auto& widgets = front->titleWidgets();
+            for (size_t i = 0; i < rects.size() && i < widgets.size(); ++i) {
+                widgets[i].widget->setBounds(rects[i]);
+                widgets[i].widget->populateRenderPrimitives(buf);
+            }
+        }
+    }
+
+    JDockWidget* _frontTab(const JDockNode& leaf) const {
+        return leaf.activeTab >= 0 && leaf.activeTab < static_cast<int>(leaf.tabs.size()) ? leaf.tabs[leaf.activeTab]
+                                                                                           : nullptr;
+    }
+
+    // Where the front tab's widgets sit: right to left from beside the close button (and the pin badge
+    // of a single title bar), each its own width, as tall as the bar less a margin. None on a vertical
+    // bar, or a headerless leaf.
+    std::vector<JRect> _titleWidgetRects(const JDockNode& leaf) const {
+        std::vector<JRect> out;
+        const JDockWidget* front = _frontTab(leaf);
+        const JTabBarEdge edge = effectiveTabEdge();
+        if (!front || front->titleWidgets().empty() || _leafHeaderless(leaf)
+            || edge == JTabBarEdge::Left || edge == JTabBarEdge::Right)
+            return out;
+        const JRect bar = _tabBarRect(leaf);
+        const JRect closeR = _closeBtnRect(leaf);
+        const float pad = (TAB_BAR_SZ - BTN_SZ) * 0.5f;
+        float right = closeR.x - pad - (leaf.tabs.size() == 1 ? BTN_SZ + pad : 0.f);
+        const float margin = TITLE_WIDGET_GAP;
+        const auto& widgets = front->titleWidgets();
+        out.resize(widgets.size());
+        for (size_t i = widgets.size(); i-- > 0;) {
+            right -= widgets[i].width;
+            out[i] = { right, bar.y + margin, widgets[i].width, bar.height - 2.f * margin };
+            right -= TITLE_WIDGET_GAP;
+        }
+        return out;
+    }
+
+    // How much of the bar the front tab's widgets take (with the gap before them).
+    float _titleWidgetsSpan(const JDockNode& leaf) const {
+        const std::vector<JRect> rects = _titleWidgetRects(leaf);
+        if (rects.empty()) return 0.f;
+        const JRect bar = _tabBarRect(leaf);
+        return bar.x + bar.width - rects.front().x + TITLE_WIDGET_GAP;
+    }
+
+    // Every front tab's widgets get the mouse; true when a press landed on one.
+    bool _routeTitleWidgets(float mx, float my, bool pressed, bool released) {
+        bool taken = false;
+        for (const JDockNode& n : m_nodes) {
+            if (n.type != JDockNode::JType::Leaf) continue;
+            JDockWidget* front = _frontTab(n);
+            if (!front || front->titleWidgets().empty()) continue;
+            const std::vector<JRect> rects = _titleWidgetRects(n);
+            const auto& widgets = front->titleWidgets();
+            for (size_t i = 0; i < rects.size() && i < widgets.size(); ++i) {
+                JWidget* w = widgets[i].widget;
+                w->setBounds(rects[i]);
+                w->handleMouseMove(mx, my);
+                if (pressed && _inRect(rects[i], mx, my)) {
+                    w->handleMousePress(mx, my);
+                    taken = true;
+                }
+                if (released) w->handleMouseRelease(mx, my);
+            }
+        }
+        return taken;
     }
 
     void _renderSplitHandles(const JDockNode& split, JPrimitiveBuffer& buf) const {
