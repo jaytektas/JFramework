@@ -61,6 +61,8 @@ struct JMenuShortcut {
                     s += static_cast<char>('A' + (static_cast<uint32_t>(key) - static_cast<uint32_t>(K::A)));
                 } else if (key >= K::_0 && key <= K::_9) {
                     s += static_cast<char>('0' + (static_cast<uint32_t>(key) - static_cast<uint32_t>(K::_0)));
+                } else if (static_cast<uint32_t>(key) > 32 && static_cast<uint32_t>(key) < 127) {
+                    s += static_cast<char>(key);   // a printable key arrives as its character (',' '/' '=' ...)
                 } else {
                     s += "JKey";
                 }
