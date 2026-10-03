@@ -163,6 +163,7 @@ public:
         for (const auto& cmd : buffer.getCommands()) {
             int cx1 = 0, cy1 = 0, cx2 = surf.width, cy2 = surf.height;
             if (cmd.clip.enabled) {
+                if (cmd.clip.w <= 0.0f || cmd.clip.h <= 0.0f) continue;   // empty stays empty, as the Vulkan HAL
                 // Outward to whole pixels, as the Vulkan HAL: a clip edge between pixels keeps that pixel.
                 cx1 = std::max(0, static_cast<int>(std::floor(cmd.clip.x)));
                 cy1 = std::max(0, static_cast<int>(std::floor(cmd.clip.y)));

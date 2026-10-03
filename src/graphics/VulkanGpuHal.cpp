@@ -602,7 +602,13 @@ public:
     // Set the dynamic scissor from a clip rect (clamped to the surface), or full window.
     void _applyScissor(const JPrimitiveBuffer::JClipRect& clip) {
         VkRect2D sc;
-        if (clip.enabled) {
+        if (clip.enabled && (clip.w <= 0.0f || clip.h <= 0.0f)) {
+            // EMPTY stays empty. A widget scrolled wholly out of its parent's clip gets a zero-sized clip
+            // at its own edge; rounded outward like any other it became one pixel, and a one-pixel slice
+            // of that widget showed outside the scroll area.
+            sc.offset = {0, 0};
+            sc.extent = {0, 0};
+        } else if (clip.enabled) {
             // OUTWARD to whole pixels: every pixel the clip touches is inside it. Truncating the edges
             // dropped the last column and row of any clip whose right or bottom edge fell between
             // pixels — a widget's border or a glyph's last pixel cut off, all over every app.
