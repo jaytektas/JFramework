@@ -476,31 +476,42 @@ public:
         }
         // --- SHRINK: only when policies are engaged (preserves the historical overflow behaviour for
         //     callers that never set a policy). Pull space back from shrinkable children down to min. ---
+        //
+        //     THE STRETCHY GIVE FIRST. A child that expands (a list, a picture, a text area) is room by
+        //     nature, and has it to give; one sized to its content (a row of buttons, a label, an input line)
+        //     is the size it is so its content shows. Taking from every one in proportion squeezed rows of
+        //     buttons to slivers and left the input line under a console half drawn while the list above
+        //     kept most of its height. So the expanding give first, down to their minimum, and only a
+        //     deficit left after that is taken from the rest.
         else if (freeMain < -0.5f && policiesEngaged) {
-            std::vector<NodeId> shrinkable;
-            for (NodeId k : kids) {
-                auto& cl = m_layouts[k];
-                if (cl.mainPolicy(d).canShrink() && mainOf(cl.boundingBox) > mainMinOf(cl) + 0.5f)
-                    shrinkable.push_back(k);
-            }
             float deficit = -freeMain;
-            for (size_t guard = 0; guard <= shrinkable.size() && deficit > 0.5f && !shrinkable.empty(); ++guard) {
-                float totHead = 0.0f;   // room available above each child's minimum
-                for (NodeId k : shrinkable) { auto& cl = m_layouts[k]; totHead += mainOf(cl.boundingBox) - mainMinOf(cl); }
-                if (totHead <= 0.0f) break;
-                float removed = 0.0f;
-                std::vector<NodeId> still;
-                for (NodeId k : shrinkable) {
+            for (int stage = 0; stage < 2 && deficit > 0.5f; ++stage) {
+                std::vector<NodeId> shrinkable;
+                for (NodeId k : kids) {
                     auto& cl = m_layouts[k];
-                    float head = mainOf(cl.boundingBox) - mainMinOf(cl);
-                    float take = std::min(head, deficit * (head / totHead));
-                    setMain(cl, mainOf(cl.boundingBox) - take);
-                    removed += take;
-                    if (mainOf(cl.boundingBox) > mainMinOf(cl) + 0.5f) still.push_back(k);
+                    const bool stretchy = cl.mainPolicy(d).expands();
+                    if (stretchy != (stage == 0)) continue;
+                    if (cl.mainPolicy(d).canShrink() && mainOf(cl.boundingBox) > mainMinOf(cl) + 0.5f)
+                        shrinkable.push_back(k);
                 }
-                deficit -= removed;
-                if (removed < 0.5f) break;
-                shrinkable.swap(still);
+                for (size_t guard = 0; guard <= shrinkable.size() && deficit > 0.5f && !shrinkable.empty(); ++guard) {
+                    float totHead = 0.0f;   // room available above each child's minimum
+                    for (NodeId k : shrinkable) { auto& cl = m_layouts[k]; totHead += mainOf(cl.boundingBox) - mainMinOf(cl); }
+                    if (totHead <= 0.0f) break;
+                    float removed = 0.0f;
+                    std::vector<NodeId> still;
+                    for (NodeId k : shrinkable) {
+                        auto& cl = m_layouts[k];
+                        float head = mainOf(cl.boundingBox) - mainMinOf(cl);
+                        float take = std::min(head, deficit * (head / totHead));
+                        setMain(cl, mainOf(cl.boundingBox) - take);
+                        removed += take;
+                        if (mainOf(cl.boundingBox) > mainMinOf(cl) + 0.5f) still.push_back(k);
+                    }
+                    deficit -= removed;
+                    if (removed < 0.5f) break;
+                    shrinkable.swap(still);
+                }
             }
         }
 

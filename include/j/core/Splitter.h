@@ -14,8 +14,10 @@ inline namespace jf {
 // ============================================================================
 // JSplitter — resizable split-pane container
 //
-// Children are separated by draggable dividers.  Call layout() each frame
-// before rendering to update child bounding boxes.
+// Children are separated by draggable dividers. Each pane is laid out at its share, drawn, and given the
+// mouse (move / press / release / wheel) — a press on a divider is the splitter's own. Panes are its
+// widget-tree children (addPane), so focus and tooltips descend into them. layout() places the panes; it
+// runs on each draw, and may be called directly to read their bounds.
 //
 // Usage:
 //   JSplitter split(graph, JSplitter::JOrientation::Horizontal, 600, 400);
@@ -56,6 +58,7 @@ public:
     void addPane(JWidget* widget, float fraction = -1.0f)
     {
         if (!widget) return;
+        addChild(widget);   // in the widget tree: focus, tooltips and visibility descend into the panes
 
         if (fraction < 0.0f) {
             // Auto-distribute: reassign equal share to all panes including new one.
@@ -129,6 +132,7 @@ public:
 
     void handleMouseMove(float mx, float my) override
     {
+        if (m_draggingDivider >= 0 && !JWidget::s_leftDown) m_draggingDivider = -1;   // a release we never saw
         if (m_draggingDivider >= 0) {
             // Compute available space
             const auto& selfBB = m_graph.getLayoutConst(m_nodeId).boundingBox;
@@ -155,6 +159,7 @@ public:
             m_graph.invalidateNode(m_nodeId, DirtySelf);
         } else {
             m_hoveredDivider = hitTestDivider(mx, my);
+            for (const JPane& p : m_panes) if (p.widget->isVisibleSelf()) p.widget->handleMouseMove(mx, my);
         }
     }
 
@@ -166,12 +171,38 @@ public:
             m_dragStart       = (m_orient == JOrientation::Horizontal) ? mx : my;
             m_dragFractionA   = m_panes[hit].fraction;
             m_dragFractionB   = m_panes[hit + 1].fraction;
+            return;
         }
+        for (const JPane& p : m_panes) if (p.widget->isVisibleSelf()) p.widget->handleMousePress(mx, my);
     }
 
-    void handleMouseRelease(float, float) override
+    void handleMouseRelease(float mx, float my) override
     {
-        m_draggingDivider = -1;
+        if (m_draggingDivider >= 0) {   // the divider's release, not the panes'
+            m_draggingDivider = -1;
+            return;
+        }
+        for (const JPane& p : m_panes) if (p.widget->isVisibleSelf()) p.widget->handleMouseRelease(mx, my);
+    }
+
+    bool handleScroll(float mx, float my, float wheel) override
+    {
+        bool consumed = false;
+        for (const JPane& p : m_panes) if (p.widget->isVisibleSelf()) consumed |= p.widget->handleScroll(mx, my, wheel);
+        return consumed;
+    }
+
+    // The fractions of the panes, in order (each a share of the room the dividers leave), to keep where
+    // the person dragged them; setFractions puts them back.
+    std::vector<float> fractions() const {
+        std::vector<float> out;
+        for (const JPane& p : m_panes) out.push_back(p.fraction);
+        return out;
+    }
+    void setFractions(const std::vector<float>& f) {
+        for (size_t i = 0; i < f.size() && i < m_panes.size(); ++i) m_panes[i].fraction = f[i];
+        normalizeFractions();
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
 
     // -------------------------------------------------------------------------
@@ -180,6 +211,15 @@ public:
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override
     {
+        // The panes at their shares, each drawn inside its own box, then the dividers between them.
+        layout();
+        for (const JPane& p : m_panes) {
+            if (!p.widget->isVisibleSelf()) continue;
+            const JRect pb = m_graph.getLayoutConst(p.widget->getNodeId()).boundingBox;
+            buf.pushClip(pb.x, pb.y, pb.width, pb.height);
+            p.widget->populateRenderPrimitives(buf);
+            buf.popClip();
+        }
         if (m_panes.size() < 2) return;
 
         const auto& selfBB = m_graph.getLayoutConst(m_nodeId).boundingBox;
