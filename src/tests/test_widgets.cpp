@@ -483,6 +483,19 @@ void test_menu_and_shortcuts() {
     assert(handled == true);
     assert(triggered == true);
 
+    // Reassigned: the old key does nothing, the new one fires, and the entry shows it.
+    JMenuManager::instance().unregisterShortcut(item1->shortcut());
+    triggered = false;
+    assert(JMenuManager::instance().processAccelerator(ke) == false && !triggered);
+    const JMenuShortcut f5{ JKeyEvent::JKey::F5, false, false, false };
+    item1->setShortcut(f5);
+    JMenuManager::instance().registerShortcut(item1->shortcut(), [&triggered]() { triggered = true; });
+    JKeyEvent f5Event;
+    f5Event.pressed = true;
+    f5Event.key = JKeyEvent::JKey::F5;
+    assert(JMenuManager::instance().processAccelerator(f5Event) == true && triggered);
+    assert(item1->shortcut().toString() == "F5");
+
     std::cout << "test_menu_and_shortcuts passed" << std::endl;
 }
 

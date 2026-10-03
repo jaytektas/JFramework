@@ -56,8 +56,14 @@ struct JMenuShortcut {
             case K::Right: s += "Right"; break;
             case K::Up: s += "Up"; break;
             case K::Down: s += "Down"; break;
+            case K::Home: s += "Home"; break;
+            case K::End: s += "End"; break;
+            case K::PageUp: s += "PageUp"; break;
+            case K::PageDown: s += "PageDown"; break;
             default:
-                if (key >= K::A && key <= K::Z) {
+                if (key >= K::F1 && key <= K::F12) {
+                    s += "F" + std::to_string(1 + static_cast<uint32_t>(key) - static_cast<uint32_t>(K::F1));
+                } else if (key >= K::A && key <= K::Z) {
                     s += static_cast<char>('A' + (static_cast<uint32_t>(key) - static_cast<uint32_t>(K::A)));
                 } else if (key >= K::_0 && key <= K::_9) {
                     s += static_cast<char>('0' + (static_cast<uint32_t>(key) - static_cast<uint32_t>(K::_0)));
@@ -118,6 +124,8 @@ public:
     // A label that follows what the entry would do now ("Add Axis", "Add Nozzle").
     void setLabel(std::string l) { m_label = std::move(l); _updateMinWidth(); }
     const JMenuShortcut& shortcut() const noexcept { return m_shortcut; }
+    // A key the user chose (an application's key assignments): shown from the next time the menu opens.
+    void setShortcut(const JMenuShortcut& sc) { m_shortcut = sc; _updateMinWidth(); }
     JMenu* submenu() const noexcept { return m_submenu; }
 
     void setCheckable(bool c) noexcept { m_checkable = c; _updateMinWidth(); }   // check column changes the width
@@ -405,6 +413,13 @@ public:
     }
 
     void clearShortcuts() { m_shortcuts.clear(); }
+    // Take one key away (an application reassigning its keys); every registration of it goes.
+    void unregisterShortcut(const JMenuShortcut& sc) {
+        std::erase_if(m_shortcuts, [&](const JShortcutReg& r) {
+            return r.shortcut.key == sc.key && r.shortcut.ctrl == sc.ctrl && r.shortcut.alt == sc.alt
+                && r.shortcut.shift == sc.shift;
+        });
+    }
 
     // Global tearoff switch — overrides per-menu setting when false.
     void setTearOffEnabled(bool v) noexcept { m_globalTearOff = v; }
