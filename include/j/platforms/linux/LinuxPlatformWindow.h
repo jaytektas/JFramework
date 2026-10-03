@@ -260,7 +260,27 @@ public:
         m_cursorBotLeft  = _createFontCursor(12);  // bottom_left_corner
         m_cursorBotRight = _createFontCursor(14);  // bottom_right_corner
 
+        // STARTUP NOTIFICATION. Launched from a desktop's menu or dock, the launcher hands the app a startup
+        // id (DESKTOP_STARTUP_ID) and shows a busy cursor until the app says it is up — or until it gives up,
+        // some 30 s later, which reads as a program still loading long after its window is in use. The first
+        // application window carries the id (_NET_STARTUP_ID, read by the WM as it maps), and "remove" is
+        // broadcast once it is mapped (the freedesktop startup-notification protocol, which mutter honours for
+        // X11 and Xwayland clients alike). Taken from the environment so a program started from this one does
+        // not claim it.
+        std::string startupId;
+        if (!s_startupClaimed && parentWindow == 0 && style != JPlatformWindowStyle::Popup) {
+            s_startupClaimed = true;
+            if (const char* id = std::getenv("DESKTOP_STARTUP_ID"); id && *id) startupId = id;
+            ::unsetenv("DESKTOP_STARTUP_ID");
+            if (!startupId.empty())
+                if (const xcb_atom_t a = _internAtom("_NET_STARTUP_ID"), u = _internAtom("UTF8_STRING");
+                    a != XCB_ATOM_NONE && u != XCB_ATOM_NONE)
+                    xcb_change_property(m_connection, XCB_PROP_MODE_REPLACE, m_windowId, a, u, 8,
+                                        static_cast<uint32_t>(startupId.size()), startupId.data());
+        }
+
         xcb_map_window(m_connection, m_windowId);
+        if (!startupId.empty()) _startupComplete(startupId);
         xcb_flush(m_connection);
 
         s_lastCreatedRaw = static_cast<uintptr_t>(m_windowId);   // so a caller can parent the NEXT modal to this one
@@ -1274,6 +1294,31 @@ private:
         return atom;
     }
 
+    // "remove: ID=<id>" to the root window, in 20-byte pieces: the first as _NET_STARTUP_INFO_BEGIN, the
+    // rest as _NET_STARTUP_INFO, NUL-terminated (the startup-notification spec's message format).
+    void _startupComplete(const std::string& id) {
+        std::string quoted;
+        for (char c : id) {
+            if (c == '"' || c == '\\') quoted.push_back('\\');
+            quoted.push_back(c);
+        }
+        std::string msg = "remove: ID=\"" + quoted + "\"";
+        msg.push_back('\0');
+        const xcb_atom_t begin = _internAtom("_NET_STARTUP_INFO_BEGIN"), more = _internAtom("_NET_STARTUP_INFO");
+        if (begin == XCB_ATOM_NONE || more == XCB_ATOM_NONE) return;
+        const xcb_window_t root = xcb_setup_roots_iterator(xcb_get_setup(m_connection)).data->root;
+        for (size_t at = 0; at < msg.size(); at += 20) {
+            xcb_client_message_event_t ev{};
+            ev.response_type = XCB_CLIENT_MESSAGE;
+            ev.format = 8;
+            ev.window = m_windowId;
+            ev.type = at == 0 ? begin : more;
+            std::memcpy(ev.data.data8, msg.data() + at, std::min<size_t>(20, msg.size() - at));
+            xcb_send_event(m_connection, 0, root, XCB_EVENT_MASK_PROPERTY_CHANGE, reinterpret_cast<const char*>(&ev));
+        }
+        qCInfo(jf::Log::Platform) << "startup notification complete:" << id;
+    }
+
     // Remove WM title bar/borders via Motif hints (_MOTIF_WM_HINTS).
     // The window stays WM-managed (can be dragged across monitors, fullscreened).
     void _applyMotifBorderless() {
@@ -1488,6 +1533,7 @@ private:
     // the first row from a pointer that was still up in the combo box. Every consumer already
     // handles -1: the leave handler has always produced it.
     static inline std::string s_appClass;   // empty until derived from /proc/self/exe (or set by the app)
+    static inline bool s_startupClaimed = false;   // the first application window took the startup id
     float m_mouseX{-1.0f};
     // False until a pointer event has actually told us where the pointer is; see mousePosKnown().
     bool  m_mousePosKnown{false};
