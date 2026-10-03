@@ -131,6 +131,13 @@ public:
     // without duplicating the tree's own hit-testing.
     const JTreeViewNode* hoveredNode() const { return m_hoverNode; }
 
+    // A right-click selects the row under it first (unless that row is already in the selection), so a
+    // context menu acts on what was clicked — not on whatever happened to be selected before.
+    void prepareContextMenu(float mx, float my) override {
+        JTreeViewNode* n = _nodeAtPoint(mx, my);
+        if (n && !n->selected) _selectSingle(n);
+    }
+
     JTreeViewNode& root() { return m_root; }
     const JTreeViewNode& root() const { return m_root; }
 

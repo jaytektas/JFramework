@@ -113,6 +113,8 @@ public:
 
 
     const std::string& label() const noexcept { return m_label; }
+    // A label that follows what the entry would do now ("Add Axis", "Add Nozzle").
+    void setLabel(std::string l) { m_label = std::move(l); _updateMinWidth(); }
     const JMenuShortcut& shortcut() const noexcept { return m_shortcut; }
     JMenu* submenu() const noexcept { return m_submenu; }
 
