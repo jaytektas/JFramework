@@ -181,6 +181,20 @@ struct JLayoutComponent {
 
     // Calculated output geometry bounds
     JRect boundingBox;
+
+    // A leaf's own size, kept apart from what the layout makes of it. A leaf's box is both the
+    // size its widget asks for and the size the layout gives it, so a layout short of room that
+    // cut a leaf (a button in a window made small) left the cut size as the size it asked for,
+    // and it never grew back when room came back. The layout now starts a leaf from its natural
+    // size: the box as its widget last set it, told apart from the box as the layout last left it
+    // (laid*, recorded after each layout pass) by being different from it. -1: not yet known. Taken
+    // once a pass (naturalPass): a pass measures a leaf more than once, and its own cut from the
+    // first is not the widget's doing.
+    float          naturalWidth{-1.0f};
+    float          naturalHeight{-1.0f};
+    float          laidWidth{-1.0f};
+    float          laidHeight{-1.0f};
+    uint32_t       naturalPass{0};
 };
 
 /**
@@ -363,13 +377,34 @@ public:
         if (m_dirtyFlags[nodeId] == Clean) return;
         
         _computeMinSize(nodeId);
+        ++m_layoutPass;
 
         // Two phases keep nested layouts correct: size the whole subtree bottom-up, then
         // position it top-down from this node's current origin.
         _measure(nodeId, constraints);
         auto& bb = m_layouts[nodeId].boundingBox;
         _arrange(nodeId, bb.x, bb.y);
+        _recordLaid(nodeId);
         _markCleanRec(nodeId);
+    }
+
+    // A leaf's natural size brought up to date: its box, if its widget changed it since the layout
+    // last set it (see JLayoutComponent::naturalWidth).
+    void _natural(JLayoutComponent& L) const {
+        if (L.naturalPass == m_layoutPass) return;
+        L.naturalPass = m_layoutPass;
+        if (L.boundingBox.width  != L.laidWidth)  L.naturalWidth  = L.boundingBox.width;
+        if (L.boundingBox.height != L.laidHeight) L.naturalHeight = L.boundingBox.height;
+    }
+    void _recordLaid(NodeId nodeId) {
+        const auto& kids = m_hierarchy[nodeId].childrenIds;
+        if (kids.empty()) {
+            auto& L = m_layouts[nodeId];
+            L.laidWidth  = L.boundingBox.width;
+            L.laidHeight = L.boundingBox.height;
+            return;
+        }
+        for (NodeId k : kids) _recordLaid(k);
     }
 
     // clamp that never asserts: if an upstream constraint inverts (max < min), the min
@@ -390,8 +425,9 @@ public:
         auto crossOf = [&](const JRect& r){ return row ? r.height : r.width;  };
 
         if (kids.empty()) {
-            L.boundingBox.width  = clampF(L.boundingBox.width,  std::max(c.minWidth, L.minWidth),  c.maxWidth);
-            L.boundingBox.height = clampF(L.boundingBox.height, std::max(c.minHeight, L.minHeight), c.maxHeight);
+            _natural(L);
+            L.boundingBox.width  = clampF(L.naturalWidth,  std::max(c.minWidth, L.minWidth),  c.maxWidth);
+            L.boundingBox.height = clampF(L.naturalHeight, std::max(c.minHeight, L.minHeight), c.maxHeight);
             return;
         }
 
@@ -411,8 +447,13 @@ public:
             float availH = std::max(0.0f, c.maxHeight - pad.vertical()   - cl.margin.vertical());
             // A child wants its intrinsic size but must fit the available space — clamp the
             // min bound to avail so an oversized control shrinks instead of asserting.
-            float childMinW = std::max(cl.minWidth, std::min(cl.boundingBox.width, availW));
-            float childMinH = std::max(cl.minHeight, std::min(cl.boundingBox.height, availH));
+            // A leaf asks for its natural size, not what an earlier, tighter pass cut it to.
+            const bool leaf = m_hierarchy[kids[i]].childrenIds.empty();
+            if (leaf) _natural(cl);
+            const float askW = leaf ? cl.naturalWidth : cl.boundingBox.width;
+            const float askH = leaf ? cl.naturalHeight : cl.boundingBox.height;
+            float childMinW = std::max(cl.minWidth, std::min(askW, availW));
+            float childMinH = std::max(cl.minHeight, std::min(askH, availH));
             JConstraints cc{
                 childMinW, availW,
                 childMinH, availH
@@ -787,6 +828,7 @@ private:
     JHostWindow                   m_host{};            // host window for popups anchored in this graph's space
     JLayoutComponent              m_defaultLayout{};   // global defaults for new nodes
     std::vector<JLayoutComponent> m_layouts;
+    uint32_t                      m_layoutPass{0};     // counts layout passes (JLayoutComponent::naturalPass)
     std::vector<JHierarchyComponent> m_hierarchy;
     std::vector<uint8_t> m_dirtyFlags;
 };
