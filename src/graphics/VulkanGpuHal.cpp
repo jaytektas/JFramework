@@ -30,6 +30,7 @@
 #include <unordered_map>
 #include <cstring>
 #include <algorithm>
+#include <cmath>
 
 namespace { inline constexpr auto& LogVulkan = jf::Log::Vulkan; }
 
@@ -602,10 +603,13 @@ public:
     void _applyScissor(const JPrimitiveBuffer::JClipRect& clip) {
         VkRect2D sc;
         if (clip.enabled) {
-            float x  = std::max(0.0f, clip.x);
-            float y  = std::max(0.0f, clip.y);
-            float rr = std::min(static_cast<float>(m_act->extent.width),  clip.x + clip.w);
-            float bb = std::min(static_cast<float>(m_act->extent.height), clip.y + clip.h);
+            // OUTWARD to whole pixels: every pixel the clip touches is inside it. Truncating the edges
+            // dropped the last column and row of any clip whose right or bottom edge fell between
+            // pixels — a widget's border or a glyph's last pixel cut off, all over every app.
+            float x  = std::max(0.0f, std::floor(clip.x));
+            float y  = std::max(0.0f, std::floor(clip.y));
+            float rr = std::min(static_cast<float>(m_act->extent.width),  std::ceil(clip.x + clip.w));
+            float bb = std::min(static_cast<float>(m_act->extent.height), std::ceil(clip.y + clip.h));
             sc.offset = { static_cast<int32_t>(x), static_cast<int32_t>(y) };
             sc.extent = { static_cast<uint32_t>(std::max(0.0f, rr - x)),
                           static_cast<uint32_t>(std::max(0.0f, bb - y)) };

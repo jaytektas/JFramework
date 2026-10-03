@@ -163,10 +163,11 @@ public:
         for (const auto& cmd : buffer.getCommands()) {
             int cx1 = 0, cy1 = 0, cx2 = surf.width, cy2 = surf.height;
             if (cmd.clip.enabled) {
-                cx1 = std::max(0, static_cast<int>(cmd.clip.x));
-                cy1 = std::max(0, static_cast<int>(cmd.clip.y));
-                cx2 = std::min(static_cast<int>(surf.width), static_cast<int>(cmd.clip.x + cmd.clip.w));
-                cy2 = std::min(static_cast<int>(surf.height), static_cast<int>(cmd.clip.y + cmd.clip.h));
+                // Outward to whole pixels, as the Vulkan HAL: a clip edge between pixels keeps that pixel.
+                cx1 = std::max(0, static_cast<int>(std::floor(cmd.clip.x)));
+                cy1 = std::max(0, static_cast<int>(std::floor(cmd.clip.y)));
+                cx2 = std::min(static_cast<int>(surf.width), static_cast<int>(std::ceil(cmd.clip.x + cmd.clip.w)));
+                cy2 = std::min(static_cast<int>(surf.height), static_cast<int>(std::ceil(cmd.clip.y + cmd.clip.h)));
             }
 
             if (cx1 >= cx2 || cy1 >= cy2) continue;
