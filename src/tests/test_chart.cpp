@@ -133,6 +133,12 @@ void test_hover_and_zoom() {
     c.plotArea(ax, ay, aw, ah);
     assert(ax > 0 && ay > 0 && aw > 0 && ah > 0 && ax + aw <= 600 && ay + ah <= 300);
     assert(std::abs(c.pixelToDataX(ax)) < 1e-6 && std::abs(c.pixelToDataX(ax + aw) - 100) < 1e-6);
+    // With a Y title (drawn a line above the plotting area), the area leaves room for it.
+    c.setAxisTitles("x", "y");
+    JPrimitiveBuffer titled;
+    c.render(titled);
+    c.plotArea(ax, ay, aw, ah);
+    assert(ay >= JTextHelper::lineHeight() + 2.f);
     // Same pixel span maps to a smaller data span after zooming in.
     double span0 = c.pixelToDataX(500) - c.pixelToDataX(200);
     c.zoomX(0.5, 50.0);

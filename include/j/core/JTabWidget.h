@@ -158,6 +158,11 @@ public:
     void setTabFill(JTabFill f)   { if (m_fill != f) { m_fill = f; m_graph.invalidateNode(m_nodeId, DirtySelf); } }
     JTabFill tabFill() const { return m_fill; }
     void  setStripThickness(float t) { m_thick = t; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    // Opt-in: tabs that do not fit along a top or bottom strip go onto further
+    // rows (the strip grows a row's thickness each, the page shrinks), in place
+    // of running off its end. Natural-width (Left fill) tabs only; for tabs not
+    // dragged to reorder (the drag goes by position along the strip alone).
+    void setTabWrap(bool on) { if (m_wrap != on) { m_wrap = on; m_graph.invalidateNode(m_nodeId, DirtySelf); } }
     float stripThickness() const { return m_thick; }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
@@ -323,20 +328,48 @@ private:
     static bool _pointIn(const JRect& r, float x, float y) {
         return x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
     }
+    // The tabs' natural lengths along the strip.
+    std::vector<float> _naturalSizes() const {
+        std::vector<float> nat(m_tabs.size());
+        for (int i = 0; i < (int)m_tabs.size(); ++i) {
+            const float lw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(tr(m_tabs[i].label)) : 60.f;
+            nat[i] = kPadX * 2.f + lw + (m_tabs[i].closable ? kCloseW : 0.f);
+        }
+        return nat;
+    }
+    // Wrapping: the row each tab is on, for a strip `width` long (one row
+    // when not wrapping); the number of rows.
+    int _rowsOf(float width, std::vector<int>* rowOf = nullptr) const {
+        if (rowOf) rowOf->assign(m_tabs.size(), 0);
+        if (!m_wrap || !_horizontal() || m_fill != JTabFill::Left || m_tabs.empty()) return 1;
+        const float L = width - 8.f;
+        const std::vector<float> nat = _naturalSizes();
+        int row = 0;
+        float along = 0.f;
+        for (int i = 0; i < (int)m_tabs.size(); ++i) {
+            if (along > 0.f && along + nat[i] > L) { ++row; along = 0.f; }
+            if (rowOf) (*rowOf)[i] = row;
+            along += nat[i] + 2.f;
+        }
+        return row + 1;
+    }
+    float _thickness(const JRect& b) const { return m_thick * (float)_rowsOf(b.width); }
     JRect _stripRect(const JRect& b) const {
+        const float thick = _thickness(b);   // every row of it
         switch (m_edge) {
-            case JTabBarEdge::Bottom: return { b.x, b.y + b.height - m_thick, b.width, m_thick };
-            case JTabBarEdge::Left:   return { b.x, b.y, m_thick, b.height };
-            case JTabBarEdge::Right:  return { b.x + b.width - m_thick, b.y, m_thick, b.height };
-            default:                  return { b.x, b.y, b.width, m_thick };   // Top
+            case JTabBarEdge::Bottom: return { b.x, b.y + b.height - thick, b.width, thick };
+            case JTabBarEdge::Left:   return { b.x, b.y, thick, b.height };
+            case JTabBarEdge::Right:  return { b.x + b.width - thick, b.y, thick, b.height };
+            default:                  return { b.x, b.y, b.width, thick };   // Top
         }
     }
     JRect _contentRect(const JRect& b) const {
+        const float thick = _thickness(b);
         switch (m_edge) {
-            case JTabBarEdge::Bottom: return { b.x, b.y, b.width, b.height - m_thick };
-            case JTabBarEdge::Left:   return { b.x + m_thick, b.y, b.width - m_thick, b.height };
-            case JTabBarEdge::Right:  return { b.x, b.y, b.width - m_thick, b.height };
-            default:                  return { b.x, b.y + m_thick, b.width, b.height - m_thick };   // Top
+            case JTabBarEdge::Bottom: return { b.x, b.y, b.width, b.height - thick };
+            case JTabBarEdge::Left:   return { b.x + thick, b.y, b.width - thick, b.height };
+            case JTabBarEdge::Right:  return { b.x, b.y, b.width - thick, b.height };
+            default:                  return { b.x, b.y + thick, b.width, b.height - thick };   // Top
         }
     }
     // Close box sits at the far (trailing) end of a tab along the strip axis.
@@ -349,13 +382,9 @@ private:
         if (m_tabs.empty()) return;
         const bool horiz = _horizontal();
         const float L = (horiz ? b.width : b.height) - 8.f;   // usable strip length (4px pad each end)
-        std::vector<float> nat(m_tabs.size());
+        const std::vector<float> nat = _naturalSizes();
         float sum = 0.f;
-        for (int i = 0; i < (int)m_tabs.size(); ++i) {
-            const float lw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(tr(m_tabs[i].label)) : 60.f;
-            nat[i] = kPadX * 2.f + lw + (m_tabs[i].closable ? kCloseW : 0.f);
-            sum += nat[i];
-        }
+        for (float n : nat) sum += n;
         std::vector<float> sz(m_tabs.size());
         if (m_fill == JTabFill::Fill) {
             const float each = L / (float)m_tabs.size();
@@ -368,13 +397,17 @@ private:
         }
         float along = 4.f;
         const float T = m_thick;
+        std::vector<int> rowOf;
+        const int rows = _rowsOf(b.width, &rowOf);
         for (int i = 0; i < (int)m_tabs.size(); ++i) {
             const float s = sz[i];
+            if (i > 0 && rowOf[i] != rowOf[i - 1]) along = 4.f;   // wrapped onto the next row
+            const float r = (float)rowOf[i];
             switch (m_edge) {
-                case JTabBarEdge::Bottom: m_tabRect[i] = { b.x + along, b.y + b.height - T, s, T }; break;
+                case JTabBarEdge::Bottom: m_tabRect[i] = { b.x + along, b.y + b.height - (float)(rows - rowOf[i]) * T, s, T }; break;
                 case JTabBarEdge::Left:   m_tabRect[i] = { b.x, b.y + along, T, s }; break;
                 case JTabBarEdge::Right:  m_tabRect[i] = { b.x + b.width - T, b.y + along, T, s }; break;
-                default:                  m_tabRect[i] = { b.x + along, b.y, s, T }; break;   // Top
+                default:                  m_tabRect[i] = { b.x + along, b.y + r * T, s, T }; break;   // Top
             }
             along += s + 2.f;
         }
@@ -424,6 +457,7 @@ private:
     float       m_dragPress = 0.f;
     JTabBarEdge m_edge = JTabBarEdge::Top;
     JTabFill    m_fill = JTabFill::Left;
+    bool        m_wrap = false;   // setTabWrap
     float       m_thick = 34.0f;
     static constexpr float kPadX = 12.0f, kCloseW = 18.0f, kDragThresh = 6.0f;
 };

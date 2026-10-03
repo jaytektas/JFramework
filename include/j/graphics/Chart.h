@@ -143,6 +143,8 @@ public:
         float mr = (hasSecondary ? (m_y2Label.empty() ? 46.f : 60.f) : 12.f);
         float mb = m_axes ? (m_xLabel.empty() ? 22.f : 36.f) : 6.f;
         float mt = (!m_title.empty() ? 24.f : 8.f);
+        // The Y axis's title sits a line above the plotting area: room for it.
+        if (m_axes && !m_yLabel.empty()) mt = std::max(mt, JTextHelper::lineHeight() + 4.f);
         float px = m_x + ml, py = m_y + mt;
         float pw = m_w - ml - mr, ph = m_h - mt - mb;
         if (pw < 4 || ph < 4) return;
