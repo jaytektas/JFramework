@@ -35,6 +35,12 @@ public:
         m_items.push_back(std::move(it));
     }
     bool empty() const { return m_items.empty(); }
+    // The widgets it hosts that are shown (addWidget), for what asks of every widget on screen (tooltips).
+    std::vector<JWidget*> widgets() const {
+        std::vector<JWidget*> out;
+        for (const Item& it : m_items) if (it.widget && it.shown) out.push_back(it.widget);
+        return out;
+    }
 
     void setRect(JRect r) { m_rect = r; }
 

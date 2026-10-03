@@ -50,6 +50,12 @@ public:
     // Host a widget, laid out from the RIGHT edge (permanent). Parity with the toolbar; the widget
     // is non-owning and hit-tests itself.
     void addWidget(JWidget* w, float width) { m_widgets.push_back({ w, width, 0.f }); }
+    // The widgets it hosts, for what asks of every widget on screen (tooltips).
+    std::vector<JWidget*> widgets() const {
+        std::vector<JWidget*> out;
+        for (const WItem& it : m_widgets) out.push_back(it.w);
+        return out;
+    }
 
     // Live readout: a right-aligned text the bar refreshes itself, on an owned timer. `provider`
     // returns the current text (return "" to show nothing); the bar re-asks it every `intervalMs`

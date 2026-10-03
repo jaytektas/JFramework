@@ -160,9 +160,7 @@ public:
         for (int a = 0; a < JDockSpace::AreaCount; ++a)
             m_space.host(static_cast<JDockSpace::Area>(a)).forEachDockPanel(
                 [&roots](JDockWidget* d, const JRect&, bool activeTab, int) {
-                    if (!d || !activeTab) return;
-                    if (d->content()) roots.push_back(d->content());
-                    for (const auto& t : d->titleWidgets()) roots.push_back(t.widget);   // in its tab
+                    if (d && activeTab && d->content()) roots.push_back(d->content());
                 });
         // FLOATING panels too. They were left out on the grounds that they "run their own focus", but
         // nothing implemented that — and syncOrder() clears focus from any widget outside the order, so a
@@ -185,10 +183,16 @@ public:
     std::vector<JWidget*> _tooltipRoots() {
         std::vector<JWidget*> roots;
         if (m_menuBar) roots.push_back(m_menuBar.get());
+        // The bars' own widgets (a toolbar's state icons, a status bar's readout), and each front
+        // panel's content and the widgets in its tab.
+        if (m_toolBar) for (JWidget* w : m_toolBar->widgets()) roots.push_back(w);
+        for (JWidget* w : m_statusBar.widgets()) roots.push_back(w);
         for (int a = 0; a < JDockSpace::AreaCount; ++a)
             m_space.host(static_cast<JDockSpace::Area>(a)).forEachDockPanel(
                 [&roots](JDockWidget* d, const JRect&, bool activeTab, int) {
-                    if (d && activeTab && d->content()) roots.push_back(d->content());
+                    if (!d || !activeTab) return;
+                    if (d->content()) roots.push_back(d->content());
+                    for (const auto& t : d->titleWidgets()) roots.push_back(t.widget);   // in its tab
                 });
         if (JWidget* cw = m_space.centralWidget()) roots.push_back(cw);
         return roots;
@@ -718,7 +722,11 @@ public:
             // stream until the physical release, and no chrome may act on a gesture it did not start.
             if (m_centreCapture && !pressed && !releasedRaw && !m_window->isLeftButtonDown())
                 m_centreCapture = false;               // self-heal: a release we never saw (see the dock note)
-            if (pressed && !m_menuRuntime.hasOpenMenus() && !m_space.isResizing())
+            // Only for a centre that IS a widget. With docks in the centre (setCentreDocks) there is none,
+            // and arming the capture anyway shut every press in the centre's docks out of the dock-content
+            // routing below (it stands down while a centre gesture is captured): a tree in a centre dock
+            // would not open, its scrollbar would not drag, its buttons would not click.
+            if (pressed && !m_menuRuntime.hasOpenMenus() && !m_space.isResizing() && m_space.centralWidget())
                 if (const JRect& cr = m_space.centerRect();
                     mx >= cr.x && mx < cr.x + cr.width && my >= cr.y && my < cr.y + cr.height)
                     m_centreCapture = true;
