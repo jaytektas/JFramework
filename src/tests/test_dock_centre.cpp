@@ -3,7 +3,8 @@
 
 // Docks in the centre (JDockSpace::setCentreDocks): two docks tabbed in the centre are laid out over the
 // centre rect, found there for content input, take the mouse there, and the central widget steps aside.
-// Without the opt-in the centre stays a plain widget's.
+// Without the opt-in the centre stays a plain widget's. A side area beside a central widget stays under
+// half the window; beside centre docks it may take all but what the centre's docks need.
 #include <j/core/DockSpace.h>
 #include <j/core/SceneGraph.h>
 #include <j/core/JContainer.h>
@@ -53,6 +54,30 @@ int main() {
         JPrimitiveBuffer buf;
         space.render(buf);
         check(!buf.getCommands().empty(), "it draws");
+    }
+
+    std::puts("3. how big a side may be");
+    {
+        JDockWidget side("Cameras", 0, 0, 300, 200), other("Setup", 0, 0, 300, 200), right("Right", 0, 0, 300, 200);
+        JDockSpace plain;
+        plain.setCentralWidget(&central);
+        plain.left().addDock(&side);
+        plain.setLeftWidth(700.f);
+        plain.computeLayout(content);
+        check(plain.centerRect().x == 450.f, "beside a central widget: under half (45 %)");
+
+        JDockSpace docked;
+        docked.setCentreDocks(true);
+        docked.host(JDockSpace::Center).addDock(&other);
+        docked.left().addDock(&side);
+        docked.setLeftWidth(700.f);
+        docked.computeLayout(content);
+        check(docked.centerRect().x == 700.f, "beside centre docks: as wide as asked");
+        docked.right().addDock(&right);
+        docked.setRightWidth(400.f);
+        docked.computeLayout(content);
+        const float centreMin = docked.host(JDockSpace::Center).minWidthNeeded();
+        check(docked.centerRect().width >= centreMin - 0.01f, "two sides never squeeze the centre under its docks' need");
     }
 
     std::printf(fails ? "=== %d FAILED ===\n" : "=== docks in the centre ===\n", fails);

@@ -208,8 +208,9 @@ public:
     JGpuHal&         hal()    { return *m_hal; }
     void             requestClose() { m_window->requestClose(); }   // e.g. File▸Quit
 
-    // Fired when a dock is dismissed via its title-bar close button (not the menu). The app uses this
-    // to keep a View-menu visibility toggle in sync with a dock the user closed directly.
+    // Fired when a dock is dismissed by the person — its close button, in the window or in a floating
+    // window, or the floating window it was in closed — not by the app. The app uses this to keep a
+    // View-menu visibility toggle in sync with a dock the user closed directly.
     std::function<void(JDockWidget*)> onDockClosed;
 
     // Interpose on window close (✕ / WM-close / File▸Quit → requestClose). Return true to let the window
@@ -1457,9 +1458,27 @@ private:
                 if (std::unique_ptr<JDockWidget> owned = it->releaseOwned(pr.wantsFloatDock))
                     m_ownedDocks.push_back(std::move(owned));   // ownership follows the panel out
             }
+            if (pr.type == JFloatingDockWindow::JPollResult::JType::Closed && pr.closedDock) {
+                if (pr.closedDock == m_contentCapture) m_contentCapture = nullptr;
+                if (onDockClosed) onDockClosed(pr.closedDock);
+            }
             // Emptied by that tear-out (or by its last tab closing): the window has nothing left to show.
             if (it->dockCount() == 0) { it->destroySurface(*m_hal); it = m_floating.erase(it); continue; }
-            if (it->shouldClose()) { it->destroySurface(*m_hal); it = m_floating.erase(it); continue; }
+            if (it->shouldClose()) {
+                // Its own window closed: every dock still in it is closed with it — let go of by the
+                // float's host (so none still names it as where it is), and the app's own reported.
+                std::vector<JDockWidget*> borrowed;
+                for (JDockWidget* d : it->docks()) {
+                    if (!it->owns(d)) borrowed.push_back(d);
+                    it->dockHost().removeDock(d);
+                }
+                for (JDockWidget* d : borrowed) if (d == m_contentCapture) m_contentCapture = nullptr;
+                it->destroySurface(*m_hal);
+                it = m_floating.erase(it);
+                if (onDockClosed)
+                    for (JDockWidget* d : borrowed) onDockClosed(d);
+                continue;
+            }
             JPrimitiveBuffer fbuf;
             it->render(*m_hal, fbuf);
             ++it;

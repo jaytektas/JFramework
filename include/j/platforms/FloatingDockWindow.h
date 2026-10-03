@@ -68,11 +68,13 @@ public:
             None,
             CommitDrop,     // drag ended, commit drop to dropHost
             WantsFloat,     // dock wants to float
+            Closed,         // a dock's close button: it is gone from this window (closedDock)
         } type{JType::None};
 
         JDockHost*   dropHost{nullptr};
         JDockWidget* wantsFloatDock{nullptr};
         JRect        wantsFloatRect{};
+        JDockWidget* closedDock{nullptr};
     };
 
 #if defined(_WIN32)
@@ -589,6 +591,7 @@ public:
                     }
                 }
                 if (ev->type == JDockHost::JDockEvent::JType::CloseRequested) {
+                    const bool borrowed = !owns(ev->dock);   // an owned one is destroyed just below
                     m_dockHost->removeDock(ev->dock);
                     m_docks.erase(
                         std::remove_if(m_docks.begin(), m_docks.end(),
@@ -597,6 +600,10 @@ public:
                     if (dockCount() == 0) {      // empty by what it HOLDS, not what it was born with
                         m_shouldClose = true;
                     }
+                    m_wasDown = btnDown;
+                    JPollResult closed{JPollResult::JType::Closed};
+                    closed.closedDock = borrowed ? ev->dock : nullptr;   // the app's own, still alive
+                    return closed;
                 }
             } else if (m_contentInputHost) {
                 // Modifier + button state for the widgets about to be clicked. The app publishes these
@@ -770,6 +777,13 @@ public:
             return owned;
         }
         return nullptr;
+    }
+
+    // Whether this float created `dock` itself (a tab tear-off) and so destroys it with itself; a dock
+    // torn from another window is borrowed, its owner keeping it alive.
+    bool owns(const JDockWidget* dock) const {
+        for (const HeldDock& d : m_docks) if (d.ptr == dock) return d.owned != nullptr;
+        return false;
     }
 
     // Relinquish ALL docks, returning the ones this float OWNS so the caller can keep them alive at their

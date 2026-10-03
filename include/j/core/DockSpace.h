@@ -101,10 +101,12 @@ public:
     void computeLayout(JRect content) {
         m_content = content;
         const float x = content.x, y = content.y, W = content.width, H = content.height;
-        const float lw = active(Left)   ? std::min(m_size[Left],   W * 0.45f) : 0.f;
-        const float rw = active(Right)  ? std::min(m_size[Right],  W * 0.45f) : 0.f;
-        const float th = active(Top)    ? std::min(m_size[Top],    H * 0.45f) : 0.f;
-        const float bh = active(Bottom) ? std::min(m_size[Bottom], H * 0.45f) : 0.f;
+        // Each side as big as it may be beside the one opposite (sideCap); the second of a pair is
+        // given what the first leaves, so the two can never overlap the centre's minimum.
+        const float lw = active(Left)   ? std::min(m_size[Left],   sideCap(Left, 0.f))    : 0.f;
+        const float rw = active(Right)  ? std::min(m_size[Right],  sideCap(Right, lw))    : 0.f;
+        const float th = active(Top)    ? std::min(m_size[Top],    sideCap(Top, 0.f))     : 0.f;
+        const float bh = active(Bottom) ? std::min(m_size[Bottom], sideCap(Bottom, th))   : 0.f;
 
         if (m_sidesOwnCorners) {
             m_rect[Left]   = {x, y, lw, H};
@@ -303,12 +305,32 @@ private:
         const int a = m_dragSplit;
         const float delta = (a == Top || a == Bottom) ? (my - m_dragStart) : (mx - m_dragStart);
         const float sign = (a == Left || a == Top) ? 1.f : -1.f;   // grow toward the centre
-        // Clamp the stored size to the SAME cap computeLayout displays (45% of the content),
-        // so it can't overshoot the visible splitter — otherwise dragging back out has a
-        // dead-zone equal to the overshoot before the splitter moves.
-        const float cap = ((a == Left || a == Right) ? m_content.width : m_content.height) * 0.45f;
-        m_size[a] = std::clamp(m_dragStartSize + sign * delta, 60.f, cap);
+        // Clamp the stored size to the SAME cap computeLayout displays (sideCap, beside the
+        // opposite side as shown), so it can't overshoot the visible splitter — otherwise dragging
+        // back out has a dead-zone equal to the overshoot before the splitter moves.
+        const int   opposite = a == Left ? Right : a == Right ? Left : a == Top ? Bottom : Top;
+        const bool  across = a == Left || a == Right;
+        const float shown = active(Area(opposite)) ? (across ? m_rect[opposite].width : m_rect[opposite].height) : 0.f;
+        const float cap = sideCap(Area(a), shown);
+        m_size[a] = std::clamp(m_dragStartSize + sign * delta, std::min(60.f, cap), cap);
         computeLayout(m_content);
+    }
+
+    // Under this share of the window, a side area beside a central widget: the app's own view
+    // keeps the larger part.
+    static constexpr float kSideShareMax = 0.45f;
+
+    // How big side area `a` may be, the side opposite it taking `opposite`. Beside a central
+    // widget, kSideShareMax of the window. With docks in the centre, which are panels like any
+    // other, as big as leaves the centre what its docks need at least — so a side can hold most of
+    // the window when that is what the person wants.
+    float sideCap(Area a, float opposite) const {
+        const bool  across = a == Left || a == Right;
+        const float extent = across ? m_content.width : m_content.height;
+        if (!m_centreDocks) return extent * kSideShareMax;
+        const float centreMin = !active(Center) ? 0.f
+                              : across ? m_host[Center].minWidthNeeded() : m_host[Center].minHeightNeeded();
+        return std::max(0.f, extent - opposite - centreMin);
     }
 
     Area areaAt(float mx, float my) const {
