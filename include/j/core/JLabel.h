@@ -26,15 +26,17 @@ public:
         l.minHeight = h;
     }
 
-    // The text, and its width as the least the label may shrink to — as the constructor sets it, so a
-    // label made empty and filled in later is not squeezed to nothing beside an expanding neighbour.
-    // A word-wrapped label keeps whatever minimum it had: it is meant to fold, not to widen.
+    // The text. With setMinWidthFollowsText, its width also becomes the least the label may shrink to,
+    // as the constructor sets it — so a label made empty and filled in later is not squeezed to nothing
+    // beside an expanding neighbour. (A word-wrapped label keeps its minimum: it folds.)
     void setText(const std::string& t) {
         m_text = t;
-        if (!m_wrap && JTextHelper::hasAtlas()) m_graph.getLayout(m_nodeId).minWidth = JTextHelper::measureWidth(m_text);
+        if (m_minFollowsText && !m_wrap && JTextHelper::hasAtlas())
+            m_graph.getLayout(m_nodeId).minWidth = JTextHelper::measureWidth(m_text);
         m_graph.invalidateNode(m_nodeId, DirtySelf);
         notifyAccessibility();
     }
+    void setMinWidthFollowsText(bool on) { m_minFollowsText = on; }
 
     // WORD WRAP. Without it a label is one line that CLIPS at its width, so any sentence longer than
     // its box ends mid-word — and every consumer that needed a paragraph wrote its own wrapper (the
@@ -110,6 +112,7 @@ public:
 
 private:
     std::string m_text;
+    bool        m_minFollowsText = false;   // setMinWidthFollowsText
     bool        m_wrap = false;   // off by default: a label is one line unless it is asked to be more
 };
 

@@ -14,10 +14,11 @@ inline namespace jf {
 // ============================================================================
 // JSplitter — resizable split-pane container
 //
-// Children are separated by draggable dividers. Each pane is laid out at its share, drawn, and given the
-// mouse (move / press / release / wheel) — a press on a divider is the splitter's own. Panes are its
-// widget-tree children (addPane), so focus and tooltips descend into them. layout() places the panes; it
-// runs on each draw, and may be called directly to read their bounds.
+// Children are separated by draggable dividers. layout() places the panes. By default the splitter draws
+// only its dividers and the caller draws and routes input to the panes (call layout() each frame before
+// rendering). With setHostsPanes(true) it hosts them: each pane is laid out at its share on every draw,
+// drawn inside its box, given the mouse (move / press / release / wheel — a press on a divider is the
+// splitter's own), and made its widget-tree child so focus and tooltips descend into it.
 //
 // Usage:
 //   JSplitter split(graph, JSplitter::JOrientation::Horizontal, 600, 400);
@@ -58,7 +59,7 @@ public:
     void addPane(JWidget* widget, float fraction = -1.0f)
     {
         if (!widget) return;
-        addChild(widget);   // in the widget tree: focus, tooltips and visibility descend into the panes
+        if (m_hostsPanes) addChild(widget);   // in the widget tree: focus, tooltips and visibility descend
 
         if (fraction < 0.0f) {
             // Auto-distribute: reassign equal share to all panes including new one.
@@ -74,6 +75,12 @@ public:
     }
 
     const std::vector<JPane>& panes() const { return m_panes; }
+
+    // Host the panes: draw them, route the mouse to them, and own them in the widget tree (see above).
+    void setHostsPanes(bool on) {
+        m_hostsPanes = on;
+        if (on) for (const JPane& p : m_panes) addChild(p.widget);
+    }
     JOrientation orientation()        const { return m_orient; }
 
     // -------------------------------------------------------------------------
@@ -159,7 +166,8 @@ public:
             m_graph.invalidateNode(m_nodeId, DirtySelf);
         } else {
             m_hoveredDivider = hitTestDivider(mx, my);
-            for (const JPane& p : m_panes) if (p.widget->isVisibleSelf()) p.widget->handleMouseMove(mx, my);
+            if (m_hostsPanes)
+                for (const JPane& p : m_panes) if (p.widget->isVisibleSelf()) p.widget->handleMouseMove(mx, my);
         }
     }
 
@@ -173,7 +181,8 @@ public:
             m_dragFractionB   = m_panes[hit + 1].fraction;
             return;
         }
-        for (const JPane& p : m_panes) if (p.widget->isVisibleSelf()) p.widget->handleMousePress(mx, my);
+        if (m_hostsPanes)
+            for (const JPane& p : m_panes) if (p.widget->isVisibleSelf()) p.widget->handleMousePress(mx, my);
     }
 
     void handleMouseRelease(float mx, float my) override
@@ -182,13 +191,15 @@ public:
             m_draggingDivider = -1;
             return;
         }
-        for (const JPane& p : m_panes) if (p.widget->isVisibleSelf()) p.widget->handleMouseRelease(mx, my);
+        if (m_hostsPanes)
+            for (const JPane& p : m_panes) if (p.widget->isVisibleSelf()) p.widget->handleMouseRelease(mx, my);
     }
 
     bool handleScroll(float mx, float my, float wheel) override
     {
         bool consumed = false;
-        for (const JPane& p : m_panes) if (p.widget->isVisibleSelf()) consumed |= p.widget->handleScroll(mx, my, wheel);
+        if (m_hostsPanes)
+            for (const JPane& p : m_panes) if (p.widget->isVisibleSelf()) consumed |= p.widget->handleScroll(mx, my, wheel);
         return consumed;
     }
 
@@ -211,9 +222,9 @@ public:
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override
     {
-        // The panes at their shares, each drawn inside its own box, then the dividers between them.
-        layout();
-        for (const JPane& p : m_panes) {
+        // Hosting: the panes at their shares, each drawn inside its own box, then the dividers between them.
+        if (m_hostsPanes) layout();
+        if (m_hostsPanes) for (const JPane& p : m_panes) {
             if (!p.widget->isVisibleSelf()) continue;
             const JRect pb = m_graph.getLayoutConst(p.widget->getNodeId()).boundingBox;
             buf.pushClip(pb.x, pb.y, pb.width, pb.height);
@@ -328,6 +339,7 @@ private:
     // -------------------------------------------------------------------------
 
     JOrientation      m_orient;
+    bool              m_hostsPanes{false};   // setHostsPanes
     std::vector<JPane> m_panes;
     int              m_draggingDivider{-1};
     int              m_hoveredDivider{-1};

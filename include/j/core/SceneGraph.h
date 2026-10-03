@@ -149,6 +149,9 @@ struct JLayoutComponent {
     // WRAPPED for height needs — a menu split into columns must keep its familiar order running down
     // each column, or every item moves the moment the list grows past one screen.
     bool           gridColumnMajor{false};
+    // Short of room, take it from the expanding children first, and only then from the rest (opt-in,
+    // JContainer::setShrinkStretchyFirst); off, every shrinkable child gives in proportion.
+    bool           shrinkStretchyFirst{false};
     // Per-child override of the parent's alignItems (-1 = inherit, else JAlignItems value).
     int            alignSelf{-1};
     float          flexGrow{0.0f};   // share of leftover main-axis space this node claims
@@ -477,20 +480,20 @@ public:
         // --- SHRINK: only when policies are engaged (preserves the historical overflow behaviour for
         //     callers that never set a policy). Pull space back from shrinkable children down to min. ---
         //
-        //     THE STRETCHY GIVE FIRST. A child that expands (a list, a picture, a text area) is room by
-        //     nature, and has it to give; one sized to its content (a row of buttons, a label, an input line)
-        //     is the size it is so its content shows. Taking from every one in proportion squeezed rows of
-        //     buttons to slivers and left the input line under a console half drawn while the list above
-        //     kept most of its height. So the expanding give first, down to their minimum, and only a
-        //     deficit left after that is taken from the rest.
+        //     With shrinkStretchyFirst, THE STRETCHY GIVE FIRST: a child that expands (a list, a picture, a
+        //     text area) is room by nature, and has it to give; one sized to its content (a row of buttons,
+        //     a label, an input line) is the size it is so its content shows. The expanding give first,
+        //     down to their minimum, and only a deficit left after that is taken from the rest. Without it
+        //     (the default), every shrinkable child gives in proportion, as it always has.
         else if (freeMain < -0.5f && policiesEngaged) {
             float deficit = -freeMain;
-            for (int stage = 0; stage < 2 && deficit > 0.5f; ++stage) {
+            const int stages = L.shrinkStretchyFirst ? 2 : 1;
+            for (int stage = 0; stage < stages && deficit > 0.5f; ++stage) {
                 std::vector<NodeId> shrinkable;
                 for (NodeId k : kids) {
                     auto& cl = m_layouts[k];
                     const bool stretchy = cl.mainPolicy(d).expands();
-                    if (stretchy != (stage == 0)) continue;
+                    if (stages == 2 && stretchy != (stage == 0)) continue;
                     if (cl.mainPolicy(d).canShrink() && mainOf(cl.boundingBox) > mainMinOf(cl) + 0.5f)
                         shrinkable.push_back(k);
                 }

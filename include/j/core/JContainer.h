@@ -63,6 +63,10 @@ public:
     JContainer* setColumns(int n)              { m_graph.getLayout(m_nodeId).columns = n; return this; }
     JContainer* setDirection(JFlexDirection d) { m_graph.getLayout(m_nodeId).direction = d; return this; }
     JContainer* setGap(float g)                { m_graph.getLayout(m_nodeId).gap = g; return this; }
+    // Short of room, take it from the expanding children (lists, pictures) before the rest (rows of
+    // buttons, labels, input lines), so those keep their height. Off by default: every shrinkable child
+    // gives in proportion.
+    JContainer* setShrinkStretchyFirst(bool on) { m_graph.getLayout(m_nodeId).shrinkStretchyFirst = on; return this; }
     JContainer* setPadding(JEdges p)           { m_graph.getLayout(m_nodeId).padding = p; return this; }
     JContainer* setAlignItems(JAlignItems a)   { m_graph.getLayout(m_nodeId).alignItems = a; return this; }
 
