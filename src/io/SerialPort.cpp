@@ -306,6 +306,17 @@ struct JSerialPort::Impl {
 #endif
     }
 
+    // Raise (on) or drop the DTR line (dtr) or the RTS line.
+    bool setLine(bool dtr, bool on) {
+        if (!isOpen()) return false;
+#if defined(_WIN32)
+        return EscapeCommFunction(m_handle, dtr ? (on ? SETDTR : CLRDTR) : (on ? SETRTS : CLRRTS)) != 0;
+#else
+        int bit = dtr ? TIOCM_DTR : TIOCM_RTS;
+        return ioctl(m_fd, on ? TIOCMBIS : TIOCMBIC, &bit) == 0;
+#endif
+    }
+
     void flush() {
         if (!isOpen()) return;
 #if defined(_WIN32)
@@ -476,6 +487,8 @@ void JSerialPort::release()                          { m_impl->release(); }
 bool JSerialPort::isClaimed() const                  { return m_impl->isClaimed(); }
 std::vector<uint8_t> JSerialPort::readClaimed(int ms) { return m_impl->readClaimed(ms); }
 void JSerialPort::flush()             { m_impl->flush(); }
+bool JSerialPort::setDtr(bool on)     { return m_impl->setLine(true, on); }
+bool JSerialPort::setRts(bool on)     { return m_impl->setLine(false, on); }
 
 bool JSerialPort::writeLine(const std::string& s) {
     std::vector<uint8_t> v(s.begin(), s.end());

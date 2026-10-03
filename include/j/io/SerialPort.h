@@ -116,6 +116,13 @@ public:
     // Discard buffered input and output.
     void flush();
 
+    // Raise (true) or drop the DTR / RTS modem-control line of an open port. Some boards reset
+    // on DTR, or need RTS held to talk; the lines are left as the system opened them until asked.
+    // With hardware flow control the driver drives RTS itself. False when the port is not open
+    // or the system refused.
+    bool setDtr(bool on);
+    bool setRts(bool on);
+
     // Enumerate available ports with descriptions, manufacturer, and VID/PID.
     static std::vector<JSerialPortInfo> availablePorts();
 
