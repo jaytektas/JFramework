@@ -39,6 +39,16 @@ public:
     }
     const std::vector<std::string>& items() const { return m_items; }
 
+    // WHERE THE VIEW IS IN A LONG LIST, for a list that grows (a log): read it and put it back
+    // after setItems (which goes back to the top), or go to the end and ask whether it is there
+    // (a log follows its newest line only while the reader has not scrolled back from it).
+    float scrollY() const { return m_scrollY; }
+    void  setScrollY(float y) { m_scrollY = std::max(0.0f, y); m_graph.invalidateNode(m_nodeId, DirtySelf); }   // kept within the list when drawn
+    void  scrollToEnd() { m_scrollY = _maxScrollY(); m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    bool  isAtEnd() const { return m_scrollY >= _maxScrollY() - 0.5f; }
+    // A row's height, for keeping the view on the same rows when some go from the top.
+    float rowHeight() const { return JTextHelper::hasAtlas() ? JTextHelper::lineHeight() + 8.0f : 20.0f; }
+
     // A ROW THAT CANNOT BE CHOSEN SAYS SO AND STAYS. Dropping it from the list instead hides the
     // fact that the thing exists at all, which reads as "we do not have one" rather than "not here,
     // not on these settings" — the user then goes looking for a choice that IS on the list, or
@@ -270,6 +280,12 @@ public:
 
 
 private:
+    // How far the view can scroll: the rows' height less the view's (0 when they fit).
+    float _maxScrollY() const {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        return std::max(0.0f, m_items.size() * rowHeight() + 8.0f - b.height);
+    }
+
     void _ensureIndexVisible(int index) {
         if (index < 0 || index >= (int)m_items.size()) return;
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
