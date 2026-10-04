@@ -16,6 +16,8 @@
 //
 // Thread-safety: safe from any thread (state + output are mutex-guarded).
 
+#include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -47,8 +49,10 @@ class JLog {
 public:
     static JLog& instance() { static JLog inst; return inst; }
 
-    // The default threshold for categories with no explicit / prefix rule.
-    void setGlobalLevel(JLogLevel l) { std::lock_guard<std::mutex> lk(m_mx); m_global = l; }
+    // The default threshold for categories with no explicit / prefix rule. Every such category
+    // takes it, those already seen included (each category's threshold is remembered once looked
+    // up; the remembered ones are worked out again here).
+    void setGlobalLevel(JLogLevel l) { std::lock_guard<std::mutex> lk(m_mx); m_global = l; _refresh(); }
     JLogLevel globalLevel() const    { std::lock_guard<std::mutex> lk(m_mx); return m_global; }
 
     // Set a category's threshold. A trailing '*' (e.g. "comms.*" or "comms*") applies to the whole
@@ -59,10 +63,41 @@ public:
             const std::string prefix = name.substr(0, name.size() - 1);   // "comms." or "comms" or ""
             for (auto& [k, v] : m_levels)
                 if (k.rfind(prefix, 0) == 0) v = l;
+            for (auto it = m_explicit.begin(); it != m_explicit.end();)   // the subtree's rule governs them now
+                it = it->first.rfind(prefix, 0) == 0 ? m_explicit.erase(it) : std::next(it);
             m_prefixes.emplace_back(prefix, l);                           // future categories inherit it
         } else {
             m_levels[name] = l;
+            m_explicit[name] = l;
         }
+    }
+    // A category back to what it would be with no threshold of its own (a prefix rule, else global).
+    void clearLevel(const std::string& name) {
+        std::lock_guard<std::mutex> lk(m_mx);
+        m_explicit.erase(name);
+        m_levels[name] = _inherited(name);
+    }
+    // The threshold a category was given itself (setLevel), if any.
+    bool ownLevel(const std::string& name, JLogLevel& out) const {
+        std::lock_guard<std::mutex> lk(m_mx);
+        const auto it = m_explicit.find(name);
+        if (it == m_explicit.end()) return false;
+        out = it->second;
+        return true;
+    }
+
+    // LISTENERS: told every line written (level, category, message), on the writing thread, after
+    // the log's own lock is let go (a listener may log). For a panel that shows the log: it hands
+    // the line to its own thread. remove takes one away by what add returned.
+    using Listener = std::function<void(JLogLevel, const std::string&, const std::string&)>;
+    int addListener(Listener l) {
+        std::lock_guard<std::mutex> lk(m_mx);
+        m_listeners.emplace_back(++m_lastListener, std::make_shared<Listener>(std::move(l)));
+        return m_lastListener;
+    }
+    void removeListener(int id) {
+        std::lock_guard<std::mutex> lk(m_mx);
+        std::erase_if(m_listeners, [id](const auto& p) { return p.first == id; });
     }
 
     // Threshold in force for a category (explicit rule, else the last matching prefix, else global).
@@ -71,9 +106,7 @@ public:
         std::lock_guard<std::mutex> lk(m_mx);
         auto it = m_levels.find(name);
         if (it != m_levels.end()) return it->second;
-        JLogLevel lvl = m_global;
-        for (const auto& [prefix, plvl] : m_prefixes)
-            if (name.rfind(prefix, 0) == 0) lvl = plvl;                   // last match wins
+        const JLogLevel lvl = _inherited(name);
         m_levels.emplace(name, lvl);
         return lvl;
     }
@@ -93,9 +126,14 @@ public:
     void write(JLogLevel lvl, const std::string& cat, std::string msg) {
         while (!msg.empty() && (msg.back() == '\n' || msg.back() == '\r')) msg.pop_back();
         std::string line = std::string("[") + jLogLevelName(lvl) + "][" + cat + "] " + msg + "\n";
-        std::lock_guard<std::mutex> lk(m_mx);
-        (lvl >= JLogLevel::Warn ? std::cerr : std::cout) << line;
-        if (m_file.is_open()) { m_file << line; m_file.flush(); }
+        std::vector<std::shared_ptr<Listener>> told;
+        {
+            std::lock_guard<std::mutex> lk(m_mx);
+            (lvl >= JLogLevel::Warn ? std::cerr : std::cout) << line;
+            if (m_file.is_open()) { m_file << line; m_file.flush(); }
+            for (const auto& [id, l] : m_listeners) told.push_back(l);
+        }
+        for (const auto& l : told) (*l)(lvl, cat, msg);
     }
 
     // Protocol-byte dump: hex + ASCII, 16 bytes/row. Guarded — call freely; it no-ops when quiet.
@@ -131,9 +169,27 @@ public:
 private:
     JLog() { m_file.open("genesis.log", std::ios::out | std::ios::app); }
 
+    // Under the lock: a category's threshold without one of its own (last matching prefix, else global).
+    JLogLevel _inherited(const std::string& name) const {
+        JLogLevel lvl = m_global;
+        for (const auto& [prefix, plvl] : m_prefixes)
+            if (name.rfind(prefix, 0) == 0) lvl = plvl;                   // last match wins
+        return lvl;
+    }
+    // Under the lock: every remembered threshold worked out again (the global one changed).
+    void _refresh() {
+        for (auto& [k, v] : m_levels) {
+            const auto e = m_explicit.find(k);
+            v = e != m_explicit.end() ? e->second : _inherited(k);
+        }
+    }
+
     mutable std::mutex                          m_mx;
     JLogLevel                                   m_global{JLogLevel::Info};
     std::unordered_map<std::string, JLogLevel>  m_levels;    // explicit + memoized
+    std::unordered_map<std::string, JLogLevel>  m_explicit;  // the categories given a threshold of their own
+    std::vector<std::pair<int, std::shared_ptr<Listener>>> m_listeners;
+    int                                         m_lastListener = 0;
     std::vector<std::pair<std::string, JLogLevel>> m_prefixes;
     std::ofstream                               m_file;
 };
