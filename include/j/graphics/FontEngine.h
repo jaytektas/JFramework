@@ -252,6 +252,7 @@ public:
         packRange(0x2039, 0x203A); // ‹ › single angle quotation marks
         packRange(0x25B6, 0x25B8); // ▶ ▷ ▸ right-pointing triangles
         packRange(0x2190, 0x2195); // arrows ← ↑ → ↓ ↔ ↕ (↔/↕ = table axis-name bar; the toolbar's "Verify ↔ ECU" etc.)
+        packRange(0x21D0, 0x21D5); // double arrows ⇐ ⇑ ⇒ ⇓ ⇔ ⇕ (⇒ joins the parts of a path-like id: "Pnl1⇒Brd2⇒R1")
         packRange(0x25CF, 0x25CF); // black circle (●) — present in DejaVu/Noto (absent in Ubuntu)
         // MARKS THAT ARE WORDS IN A SENTENCE, and so cannot be drawn as a control: "⚠ missing: 0x2C0"
         // on a dangling CAN field, "○ read-only" against the "● writable" already packed above it.
