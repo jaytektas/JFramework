@@ -347,6 +347,16 @@ public:
     // the GPU surfaces and the drag state), so this is the one thing the app cannot
     // do for itself and the smallest thing that has to be exposed.
     void floatDock(JDockHost* host, JDockWidget* dock) { spawnFloat(host, dock); }
+    // A dock in a window of its own at a place and size on the screen, as if torn out and left there
+    // (no drag under way): for an application that opens some of its panels in windows of their own.
+    void floatDockAt(JDockHost* host, JDockWidget* dock, int screenX, int screenY, uint32_t w, uint32_t h) {
+        if (!host || !dock || !host->findDock(dock).valid()) return;
+        host->removeDock(dock);
+        _newFloat(dock, screenX, screenY, std::max(w, static_cast<uint32_t>(dock->minW())),
+                  std::max(h, static_cast<uint32_t>(dock->minH())), 0, 0, /*initialDrag=*/false);
+        layoutDocks();
+        m_needRedraw = true;
+    }
     void             setWindowPos(int x, int y) { m_window->setPosition(x, y); }
     uint32_t width()  const { return m_w; }
     uint32_t height() const { return m_h; }
@@ -1264,10 +1274,10 @@ private:
 
     // Create a floating window for one dock and wire its content input. Used by BOTH tear-out paths —
     // out of a docked host, and out of another float — so they cannot drift apart.
-    void _newFloat(JDockWidget* dw, int sx, int sy, uint32_t fw, uint32_t fh, int offX, int offY) {
+    void _newFloat(JDockWidget* dw, int sx, int sy, uint32_t fw, uint32_t fh, int offX, int offY, bool initialDrag = true) {
         dw->setPosition(0.f, 0.f);
         dw->setSize(static_cast<float>(fw), static_cast<float>(fh));
-        m_floating.emplace_back(dw, sx, sy, fw, fh, offX, offY, *m_hal, /*initialDrag=*/true,
+        m_floating.emplace_back(dw, sx, sy, fw, fh, offX, offY, *m_hal, initialDrag,
                                 JFloatingDockOptions{},
                                 (JFloatingDockWindow::NativeWinHandleType)(m_window->rawWindowId()));
         // Bridge the float's content input (which carries the wheel) to the dock's
