@@ -29,7 +29,10 @@ enum class JAlignItems { Start, Center, End, Stretch };
 //   Grid — row-major grid `columns` wide; all columns share the inner width equally.
 //   Form — two columns (label | field): column 0 auto-sizes to its widest child, column 1
 //          takes the rest. Children pair up label,field,label,field… (the classic property form).
-enum class JLayoutMode : uint8_t { Flex, Grid, Form };
+//   Flow — children at their own size along a line, `gap` apart, starting a new line (`gap`
+//          below) when the next would pass the width; each line as tall as its tallest child,
+//          which sits in it as alignItems says (a row of buttons in a narrow dock: none cut off).
+enum class JLayoutMode : uint8_t { Flex, Grid, Form, Flow };
 
 /**
  * @brief How a child negotiates for space along ONE axis when the box/flex pass has leftover
@@ -418,6 +421,7 @@ public:
     void _measure(NodeId nodeId, const JConstraints& c) {
         auto& L = m_layouts[nodeId];
         const auto& kids = m_hierarchy[nodeId].childrenIds;
+        if (L.mode == JLayoutMode::Flow && !kids.empty()) { _measureFlow(nodeId, c); return; }
         if (L.mode != JLayoutMode::Flex && !kids.empty()) { _measureGrid(nodeId, c); return; }
         const JFlexDirection d = L.direction;
         const bool row = (d == JFlexDirection::JRow);
@@ -590,6 +594,7 @@ public:
         L.boundingBox.y = y;
         const auto& kids = m_hierarchy[nodeId].childrenIds;
         if (kids.empty()) return;
+        if (L.mode == JLayoutMode::Flow) { _arrangeFlow(nodeId, x, y); return; }
         if (L.mode != JLayoutMode::Flex) { _arrangeGrid(nodeId, x, y); return; }
 
         const JFlexDirection d = L.direction;
@@ -646,6 +651,7 @@ public:
         if (kids.empty()) {
             return;
         }
+        if (L.mode == JLayoutMode::Flow) { _computeMinSizeFlow(nodeId); return; }
         if (L.mode != JLayoutMode::Flex) { _computeMinSizeGrid(nodeId); return; }
 
         const JFlexDirection d = L.direction;
@@ -790,6 +796,92 @@ public:
             }
             cy += rowH[r] + gap;
         }
+    }
+
+    // --- Flow layout: lines of children at their own size, broken where the width runs out. ----
+    // The children's lines within `innerW`: each line's first child and its height.
+    struct JFlowLine { size_t first; float height; };
+    std::vector<JFlowLine> _flowLines(NodeId nodeId, float innerW) const {
+        const auto& L = m_layouts[nodeId];
+        const auto& kids = m_hierarchy[nodeId].childrenIds;
+        std::vector<JFlowLine> lines;
+        float used = 0.0f;
+        for (size_t i = 0; i < kids.size(); ++i) {
+            const auto& cl = m_layouts[kids[i]];
+            const float w = cl.boundingBox.width + cl.margin.horizontal();
+            const float h = cl.boundingBox.height + cl.margin.vertical();
+            // A new line when this one has a child and the next would pass the width.
+            if (lines.empty() || (used > 0.0f && used + L.gap + w > innerW)) {
+                lines.push_back({ i, h });
+                used = w;
+                continue;
+            }
+            used += L.gap + w;
+            lines.back().height = std::max(lines.back().height, h);
+        }
+        return lines;
+    }
+
+    void _measureFlow(NodeId nodeId, const JConstraints& c) {
+        auto& L = m_layouts[nodeId];
+        const auto& kids = m_hierarchy[nodeId].childrenIds;
+        const JEdges& pad = L.padding;
+        const float innerMaxW = std::max(0.0f, c.maxWidth - pad.horizontal());
+        // Each child at its own size, no wider than a line.
+        for (NodeId k : kids) {
+            auto& cl = m_layouts[k];
+            const bool leaf = m_hierarchy[k].childrenIds.empty();
+            if (leaf) _natural(cl);
+            const float askW = leaf ? cl.naturalWidth : cl.boundingBox.width;
+            const float askH = leaf ? cl.naturalHeight : cl.boundingBox.height;
+            const float availW = std::max(0.0f, innerMaxW - cl.margin.horizontal());
+            _measure(k, JConstraints{ std::max(cl.minWidth, std::min(askW, availW)), availW,
+                                      std::max(cl.minHeight, askH), std::max(0.0f, c.maxHeight - pad.vertical()) });
+        }
+        const auto lines = _flowLines(nodeId, innerMaxW);
+        float contentH = pad.vertical();
+        for (const auto& line : lines) contentH += line.height;
+        if (lines.size() > 1) contentH += L.gap * float(lines.size() - 1);
+        L.boundingBox.width  = clampF(innerMaxW + pad.horizontal(), c.minWidth,  c.maxWidth);
+        L.boundingBox.height = clampF(contentH,                     c.minHeight, c.maxHeight);
+    }
+
+    void _arrangeFlow(NodeId nodeId, float x, float y) {
+        auto& L = m_layouts[nodeId];
+        L.boundingBox.x = x;
+        L.boundingBox.y = y;
+        const auto& kids = m_hierarchy[nodeId].childrenIds;
+        const JEdges& pad = L.padding;
+        const auto lines = _flowLines(nodeId, std::max(0.0f, L.boundingBox.width - pad.horizontal()));
+        float cy = y + pad.top;
+        for (size_t l = 0; l < lines.size(); ++l) {
+            const size_t end = l + 1 < lines.size() ? lines[l + 1].first : kids.size();
+            float cx = x + pad.left;
+            for (size_t i = lines[l].first; i < end; ++i) {
+                auto& cl = m_layouts[kids[i]];
+                const float slack = std::max(0.0f, lines[l].height - cl.margin.vertical() - cl.boundingBox.height);
+                JAlignItems a = cl.alignSelf >= 0 ? static_cast<JAlignItems>(cl.alignSelf) : L.alignItems;
+                const float ay = a == JAlignItems::Center ? slack * 0.5f : a == JAlignItems::End ? slack : 0.0f;
+                _arrange(kids[i], cx + cl.margin.left, cy + cl.margin.top + ay);
+                cx += cl.boundingBox.width + cl.margin.horizontal() + L.gap;
+            }
+            cy += lines[l].height + L.gap;
+        }
+    }
+
+    // At least as wide as its widest child and as tall as its tallest (one to a line, at worst a line each).
+    void _computeMinSizeFlow(NodeId nodeId) {
+        auto& L = m_layouts[nodeId];
+        const auto& kids = m_hierarchy[nodeId].childrenIds;
+        float w = 0.0f, h = 0.0f;
+        for (NodeId k : kids) {
+            _computeMinSize(k);
+            const auto& cl = m_layouts[k];
+            w = std::max(w, cl.minWidth + cl.margin.horizontal());
+            h = std::max(h, cl.minHeight + cl.margin.vertical());
+        }
+        L.minWidth  = std::max(L.minWidth,  w + L.padding.horizontal());
+        L.minHeight = std::max(L.minHeight, h + L.padding.vertical());
     }
 
     void _computeMinSizeGrid(NodeId nodeId) {
