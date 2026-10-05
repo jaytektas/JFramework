@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <j/core/TranslationEngine.h>
+
 #include <string>
 #include <vector>
 #include <memory>
@@ -110,7 +112,7 @@ public:
         if (!JTextHelper::hasAtlas()) { l.minWidth = 160.f; return; }
         float w = 8.f;                                        // leading pad (textX = bb.x + 8)
         if (m_checkable)                       w += 20.f;     // check column
-        w += JTextHelper::measureWidth(m_label);
+        w += JTextHelper::measureWidth(tr(m_label));
         if (m_shortcut.key != JKeyEvent::JKey::Unknown)
             w += 24.f + JTextHelper::measureWidth(m_shortcut.toString());   // gap + shortcut column
         w += m_submenu ? 16.f + 8.f : 12.f;                   // submenu arrow, else right pad
@@ -182,7 +184,7 @@ public:
                 std::copy(Colors::TextPrimary, Colors::TextPrimary + 4, textColor);
             }
             float labelY = bb.y + (bb.height - JTextHelper::lineHeight()) * 0.5f;
-            JTextHelper::pushText(buf, textX, labelY, m_label, textColor);
+            JTextHelper::pushText(buf, textX, labelY, tr(m_label), textColor);
 
             if (m_shortcut.key != JKeyEvent::JKey::Unknown) {
                 std::string scStr = m_shortcut.toString();
@@ -464,7 +466,7 @@ public:
     void addMenu(JMenu* menu) {
         NodeId btnId = m_graph.createNode("MenuBarBtn");
         auto& l = m_graph.getLayout(btnId);
-        l.minWidth = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(menu->title()) + 20.f : 70.f;
+        l.minWidth = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(tr(menu->title())) + 20.f : 70.f;
         l.minHeight = 32.f;
         m_graph.addChild(m_nodeId, btnId);
         m_entries.push_back({menu->title(), menu, btnId});
@@ -487,7 +489,7 @@ public:
 
             uint8_t tc[4] = {Colors::TextPrimary[0], Colors::TextPrimary[1], Colors::TextPrimary[2], 255};
             float ty = btnBB.y + (btnBB.height - JTextHelper::lineHeight()) * 0.5f;
-            JTextHelper::pushText(buf, btnBB.x + 10.f, ty, entry.title, tc);
+            JTextHelper::pushText(buf, btnBB.x + 10.f, ty, tr(entry.title), tc);
         }
     }
 

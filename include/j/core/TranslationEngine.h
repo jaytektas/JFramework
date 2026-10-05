@@ -45,6 +45,10 @@ public:
 
     const std::string& locale() const { return m_locale; }
 
+    // Strings an application brings itself (key: the source-language text),
+    // over any loaded: for catalogs in another form than this engine's own.
+    void add(const std::string& key, const std::string& value) { m_strings[key] = value; }
+
     // ---- Translation ----
 
     // Singular: tr("Open File")
