@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <j/core/TranslationEngine.h>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -358,7 +359,7 @@ public:
                 uint8_t tc[4] = {Colors::FieldText[0], Colors::FieldText[1], Colors::FieldText[2], 220};
                 float ty = m_y + (TITLE_H - JTextHelper::lineHeight()) * 0.5f;
                 float maxTitleW = m_w - btnAreaW - 14.0f;
-                JTextHelper::pushText(buf, m_x + 10.0f, ty, m_title, tc, maxTitleW);
+                JTextHelper::pushText(buf, m_x + 10.0f, ty, tr(m_title), tc, maxTitleW);
             } else {
                 uint8_t tc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 180};
                 buf.pushRectangle(m_x + 10.0f, titleBarY, m_w * 0.30f, 7.0f, tc, 2.0f);

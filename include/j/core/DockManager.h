@@ -19,6 +19,7 @@
 // heap allocation in the hot paths (layout/render reuse the arena's vectors).
 // ============================================================================
 
+#include <j/core/TranslationEngine.h>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -1119,14 +1120,14 @@ private:
             int tabCount = static_cast<int>(n->tabs.size());
             if (tabCount == 0) return 48.f;
             if (tabCount == 1) {
-                float lw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(n->tabs[0]->title()) : 50.f;
+                float lw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(tr(n->tabs[0]->title())) : 50.f;
                 float contentMinW = n->tabs[0]->minW();
                 return std::max(lw + 50.f, contentMinW);
             }
             float maxLw = 0.f;
             float maxWidgetMinW = 0.f;
             for (int i = 0; i < tabCount; ++i) {
-                float lw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(n->tabs[i]->title()) : 50.f;
+                float lw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(tr(n->tabs[i]->title())) : 50.f;
                 if (lw > maxLw) maxLw = lw;
                 if (n->tabs[i]) {
                     float w = n->tabs[i]->minW();
@@ -1343,7 +1344,7 @@ private:
         for (int i = 0; i < n; ++i) {
             // Natural extent along the bar = the label run length (rotated for vertical bars).
             float nat = (JTextHelper::hasAtlas() && leaf.tabs[i])
-                            ? JTextHelper::measureWidth(leaf.tabs[i]->title()) + 28.f : 90.f;
+                            ? JTextHelper::measureWidth(tr(leaf.tabs[i]->title())) + 28.f : 90.f;
             ext[i] = nat; sum += nat;
         }
         const JTabFill fill = effectiveTabFill();
@@ -1484,7 +1485,7 @@ private:
                               Colors::TitleBar, 0.0f);
             if (JTextHelper::hasAtlas()) {
                 uint8_t tc[4] = {Colors::TitleBarText[0], Colors::TitleBarText[1], Colors::TitleBarText[2], Colors::TitleBarText[3]};
-                const std::string& title = leaf.tabs[0]->title();
+                const std::string title = tr(leaf.tabs[0]->title());
                 const JTabBarEdge edge = effectiveTabEdge();
                 const float lineH = JTextHelper::lineHeight();
                 if (edge == JTabBarEdge::Left || edge == JTabBarEdge::Right) {
@@ -1522,7 +1523,7 @@ private:
                     }
                 }
                 if (JTextHelper::hasAtlas() && leaf.tabs[i]) {
-                    std::string label = leaf.tabs[i]->title();
+                    std::string label = tr(leaf.tabs[i]->title());
                     float lw = JTextHelper::measureWidth(label);
                     // active label = ControlText, inactive = DockTabInactiveText; alpha follows active state.
                     const uint8_t* lbase = active ? Colors::ControlText : Colors::DockTabInactiveText;
