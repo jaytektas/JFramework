@@ -325,7 +325,8 @@ std::string narrow(const std::wstring& w) {
 // identically on both platforms (the caller's loop handles them).
 JHttpResponse exchange(const std::string& url, int timeoutMs,
                        const std::vector<JHttpHeader>& headers,
-                       const std::function<void(int64_t, int64_t)>& onProgress) {
+                       const std::function<void(int64_t, int64_t)>& onProgress,
+                       const std::string& method = "GET", const std::string& body = {}) {
     JHttpResponse r;
     r.finalUrl = url;
     const JUrl u = parseUrl(url);
@@ -344,7 +345,7 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
     connect.h = ::WinHttpConnect(session.h, widen(u.host).c_str(), u.port, 0);
     if (!connect.h) { r.error = "cannot connect to " + u.host; return r; }
 
-    request.h = ::WinHttpOpenRequest(connect.h, L"GET", widen(u.path).c_str(), nullptr,
+    request.h = ::WinHttpOpenRequest(connect.h, widen(method).c_str(), widen(u.path).c_str(), nullptr,
                                      WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
                                      u.secure ? WINHTTP_FLAG_SECURE : 0);
     if (!request.h) { r.error = "cannot create request"; return r; }
@@ -355,7 +356,9 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
     for (const auto& h : headers) extra += widen(h.name + ": " + h.value + "\r\n");
 
     if (!::WinHttpSendRequest(request.h, extra.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : extra.c_str(),
-                              extra.empty() ? 0 : DWORD(-1), WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
+                              extra.empty() ? 0 : DWORD(-1),
+                              body.empty() ? WINHTTP_NO_REQUEST_DATA : const_cast<char*>(body.data()),
+                              DWORD(body.size()), DWORD(body.size()), 0) ||
         !::WinHttpReceiveResponse(request.h, nullptr)) {
         r.error = "request failed (WinHTTP error " + std::to_string(::GetLastError()) + ")";
         return r;
@@ -400,7 +403,8 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
 // One request/response exchange, no redirect handling (that is the caller's).
 JHttpResponse exchange(const std::string& url, int timeoutMs,
                        const std::vector<JHttpHeader>& headers,
-                       const std::function<void(int64_t, int64_t)>& onProgress) {
+                       const std::function<void(int64_t, int64_t)>& onProgress,
+                       const std::string& method = "GET", const std::string& body = {}) {
     JHttpResponse r;
     r.finalUrl = url;
 
@@ -414,7 +418,7 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
     Connection conn;
     if (!conn.connect(u, timeoutMs, r.error)) return r;
 
-    std::string req = "GET " + u.path + " HTTP/1.1\r\nHost: " + u.host;
+    std::string req = method + " " + u.path + " HTTP/1.1\r\nHost: " + u.host;
     if ((u.secure && u.port != 443) || (!u.secure && u.port != 80)) req += ":" + std::to_string(u.port);
     req += "\r\nConnection: close\r\nAccept-Encoding: identity\r\n";
     bool haveUA = false;
@@ -423,7 +427,9 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
         req += h.name + ": " + h.value + "\r\n";
     }
     if (!haveUA) req += "User-Agent: JFramework/1.0\r\n";
+    if (method != "GET") req += "Content-Length: " + std::to_string(body.size()) + "\r\n";
     req += "\r\n";
+    req += body;
     if (!conn.write(req, r.error)) return r;
 
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
@@ -590,6 +596,12 @@ JHttpResponse JHttpClient::getSync(const std::string& url, int timeoutMs,
         target = resolveRedirect(target, loc);
     }
     return r;
+}
+
+JHttpResponse JHttpClient::postSync(const std::string& url, const std::string& body, const std::string& contentType,
+                                    int timeoutMs, std::vector<JHttpHeader> headers) {
+    headers.push_back({ "Content-Type", contentType });
+    return exchange(url, timeoutMs, headers, {}, "POST", body);
 }
 
 } // inline namespace jf

@@ -145,6 +145,43 @@ static void test_a_download_cut_off_is_an_error_not_a_short_file() {
     assert(r.body.empty());
     std::cout << "  [OK] a download cut off part-way is an error (" << r.error << ")\n";
 }
+
+static void test_a_post_sends_its_body() {
+    // A one-shot local server that answers with what it was sent.
+    const int ls = ::socket(AF_INET, SOCK_STREAM, 0);
+    int one = 1; ::setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    sockaddr_in a{}; a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_LOOPBACK); a.sin_port = 0;
+    ::bind(ls, reinterpret_cast<sockaddr*>(&a), sizeof(a)); ::listen(ls, 1);
+    socklen_t len = sizeof(a); ::getsockname(ls, reinterpret_cast<sockaddr*>(&a), &len);
+    std::string got;
+    std::thread t([ls, &got] {
+        const int c = ::accept(ls, nullptr, nullptr);
+        char buf[4096];
+        // The head and the whole body (its Content-Length says how much).
+        for (;;) {
+            const ssize_t n = ::recv(c, buf, sizeof(buf), 0);
+            if (n <= 0) break;
+            got.append(buf, size_t(n));
+            const size_t head = got.find("\r\n\r\n");
+            const size_t cl = got.find("Content-Length: ");
+            if (head != std::string::npos && cl != std::string::npos
+                && got.size() >= head + 4 + size_t(std::atoi(got.c_str() + cl + 16)))
+                break;
+        }
+        const std::string answer = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+        (void)::send(c, answer.data(), answer.size(), 0);
+        ::close(c); ::close(ls);
+    });
+    const JHttpResponse r = JHttpClient::postSync("http://127.0.0.1:" + std::to_string(ntohs(a.sin_port)) + "/soap",
+                                                  "<x>hello</x>", "application/soap+xml", 2000);
+    t.join();
+    assert(r.ok() && r.text() == "ok");
+    assert(got.rfind("POST /soap HTTP/1.1", 0) == 0);
+    assert(got.find("Content-Type: application/soap+xml") != std::string::npos);
+    assert(got.find("Content-Length: 12") != std::string::npos);
+    assert(got.size() >= 12 && got.compare(got.size() - 12, 12, "<x>hello</x>") == 0);
+    std::cout << "  [OK] a POST sends its body\n";
+}
 #endif
 
 int main() {
@@ -158,6 +195,7 @@ int main() {
 #if !defined(_WIN32)
     test_a_stalled_download_fails_at_the_stall_not_the_deadline();
     test_a_download_cut_off_is_an_error_not_a_short_file();
+    test_a_post_sends_its_body();
 #endif
     std::cout << "all JHttpClient tests passed\n";
     return 0;

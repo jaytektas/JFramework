@@ -57,6 +57,10 @@ public:
     // GET, blocking, on the calling thread. Safe to call from a JWorkerThread.
     static JHttpResponse getSync(const std::string& url, int timeoutMs = 15000,
                                  const std::vector<JHttpHeader>& headers = {});
+    // POST `body` (of `contentType`) and wait for the answer, on the calling
+    // thread; a redirect is not followed (the answer is the redirect).
+    static JHttpResponse postSync(const std::string& url, const std::string& body, const std::string& contentType,
+                                  int timeoutMs = 15000, std::vector<JHttpHeader> headers = {});
 
     // Total transfer budget for get(), connect through last byte.
     void setTimeout(int ms);
