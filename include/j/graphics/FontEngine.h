@@ -4,6 +4,7 @@
 #pragma once
 
 #include <string>
+#include <set>
 #include <vector>
 #include <array>
 #include <unordered_map>
@@ -58,6 +59,25 @@ struct JFontAtlas {
  *   // upload atlas.bitmap to GPU as R8 texture, then call measureText / layout
  */
 class JFontEngine {
+public:
+    // Codepoints an application needs beyond the built-in ranges (a
+    // language's letters, gathered from its translated text): packed into
+    // every atlas built afterwards, the atlas made taller to hold them, and
+    // drawn from a CJK font where neither the primary nor the fallback font
+    // has them. Opt-in: an application that never calls this is unchanged.
+    // Call before the window builds its atlas.
+    static void addCodepoints(const std::vector<uint32_t>& codepoints) {
+        extraCodepoints().insert(codepoints.begin(), codepoints.end());
+    }
+    static std::set<uint32_t>& extraCodepoints() {
+        static std::set<uint32_t> s;
+        return s;
+    }
+    // About how many glyphs the built-in ranges hold, the tallest atlas made, and where CJK begins.
+    static constexpr double   kBuiltInGlyphs   = 300;
+    static constexpr uint32_t kMostAtlasHeight = 4096;
+    static constexpr uint32_t kFirstCjk        = 0x2E80;
+
 public:
     JFontEngine()  = default;
     ~JFontEngine() = default;
@@ -124,6 +144,13 @@ public:
     JFontAtlas buildAtlas(float pixelSize, uint32_t atlasW = 512, uint32_t atlasH = 256) const {
         JFontAtlas atlas;
         if (!m_loaded) return atlas;
+        // Room for the extra codepoints: taller, a power of two at a time, until a generous estimate fits
+        // (each glyph a cell a little bigger than the size, the built-in ranges' few hundred included).
+        if (!extraCodepoints().empty()) {
+            const double cell = (pixelSize * 1.25 + 2) * (pixelSize * 1.25 + 2);
+            const double needed = (kBuiltInGlyphs + double(extraCodepoints().size())) * cell * 1.4;
+            while (double(atlasW) * double(atlasH) < needed && atlasH < kMostAtlasHeight) atlasH *= 2;
+        }
 
         atlas.width     = atlasW;
         atlas.height    = atlasH;
@@ -178,13 +205,51 @@ public:
         }
         const float fbScale = s_fbLoaded ? stbtt_ScaleForPixelHeight(&s_fbInfo, pixelSize) : 0.0f;
 
+        // A CJK font, for extra codepoints neither of the others has (loaded only when asked for).
+        static std::vector<uint8_t> s_cjkData;
+        static stbtt_fontinfo s_cjkInfo;
+        static bool s_cjkLoaded = false, s_cjkTried = false;
+        if (!s_cjkTried && !extraCodepoints().empty() && *extraCodepoints().rbegin() >= kFirstCjk) {
+            s_cjkTried = true;
+            // Each with the face to take from a collection: Noto Sans CJK's Simplified Chinese is its third.
+            static const std::pair<const char*, int> kCjk[] = {
+#if defined(_WIN32)
+                { "C:\\Windows\\Fonts\\msyh.ttc", 0 },
+                { "C:\\Windows\\Fonts\\simsun.ttc", 0 },
+#else
+                { "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf", 0 },
+                { "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 2 },
+                { "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc", 2 },
+#endif
+            };
+            for (const auto& [path, face] : kCjk) {
+                std::ifstream cf(path, std::ios::binary | std::ios::ate);
+                if (!cf) continue;
+                const auto n = static_cast<size_t>(cf.tellg());
+                cf.seekg(0);
+                s_cjkData.resize(n);
+                cf.read(reinterpret_cast<char*>(s_cjkData.data()), n);
+                const int faces = stbtt_GetNumberOfFonts(s_cjkData.data());
+                const int offset = stbtt_GetFontOffsetForIndex(s_cjkData.data(), face < faces ? face : 0);
+                if (offset >= 0 && stbtt_InitFont(&s_cjkInfo, s_cjkData.data(), offset)) {
+                    s_cjkLoaded = true;
+                    break;
+                }
+            }
+        }
+        const float cjkScale = s_cjkLoaded ? stbtt_ScaleForPixelHeight(&s_cjkInfo, pixelSize) : 0.0f;
+
         auto packRange = [&](uint32_t from, uint32_t to) {
             for (uint32_t cp = from; cp <= to; ++cp) {
-                // Primary font first; if it has no glyph for this codepoint, borrow it from the fallback.
+                // Primary font first; if it has no glyph for this codepoint, borrow it from the fallback,
+                // then from the CJK font.
                 const stbtt_fontinfo* fi = &m_info; float sc = scale;
-                if (stbtt_FindGlyphIndex(&m_info, static_cast<int>(cp)) == 0 &&
-                    s_fbLoaded && stbtt_FindGlyphIndex(&s_fbInfo, static_cast<int>(cp)) != 0) {
-                    fi = &s_fbInfo; sc = fbScale;
+                if (stbtt_FindGlyphIndex(&m_info, static_cast<int>(cp)) == 0) {
+                    if (s_fbLoaded && stbtt_FindGlyphIndex(&s_fbInfo, static_cast<int>(cp)) != 0) {
+                        fi = &s_fbInfo; sc = fbScale;
+                    } else if (s_cjkLoaded && stbtt_FindGlyphIndex(&s_cjkInfo, static_cast<int>(cp)) != 0) {
+                        fi = &s_cjkInfo; sc = cjkScale;
+                    }
                 }
                 int w, h, xoff, yoff;
                 uint8_t* bmp = stbtt_GetCodepointBitmap(
@@ -268,6 +333,9 @@ public:
         packRange(0x0394, 0x0394); // Δ
         packRange(0x03A9, 0x03A9); // Ω
         packRange(0x03BB, 0x03BB); // λ
+        // What the application asked for (addCodepoints), not already packed.
+        for (const uint32_t cp : extraCodepoints())
+            if (!atlas.glyphs.count(cp)) packRange(cp, cp);
 
         atlas.valid = true;
         qCInfo(jf::Log::Graphics) << "JFontEngine: atlas " << atlasW << "x" << atlasH
