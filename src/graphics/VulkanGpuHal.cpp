@@ -796,6 +796,10 @@ private:
     };
 
     TextureHandle uploadTexture(const uint8_t* rgba, uint32_t w, uint32_t h) override {
+        return uploadTexture(rgba, w, h, JTextureSampling::Smooth);
+    }
+
+    TextureHandle uploadTexture(const uint8_t* rgba, uint32_t w, uint32_t h, JTextureSampling sampling) override {
         VkDeviceSize sz = (VkDeviceSize)w * h * 4;
 
         VkBuffer stagBuf; VkDeviceMemory stagMem;
@@ -871,8 +875,9 @@ private:
         vkCreateImageView(m_device, &vci, nullptr, &tex.view);
 
         VkSamplerCreateInfo sci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-        sci.magFilter    = VK_FILTER_LINEAR;
-        sci.minFilter    = VK_FILTER_LINEAR;
+        const VkFilter filter = sampling == JTextureSampling::Sharp ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+        sci.magFilter    = filter;
+        sci.minFilter    = filter;
         sci.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         sci.addressModeU = sci.addressModeV = sci.addressModeW =
             VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;

@@ -493,6 +493,7 @@ public:
         qCInfo(jf::Log::Graphics) << "SoftwareGpuHal: destroySurface sid=" << sid << "\n";
     }
 
+    using JGpuHal::uploadTexture;
     TextureHandle uploadTexture(const uint8_t* rgba, uint32_t w, uint32_t h) override {
         std::lock_guard<std::mutex> lock(m_mutex);
         TextureHandle handle = m_nextTexHandle++;

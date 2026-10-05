@@ -32,6 +32,7 @@ public:
     GpuSurfaceId createSurface(const JNativeWindowHandle&, uint32_t, uint32_t) override { return 1; }
     void destroySurface(GpuSurfaceId) override {}
 
+    using JGpuHal::uploadTexture;
     TextureHandle uploadTexture(const uint8_t*, uint32_t w, uint32_t h) override {
         TextureHandle h2 = m_next++;
         m_textures[h2] = {w, h};

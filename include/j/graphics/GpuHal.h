@@ -9,6 +9,7 @@
 #include <iostream>
 #include <string>
 #include <j/graphics/RenderPrimitive.h>
+#include <j/graphics/TextureSampling.h>
 
 namespace { inline constexpr auto& LogGraphicsBackend = jf::Log::Vulkan; }
 
@@ -142,6 +143,12 @@ public:
     // Upload an RGBA8 image to GPU memory. Returns a handle for use in
     // JPrimitiveBuffer::pushImage(). Returns kNullTexture on failure.
     virtual TextureHandle uploadTexture(const uint8_t* rgba, uint32_t w, uint32_t h) { (void)rgba; (void)w; (void)h; return kNullTexture; }
+    // The same, sampled as `sampling` says when drawn at another size. A
+    // backend that cannot choose draws it as the plain upload does.
+    virtual TextureHandle uploadTexture(const uint8_t* rgba, uint32_t w, uint32_t h, JTextureSampling sampling) {
+        (void)sampling;
+        return uploadTexture(rgba, w, h);
+    }
 
     // Release a texture previously created with uploadTexture().
     virtual void releaseTexture(TextureHandle tex) { (void)tex; }
