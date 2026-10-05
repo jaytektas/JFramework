@@ -8,6 +8,7 @@
 #include "JWidget.h"
 #include <vector>
 #include "JTextHelper.h"
+#include "TranslationEngine.h"
 
 inline namespace jf {
 
@@ -22,7 +23,7 @@ public:
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().labelHeight;
-        l.minWidth = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(m_text) : w;
+        l.minWidth = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(tr(m_text)) : w;
         l.minHeight = h;
     }
 
@@ -32,7 +33,7 @@ public:
     void setText(const std::string& t) {
         m_text = t;
         if (m_minFollowsText && !m_wrap && JTextHelper::hasAtlas())
-            m_graph.getLayout(m_nodeId).minWidth = JTextHelper::measureWidth(m_text);
+            m_graph.getLayout(m_nodeId).minWidth = JTextHelper::measureWidth(tr(m_text));
         m_graph.invalidateNode(m_nodeId, DirtySelf);
         notifyAccessibility();
     }

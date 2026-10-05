@@ -13,6 +13,7 @@
 
 #include "JControl.h"
 #include "JTextHelper.h"
+#include "TranslationEngine.h"
 
 inline namespace jf {
 
@@ -29,7 +30,7 @@ public:
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().buttonHeight;
-        l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(m_label) + 24.f) : w;
+        l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(tr(m_label)) + 24.f) : w;
         l.minHeight = h;
     }
 
@@ -66,7 +67,7 @@ public:
     // side. Every button sizes itself from this, and so does every window that draws button-shaped
     // controls by hand (the dialogs) — one rule, so no label is ever wider than its button.
     static float labelWidth(const std::string& label) {
-        const float tw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(label)
+        const float tw = JTextHelper::hasAtlas() ? JTextHelper::measureWidth(tr(label))
                        : static_cast<float>(label.size()) * 8.f * JStyle::uiScale();
         return tw + JStyle::current().fieldPadding * 3.f;   // 24 px at 100 %, as the old fixed minimum was
     }

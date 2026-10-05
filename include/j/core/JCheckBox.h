@@ -7,6 +7,7 @@
 
 #include "JControl.h"
 #include "JTextHelper.h"
+#include "TranslationEngine.h"
 
 inline namespace jf {
 
@@ -27,7 +28,7 @@ public:
     {
         auto& l = m_graph.getLayout(m_nodeId);
         l.boundingBox.width = w; l.boundingBox.height = (h > 0.0f) ? h : JStyle::current().checkHeight;
-        l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(m_label) + 28.f) : w;
+        l.minWidth = JTextHelper::hasAtlas() ? (JTextHelper::measureWidth(tr(m_label)) + 28.f) : w;
         l.minHeight = h;
     }
 
