@@ -1344,7 +1344,7 @@ private:
         for (int i = 0; i < n; ++i) {
             // Natural extent along the bar = the label run length (rotated for vertical bars).
             float nat = (JTextHelper::hasAtlas() && leaf.tabs[i])
-                            ? JTextHelper::measureWidth(tr(leaf.tabs[i]->title())) + 28.f : 90.f;
+                            ? JTextHelper::measureWidth(tr(leaf.tabs[i]->title())) + leaf.tabs[i]->badgeSpan() + 28.f : 90.f;
             ext[i] = nat; sum += nat;
         }
         const JTabFill fill = effectiveTabFill();
@@ -1539,8 +1539,14 @@ private:
                         JTextHelper::pushTextVertical(buf, px, py, label, lc, t.height - 12.f, cw);
                     } else {
                         float ly = t.y + (t.height - lineH) * 0.5f;
-                        JTextHelper::pushText(buf, t.x + std::max(6.f, (t.width - lw) * 0.5f), ly,
-                                             label, lc, t.width - 10.f);
+                        // The label and its badge (setBadge) centred together; a tab too narrow for both
+                        // keeps its whole label, the badge on its top-right corner.
+                        const float bw = leaf.tabs[i]->badgeSpan();
+                        const bool inline_ = lw + bw <= t.width - 10.f;
+                        const float lx = t.x + std::max(6.f, (t.width - lw - (inline_ ? bw : 0.f)) * 0.5f);
+                        JTextHelper::pushText(buf, lx, ly, label, lc, t.width - 10.f - (inline_ ? bw : 0.f));
+                        if (inline_) leaf.tabs[i]->drawBadge(buf, lx + lw, ly);
+                        else leaf.tabs[i]->drawBadge(buf, t.x + t.width - bw - 1.f, t.y + 1.f);
                     }
                 }
             }

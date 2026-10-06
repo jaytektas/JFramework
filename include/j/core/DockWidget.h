@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <array>
+
 #include <j/core/TranslationEngine.h>
 #include <string>
 #include <string_view>
@@ -120,6 +122,7 @@ public:
         , onInputContent(std::move(o.onInputContent))
         , m_content(o.m_content)
         , m_titleWidgets(std::move(o.m_titleWidgets))
+        , m_badge(o.m_badge)
     {
         // Replace old pointer in registry with this
         auto& v = s_activeDocks;
@@ -265,6 +268,19 @@ public:
     void addTitleWidget(JWidget* w, float width) { if (w) m_titleWidgets.push_back({ w, width }); }
     void clearTitleWidgets() { m_titleWidgets.clear(); }
     const std::vector<JTitleWidget>& titleWidgets() const { return m_titleWidgets; }
+    // A small coloured dot after the title, in its tab and title bar, to draw the eye to it (an app's
+    // "something needs you here": the severest open issue, say); none, no dot. The title, which is
+    // the dock's identity in a saved layout, stays as it is.
+    void setBadge(std::optional<std::array<uint8_t, 4>> color) { m_badge = color; }
+    const std::optional<std::array<uint8_t, 4>>& badge() const { return m_badge; }
+    // How much room the badge takes after the title (0 without one), and the badge drawn with its left
+    // edge at x, centred on a line of text starting at y.
+    float badgeSpan() const { return m_badge && JTextHelper::hasAtlas() ? JTextHelper::lineHeight() * 0.9f : 0.f; }
+    void drawBadge(JPrimitiveBuffer& buf, float x, float y) const {
+        if (!m_badge || !JTextHelper::hasAtlas()) return;
+        const float lineH = JTextHelper::lineHeight(), d = lineH * 0.6f;
+        buf.pushRectangle(x + lineH * 0.2f, y + (lineH - d) * 0.5f, d, d, m_badge->data(), d * 0.5f);
+    }
 
     // Render this dock's content into `area` (host-local). Prefers the hosted content widget
     // (placed at `area` then drawn via its own render); else the paint hook. Called by
@@ -358,8 +374,9 @@ public:
             if (JTextHelper::hasAtlas()) {
                 uint8_t tc[4] = {Colors::FieldText[0], Colors::FieldText[1], Colors::FieldText[2], 220};
                 float ty = m_y + (TITLE_H - JTextHelper::lineHeight()) * 0.5f;
-                float maxTitleW = m_w - btnAreaW - 14.0f;
+                float maxTitleW = m_w - btnAreaW - 14.0f - badgeSpan();
                 JTextHelper::pushText(buf, m_x + 10.0f, ty, tr(m_title), tc, maxTitleW);
+                drawBadge(buf, m_x + 10.0f + std::min(maxTitleW, JTextHelper::measureWidth(tr(m_title))), ty);
             } else {
                 uint8_t tc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 180};
                 buf.pushRectangle(m_x + 10.0f, titleBarY, m_w * 0.30f, 7.0f, tc, 2.0f);
@@ -470,6 +487,7 @@ private:
     // Framework-hosted content widget tree (non-owning); null = use the paint/input hooks.
     JWidget* m_content{nullptr};
     std::vector<JTitleWidget> m_titleWidgets;   // in the tab bar (addTitleWidget)
+    std::optional<std::array<uint8_t, 4>> m_badge;   // setBadge
 };
 
 } // inline namespace jf
