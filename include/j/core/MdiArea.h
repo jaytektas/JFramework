@@ -146,6 +146,7 @@ private:
     float       m_wantW{0.f}, m_wantH{0.f};   // the restore size the caller asked for, 0 = "a good fraction"
     bool        m_max{true}, m_close{false};
     bool        m_provisional{false};         // the restore rect was built before the area was known
+    bool        m_userSized{false};           // resized by hand: its size is the reader's, not the fit's
 };
 
 class JMdiArea : public JWidget {
@@ -383,6 +384,7 @@ public:
             const float dx = px - m_lastX, dy = py - m_lastY;
             if (m_drag == Drag::Move) { f.x += dx; f.y += dy; }
             else {
+                m_grab->m_userSized = true;
                 // THE FAR EDGE STAYS PUT. Dragging the left edge moves the origin and shrinks the width by
                 // the same amount, so clamping the width afterwards left the origin where the pointer had
                 // pushed it: at the minimum size the window stopped shrinking and started sliding sideways
@@ -555,6 +557,23 @@ public:
             const float dx = a.x - m_lastArea.x, dy = a.y - m_lastArea.y;
             for (auto& c : m_children)
                 if (!c->maximised()) { JRect f = c->frame(); f.x += dx; f.y += dy; c->setFrame(f); }
+        }
+        // …AND SIZED TO THE ROOM THEY NOW HAVE. A window opened into a short area (a notice strip across
+        // the top of the app) was clamped to it, and kept that height when the strip went: the page stayed
+        // short, with scroll bars, until it was opened again. The reverse pushed a full-height window off
+        // the bottom. A window nobody has resized by hand is the size its content asked for, clamped to the
+        // room from its corner to the edge of where windows go — recomputed whenever the area changes size.
+        if (m_lastArea.width > 0.f && (a.width != m_lastArea.width || a.height != m_lastArea.height)) {
+            const JRect place = openArea();
+            for (auto& c : m_children) {
+                if (c->maximised() || c->m_userSized || c->m_wantW <= 0.f || c->m_wantH <= 0.f) continue;
+                JRect f = c->frame();
+                auto inside = [](float v, float lo, float len) { return v >= lo && v < lo + len; };
+                const JRect& lim = (inside(f.x, place.x, place.width) && inside(f.y, place.y, place.height)) ? place : a;
+                f.width  = std::max(c->m_minW, std::min(c->m_wantW, lim.x + lim.width  - f.x));
+                f.height = std::max(c->m_minH, std::min(c->m_wantH, lim.y + lim.height - f.y));
+                c->setFrame(f);
+            }
         }
         m_lastArea = a;
         buf.pushRectangle(a.x, a.y, a.width, a.height, Colors::Surface0);

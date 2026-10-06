@@ -330,6 +330,7 @@ if(GENESIS_BUILD_TESTS)
     add_genesis_test(test_vector            src/tests/test_vector.cpp)
     add_genesis_test(test_chart             src/tests/test_chart.cpp)
     add_genesis_test(test_reference         src/tests/test_reference.cpp)
+    add_genesis_test(test_mdi_refit         src/tests/test_mdi_refit.cpp)
 endif()
 
 # ============================================================================
