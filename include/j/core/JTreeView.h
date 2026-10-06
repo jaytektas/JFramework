@@ -740,7 +740,7 @@ public:
                     _drawCheck(buf, tx + 1.0f, itemY + itemH * 0.5f, *flat.node);
                     tx += kCheckW;
                 }
-                if (flat.node->icon != 0) { _drawTreeIcon(buf, tx + 1.0f, itemY + itemH * 0.5f, flat.node->icon); tx += 15.0f; }
+                if (flat.node->icon != 0) tx += drawNodeIcon(buf, *flat.node, tx + 1.0f, itemY, itemH);
                 const float maxW = b.width - (tx - b.x) - 14.0f;
                 drawNodeText(buf, flat.node, tx, ty, maxW);
                 // Hyperlink-hover underline: while the cursor is over a node the app marks as a link, underline
@@ -854,6 +854,14 @@ protected:
             case 5:  buf.pushRectangle(x, y, s, s, blue, 2.0f); break;                 // config — filled
             default: buf.pushRectangle(x, y, s, s, Colors::Transparent, 2.0f, 1.5f, green); break;   // value/channel — hollow
         }
+    }
+
+    // The glyph before a node's label (its JTreeViewNode::icon, not 0), drawn from x in its row
+    // (rowY, rowH tall); returns the width it takes, the label following. Overridden, an app draws icons
+    // of its own (a picture per kind); by default one of the small kind glyphs below.
+    virtual float drawNodeIcon(JPrimitiveBuffer& buf, const JTreeViewNode& node, float x, float rowY, float rowH) {
+        _drawTreeIcon(buf, x, rowY + rowH * 0.5f, node.icon);
+        return 15.0f;
     }
 
     virtual void drawNodeChevron(JPrimitiveBuffer& buf, JTreeViewNode* /*node*/, float ax, float ay, float /*size*/, bool expanded) {
