@@ -71,9 +71,8 @@ public:
     // sides — 4 px of frame under a page looked like a rendering seam rather than the edge of a window.
     static constexpr float kBorder = 6.f;
     // WHAT YOU CAN ACTUALLY HIT. The inset is 4 px, and a 4 px target is a target nobody hits — the
-    // corner especially, which is the one people reach for. The grab band is wider than the border it
-    // belongs to, and reaches INTO the content, because catching a resize a few pixels early is a much
-    // smaller annoyance than a resize that will not start.
+    // corner especially, which is the one people reach for. At a CORNER the grab band is wider than the
+    // border and reaches into the content; along a side it is the border alone (see edgeAt).
     static constexpr float kGrab   = 10.f;
     static constexpr float kGrip   = 14.f;    // the drawn corner mark, so the corner looks grabbable
     static constexpr float kBtn    = 18.f;
@@ -610,14 +609,23 @@ private:
         return nullptr;
     }
 
+    // ONLY THE CORNERS REACH INTO THE CONTENT. A side's grab band is the frame border and no more: the
+    // content's own edge is where its scroll bars live, and a band reaching four pixels into it took the
+    // outer half of every scroll thumb — press on it and the window resized instead of the page scrolling.
+    // A corner keeps the wider kGrab reach (the target people actually aim for); content scroll bars leave
+    // that corner square empty, so nothing there is taken from them.
     static int edgeAt(const JRect& f, float mx, float my) {
-        const float b = JMdiChild::kGrab;
-        int e = 0;
-        if (mx <= f.x + b)                 e |= Left;
-        if (mx >= f.x + f.width  - b)      e |= Right;
-        if (my <= f.y + b)                 e |= Top;
-        if (my >= f.y + f.height - b)      e |= Bottom;
-        return e;
+        auto edges = [&](float b) {
+            int e = 0;
+            if (mx <= f.x + b)                 e |= Left;
+            if (mx >= f.x + f.width  - b)      e |= Right;
+            if (my <= f.y + b)                 e |= Top;
+            if (my >= f.y + f.height - b)      e |= Bottom;
+            return e;
+        };
+        const int wide = edges(JMdiChild::kGrab);
+        const bool corner = (wide & (Left | Right)) && (wide & (Top | Bottom));
+        return corner ? wide : edges(JMdiChild::kBorder);
     }
 
     void paintChild(JPrimitiveBuffer& buf, JMdiChild& c, bool activeOne) {
