@@ -69,57 +69,70 @@ inline void JWidget::renderTooltips(JPrimitiveBuffer& buf, JTooltipHover& hover,
             return; // hover dwell not yet served
         }
 
-        const float padX = st.tooltipPaddingX, padY = st.tooltipPaddingY;
-        const float lineH = JTextHelper::lineHeight();
-        const std::string text = hovered->tooltip();
-
-        // WRAP. A tooltip carrying real help — a sentence explaining what a field does — was drawn as one
-        // unbroken line and simply ran off the screen, so the part that mattered was the part you could not
-        // read. Break on spaces at a comfortable measure, then keep the whole box on screen.
-        const float kMaxW = st.tooltipMaxWidth;
-        std::vector<std::string> lines;
-        {
-            std::string line;
-            size_t i = 0;
-            while (i < text.size()) {
-                if (text[i] == '\n') {           // an explicit break is honoured, not swallowed
-                    lines.push_back(line);
-                    line.clear();
-                    ++i;
-                    continue;
-                }
-                size_t sp = text.find_first_of(" \n", i);
-                const std::string word = text.substr(i, sp == std::string::npos ? sp : sp - i);
-                const std::string next = line.empty() ? word : line + " " + word;
-                if (!line.empty() && JTextHelper::measureWidth(next) > kMaxW - padX * 2.0f) {
-                    lines.push_back(line);
-                    line = word;
-                } else {
-                    line = next;
-                }
-                if (sp == std::string::npos) break;
-                i = (text[sp] == '\n') ? sp : sp + 1;   // leave a newline for the branch above
-            }
-            if (!line.empty()) lines.push_back(line);
-        }
-        float textW = 0.0f;
-        for (const std::string& l : lines) textW = std::max(textW, JTextHelper::measureWidth(l));
-
-        const float tooltipW = textW + padX * 2.0f;
-        const float tooltipH = lineH * float(lines.size()) + padY * 2.0f;
+        const auto [tooltipW, tooltipH] = tooltipSize(hovered->tooltip());
         const float gap = st.tooltipCursorGap;
         float x = mouseX + gap;
         float y = mouseY + gap;
         // Keep it inside the window rather than letting it hang off the edge the cursor is near.
         if (viewW > 0.f && x + tooltipW > viewW) x = std::max(0.f, mouseX - gap - tooltipW);
         if (viewH > 0.f && y + tooltipH > viewH) y = std::max(0.f, mouseY - gap - tooltipH);
-
-        const float sh = st.tooltipShadowOffset, r = st.tooltipRadius;
-        buf.pushRectangle(x + sh, y + sh, tooltipW, tooltipH, Colors::ToolTipShadow, r);
-        buf.pushRectangle(x, y, tooltipW, tooltipH, Colors::ToolTipFill, r, st.borderWidth, Colors::ToolTipBorder);
-        for (size_t li = 0; li < lines.size(); ++li)
-            JTextHelper::pushText(buf, x + padX, y + padY + lineH * float(li), lines[li], Colors::TextPrimary);
+        drawTooltip(buf, hovered->tooltip(), x, y);
     }
+}
+
+namespace jf_tooltip_detail {
+// WRAP. A tooltip carrying real help — a sentence explaining what a field does — was drawn as one
+// unbroken line and simply ran off the screen, so the part that mattered was the part you could not
+// read. Break on spaces at a comfortable measure.
+inline std::vector<std::string> wrap(const std::string& text) {
+    const JStyle& st = JStyle::current();
+    const float padX = st.tooltipPaddingX;
+    const float kMaxW = st.tooltipMaxWidth;
+    std::vector<std::string> lines;
+    std::string line;
+    size_t i = 0;
+    while (i < text.size()) {
+        if (text[i] == '\n') {           // an explicit break is honoured, not swallowed
+            lines.push_back(line);
+            line.clear();
+            ++i;
+            continue;
+        }
+        size_t sp = text.find_first_of(" \n", i);
+        const std::string word = text.substr(i, sp == std::string::npos ? sp : sp - i);
+        const std::string next = line.empty() ? word : line + " " + word;
+        if (!line.empty() && JTextHelper::measureWidth(next) > kMaxW - padX * 2.0f) {
+            lines.push_back(line);
+            line = word;
+        } else {
+            line = next;
+        }
+        if (sp == std::string::npos) break;
+        i = (text[sp] == '\n') ? sp : sp + 1;   // leave a newline for the branch above
+    }
+    if (!line.empty()) lines.push_back(line);
+    return lines;
+}
+} // namespace jf_tooltip_detail
+
+inline std::pair<float, float> JWidget::tooltipSize(const std::string& text) {
+    const JStyle& st = JStyle::current();
+    const std::vector<std::string> lines = jf_tooltip_detail::wrap(text);
+    float textW = 0.0f;
+    for (const std::string& l : lines) textW = std::max(textW, JTextHelper::measureWidth(l));
+    return { textW + st.tooltipPaddingX * 2.0f, JTextHelper::lineHeight() * float(lines.size()) + st.tooltipPaddingY * 2.0f };
+}
+
+inline void JWidget::drawTooltip(JPrimitiveBuffer& buf, const std::string& text, float x, float y) {
+    const JStyle& st = JStyle::current();
+    const std::vector<std::string> lines = jf_tooltip_detail::wrap(text);
+    const auto [tooltipW, tooltipH] = tooltipSize(text);
+    const float lineH = JTextHelper::lineHeight();
+    const float sh = st.tooltipShadowOffset, r = st.tooltipRadius;
+    buf.pushRectangle(x + sh, y + sh, tooltipW, tooltipH, Colors::ToolTipShadow, r);
+    buf.pushRectangle(x, y, tooltipW, tooltipH, Colors::ToolTipFill, r, st.borderWidth, Colors::ToolTipBorder);
+    for (size_t li = 0; li < lines.size(); ++li)
+        JTextHelper::pushText(buf, x + st.tooltipPaddingX, y + st.tooltipPaddingY + lineH * float(li), lines[li], Colors::TextPrimary);
 }
 
 // ---- Drag & drop driver (declared in DragDrop.h; defined here where JWidget is

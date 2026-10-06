@@ -554,6 +554,18 @@ public:
         return JFloatPollResult::Alive;
     }
 
+    // Whether it draws its widgets' tooltips itself (on, as a window does).
+    void setDrawsTooltips(bool on) { m_drawsTooltips = on; }
+    // What it draws after its background and widgets, before its tooltips.
+    void setPainter(std::function<void(JPrimitiveBuffer&)> painter) { m_painter = std::move(painter); }
+    // The widget with a tooltip under (x, y) in this popup (its own coordinates); null when none.
+    JWidget* tooltipWidgetAt(float x, float y) {
+        for (auto it = m_widgets.rbegin(); it != m_widgets.rend(); ++it)
+            if (*it)
+                if (JWidget* hit = jTooltipHitTest(it->get(), x, y)) return hit;
+        return nullptr;
+    }
+
     void render(JGpuHal& hal, JPrimitiveBuffer& buf) {
         if (m_surfaceW != m_winW || m_surfaceH != m_winH) {
             hal.resizeSurface(m_surface, m_winW, m_winH);
@@ -598,9 +610,14 @@ public:
             }
         }
 
+        // A painter's own drawing (a tip window: JMenuRuntime).
+        if (m_painter) m_painter(buf);
+
         // This popup's own widgets are its roots, and its own dwell state: a popup renders its own
         // frame, so sharing either with the window underneath would have them overwrite each other.
-        {
+        // A menu's popup is only as big as its entries, so a tip drawn in it covers them: its host shows
+        // them in a window of their own instead (setDrawsTooltips(false)).
+        if (m_drawsTooltips) {
             std::vector<JWidget*> roots;
             roots.reserve(m_widgets.size());
             for (auto& w : m_widgets) if (w) roots.push_back(w.get());
@@ -697,6 +714,8 @@ private:
     int   m_keyNavIdx{-1};
     long  m_pollNo{0};                 // polls since this popup opened — names the frame in a log line
     JTooltipHover                  m_tooltipHover; // this popup's own hover dwell
+    bool                           m_drawsTooltips = true;
+    std::function<void(JPrimitiveBuffer&)> m_painter;
     std::vector<JWidget*>          m_navItems;    // explicit keyboard list (combo entries), else m_widgets
     std::function<void(JWidget*)>  m_navReveal;   // scroll an entry into view as the keyboard reaches it
     float m_lastPollMx{-1.f}, m_lastPollMy{-1.f};

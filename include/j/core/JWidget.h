@@ -282,6 +282,11 @@ public:
                                const std::vector<JWidget*>& roots,
                                float mouseX, float mouseY,
                                float viewW = 0.f, float viewH = 0.f);
+    // The tooltip box itself, for `text` wrapped as renderTooltips wraps it: its size (shadow not
+    // included), and drawn with its top left at (x, y). For a host that shows a tip somewhere of its
+    // own (a menu's, in a window beside the menu: JMenuRuntime).
+    static std::pair<float, float> tooltipSize(const std::string& text);
+    static void drawTooltip(JPrimitiveBuffer& buf, const std::string& text, float x, float y);
 
     NodeId      getNodeId()  const noexcept { return m_nodeId; }
     JWidgetState getState()   const noexcept { return m_state;  }

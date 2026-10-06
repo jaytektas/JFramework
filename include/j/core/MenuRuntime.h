@@ -14,11 +14,14 @@
 #include <j/graphics/RenderPrimitive.h>
 
 #include <algorithm>
+#include <chrono>
 #include <climits>
+#include <cmath>
 #include <cstdlib>
 #include <functional>
 #include <limits>
 #include <memory>
+#include <string>
 #include <vector>
 
 inline namespace jf {
@@ -147,7 +150,10 @@ public:
             }
 
             if (dismissed) closeAll();
-            else for (auto& p : m_active) if (p->isViewable()) { _auditPlacement(p.get()); JPrimitiveBuffer b; p->render(hal, b); }
+            else {
+                for (auto& p : m_active) if (p->isViewable()) { _auditPlacement(p.get()); JPrimitiveBuffer b; p->render(hal, b); }
+                _updateTip(hal, gx, gy);
+            }
         }
 
         if (!m_floating.empty()) {
@@ -175,6 +181,7 @@ public:
     }
 
     void closeAll() {
+        _hideTip();
         if (m_hal) for (auto& p : m_active) p->destroySurface(*m_hal);
         m_active.clear();
         m_placeAudited.clear();   // the pointers die with the popups; never compare against a freed one
@@ -182,6 +189,54 @@ public:
     }
 
 private:
+    // AN ENTRY'S TOOLTIP, beside the menu. A menu's popup is a window only as big as its entries, so a tip
+    // drawn inside it was clipped to it and covered the entries below the one pointed at. After the usual
+    // dwell on an entry with a tooltip (the pointer still), it is shown in a small window of its own below
+    // and right of the pointer (above or left where the screen ends); moving, or leaving the entry, takes it away.
+    void _updateTip(JGpuHal& hal, int gx, int gy) {
+        JWidget* hovered = nullptr;
+        for (auto it = m_active.rbegin(); it != m_active.rend() && !hovered; ++it) {
+            JPopupWindow* p = it->get();
+            if (!p->isViewable() || !p->containsGlobal(gx, gy)) continue;
+            hovered = p->tooltipWidgetAt(static_cast<float>(gx - p->window().screenX()), static_cast<float>(gy - p->window().screenY()));
+            break;   // the front-most menu under the pointer decides
+        }
+        const JStyle& st = JStyle::current();
+        const int moved = std::max(std::abs(gx - m_tipHover.x), std::abs(gy - m_tipHover.y));
+        if (hovered != m_tipHover.widget || static_cast<float>(moved) > st.tooltipMoveResetPx) {
+            _hideTip();
+            m_tipHover = { hovered, gx, gy, std::chrono::steady_clock::now() };
+        }
+        if (!hovered || hovered->tooltip().empty()) return;
+        const auto dwelt = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - m_tipHover.since).count();
+        if (static_cast<float>(dwelt) < st.tooltipDelayMs) return;
+        if (!m_tip || m_tipText != hovered->tooltip()) {
+            _hideTip();
+            m_tipText = hovered->tooltip();
+            const auto [w, h] = JWidget::tooltipSize(m_tipText);
+            const int tw = static_cast<int>(std::ceil(w + st.tooltipShadowOffset)), th = static_cast<int>(std::ceil(h + st.tooltipShadowOffset));
+            const int gap = static_cast<int>(st.tooltipCursorGap);
+            int x = gx + gap, y = gy + gap;
+            const JPopupWindow* root = m_active.front().get();
+            const auto work = root->window().workAreaAt(gx, gy);
+            if (work.w > 0 && x + tw > work.x + work.w) x = std::max(work.x, gx - gap - tw);
+            if (work.h > 0 && y + th > work.y + work.h) y = std::max(work.y, gy - gap - th);
+            m_tip = std::make_unique<JPopupWindow>(x, y, static_cast<uint32_t>(tw), static_cast<uint32_t>(th), hal,
+                                                   JPopupWindow::JStyle::Borderless, m_parent, nullptr);
+            m_tip->setDrawsTooltips(false);
+            m_tip->setPainter([text = m_tipText](JPrimitiveBuffer& b) { JWidget::drawTooltip(b, text, 0.f, 0.f); });
+        }
+        // Not grabbing (the root menu holds the pointer): its own events pumped, and drawn.
+        m_tip->pumpManaged();
+        JPrimitiveBuffer b;
+        m_tip->render(hal, b);
+    }
+    void _hideTip() {
+        if (m_tip && m_hal) m_tip->destroySurface(*m_hal);
+        m_tip.reset();
+        m_tipText.clear();
+    }
+
     // "This axis has nothing to flip about" — the popup may only slide back inside the work area.
     static constexpr int kNoFlip = std::numeric_limits<int>::min();
 
@@ -210,6 +265,7 @@ private:
                                                  int flipX = kNoFlip, int flipY = kNoFlip) {
         auto popup = std::make_unique<JPopupWindow>(
             sx, sy, 180, 8, *m_hal, JPopupWindow::JStyle::Bordered, m_parent, nullptr);
+        popup->setDrawsTooltips(false);   // an entry's tip goes in a window of its own (_updateTip)
 
         // Tear-off handle (the grab-strip at the top): pressing it promotes this menu to a floating,
         // draggable, closeable window. Only the modal stack offers it — a submenu of an already-floating menu
@@ -434,6 +490,15 @@ private:
     bool m_sawAppFocus{false};    // this menu has held the app's focus at least once (see updateAndRender)
     bool m_hiddenFloating{false}; // torn-off menus we hid on leaving the app, to restore on return
     std::vector<std::unique_ptr<JPopupWindow>> m_active;     // modal dropdown stack
+    // The tooltip window of the entry pointed at (_updateTip), and the dwell on that entry.
+    struct TipHover {
+        JWidget* widget = nullptr;
+        int      x = 0, y = 0;
+        std::chrono::steady_clock::time_point since {};
+    };
+    TipHover                                   m_tipHover;
+    std::unique_ptr<JPopupWindow>              m_tip;
+    std::string                                m_tipText;
     std::vector<FloatNode>                     m_floating;   // torn-off menus + their submenu cascades
     std::vector<std::function<void()>>         m_deferred;   // run after polling
     // Popups whose mapped geometry has already been audited (see _auditPlacement) — once each, not per
