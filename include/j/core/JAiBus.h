@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <cstdlib>
+
 // JAiBus — the in-process server for the JFramework AI bus. Publishes a snapshot of the live widget tree
 // to shared memory (from the accessibility data EVERY widget already exposes via a11yNode()) and services
 // one action per frame, all on the MAIN thread.
@@ -134,6 +136,17 @@ private:
             const float cx = b.x + b.width * 0.5f, cy = b.y + b.height * 0.5f;
             w->handleMousePress(cx, cy);
             w->handleMouseRelease(cx, cy);
+            return 1;
+        }
+        // A click at a point of the widget's own (window coordinates, "click:312,220"): a tab of a tab bar,
+        // an item of a list, a row of a tree, where the middle is not what is meant.
+        if (action.rfind("click:", 0) == 0) {
+            const std::string at = action.substr(6);
+            const size_t comma = at.find(',');
+            if (comma == std::string::npos) return -1;
+            const float x = std::strtof(at.c_str(), nullptr), y = std::strtof(at.c_str() + comma + 1, nullptr);
+            w->handleMousePress(x, y);
+            w->handleMouseRelease(x, y);
             return 1;
         }
         // TYPING, through the widget's own keyboard path: "type:12.5" sends one key press a character, as a
