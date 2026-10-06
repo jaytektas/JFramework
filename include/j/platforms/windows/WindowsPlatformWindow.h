@@ -363,6 +363,9 @@ public:
     bool isLeftButtonDown() const override {
         return (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
     }
+    bool isRightButtonDown() const {
+        return (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+    }
 
     std::pair<int,int> virtualDesktopSize() const override {
         return { GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN) };

@@ -254,9 +254,15 @@ public:
         // being dragged, so check its own key queue here (the host also checks the main
         // window). We only flag the request — the host owns the revert (it must restore the
         // source dock tree), so it polls consumeAbortRequest().
+        // A float that was ALREADY floating has nothing for the host to restore: it goes back to where it
+        // was picked up, here and now (cancelMove), and the button still held does nothing more.
         if (m_state == JState::InitialDrag || m_state == JState::HeaderDrag) {
             for (const auto& k : m_window->consumeAllKeys())
-                if (k.key == JKeyEvent::JKey::Escape) { m_abortRequested = true; return JPollResult{}; }
+                if (k.key == JKeyEvent::JKey::Escape) {
+                    if (m_state == JState::HeaderDrag) cancelMove();
+                    else                               m_abortRequested = true;
+                    return JPollResult{};
+                }
         }
 
         else if (m_contentKeyHost) {
@@ -306,48 +312,20 @@ public:
         }
 
         switch (m_state) {
-        case JState::InitialDrag: {
-            auto [gx, gy] = m_window->globalCursorPos();
-            m_window->setPosition(gx - m_dragOffX, gy - m_dragOffY);
-            JDockRegistry::instance().updateBounds(*m_dockHost, gx - m_dragOffX, gy - m_dragOffY, m_winW, m_winH);
-
-            JDockHost* hoveredHost = nullptr;
-            if (auto hit = JDockRegistry::instance().hitTest(gx, gy)) {
-                if (hit->host != m_dockHost.get()) {
-                    hoveredHost = hit->host;
-                    JDockWidget* draggedDock = m_docks.empty() ? nullptr : m_docks[0].get();
-                    hoveredHost->updateDrag(
-                        hit->localX, hit->localY,
-                        static_cast<float>(gx), static_cast<float>(gy),
-                        gx - static_cast<int>(hit->localX),
-                        gy - static_cast<int>(hit->localY),
-                        draggedDock);
-                }
-            }
-            // Only the hovered host shows a preview; clear every other host each frame, or
-            // dragging across multiple area hosts leaves stale highlights behind (and makes
-            // the commit target ambiguous).
-            if (hoveredHost) _clearHostDragsExcept(hoveredHost);
-            else             _clearAllHostDrags();
-
-            if (!btnDown) {
-                m_state = JState::Idle;
-                if (hoveredHost) {
-                    _clearHostDragsExcept(hoveredHost);
-                    return JPollResult{JPollResult::JType::CommitDrop, hoveredHost, nullptr, {}};
-                }
-                _clearAllHostDrags();
-            }
-            return JPollResult{};
-        }
-
+        case JState::InitialDrag:
         case JState::HeaderDrag: {
             auto [gx, gy] = m_window->globalCursorPos();
             m_window->setPosition(gx - m_dragOffX, gy - m_dragOffY);
             JDockRegistry::instance().updateBounds(*m_dockHost, gx - m_dragOffX, gy - m_dragOffY, m_winW, m_winH);
 
+            // RIGHT BUTTON HELD: PUT IT ANYWHERE. On a busy layout every spot is over some host, so a float
+            // could not be set down without being docked into whatever it ended up over. While the right
+            // button is down no host is offered the drop and none highlights; let go of the left there and
+            // the float simply stays where it is.
+            const bool freePlace = m_window->isRightButtonDown();
             JDockHost* hoveredHost = nullptr;
-            if (auto hit = JDockRegistry::instance().hitTest(gx, gy)) {
+            if (freePlace) {}
+            else if (auto hit = JDockRegistry::instance().hitTest(gx, gy)) {
                 if (hit->host != m_dockHost.get()) {
                     hoveredHost = hit->host;
                     JDockWidget* draggedDock = m_docks.empty() ? nullptr : m_docks[0].get();
@@ -547,6 +525,7 @@ public:
 
             if (altDrag || titleBarDrag) {
                 m_state    = JState::HeaderDrag;
+                _noteDragStart();
                 m_dragOffX = static_cast<int>(mx);
                 m_dragOffY = static_cast<int>(my);
                 return JPollResult{};
@@ -565,6 +544,7 @@ public:
                     if (dockCount() <= 1) {
                         if (m_options.singleDockDragMovesWindow) {
                             m_state    = JState::HeaderDrag;
+                            _noteDragStart();
                             m_dragOffX = static_cast<int>(mx);
                             m_dragOffY = static_cast<int>(my);
                             allowTear  = false;
@@ -705,6 +685,19 @@ public:
 
     // True once after Escape is pressed mid-drag; the host consumes it and reverts.
     bool consumeAbortRequest() { bool v = m_abortRequested; m_abortRequested = false; return v; }
+
+    // Escape on a move: no host offers or highlights a drop any more, and a float that was already
+    // floating goes back to where it was picked up. A tear-out is undone by the host (revertActiveDrag),
+    // which restores the tree it came out of; this only clears the drop offers for it.
+    void cancelMove() {
+        if (m_state != JState::InitialDrag && m_state != JState::HeaderDrag) return;
+        _clearAllHostDrags();
+        if (m_state == JState::HeaderDrag) {
+            m_window->setPosition(m_dragStartX, m_dragStartY);
+            JDockRegistry::instance().updateBounds(*m_dockHost, m_dragStartX, m_dragStartY, m_winW, m_winH);
+            m_state = JState::Idle;
+        }
+    }
     bool shouldClose()     const { return m_shouldClose; }
     float lastWheel()      const { return m_lastWheel; }
 
@@ -823,6 +816,8 @@ private:
         BottomRight
     };
 
+    void _noteDragStart() { m_dragStartX = m_window->screenX(); m_dragStartY = m_window->screenY(); }
+
     void _clearAllHostDrags() {
         for (const auto& e : JDockRegistry::instance().entries())
             e.host->updateDrag(0.f, 0.f, 0.f, 0.f, 0, 0, nullptr);
@@ -860,6 +855,7 @@ private:
     bool  m_shouldClose{false};
     bool  m_wasDown{false};
     int   m_dragOffX{0}, m_dragOffY{0};
+    int   m_dragStartX{0}, m_dragStartY{0};   // where a header drag picked the float up (Escape returns it)
     JFloatingDockOptions m_options;
     float               m_lastWheel{0.0f};
 

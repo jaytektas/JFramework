@@ -789,7 +789,11 @@ public:
             // Right-click → open the context menu of the top-most widget under the cursor that has
             // one, reusing the floating-menu popup path (JMenuRuntime drives it modally). Consume
             // the flag every frame; only act when no menu is already open.
-            const bool rightPressed = m_window->consumeRightPress();
+            // …but NOT while a dock is being dragged: the right button then means "place it anywhere"
+            // (JFloatingDockWindow), and a context menu popping up under the drag is not what was asked.
+            bool floatMoving = false;
+            for (auto& fd : m_floating) if (fd.isDragging()) floatMoving = true;
+            const bool rightPressed = m_window->consumeRightPress() && !floatMoving;
             if (rightPressed && !menusOpen && !chromeAte) {
                 // WALK A SNAPSHOT, AND RE-CHECK LIVENESS EVERY TIME. prepareContextMenu() is not a
                 // query: a widget may build its content lazily the first time it is asked (the studio's
@@ -959,7 +963,10 @@ public:
             if (anyDragging)
                 for (const auto& k : frameKeys)
                     if (k.key == JKeyEvent::JKey::Escape) escAbort = true;
-            if (escAbort) revertActiveDrag();
+            if (escAbort) {
+                for (auto& fd : m_floating) if (!fd.isInInitialDrag()) fd.cancelMove();   // already floating: back where it was
+                revertActiveDrag();                                                       // torn out: back into its host
+            }
             serviceFloats();
             if (!m_floating.empty()) activity = true;   // keep polling while docks float
             // Re-derive the area layout each frame so tear-out/re-dock changes take effect —
@@ -1357,6 +1364,7 @@ private:
         if (!m_revert.active) return;
         for (auto it = m_floating.begin(); it != m_floating.end(); ++it) {
             if (!it->isInInitialDrag()) continue;
+            it->cancelMove();   // no host may keep offering (and highlighting) a drop for a float about to go
             // The float only BORROWED the dock — the object never moved — so the saved tree still points
             // at the live dock. Relinquish the float's hold (keeping any framework-owned dock alive at its
             // unchanged address), drop the float, then restore the source host's pre-drag tree verbatim.

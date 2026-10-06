@@ -1140,6 +1140,16 @@ public:
         return down;
     }
 
+    // The same, for the right button (XCB_BUTTON_MASK_3).
+    bool isRightButtonDown() const {
+        auto cookie = xcb_query_pointer(m_connection, m_rootWindow);
+        auto* reply = xcb_query_pointer_reply(m_connection, cookie, nullptr);
+        if (!reply) return false;
+        bool down = (reply->mask & 0x400u) != 0;  // XCB_BUTTON_MASK_3
+        free(reply);
+        return down;
+    }
+
     // ---- Native handles for Vulkan surface creation ----
     xcb_connection_t* nativeConnection() const { return m_connection; }
 
