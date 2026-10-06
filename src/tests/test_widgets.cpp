@@ -313,6 +313,25 @@ void test_listview_logic() {
     std::cout << "test_listview_logic passed" << std::endl;
 }
 
+// A row whose label holds a "/" is found by its labels (selectByLabels), where a joined path would split it.
+void test_treeview_select_by_labels() {
+    JSceneGraph graph;
+    JTreeView tv(graph);
+    JTreeViewNode rootNode = {
+        "Root", true, false, {
+            {"Tips", false, false, {
+                {"503L - 0805 / 0603", false, false, {}}
+            }}
+        }
+    };
+    tv.setRootNode(rootNode);
+    tv.selectByPath("Tips/503L - 0805 / 0603");
+    assert(tv.selectedNode() == nullptr);   // split at every "/": not found
+    tv.selectByLabels({ "Tips", "503L - 0805 / 0603" });
+    assert(tv.selectedNode() && tv.selectedNode()->label == "503L - 0805 / 0603");
+    std::cout << "test_treeview_select_by_labels passed" << std::endl;
+}
+
 void test_treeview_logic() {
     JSceneGraph graph;
     JTreeView tv(graph);
@@ -805,6 +824,7 @@ int main() {
     test_listview_logic();
     test_listview_disabled_rows();
     test_treeview_logic();
+    test_treeview_select_by_labels();
     test_treeview_keeps_scroll_on_rebuild();
     test_datagrid_logic();
     test_datagrid_disabled_rows();

@@ -220,6 +220,12 @@ public:
             parts.push_back(path.substr(start, sep - start));
             start = sep + 1;
         }
+        selectByLabels(parts);
+    }
+    // As selectByPath, the path given as its labels, one a level: for labels that may hold a "/" themselves
+    // (a name such as "0805 / 0603"), which a joined path would split.
+    void selectByLabels(const std::vector<std::string>& parts) {
+        if (parts.empty()) return;
         JTreeViewNode* cur = &m_root;
         for (size_t d = 0; d < parts.size(); ++d) {
             JTreeViewNode* next = nullptr;
