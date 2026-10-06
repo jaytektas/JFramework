@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <cmath>
+
 // JCheckBox.
 
 #include "JControl.h"
@@ -61,6 +63,21 @@ public:
     bool isChecked() const { return m_state_cb == Checked; }
 
 protected:
+    // KEEP THE FLOOR HONEST, as JButton does: the constructor's guess (the label's measure plus a fixed 28)
+    // ran before the font atlas existed, so a box given no width of its own fell back to it, and the guess
+    // fell short of the box, the gap and the label actually drawn ("Expand" shown as "Expan"). Measured
+    // when it paints, as drawn: the box (as tall as the control), the gap, the label; written only on change.
+    void _refreshMinWidth() {
+        if (!JTextHelper::hasAtlas() || m_label.empty()) return;
+        auto& l = m_graph.getLayout(m_nodeId);
+        const float boxSz = l.boundingBox.height > 0.f ? l.boundingBox.height : JStyle::current().checkHeight;
+        const float want = std::ceil(boxSz + JStyle::current().itemPadding + JTextHelper::measureWidth(tr(m_label))) + 1.f;
+        if (want > l.minWidth + 0.5f) {
+            l.minWidth = want;
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+        }
+    }
+
     // Space toggles the box (JControl routes the key; this says only what the action IS).
     void activate() override { _cycle(); }   // same cycle a click performs (handles tri-state)
 public:
@@ -76,6 +93,7 @@ public:
     }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
+        _refreshMinWidth();
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float boxSz = b.height;
         // MIGRATED to the role/state styler: resolve the indicator fill by semantic ROLE
