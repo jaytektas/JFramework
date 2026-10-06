@@ -89,7 +89,7 @@ public:
     }
 
     void handleMousePress(float mx, float my) override {
-        if (isPointInside(mx, my)) _cycle();
+        if (isEnabled() && isPointInside(mx, my)) _cycle();   // a disabled box keeps its state
     }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
@@ -104,6 +104,7 @@ public:
         opt.rect = {b.x, b.y, boxSz, boxSz};
         opt.set(State_Focused, isFocused());
         opt.set(State_On | State_Selected, on);
+        opt.set(State_Enabled, isEnabled());   // a disabled box drawn from the Disabled colour group
         const JColor fill = JStyle::controlFill(opt, JStyle::current().palette());
         drawBox(buf, b, boxSz, fill.data(), isFocused());
         drawLabel(buf, b, boxSz);
@@ -123,7 +124,7 @@ protected:
     }
     virtual void drawBox(JPrimitiveBuffer& buf, const JRect& b, float boxSz, const uint8_t* fill, bool focused) {
         // Border colour by ROLE: Accent ring when focused, else Border (was hardcoded).
-        JStyleOption opt; opt.set(State_Focused, focused);
+        JStyleOption opt; opt.set(State_Focused, focused); opt.set(State_Enabled, isEnabled());
         const JColor border = JStyle::borderColor(opt, JStyle::current().palette());
         buf.pushRectangle(b.x, b.y, boxSz, boxSz, fill, 4.0f,
                           focused ? 2.0f : 1.5f,
@@ -140,7 +141,9 @@ protected:
     virtual void drawLabel(JPrimitiveBuffer& buf, const JRect& b, float boxSz) {
         const float gap = JStyle::current().itemPadding;   // label offset from the indicator box
         if (JTextHelper::hasAtlas()) {
-            uint8_t lc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 200};
+            // Disabled: the label muted, as the box is.
+            const uint8_t* text = isEnabled() ? Colors::LabelText : Colors::MutedText;
+            uint8_t lc[4] = {text[0], text[1], text[2], 200};
             JTextHelper::pushText(buf, b.x + boxSz + gap,
                                  b.y + (b.height - JTextHelper::lineHeight()) * 0.5f,
                                  tr(m_label), lc, b.width - boxSz - gap);
