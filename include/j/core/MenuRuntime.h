@@ -352,7 +352,8 @@ private:
                 {
                     JPopupWindow* parent = popup.get();
                     JMenuItem*    a      = added;
-                    JMenu*        sub    = mi->submenu();   // nullptr for leaf items
+                    // A greyed entry opens nothing (a submenu with nothing in it, say: Open Recent with none).
+                    JMenu*        sub    = mi->isEnabled() ? mi->submenu() : nullptr;   // nullptr for leaf items
                     added->onHoverEntered.connect([this, a, parent, sub]() { hoverItem(parent, a, sub); });
                 }
             }
