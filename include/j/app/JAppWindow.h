@@ -357,6 +357,117 @@ public:
         layoutDocks();
         m_needRedraw = true;
     }
+    // ---- The dock layout kept between runs (opt-in: for an app that puts its docks back where they were) ----
+    // Each dock area's tree and reserved size, and each floating window's place, size, shown or hidden and
+    // its own tree, as text for the app to keep (a settings file). restoreDockLayout puts that text back:
+    // every dock it names taken out of where it is now and put where the text has it (a float opened where
+    // it was); `resolver` gives the dock for a title, nullptr for one that is gone (left out). A dock the
+    // text does not name (one new since it was written) stays where the app put it. False when the text is
+    // not one dockLayoutText wrote; nothing is changed then.
+    std::string dockLayoutText() const {
+        std::string out = "jf_window_docks 1\n";
+        auto& space = const_cast<JDockSpace&>(m_space);
+        for (int a = 0; a < JDockSpace::AreaCount; ++a) {
+            const std::string tree = space.host(static_cast<JDockSpace::Area>(a)).snapshot().toText();
+            char head[96];
+            std::snprintf(head, sizeof head, "area %d %.1f %zu\n", a, _areaSize(a), tree.size());
+            out += head + tree;
+        }
+        for (const auto& fd : m_floating) {
+            auto& f = const_cast<JFloatingDockWindow&>(fd);
+            const std::string tree = f.dockHost().snapshot().toText();
+            char head[128];
+            std::snprintf(head, sizeof head, "float %d %d %u %u %d %zu\n", f.window().screenX(), f.window().screenY(),
+                          f.window().width(), f.window().height(), f.window().isMapped() ? 1 : 0, tree.size());
+            out += head + tree;
+        }
+        return out;
+    }
+    bool restoreDockLayout(const std::string& text,
+                           const std::function<JDockWidget*(std::string_view)>& resolver = &JDockWidget::byTitle) {
+        struct Float { int x = 0, y = 0; uint32_t w = 0, h = 0; bool mapped = true; JDockLayoutSnapshot tree; };
+        std::vector<std::pair<int, std::pair<float, JDockLayoutSnapshot>>> areas;
+        std::vector<Float> floats;
+        size_t at = text.find('\n');
+        if (at == std::string::npos || text.compare(0, at, "jf_window_docks 1") != 0) return false;
+        ++at;
+        while (at < text.size()) {
+            const size_t eol = text.find('\n', at);
+            if (eol == std::string::npos) return false;
+            const std::string head = text.substr(at, eol - at);
+            at = eol + 1;
+            char kind[8] = {};
+            size_t n = 0;
+            int a = 0, x = 0, y = 0, mapped = 1;
+            unsigned w = 0, h = 0;
+            float size = 0;
+            if (std::sscanf(head.c_str(), "%7s", kind) != 1) return false;
+            const bool isArea = std::string(kind) == "area";
+            if (isArea ? std::sscanf(head.c_str(), "area %d %f %zu", &a, &size, &n) != 3
+                       : std::sscanf(head.c_str(), "float %d %d %u %u %d %zu", &x, &y, &w, &h, &mapped, &n) != 6)
+                return false;
+            if (at + n > text.size()) return false;
+            auto tree = JDockLayoutSnapshot::fromText(std::string_view(text).substr(at, n));
+            at += n;
+            if (!tree) return false;
+            if (isArea) {
+                if (a < 0 || a >= JDockSpace::AreaCount) return false;
+                areas.push_back({ a, { size, std::move(*tree) } });
+            } else {
+                floats.push_back({ x, y, w, h, mapped != 0, std::move(*tree) });
+            }
+        }
+        // Every dock the text names out of where it is now, so each lands only where the text puts it.
+        std::vector<std::string> named;
+        std::function<void(const JDockLayoutNode&)> collect = [&](const JDockLayoutNode& node) {
+            for (const std::string& t : node.tabTitles) named.push_back(t);
+            for (const JDockLayoutNode& c : node.children) collect(c);
+        };
+        for (const auto& [a, sized] : areas) collect(sized.second.root);
+        for (const Float& f : floats) collect(f.tree.root);
+        for (const std::string& t : named)
+            if (JDockWidget* d = resolver(t); d && d->placedIn()) d->placedIn()->removeDock(d);
+        // What is left in each area (not named) put back after its tree.
+        std::vector<std::pair<int, JDockWidget*>> kept;
+        for (int a = 0; a < JDockSpace::AreaCount; ++a)
+            m_space.host(static_cast<JDockSpace::Area>(a)).forEachDockPanel(
+                [&kept, a](JDockWidget* d, const JRect&, bool, int) { kept.push_back({ a, d }); });
+        auto unplaced = [&resolver](std::string_view t) -> JDockWidget* {
+            JDockWidget* d = resolver(t);
+            return d && !d->placedIn() ? d : nullptr;
+        };
+        for (const auto& [a, sized] : areas) {
+            for (const auto& [ka, d] : kept)
+                if (ka == a) m_space.host(static_cast<JDockSpace::Area>(a)).removeDock(d);
+            m_space.host(static_cast<JDockSpace::Area>(a)).restore(sized.second, unplaced);
+            if (a != JDockSpace::Center) _setAreaSize(a, sized.first);
+        }
+        for (const auto& [a, d] : kept)
+            if (!d->placedIn()) m_space.host(static_cast<JDockSpace::Area>(a)).addDock(d);
+        for (const Float& f : floats) {
+            std::vector<std::string> titles;
+            std::function<void(const JDockLayoutNode&)> titlesOf = [&](const JDockLayoutNode& node) {
+                for (const std::string& t : node.tabTitles) titles.push_back(t);
+                for (const JDockLayoutNode& c : node.children) titlesOf(c);
+            };
+            titlesOf(f.tree.root);
+            JDockWidget* first = nullptr;
+            for (const std::string& t : titles)
+                if ((first = unplaced(t))) break;
+            if (!first) continue;   // every dock it held gone
+            _newFloat(first, f.x, f.y, std::max(f.w, static_cast<uint32_t>(first->minW())),
+                      std::max(f.h, static_cast<uint32_t>(first->minH())), 0, 0, /*initialDrag=*/false);
+            JDockHost* own = &m_floating.back().dockHost();
+            own->restore(f.tree, [&resolver, own](std::string_view t) -> JDockWidget* {
+                JDockWidget* d = resolver(t);
+                return d && (!d->placedIn() || d->placedIn() == own) ? d : nullptr;
+            });
+            if (!f.mapped) m_floating.back().window().setMapped(false);
+        }
+        layoutDocks();
+        m_needRedraw = true;
+        return true;
+    }
     void             setWindowPos(int x, int y) { m_window->setPosition(x, y); }
     uint32_t width()  const { return m_w; }
     uint32_t height() const { return m_h; }
@@ -1281,6 +1392,24 @@ private:
 
     // Create a floating window for one dock and wire its content input. Used by BOTH tear-out paths —
     // out of a docked host, and out of another float — so they cannot drift apart.
+    float _areaSize(int a) const {
+        switch (a) {
+            case JDockSpace::Left:   return m_space.leftWidth();
+            case JDockSpace::Right:  return m_space.rightWidth();
+            case JDockSpace::Top:    return m_space.topHeight();
+            case JDockSpace::Bottom: return m_space.bottomHeight();
+            default:                 return 0.f;
+        }
+    }
+    void _setAreaSize(int a, float v) {
+        switch (a) {
+            case JDockSpace::Left:   m_space.setLeftWidth(v); break;
+            case JDockSpace::Right:  m_space.setRightWidth(v); break;
+            case JDockSpace::Top:    m_space.setTopHeight(v); break;
+            case JDockSpace::Bottom: m_space.setBottomHeight(v); break;
+            default: break;
+        }
+    }
     void _newFloat(JDockWidget* dw, int sx, int sy, uint32_t fw, uint32_t fh, int offX, int offY, bool initialDrag = true) {
         dw->setPosition(0.f, 0.f);
         dw->setSize(static_cast<float>(fw), static_cast<float>(fh));
