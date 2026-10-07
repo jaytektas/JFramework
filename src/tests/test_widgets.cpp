@@ -130,6 +130,34 @@ void test_combobox_logic() {
     std::cout << "test_combobox_logic passed" << std::endl;
 }
 
+// A log view: read-only, text appended and dropped from the front with the selection kept on the same text.
+void test_textarea_log_view() {
+    JSceneGraph graph;
+    JTextArea ta(graph);
+    ta.setReadOnly(true);
+    ta.setMouseSelection(true);
+    ta.appendText("one\n");
+    ta.appendText("two\n");
+    assert(ta.text() == "one\ntwo\n");
+    // Typing does nothing.
+    JKeyEvent ke;
+    ke.pressed = true;
+    ke.utf8[0] = 'x';
+    ke.utf8[1] = '\0';
+    ta.handleKeyEvent(ke);
+    assert(ta.text() == "one\ntwo\n");
+    ta.selectAll();
+    assert(ta.selectedText() == "one\ntwo\n");
+    // Appended: the selection stays on what it held.
+    ta.appendText("three\n");
+    assert(ta.selectedText() == "one\ntwo\n");
+    // The oldest line gone: the selection kept on what remains of it.
+    ta.dropFront(4);
+    assert(ta.text() == "two\nthree\n");
+    assert(ta.selectedText() == "two\n");
+    std::cout << "test_textarea_log_view passed" << std::endl;
+}
+
 void test_textarea_logic() {
     JSceneGraph graph;
     JTextArea ta(graph, "Placeholder");
@@ -820,6 +848,7 @@ int main() {
     test_focus_released_when_widget_dies();
     test_combobox_logic();
     test_textarea_logic();
+    test_textarea_log_view();
     test_scrollarea_logic();
     test_listview_logic();
     test_listview_disabled_rows();

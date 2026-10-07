@@ -57,6 +57,54 @@ public:
 
     std::string selectedText() const { return m_core.selectedText(); }
 
+    // ---- A log view (opt-in; none of this changes an editor that does not ask for it) -----------------
+    // Read-only: the text is shown, selected and copied (Ctrl+A, Ctrl+C), never typed into.
+    void setReadOnly(bool ro) { m_core.setReadOnly(ro); }
+    bool isReadOnly() const   { return m_core.isReadOnly(); }
+    // Dragging with the button held selects, as in any desktop text view. Off by default.
+    void setMouseSelection(bool on) { m_mouseSelection = on; }
+    // Text added at the end, as a log or console takes its lines: the selection and the view stay where
+    // they are, except that a view showing the last line follows the new end (a terminal's scroll-back).
+    void appendText(const std::string& more) {
+        if (more.empty()) return;
+        const bool following = atEnd();
+        const size_t caret = m_core.caret(), anchor = m_core.anchor();
+        m_core.setText(m_core.text() + more);
+        m_core.setCaret(anchor, false);
+        m_core.setCaret(caret, true);
+        m_layoutDirty = true;
+        if (following) m_toEnd = true;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+        onTextChanged.emit(m_core.text());
+    }
+    // The first `n` bytes gone (a log's oldest lines): the view and the selection kept on what remains.
+    void dropFront(size_t n) {
+        n = std::min(n, m_core.text().size());
+        if (n == 0) return;
+        const float lh = JTextHelper::hasAtlas() ? JTextHelper::lineHeight() : 12.0f;
+        size_t rowsGone = 0;
+        for (const VRow& r : visualRows()) if (r.start < n) ++rowsGone;
+        const size_t caret = m_core.caret(), anchor = m_core.anchor();
+        m_core.setText(m_core.text().substr(n));
+        m_core.setCaret(anchor > n ? anchor - n : 0, false);
+        m_core.setCaret(caret > n ? caret - n : 0, true);
+        m_scrollOffset = std::max(0.0f, m_scrollOffset - float(rowsGone) * lh);
+        m_layoutDirty = true;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+        onTextChanged.emit(m_core.text());
+    }
+    // Whether the view shows the last line (or all of the text).
+    bool atEnd() const {
+        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const float lh = JTextHelper::hasAtlas() ? JTextHelper::lineHeight() : 12.0f;
+        const float maxScroll = std::max(0.0f, static_cast<float>(visualRows().size()) * lh - (b.height - 16.0f));
+        return m_toEnd || m_scrollOffset >= maxScroll - lh * 0.5f;
+    }
+    void scrollToEnd() { m_toEnd = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    void selectAll()   { m_core.selectAll(); m_graph.invalidateNode(m_nodeId, DirtySelf); }
+    // The selection to the clipboard (as Ctrl+C); nothing when none.
+    void copySelection() const { if (m_core.hasSelection()) JWidget::clipboardSet(m_core.selectedText()); }
+
     void handleMousePress(float mx, float my) override {
         if (!isPointInside(mx, my)) return;
         onClicked.emit();
@@ -67,6 +115,13 @@ public:
             return;
         }
         m_ensureCaret = true;                  // a click positions the caret → keep it in view
+        m_core.setCaret(_posAt(mx, my), /*extend=*/false);
+        m_selecting = m_mouseSelection;
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
+
+    // The text position under (mx, my): its row, then the character nearest across it.
+    size_t _posAt(float mx, float my) const {
         const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
         float innerX = b.x + 8.0f;
         float innerY = b.y + 8.0f;
@@ -95,15 +150,22 @@ public:
             }
         }
         done_click:
-        m_core.setCaret(getPosFromLineCol(clickLine, clickCol), /*extend=*/false);
-        m_graph.invalidateNode(m_nodeId, DirtySelf);
+        return getPosFromLineCol(clickLine, clickCol);
     }
 
     void handleMouseMove(float mx, float my) override {
         JControl::handleMouseMove(mx, my);
         if (m_sbDragging) _scrollThumbTo(my - m_sbGrabDY);
+        else if (m_selecting) {
+            m_core.setCaret(_posAt(mx, my), /*extend=*/true);
+            m_graph.invalidateNode(m_nodeId, DirtySelf);
+        }
     }
-    void handleMouseRelease(float mx, float my) override { m_sbDragging = false; JControl::handleMouseRelease(mx, my); }
+    void handleMouseRelease(float mx, float my) override {
+        m_sbDragging = false;
+        m_selecting = false;
+        JControl::handleMouseRelease(mx, my);
+    }
 
     // Position the view so the scroll thumb's top lands at `thumbTopY` (screen). Used by thumb-drag + track-click.
     void _scrollThumbTo(float thumbTopY) {
@@ -262,6 +324,7 @@ public:
             m_ensureCaret = false;
         }
         const float maxScroll = std::max(0.0f, static_cast<float>(rows.size()) * lh - innerH);
+        if (m_toEnd) { m_scrollOffset = maxScroll; m_toEnd = false; }
         m_scrollOffset = std::clamp(m_scrollOffset, 0.0f, maxScroll);
 
         buf.pushClip(innerX, innerY, innerW, innerH);
@@ -399,6 +462,9 @@ private:
     float       m_sbX{0}, m_sbY{0}, m_sbW{0}, m_sbTrackH{0}, m_sbThumbY{0}, m_sbThumbH{0};
     bool        m_sbDragging{false};
     float       m_sbGrabDY{0};
+    bool        m_mouseSelection{false};   // setMouseSelection: a drag selects
+    bool        m_selecting{false};        // the button held after a press in the text, with mouse selection on
+    mutable bool m_toEnd{false};           // the view to the last line on the next render (appendText, scrollToEnd)
     // Cached line layout (wrapped rows + syntax colours) — recomputed only on a text or width change.
     mutable std::vector<VRow>   m_rows;
     mutable std::vector<uint8_t> m_hcols;         // per-char RGBA syntax colours (empty = no highlighter)
