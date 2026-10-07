@@ -71,6 +71,31 @@ int main() {
     check("hidden off the widget", !drewTip(&b, hover, 900.f, 600.f));
     check("no tip on re-entry", !drewTip(&b, hover, 150.f, 120.f));
 
+    // 6. PRESSED, the tip goes and stays gone while the pointer stays on what was pressed -- a button
+    //    that opens a menu otherwise left its tip standing over the menu -- and comes back only after the
+    //    pointer has left it.
+    dwell();
+    check("shown again before the press", drewTip(&b, hover, 150.f, 120.f));
+    ++JWidget::s_pressCount;
+    check("hidden by the press", !drewTip(&b, hover, 150.f, 120.f));
+    dwell();
+    check("still hidden after a dwell on the pressed widget", !drewTip(&b, hover, 150.f, 120.f));
+    check("away from it", !drewTip(&b, hover, 900.f, 600.f));
+    drewTip(&b, hover, 150.f, 120.f);
+    dwell();
+    check("back after leaving and returning", drewTip(&b, hover, 150.f, 120.f));
+
+    // 7. A tip wraps within the window showing it: a floating panel narrower than the measure cut its
+    //    tips off at its edge.
+    const std::string longTip = "The nozzle's tip: load one, unload it, or say which is on it. NT1 on N1: "
+                                "NOT calibrated (its calibration is enabled): Calibrate it (this menu).";
+    const float narrow = 220.f;
+    const auto [wideW, wideH]     = JWidget::tooltipSize(longTip);
+    const auto [narrowW, narrowH] = JWidget::tooltipSize(longTip, narrow);
+    std::printf("  tip %.0fx%.0f; within %.0f: %.0fx%.0f\n", wideW, wideH, narrow, narrowW, narrowH);
+    check("fits the narrow window", narrowW <= narrow);
+    check("taller instead", narrowH > wideH);
+
     std::printf("\n%s\n", g_fail ? "FAILURES" : "all passed");
     return g_fail ? 1 : 0;
 }

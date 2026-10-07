@@ -604,6 +604,7 @@ public:
                 JWidget::s_ctrlDown  = m_window->isCtrlDown();
                 JWidget::s_shiftDown = m_window->isShiftDown();
                 JWidget::s_leftDown  = btnDown;
+                if (press) ++JWidget::s_pressCount;
                 m_contentInputHost(mx, my, press, !btnDown && m_wasDown, m_lastWheel);
             }
 

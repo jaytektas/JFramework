@@ -59,6 +59,11 @@ struct JTooltipHover {
     // stayed inside it — a tooltip that follows you is a tooltip that is in the way. Moving more than
     // a couple of pixels now restarts the dwell (and so hides it); pausing brings it back.
     float                                 x = 0.f, y = 0.f;
+    // PRESSED: a widget pressed shows no tip again until the pointer leaves it (the desktop's way). A tip
+    // left standing over what the press opened -- a button's menu -- covered the menu. `presses` is the
+    // JWidget::s_pressCount last seen; `pressedOn` (compared only, as `last`) the widget it found pressed.
+    uint64_t                              presses = 0;
+    JWidget*                              pressedOn = nullptr;
 };
 
 class JWidget : public jf::JSlotTracker {
@@ -83,6 +88,9 @@ public:
     // from downstream handlers, a grab can send one elsewhere — and a scrollbar that waits for one it will
     // never get stays glued to the cursor, moving with a button nobody is pressing.
     inline static bool s_leftDown = false;
+    // Every press any window dispatches, counted: a window's tooltips put away the tip of what was pressed
+    // (JTooltipHover::pressedOn), whichever window took the press.
+    inline static uint64_t s_pressCount = 0;
     inline static bool s_ctrlDown = false;
     inline static bool s_shiftDown = false;
     // True for the duration of a press dispatch that the runner classified as a DOUBLE click (a second
@@ -285,8 +293,9 @@ public:
     // The tooltip box itself, for `text` wrapped as renderTooltips wraps it: its size (shadow not
     // included), and drawn with its top left at (x, y). For a host that shows a tip somewhere of its
     // own (a menu's, in a window beside the menu: JMenuRuntime).
-    static std::pair<float, float> tooltipSize(const std::string& text);
-    static void drawTooltip(JPrimitiveBuffer& buf, const std::string& text, float x, float y);
+    // `within`: the widest the tip may be (the window showing it); 0, the style's measure alone.
+    static std::pair<float, float> tooltipSize(const std::string& text, float within = 0.f);
+    static void drawTooltip(JPrimitiveBuffer& buf, const std::string& text, float x, float y, float within = 0.f);
 
     NodeId      getNodeId()  const noexcept { return m_nodeId; }
     JWidgetState getState()   const noexcept { return m_state;  }

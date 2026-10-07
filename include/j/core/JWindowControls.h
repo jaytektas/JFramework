@@ -61,6 +61,14 @@ inline void JWidget::renderTooltips(JPrimitiveBuffer& buf, JTooltipHover& hover,
         hover.y     = mouseY;
     }
 
+    // Pressed: no tip until the pointer leaves what was pressed.
+    if (hover.presses != JWidget::s_pressCount) {
+        hover.presses   = JWidget::s_pressCount;
+        hover.pressedOn = hovered;
+    }
+    if (hovered != hover.pressedOn) hover.pressedOn = nullptr;
+    if (hovered && hovered == hover.pressedOn) return;
+
     if (hovered) {
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - hover.since).count();
@@ -69,25 +77,26 @@ inline void JWidget::renderTooltips(JPrimitiveBuffer& buf, JTooltipHover& hover,
             return; // hover dwell not yet served
         }
 
-        const auto [tooltipW, tooltipH] = tooltipSize(hovered->tooltip());
+        const auto [tooltipW, tooltipH] = tooltipSize(hovered->tooltip(), viewW);
         const float gap = st.tooltipCursorGap;
         float x = mouseX + gap;
         float y = mouseY + gap;
         // Keep it inside the window rather than letting it hang off the edge the cursor is near.
         if (viewW > 0.f && x + tooltipW > viewW) x = std::max(0.f, mouseX - gap - tooltipW);
         if (viewH > 0.f && y + tooltipH > viewH) y = std::max(0.f, mouseY - gap - tooltipH);
-        drawTooltip(buf, hovered->tooltip(), x, y);
+        drawTooltip(buf, hovered->tooltip(), x, y, viewW);
     }
 }
 
 namespace jf_tooltip_detail {
 // WRAP. A tooltip carrying real help — a sentence explaining what a field does — was drawn as one
 // unbroken line and simply ran off the screen, so the part that mattered was the part you could not
-// read. Break on spaces at a comfortable measure.
-inline std::vector<std::string> wrap(const std::string& text) {
+// read. Break on spaces at a comfortable measure -- or narrower, `within` the window showing it (a floating
+// panel can be narrower than the measure, and a tip cannot leave its window).
+inline std::vector<std::string> wrap(const std::string& text, float within) {
     const JStyle& st = JStyle::current();
     const float padX = st.tooltipPaddingX;
-    const float kMaxW = st.tooltipMaxWidth;
+    const float kMaxW = within > 0.f ? std::min(st.tooltipMaxWidth, within) : st.tooltipMaxWidth;
     std::vector<std::string> lines;
     std::string line;
     size_t i = 0;
@@ -115,18 +124,18 @@ inline std::vector<std::string> wrap(const std::string& text) {
 }
 } // namespace jf_tooltip_detail
 
-inline std::pair<float, float> JWidget::tooltipSize(const std::string& text) {
+inline std::pair<float, float> JWidget::tooltipSize(const std::string& text, float within) {
     const JStyle& st = JStyle::current();
-    const std::vector<std::string> lines = jf_tooltip_detail::wrap(text);
+    const std::vector<std::string> lines = jf_tooltip_detail::wrap(text, within);
     float textW = 0.0f;
     for (const std::string& l : lines) textW = std::max(textW, JTextHelper::measureWidth(l));
     return { textW + st.tooltipPaddingX * 2.0f, JTextHelper::lineHeight() * float(lines.size()) + st.tooltipPaddingY * 2.0f };
 }
 
-inline void JWidget::drawTooltip(JPrimitiveBuffer& buf, const std::string& text, float x, float y) {
+inline void JWidget::drawTooltip(JPrimitiveBuffer& buf, const std::string& text, float x, float y, float within) {
     const JStyle& st = JStyle::current();
-    const std::vector<std::string> lines = jf_tooltip_detail::wrap(text);
-    const auto [tooltipW, tooltipH] = tooltipSize(text);
+    const std::vector<std::string> lines = jf_tooltip_detail::wrap(text, within);
+    const auto [tooltipW, tooltipH] = tooltipSize(text, within);
     const float lineH = JTextHelper::lineHeight();
     const float sh = st.tooltipShadowOffset, r = st.tooltipRadius;
     buf.pushRectangle(x + sh, y + sh, tooltipW, tooltipH, Colors::ToolTipShadow, r);

@@ -779,6 +779,7 @@ public:
             // handleMousePress; none of them keeps its own clock, so the interval and slop are one
             // scheme value rather than a different guess per widget.
             if (pressed) {
+                ++JWidget::s_pressCount;
                 const JStyle& st = JStyle::current();
                 const auto now = std::chrono::steady_clock::now();
                 const double sinceMs =
