@@ -220,12 +220,17 @@ public:
         // Selected item text (or the live edit buffer in an editable combo — untranslated, it's user input).
         const std::string shown = m_editable ? currentText() : tr(currentText());
         const float textAvail = b.width - arrowW - textPadding() - 6.0f;
+        // A disabled combo says so with its text: the disabled fill alone barely shows on a dark theme.
+        const bool off = m_state == JWidgetState::Disabled;
+        const JColor greyed = jstyle::pal().color(JColorRole::Text, JColorGroup::Disabled);
         if (JTextHelper::hasAtlas() && !shown.empty()) {
             uint8_t tc[4] = {Colors::FieldText[0], Colors::FieldText[1], Colors::FieldText[2], 220};
+            if (off) { tc[0] = greyed.r; tc[1] = greyed.g; tc[2] = greyed.b; }
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             JTextHelper::pushText(buf, b.x + textPadding(), ty, shown, tc, textAvail);
         } else if (!JTextHelper::hasAtlas()) {
             uint8_t tc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 180};
+            if (off) { tc[0] = greyed.r; tc[1] = greyed.g; tc[2] = greyed.b; }
             buf.pushRectangle(b.x + textPadding(), b.y + (b.height-7.0f)*0.5f,
                               textAvail, 7.0f, tc, 2.0f);
         }

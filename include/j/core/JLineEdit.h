@@ -210,6 +210,10 @@ public:
             buf.pushRectangle(xLo, b.y + 4.0f, std::max(1.0f, xHi - xLo), b.height - 8.0f, sc.data(), 2.0f);
         }
 
+        // A DISABLED field says so with its text, as a disabled button does with its caption: the field's
+        // own disabled shade is all but invisible on a dark theme.
+        JColor text = JColor::fromArray(Colors::ControlText);
+        if (m_state == JWidgetState::Disabled) text = jstyle::pal().color(JColorRole::Text, JColorGroup::Disabled);
         if (JTextHelper::hasAtlas()) {
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
             if (raw.empty()) {
@@ -218,7 +222,7 @@ public:
                                ? innerX + innerW - JTextHelper::measureWidth(m_placeholder) : innerX;
                 JTextHelper::pushText(buf, px, ty, m_placeholder, pc, innerW);
             } else {
-                uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 220};
+                uint8_t tc[4] = {text.r, text.g, text.b, 220};
                 JTextHelper::pushText(buf, ox, ty, disp, tc, 0.0f);
             }
         } else {
@@ -226,7 +230,7 @@ public:
                 uint8_t pc[4] = {Colors::FieldPlaceholder[0], Colors::FieldPlaceholder[1], Colors::FieldPlaceholder[2], 120};
                 buf.pushRectangle(innerX, midY, innerW * 0.55f, 7.0f, pc, 2.0f);
             } else {
-                uint8_t tc[4] = {Colors::ControlText[0], Colors::ControlText[1], Colors::ControlText[2], 200};
+                uint8_t tc[4] = {text.r, text.g, text.b, 200};
                 buf.pushRectangle(innerX, midY, innerW * 0.65f, 7.0f, tc, 2.0f);
             }
         }

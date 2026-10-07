@@ -16,7 +16,9 @@
 
 #include <j/core/JStyle.h>
 #include <j/core/JButton.h>
+#include <j/core/JComboBox.h>
 #include <j/core/JDoubleSpinBox.h>
+#include <j/core/JLineEdit.h>
 #include <j/core/SceneGraph.h>
 
 #include <cstdio>
@@ -44,6 +46,44 @@ static void test_disabled_reaches_the_palette() {
     const JPalette p = jstyle::pal();
     CHECK(p.color(JColorRole::ButtonText, JColorGroup::Active) !=
           p.color(JColorRole::ButtonText, JColorGroup::Disabled));
+}
+
+// Whether `buf` draws a rectangle filled in `c` (its alpha aside): the text's stand-in without a font atlas.
+static bool drawsIn(const JPrimitiveBuffer& buf, JColor c) {
+    for (const auto& cmd : buf.getCommands())
+        if (cmd.kind == JPrimitiveBuffer::JDrawCommand::JKind::JRect && cmd.rect.color[0] == c.r && cmd.rect.color[1] == c.g
+            && cmd.rect.color[2] == c.b)
+            return true;
+    return false;
+}
+
+// A field and a combo say they are disabled with their TEXT, as a button does with its caption: the
+// disabled fill alone reads as a live field on a dark theme (a setting greyed out looked changeable).
+static void test_disabled_field_and_combo_grey_their_text() {
+    const JColor greyed = jstyle::pal().color(JColorRole::Text, JColorGroup::Disabled);
+    JSceneGraph graph;
+    JLineEdit edit(graph, "", 120.f, 24.f);
+    edit.setText("300");
+    {
+        JPrimitiveBuffer buf;
+        edit.populateRenderPrimitives(buf);
+        CHECK(!drawsIn(buf, greyed));
+    }
+    edit.setEnabled(false);
+    {
+        JPrimitiveBuffer buf;
+        edit.populateRenderPrimitives(buf);
+        CHECK(drawsIn(buf, greyed));
+    }
+    JComboBox combo(graph);
+    combo.addItem("NozzleTipChange");
+    combo.setEnabled(false);
+    {
+        JPrimitiveBuffer buf;
+        combo.populateRenderPrimitives(buf);
+        CHECK(drawsIn(buf, greyed));
+    }
+    std::printf("  a disabled field and combo draw their text greyed\n");
 }
 
 static void test_disabled_button_still_ignores_input() {
@@ -91,6 +131,7 @@ int main() {
     std::cout << "disabled-state + focused-field tests\n";
     test_disabled_reaches_the_palette();
     test_disabled_button_still_ignores_input();
+    test_disabled_field_and_combo_grey_their_text();
     test_focused_but_untouched_field_follows_the_value();
     std::printf(g_fails ? "disabled state: FAILED (%d)\n" : "disabled state: OK\n", g_fails);
     return g_fails ? 1 : 0;
