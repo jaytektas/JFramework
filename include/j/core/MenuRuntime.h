@@ -46,6 +46,10 @@ public:
 
     bool hasOpenMenus() const { return !m_active.empty(); }
 
+    // Whether a native window (an id as rawWindowId gives) is one of the application's own besides the main
+    // window and the menus (its floating docks), for a menu not to take the focus there as leaving it.
+    std::function<bool(uintptr_t)> isOwnWindow;
+
     // Per-frame: poll modal popups (grab + dismiss-on-outside), run deferred callbacks, then
     // render active + floating menus. Each popup is its own window/surface, so it renders
     // into a fresh scratch buffer (like a floating dock window).
@@ -67,6 +71,9 @@ public:
 #else
         if (focus == static_cast<uintptr_t>(m_parent)) return true;   // the main window
 #endif
+        // The application's other windows (a floating dock: a right-click in one opens a menu with the focus
+        // there, and a dropdown in one does too; counted as elsewhere, the menu closed the frame it opened).
+        if (isOwnWindow && isOwnWindow(focus)) return true;
         for (const auto& p : m_active)   if (focus == p->window().rawWindowId()) return true;
         for (const auto& f : m_floating) if (focus == f.win->window().rawWindowId()) return true;
         return false;

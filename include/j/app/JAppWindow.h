@@ -575,6 +575,11 @@ public:
             m_menuRuntime.wire(m_hal.get(),
                                (JPopupWindow::NativeWinHandleType)(m_window->rawWindowId()),
                                m_menuBar.get());
+            m_menuRuntime.isOwnWindow = [this](uintptr_t id) {
+                for (const auto& f : m_floating)
+                    if (f.rawWindowId() == id) return true;
+                return false;
+            };
             m_menuH = JStyle::current().menuItemHeight + 4.f;   // menu bar scales with the scheme row height
             layoutDocks();
         }

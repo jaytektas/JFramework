@@ -677,6 +677,8 @@ public:
     // typed into at all (its search field ignored every keystroke). Forwarded to the app, which routes them
     // exactly as it routes the main window's.
     void setContentKeyHost(std::function<void(const JKeyEvent&)> fn) { m_contentKeyHost = std::move(fn); }
+    // Its native window, as an id (the platform window's rawWindowId).
+    std::uintptr_t rawWindowId() const { return m_window ? static_cast<std::uintptr_t>(m_window->rawWindowId()) : 0; }
     // A right-click on the content, at window-local x, y, the window's top left at screenX, screenY on the
     // screen: for the owner to open the context menu of what is under it.
     void setContentContextHost(std::function<void(float, float, int, int)> fn) { m_contentContextHost = std::move(fn); }
