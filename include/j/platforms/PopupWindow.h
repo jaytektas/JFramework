@@ -26,6 +26,12 @@ class JPopupWindow {
 public:
     enum class JStyle { Borderless, Bordered };
 
+    // The application's own windows besides a popup's owner (an app window's floating docks), by native id
+    // (rawWindowId), for the focus there not to be taken as leaving the application: a menu or a dropdown
+    // opened in a floating window, which then has the focus, was dismissed the frame it opened. Set by the
+    // app window; none: only the owner counts.
+    inline static std::function<bool(uintptr_t)> s_ownWindow;
+
     struct JPollResult {
         enum class JType {
             None,
@@ -695,6 +701,7 @@ private:
         const uintptr_t focused = _focusedWindow();
         if (focused == 0) return false;                     // cannot tell: never dismiss on a guess
         if (focused == m_window->rawWindowId()) return false;
+        if (s_ownWindow && s_ownWindow(focused)) return false;   // a floating window of the application's
         return m_owner == 0 || focused != m_owner;
     }
 

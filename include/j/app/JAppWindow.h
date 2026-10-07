@@ -142,6 +142,7 @@ public:
     // xcb_get_extension_data ("buffer overflow detected") — a crash on quit, every time, with a panel
     // undocked. Release every extra surface HERE, while the HAL and the windows owning them are all alive.
     ~JAppWindow() {
+        JPopupWindow::s_ownWindow = nullptr;   // it asks this window, which is going
         if (!m_hal) return;
         for (auto& fd : m_floating) fd.destroySurface(*m_hal);
         if (m_comboPopup) m_comboPopup->destroySurface(*m_hal);
@@ -575,7 +576,9 @@ public:
             m_menuRuntime.wire(m_hal.get(),
                                (JPopupWindow::NativeWinHandleType)(m_window->rawWindowId()),
                                m_menuBar.get());
-            m_menuRuntime.isOwnWindow = [this](uintptr_t id) {
+            // Its floating docks are its own too: a menu or dropdown opened in one is not dismissed for the
+            // focus being there (JPopupWindow::s_ownWindow).
+            JPopupWindow::s_ownWindow = [this](uintptr_t id) {
                 for (const auto& f : m_floating)
                     if (f.rawWindowId() == id) return true;
                 return false;
