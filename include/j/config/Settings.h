@@ -175,10 +175,7 @@ public:
         std::error_code ec;
         std::filesystem::create_directories(m_path.parent_path(), ec);
         if (ec) return false;
-        std::ofstream f(m_path);
-        if (!f) return false;
-        f << j.dump(indent);
-        return f.good();
+        return _writeWhole(m_path, j.dump(indent));
     }
 
     JSettings& loadJson() {
@@ -202,10 +199,29 @@ private:
         std::error_code ec;
         std::filesystem::create_directories(path.parent_path(), ec);
         if (ec) return false;
-        std::ofstream f(path);
-        if (!f) return false;
-        for (const auto& [k, v] : data) f << k << '=' << v << '\n';
-        return f.good();
+        std::string text;
+        for (const auto& [k, v] : data) text += k + '=' + v + '\n';
+        return _writeWhole(path, text);
+    }
+    // The file written whole or not at all: into a file beside it, then put in its place, so one reading it
+    // meanwhile (another copy of the app starting, as an update restarts it) finds the old or the new,
+    // never one cut short.
+    static bool _writeWhole(const std::filesystem::path& path, const std::string& text) {
+        std::filesystem::path part = path;
+        part += ".part";
+        {
+            std::ofstream f(part, std::ios::trunc);
+            if (!f) return false;
+            f << text;
+            f.flush();
+            if (!f.good()) return false;
+        }
+        std::error_code ec;
+        std::filesystem::rename(part, path, ec);
+        if (!ec) return true;
+        std::error_code ignored;
+        std::filesystem::remove(part, ignored);
+        return false;
     }
 };
 

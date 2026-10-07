@@ -72,6 +72,27 @@ void test_persist_round_trip() {
     std::cout << "test_persist_round_trip passed\n";
 }
 
+// A save is whole or not at all: written beside the file, then put in its place (nothing left beside it), so a
+// reader never finds it cut short; JSON as the plain form.
+void test_save_whole() {
+    auto path = std::filesystem::temp_directory_path() / "genesis_test_settings.json";
+    std::filesystem::remove(path);
+    auto& s = JSettings::instance();
+    s.clear();
+    s.setPath(path);
+    s.set("machine.cell", std::string("/home/x/cells/a.json"));
+    assert(s.saveJson());
+    auto part = path;
+    part += ".part";
+    assert(std::filesystem::exists(path) && !std::filesystem::exists(part));
+    s.clear();
+    s.setPath(path);
+    s.loadJson();
+    assert(s.get<std::string>("machine.cell") == "/home/x/cells/a.json");
+    std::filesystem::remove(path);
+    std::cout << "test_save_whole passed\n";
+}
+
 void test_bool_variants() {
     auto& s = JSettings::instance();
     s.clear();
@@ -93,6 +114,7 @@ int main() {
     test_has_remove();
     test_persist_round_trip();
     test_bool_variants();
+    test_save_whole();
     std::cout << "All JSettings tests passed!\n";
     return 0;
 }
