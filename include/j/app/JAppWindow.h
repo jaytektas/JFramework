@@ -1449,6 +1449,32 @@ private:
                     }
                 });
         m_floating.back().setContentKeyHost([this](const JKeyEvent& ke) { _routeKey(ke); });
+        // A right-click in the float: the context menu of the top-most widget under it that has one, as the
+        // main window's right-click does there. Scoped to the panel under the cursor (a float's widgets carry
+        // window-local coordinates), the menu opened at the float's place on the screen. Walked from a
+        // snapshot with liveness checked, as the main window's: prepareContextMenu may rebuild widgets.
+        m_floating.back().setContentContextHost([fhost](float x, float y, int screenX, int screenY) {
+            JDockWidget* d = fhost->contentDockAt(x, y);
+            if (!d || !d->content()) return;
+            std::vector<std::pair<JWidget*, uint64_t>> scan;   // parents before children: the deepest drawn last
+            std::function<void(JWidget*)> walk = [&](JWidget* w) {
+                scan.emplace_back(w, w->uid());
+                for (JWidget* c : w->children()) walk(c);
+            };
+            walk(d->content());
+            for (auto it = scan.rbegin(); it != scan.rend(); ++it) {
+                JWidget* w = it->first;
+                if (!JWidget::stillAlive(w, it->second)) continue;
+                if (w->isVisible() && w->hitTest(x, y)) w->prepareContextMenu(x, y);
+                if (!JWidget::stillAlive(w, it->second)) continue;
+                if (w->isVisible() && w->contextMenu() && w->hitTest(x, y)) {
+                    if (JMenuManager::instance().onOpenMenu)
+                        JMenuManager::instance().onOpenMenu(w->contextMenu(), screenX + static_cast<int>(x),
+                                                            screenY + static_cast<int>(y), false, /*pointAnchored=*/true);
+                    break;
+                }
+            }
+        });
         }
     }
 

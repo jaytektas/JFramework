@@ -172,7 +172,9 @@ public:
         , m_winW(other.m_winW)
         , m_winH(other.m_winH)
         , m_contentRenderHost(std::move(other.m_contentRenderHost))
+        , m_contentKeyHost(std::move(other.m_contentKeyHost))
         , m_contentInputHost(std::move(other.m_contentInputHost))
+        , m_contentContextHost(std::move(other.m_contentContextHost))
         , m_state(other.m_state)
         , m_shouldClose(other.m_shouldClose)
         , m_wasDown(other.m_wasDown)
@@ -201,7 +203,9 @@ public:
             m_winW = other.m_winW;
             m_winH = other.m_winH;
             m_contentRenderHost = std::move(other.m_contentRenderHost);
+            m_contentKeyHost = std::move(other.m_contentKeyHost);
             m_contentInputHost = std::move(other.m_contentInputHost);
+            m_contentContextHost = std::move(other.m_contentContextHost);
             m_state = other.m_state;
             m_shouldClose = other.m_shouldClose;
             m_wasDown = other.m_wasDown;
@@ -487,6 +491,12 @@ public:
             else if (top)             hoverDir = JResizeDir::Top;
             else if (bottom)          hoverDir = JResizeDir::Bottom;
 
+            // A right-click on the content: its context menu, as in the main window (which never sees this
+            // window's buttons). Not on the resize border or the title bar, which are the window's own.
+            if (m_window->consumeRightPress() && m_contentContextHost && hoverDir == JResizeDir::None
+                && !(isGlobalTitleBarVisible() && my < kGlobalTitleH))
+                m_contentContextHost(mx, my, m_window->screenX(), m_window->screenY());
+
             // Set corresponding cursor
             JPlatformCursor pc = JPlatformCursor::Default;
             switch (hoverDir) {
@@ -667,6 +677,9 @@ public:
     // typed into at all (its search field ignored every keystroke). Forwarded to the app, which routes them
     // exactly as it routes the main window's.
     void setContentKeyHost(std::function<void(const JKeyEvent&)> fn) { m_contentKeyHost = std::move(fn); }
+    // A right-click on the content, at window-local x, y, the window's top left at screenX, screenY on the
+    // screen: for the owner to open the context menu of what is under it.
+    void setContentContextHost(std::function<void(float, float, int, int)> fn) { m_contentContextHost = std::move(fn); }
 
     // -------------------------------------------------------------------------
     // Destroy the Vulkan surface.  Call before erasing this object.
@@ -848,6 +861,7 @@ private:
     std::function<void(JPrimitiveBuffer&)> m_contentRenderHost;
     std::function<void(const JKeyEvent&)>  m_contentKeyHost;
     std::function<void(float, float, bool, bool, float)> m_contentInputHost;
+    std::function<void(float, float, int, int)> m_contentContextHost;
 
     JState m_state{JState::Idle};
     bool   m_abortRequested{false};   // Escape pressed mid-drag; host reverts
