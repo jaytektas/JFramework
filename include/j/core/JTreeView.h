@@ -13,6 +13,7 @@
 #include "DragDrop.h"
 #include "Log.h"
 #include "../graphics/VectorGraphics.h"
+#include <functional>
 
 inline namespace jf {
 
@@ -201,6 +202,14 @@ public:
     // filter, not only its displayed label. Off by default so trees whose userData holds opaque sigils/conditions
     // don't match on hidden text. The signal picker enables this so typing a raw signal name finds it too.
     void setFilterMatchesUserData(bool on) { m_filterUserData = on; }
+    // Opt-in: what else a node matches the filter on, the app's to say (the words of the page a node opens,
+    // say), given the filter lower-cased. Unset: its label (and its userData, as above) only. A node matched
+    // this way shows by itself, not with its whole subtree as a node whose name matches does. Asked of every
+    // node each time the tree is drawn filtered, so it should answer from what it has at hand.
+    void setFilterMatcher(std::function<bool(const JTreeViewNode&, const std::string&)> m) {
+        m_filterMatcher = std::move(m);
+        m_graph.invalidateNode(m_nodeId, DirtySelf);
+    }
 
     void expandAll()   { for (auto& c : m_root.children) _setExpandedRec(c, true);  m_root.expanded = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
     void collapseAll() { for (auto& c : m_root.children) _setExpandedRec(c, false); m_root.expanded = true; m_graph.invalidateNode(m_nodeId, DirtySelf); }
@@ -922,8 +931,10 @@ private:
         // down to a deeper match. This mirrors the old studio's ancestorMatch propagation.
         bool subtreeMatch = ancestorMatch;
         if (!m_filter.empty() && !ancestorMatch) {
-            if (_selfMatches(node))            subtreeMatch = true;   // this node matched → keep its subtree
-            else if (!_descendantMatches(node)) return;               // neither self nor descendant → filtered out
+            if (_nameMatches(node))            subtreeMatch = true;   // this node matched → keep its subtree
+            else if (!_selfMatches(node) && !_descendantMatches(node)) return;   // neither self nor descendant → filtered out
+            // Matched by the app's matcher alone (setFilterMatcher: something on its page), it shows by itself:
+            // the machine at the root matching on one of its settings must not keep the whole tree.
         }
         result.push_back({&node, depth, result.size(), dimmed});
         // Descend only if the node is actually expanded. A filter no longer OVERRIDES this: it expands the
@@ -956,8 +967,12 @@ private:
         return any;
     }
 
-    // A node matches on its own label — or, when enabled, its userData (raw id / binding path).
+    // A node matches on its own label — or, when enabled, its userData (raw id / binding path) — or by the
+    // app's matcher (setFilterMatcher).
     bool _selfMatches(const JTreeViewNode& n) const {
+        return _nameMatches(n) || (m_filterMatcher && m_filterMatcher(n, m_filter));
+    }
+    bool _nameMatches(const JTreeViewNode& n) const {
         std::string l = n.label; for (char& c : l) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         if (l.find(m_filter) != std::string::npos) return true;
         if (m_filterUserData && !n.userData.empty()) {
@@ -1187,7 +1202,8 @@ private:
     std::string    m_filter;              // lower-cased row filter ("" = show all)
     std::map<const JTreeViewNode*, bool> m_preFilterExpanded;   // arrangement to restore when a search clears
     bool           m_rowDimmed{false};    // set per row while painting (see rowDimmed())
-    bool           m_filterUserData{false}; // also match userData (raw id / binding path), not just the label
+    bool           m_filterUserData{false};
+    std::function<bool(const JTreeViewNode&, const std::string&)> m_filterMatcher;   // setFilterMatcher // also match userData (raw id / binding path), not just the label
     float         m_scrollY{0.0f};
     float         m_rowHeight{-1.0f};
     bool          m_draggingScroll{false};
