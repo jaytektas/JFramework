@@ -32,19 +32,47 @@ public:
     // handle (for pointer grab + focus); `bar` is reset whenever the menus close.
     void wire(JGpuHal* hal, JPopupWindow::NativeWinHandleType parentWindow, JMenuBar* bar) {
         m_hal = hal; m_parent = parentWindow; m_bar = bar;
+        JMenuManager::instance().onMenuGone = [this](const JMenu* menu) { menuGone(menu); };
         JMenuManager::instance().onOpenMenu = [this](JMenu* menu, int sx, int sy, bool parentTorn, bool pointAnchored) {
             // Defer if we're mid-poll (a popup callback re-entered us) to avoid mutating the
             // popup list while iterating it.
             // A point-anchored menu flips about the click; an anchored dropdown only slides (kNoFlip).
             const int fx = pointAnchored ? sx : kNoFlip, fy = pointAnchored ? sy : kNoFlip;
             if (m_isPolling)
-                m_deferred.push_back([this, menu, sx, sy, parentTorn, fx, fy]() { openMenu(menu, sx, sy, parentTorn, fx, fy); });
+                m_deferred.push_back([this, menu, sx, sy, parentTorn, fx, fy]() {
+                    if (!m_menusGone) openMenu(menu, sx, sy, parentTorn, fx, fy);   // not from a menu destroyed meanwhile
+                });
             else
                 openMenu(menu, sx, sy, parentTorn, fx, fy);
         };
     }
 
+    ~JMenuRuntime() { JMenuManager::instance().onMenuGone = nullptr; }
+
     bool hasOpenMenus() const { return !m_active.empty(); }
+
+    // A menu is being destroyed: every popup built from it put away, so none reads it after (a panel made again,
+    // or a menu made afresh, while it was open). Mid-poll, after the poll (the popups are being walked), and
+    // until then nothing more opens from the popups there are (m_menusGone).
+    void menuGone(const JMenu* menu) {
+        bool modal = false;
+        for (const auto& p : m_active) if (p && p->refers(menu)) modal = true;
+        std::vector<JPopupWindow*> floating;
+        for (const auto& f : m_floating) if (f.win && f.win->refers(menu)) floating.push_back(f.win.get());
+        if (!modal && floating.empty()) return;
+        auto putAway = [this, modal, floating]() {
+            if (modal) closeAll();
+            for (JPopupWindow* w : floating)
+                for (const auto& f : m_floating)
+                    if (f.win.get() == w) { closeFloatingSubtree(w, /*includeRoot=*/true); break; }
+        };
+        if (m_isPolling) {
+            m_menusGone = true;
+            m_deferred.push_back(putAway);
+        } else {
+            putAway();
+        }
+    }
 
 
     // Per-frame: poll modal popups (grab + dismiss-on-outside), run deferred callbacks, then
@@ -151,6 +179,7 @@ public:
                 m_deferred.clear();
                 for (auto& a : acts) a();
             }
+            m_menusGone = false;   // what was built from a destroyed menu is put away now
 
             if (dismissed) closeAll();
             else {
@@ -176,6 +205,7 @@ public:
                 m_deferred.clear();
                 for (auto& a : acts) a();
             }
+            m_menusGone = false;   // what was built from a destroyed menu is put away now
             for (auto* w : closing) closeFloatingSubtree(w, /*includeRoot=*/true);   // a closed menu takes its submenus with it
 
             for (auto& fn : m_floating)
@@ -269,6 +299,7 @@ private:
         auto popup = std::make_unique<JPopupWindow>(
             sx, sy, 180, 8, *m_hal, JPopupWindow::JStyle::Bordered, m_parent, nullptr);
         popup->setDrawsTooltips(false);   // an entry's tip goes in a window of its own (_updateTip)
+        popup->refersTo(menu);
 
         // Tear-off handle (the grab-strip at the top): pressing it promotes this menu to a floating,
         // draggable, closeable window. Only the modal stack offers it — a submenu of an already-floating menu
@@ -283,6 +314,7 @@ private:
         for (JWidget* item : menu->shownItems()) {
             if (dynamic_cast<JMenuSeparator*>(item)) { popup->add<JMenuSeparator>(); continue; }
             if (auto* mi = dynamic_cast<JMenuItem*>(item)) {
+                if (mi->submenu()) popup->refersTo(mi->submenu());
                 auto* added = popup->add<JMenuItem>(mi->label(), mi->shortcut(), mi->submenu());
                 added->setCheckable(mi->isCheckable());
                 added->setChecked(mi->isChecked());
@@ -299,12 +331,15 @@ private:
                     // Reflect a checkable toggle back onto the model item so the app's handler
                     // (which reads the model item's state) and a re-opened menu are correct —
                     // the popup entry is only a copy.
+                    // Read from the model item BEFORE its action: the action may destroy its menu (and it) --
+                    // a panel made again by what it does -- and nothing of it is read after.
+                    const bool leaf = !src->submenu();
                     if (src->isCheckable()) src->setChecked(added->isChecked());
                     src->onTriggered.emit();
                     // Any leaf (plain or checkable) dismisses a docked menu once chosen.
                     // A floating/torn menu stays open — closeAll() only affects m_active,
                     // so its checkables keep toggling in place.
-                    if (!src->submenu())
+                    if (leaf)
                         m_deferred.push_back([this]() { closeAll(); });
                 });
 
@@ -415,6 +450,7 @@ private:
     // never mutate m_active mid-iteration. This is what stops submenu popups piling up on every hover
     // (which grew GPU surface IDs without bound until the text-vertex buffer overran → SIGSEGV).
     void hoverItem(JPopupWindow* parent, JMenuItem* a, JMenu* sub) {
+        if (m_menusGone) return;   // its popup is being put away: `sub` may be freed
         if (m_isPolling) { m_deferred.push_back([this, parent, a, sub]() { hoverItem(parent, a, sub); }); return; }
         // Modal dropdown cascade (the grabbed m_active stack).
         int pi = -1;
@@ -492,6 +528,7 @@ private:
     JMenuBar*                         m_bar{nullptr};
     bool m_sawAppFocus{false};    // this menu has held the app's focus at least once (see updateAndRender)
     bool m_hiddenFloating{false}; // torn-off menus we hid on leaving the app, to restore on return
+    bool m_menusGone{false};      // a menu a popup was built from destroyed mid-poll: put away after it (menuGone)
     std::vector<std::unique_ptr<JPopupWindow>> m_active;     // modal dropdown stack
     // The tooltip window of the entry pointed at (_updateTip), and the dwell on that entry.
     struct TipHover {

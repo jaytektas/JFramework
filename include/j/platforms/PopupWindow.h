@@ -32,6 +32,14 @@ public:
     // app window; none: only the owner counts.
     inline static std::function<bool(uintptr_t)> s_ownWindow;
 
+    // The menus this popup was built from (its own and its entries' submenus: it keeps pointers to them), for it to
+    // be put away before any of them is destroyed (JMenuRuntime::menuGone).
+    void refersTo(const void* menu) { m_refersTo.push_back(menu); }
+    bool refers(const void* menu) const {
+        for (const void* m : m_refersTo) if (m == menu) return true;
+        return false;
+    }
+
     struct JPollResult {
         enum class JType {
             None,
@@ -690,6 +698,7 @@ private:
     // own application. 0 when the popup has no opener, which reads as "cannot tell" and is treated
     // as ours — never dismissing on a question we could not answer.
     uintptr_t m_owner{0};
+    std::vector<const void*> m_refersTo;   // refersTo
 
     // Which window holds the input focus, or 0 when the platform cannot say. Only the X11 backend
     // can answer today; on Windows the case this guards against does not arise the same way (a

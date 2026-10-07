@@ -317,6 +317,12 @@ public:
 class JMenu {
 public:
     JMenu(const std::string& title) : m_title(title) {}
+    // Gone: whatever was built from it (an open menu's popup, which keeps pointers to it, its items and their
+    // submenus) is put away first (JMenuManager::onMenuGone). An app that makes a menu afresh, or loses the panel
+    // that owns one, while it is open must not leave a popup reading a freed menu.
+    ~JMenu();
+    JMenu(const JMenu&) = delete;
+    JMenu& operator=(const JMenu&) = delete;
 
     const std::string& title() const noexcept { return m_title; }
 
@@ -392,6 +398,8 @@ public:
     // button-up can trigger one.
     std::function<void(JMenu* menu, int sx, int sy, bool parentTorn, bool pointAnchored)> onOpenMenu;
     std::function<void(JMenu* menu, int sx, int sy)> onTearOffMenu;
+    // A menu is being destroyed (its destructor): the runtime puts away what it built from it.
+    std::function<void(const JMenu* menu)> onMenuGone;
 
     struct JShortcutReg {
         JMenuShortcut shortcut;
@@ -436,6 +444,10 @@ private:
     std::vector<JShortcutReg> m_shortcuts;
     bool m_globalTearOff{true};
 };
+
+inline JMenu::~JMenu() {
+    if (const auto& gone = JMenuManager::instance().onMenuGone) gone(this);
+}
 
 // ============================================================================
 // JMenuBar — top level horizontal strip widget
