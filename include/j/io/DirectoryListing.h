@@ -15,6 +15,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -26,6 +28,8 @@ public:
     struct Entry {
         std::string name;
         bool        isDir;
+        std::uintmax_t                  size = 0;        // bytes (a file's)
+        std::filesystem::file_time_type modified{};      // when last written
     };
 
     // `dir`'s entries: folders first, then files whose extension is in `extensions` (without the dot,
@@ -39,9 +43,13 @@ public:
              !ec && it != end; it.increment(ec)) {
             std::string name = it->path().filename().string();
             if (name.empty() || (!showHidden && isHidden(name))) continue;
-            std::error_code dec;
-            if (it->is_directory(dec)) dirs.push_back({ std::move(name), true });
-            else if (passesFilter(name, extensions)) files.push_back({ std::move(name), false });
+            std::error_code dec, sec, tec;
+            const auto modified = it->last_write_time(tec);
+            if (it->is_directory(dec)) dirs.push_back({ std::move(name), true, 0, tec ? fs::file_time_type{} : modified });
+            else if (passesFilter(name, extensions)) {
+                const std::uintmax_t size = it->file_size(sec);
+                files.push_back({ std::move(name), false, sec ? 0 : size, tec ? fs::file_time_type{} : modified });
+            }
         }
         auto byName = [](const Entry& a, const Entry& b) { return a.name < b.name; };
         std::sort(dirs.begin(), dirs.end(), byName);
@@ -50,15 +58,41 @@ public:
         return dirs;
     }
 
+    // A path as typed, made whole: "~" (and "~/...") is the home folder, and anything not absolute is taken
+    // from `cwd`; "." and ".." folded away.
+    static std::filesystem::path resolve(const std::string& typed, const std::filesystem::path& cwd) {
+        namespace fs = std::filesystem;
+        std::string t = typed;
+        if (!t.empty() && t[0] == '~' && (t.size() == 1 || t[1] == '/' || t[1] == '\\')) {
+            const fs::path home = homeFolder();
+            t = t.size() > 2 ? (home / t.substr(2)).string() : home.string();
+        }
+        fs::path p(t);
+        if (!p.is_absolute()) p = cwd / p;
+        return p.lexically_normal();
+    }
+
+    // The user's home folder ("/" when none is known).
+    static std::filesystem::path homeFolder() {
+#if defined(_WIN32)
+        const char* h = std::getenv("USERPROFILE");
+#else
+        const char* h = std::getenv("HOME");
+#endif
+        return (h && *h) ? std::filesystem::path(h) : std::filesystem::path("/");
+    }
+
     static bool isHidden(const std::string& name) { return !name.empty() && name[0] == '.'; }
 
+    // Whether `name` ends in one of `extensions` (any case; one of several parts too: "job.xml" is
+    // "board.job.xml"'s, not "board.xml"'s).
     static bool passesFilter(const std::string& name, const std::vector<std::string>& extensions) {
         if (extensions.empty()) return true;
-        const auto dot = name.rfind('.');
-        if (dot == std::string::npos) return false;
-        const std::string ext = lower(name.substr(dot + 1));
-        return std::any_of(extensions.begin(), extensions.end(),
-                           [&](const std::string& e) { return lower(e) == ext; });
+        const std::string n = lower(name);
+        return std::any_of(extensions.begin(), extensions.end(), [&](const std::string& e) {
+            const std::string end = "." + lower(e);
+            return n.size() > end.size() && n.compare(n.size() - end.size(), end.size(), end) == 0;
+        });
     }
 
 private:

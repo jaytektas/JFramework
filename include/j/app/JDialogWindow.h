@@ -56,6 +56,9 @@
   #include <j/platforms/linux/LinuxPlatformWindow.h>
 #endif
 
+#include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -138,6 +141,24 @@ public:
 
         layout(W, H);
         _refreshFocus();
+        // The press classified and the modifiers published for the widgets about to take it, as the app
+        // window does for its own (a dialog's list told a double-click from a click no other way, and a
+        // Ctrl-click from a click).
+        JWidget::s_ctrlDown  = m_window->isCtrlDown();
+        JWidget::s_shiftDown = m_window->isShiftDown();
+        JWidget::s_leftDown  = held;
+        if (pressed) {
+            const JStyle& st = JStyle::current();
+            const auto now = std::chrono::steady_clock::now();
+            const double sinceMs = std::chrono::duration<double, std::milli>(now - m_lastPressAt).count();
+            JWidget::s_doubleClick = sinceMs <= st.doubleClickMs && std::fabs(mx - m_lastPressX) <= st.doubleClickSlop
+                                     && std::fabs(my - m_lastPressY) <= st.doubleClickSlop;
+            m_lastPressAt = JWidget::s_doubleClick ? std::chrono::steady_clock::time_point{} : now;
+            m_lastPressX = mx;
+            m_lastPressY = my;
+        } else {
+            JWidget::s_doubleClick = false;
+        }
         if (pressed) jRouteMouse(mx, my, m_focus);
         if (!m_focusSeeded) { m_focusSeeded = true; m_focus.focusFirst(); }
         // THE WHEEL, which this class claimed in its own comment and never actually forwarded — so a
@@ -185,6 +206,8 @@ protected:
     JSceneGraph& graph() { return m_graph; }
     // Register a widget: routed, focusable and painted, in call order. The dialog keeps ownership.
     void add(JWidget* w) { if (w) m_widgets.push_back(w); }
+    // Unregister one (a part of the dialog shown only for a while): no longer routed, focused or painted.
+    void remove(JWidget* w) { m_widgets.erase(std::remove(m_widgets.begin(), m_widgets.end(), w), m_widgets.end()); }
     void close() { m_done = true; }                                  // dismiss after this frame
     uint32_t width()  const { return m_w; }
     uint32_t height() const { return m_h; }
@@ -223,6 +246,8 @@ private:
     JFocusManager m_focus;
     bool  m_focusSeeded{false}, m_done{false}, m_drag{false};
     float m_ax{0}, m_ay{0};
+    std::chrono::steady_clock::time_point m_lastPressAt{};   // the press before, for a double-click
+    float m_lastPressX{0}, m_lastPressY{0};
 };
 
 } // namespace jf

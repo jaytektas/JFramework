@@ -19,6 +19,7 @@
 // All callbacks are posted back to the main thread via JMainThreadDispatcher.
 // ============================================================================
 
+#include <j/core/JFileFilter.h>
 #include "Signal.h"
 #include "MainThreadDispatcher.h"
 #include "JTextHelper.h"
@@ -102,6 +103,12 @@ struct JDialogRequest {
     std::string   body;
     std::string   placeholder;
     std::vector<std::string> extensions;   // file-dialog kinds: filter list ("json","gui"); empty = all
+    // File-dialog kinds, opt-in: named file types to choose between (the first chosen to begin with; "All
+    // files" is always offered after them). None: one made of `extensions`.
+    std::vector<JFileFilter> filters;
+    // File-dialog kinds, opt-in: where to begin. A folder opens there; a file opens its folder with its name
+    // in the Name field (Save As: the file it is now). Empty: the folder the picker was last in.
+    std::string              startPath;
 
     // An optional picture above the body -- a product logo on an About box being
     // the case this exists for.
@@ -507,6 +514,10 @@ public:
         _pushFileRequest(JDialogRequest::JKind::OpenFolder, title,
                          {}, std::move(onAccept), std::move(onCancel));
     }
+
+    // ---- Any file picker, as asked: named file types (JFileFilter), where to begin (startPath) ----------
+    // `req.kind` one of OpenFile, SaveFile, OpenFolder; onInput gets the path chosen, onCancel a cancel.
+    static void chooseFile(JDialogRequest req) { JDialogManager::instance().push(std::move(req)); }
 
 private:
     static void _pushFileRequest(JDialogRequest::JKind kind, const std::string& title,

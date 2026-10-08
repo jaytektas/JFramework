@@ -1951,7 +1951,7 @@ private:
                                  req->kind == JDialogRequest::JKind::SaveFile ||
                                  req->kind == JDialogRequest::JKind::OpenFolder);
             const int dlgW = static_cast<int>(isFile ? JFileDialogWindow::kW : JNativeDialogWindow::calcWidth(*req));
-            const int dlgH = static_cast<int>(isFile ? JFileDialogWindow::calcHeight()
+            const int dlgH = static_cast<int>(isFile ? JFileDialogWindow::kH
                                                      : JNativeDialogWindow::calcHeight(req->kind, opts, req->imageHeight,
                                                      JNativeDialogWindow::bodyLines(req->body)));
             const int cW = static_cast<int>(m_w), cH = static_cast<int>(m_h);
@@ -1989,8 +1989,8 @@ private:
             // ownership, so nothing here is destroyed with its parent.
             const auto owner = _parentForChildModal();
             if (isFile)
-                m_fileDialogs.emplace_back(*req, *m_hal, dlgX, dlgY,
-                    (JFileDialogWindow::NativeWinHandleType)(owner));
+                m_fileDialogs.push_back(std::make_unique<JFileDialogWindow>(*req, *m_hal, dlgX, dlgY,
+                    (JFileDialogWindow::NativeWinHandleType)(owner)));
             else
                 m_dialogs.emplace_back(*req, *m_hal, dlgX, dlgY,
                     (JNativeDialogWindow::NativeWinHandleType)(owner));
@@ -2001,7 +2001,7 @@ private:
             else ++it;
         }
         for (auto it = m_fileDialogs.begin(); it != m_fileDialogs.end();) {
-            if (!it->pollAndRender(*m_hal, scratch)) { it->destroySurface(*m_hal); it = m_fileDialogs.erase(it); }
+            if (!(*it)->pollAndRender(*m_hal, scratch)) { (*it)->destroySurface(*m_hal); it = m_fileDialogs.erase(it); }
             else ++it;
         }
         m_comboDismissed = nullptr;   // the guard is worth exactly one servicing pass
@@ -2203,7 +2203,7 @@ private:
     std::vector<std::function<void()>> m_whenNoDialog;   // see whenNoDialog()
     JPopupWindow*                    m_comboCloseReq{nullptr};
     std::vector<JNativeDialogWindow> m_dialogs;
-    std::vector<JFileDialogWindow>   m_fileDialogs;
+    std::vector<std::unique_ptr<JFileDialogWindow>> m_fileDialogs;   // each its own window (not movable)
     std::unique_ptr<JToolBar> m_toolBar;     // lazily created on toolBar()
     float                     m_menuH{0.f}, m_toolbarH{0.f}, m_statusH{0.f};
     JStatusBar                m_statusBar;
