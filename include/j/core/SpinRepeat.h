@@ -9,11 +9,13 @@
 //     m_repeat.onStep = [this](int units) { setValue(m_value + units); };   // apply an accelerated step
 //     m_repeat.timer.onTick.connect([this] { m_repeat.tick(); });
 //
-// calls begin(+1 | -1) when a button goes down and end() when the mouse is released. One repeating JTimer runs
+// calls begin(+1 | -1) when a button goes down and end() when the mouse is released (a release that never
+// arrives is noticed: the button no longer down, JWidget::s_leftDown, ends it). One repeating JTimer runs
 // at a fixed interval while held; the STEP grows the longer the button is down (acceleration) — so the timer
 // thread is started once per press, not re-armed per tick. Everything (initial delay, repeat interval, when
 // acceleration begins, how fast the step grows, the cap) is configurable.
 
+#include "JWidget.h"
 #include "Timer.h"
 
 #include <chrono>
@@ -46,6 +48,12 @@ struct SpinRepeat {
 
     void tick() {   // wired to timer.onTick by the owner; runs on the UI thread
         if (m_dir == 0 || !onStep) return;
+        // The button no longer held, its release never seen (a window opened over the box took it, say): the
+        // repeat stops, rather than stepping on by itself for good.
+        if (!JWidget::s_leftDown) {
+            end();
+            return;
+        }
         const long held = std::chrono::duration_cast<std::chrono::milliseconds>(
                               std::chrono::steady_clock::now() - m_start).count();
         if (held < delayMs) return;   // still inside the initial hold — no repeat yet

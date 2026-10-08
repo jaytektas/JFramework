@@ -1988,12 +1988,23 @@ private:
             // stack the prompt under the dialog that asked for it. WM_TRANSIENT_FOR is a hint, not
             // ownership, so nothing here is destroyed with its parent.
             const auto owner = _parentForChildModal();
-            if (isFile)
-                m_fileDialogs.push_back(std::make_unique<JFileDialogWindow>(*req, *m_hal, dlgX, dlgY,
-                    (JFileDialogWindow::NativeWinHandleType)(owner)));
-            else
-                m_dialogs.emplace_back(*req, *m_hal, dlgX, dlgY,
-                    (JNativeDialogWindow::NativeWinHandleType)(owner));
+            // A dialog whose window cannot be made (the GPU out of memory for its surface) is said in the log and
+            // answered as cancelled: the application goes on, rather than ending with whatever was not saved.
+            try {
+                if (isFile)
+                    m_fileDialogs.push_back(std::make_unique<JFileDialogWindow>(*req, *m_hal, dlgX, dlgY,
+                        (JFileDialogWindow::NativeWinHandleType)(owner)));
+                else
+                    m_dialogs.emplace_back(*req, *m_hal, dlgX, dlgY,
+                        (JNativeDialogWindow::NativeWinHandleType)(owner));
+            } catch (const std::exception& e) {
+                JLOGC("Platform", jf::JLogLevel::Error) << "dialog \"" << req->title << "\" could not be opened ("
+                                                        << e.what() << "): " << req->body;
+                const std::function<void()> cancelled = req->onCancel;
+                JDialogManager::instance().pop();
+                if (cancelled) cancelled();
+                continue;
+            }
             JDialogManager::instance().pop();
         }
         for (auto it = m_dialogs.begin(); it != m_dialogs.end();) {
