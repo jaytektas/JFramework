@@ -12,6 +12,7 @@
 #else
   #include <cerrno>
   #include <fcntl.h>
+  #include <linux/close_range.h>
   #include <sys/types.h>
   #include <sys/wait.h>
   #include <unistd.h>
@@ -47,6 +48,8 @@ bool JDesktop::openUrl(const std::string& urlOrPath) {
         close(fds[0]);
         setsid();
         if (fork() == 0) {
+            // The browser keeps nothing of this application's open: not a camera, not a serial port.
+            close_range(3, ~0U, CLOSE_RANGE_CLOEXEC);
             execlp("xdg-open", "xdg-open", urlOrPath.c_str(), static_cast<char*>(nullptr));
             const char failed = 1;
             (void)!write(fds[1], &failed, 1);

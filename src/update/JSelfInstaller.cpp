@@ -16,6 +16,7 @@
   #include <shellapi.h>
 #else
   #include <cerrno>
+  #include <linux/close_range.h>
   #include <sys/stat.h>
   #include <unistd.h>
 #endif
@@ -98,6 +99,9 @@ bool JSelfInstaller::installAndRestart(const std::string& stagedPath, std::strin
     if (pid < 0) { error = "cannot start the new version"; return false; }
     if (pid == 0) {
         setsid();
+        // Nothing this copy has open goes with it: an inherited camera or serial port stays busy for
+        // as long as the new copy lives, so it could not open its own.
+        close_range(3, ~0U, CLOSE_RANGE_CLOEXEC);
         execl(target.c_str(), target.c_str(), static_cast<char*>(nullptr));
         _exit(127);
     }

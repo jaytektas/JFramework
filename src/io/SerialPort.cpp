@@ -178,7 +178,7 @@ struct JSerialPort::Impl {
         to.ReadIntervalTimeout = MAXDWORD;
         SetCommTimeouts(m_handle, &to);
 #else
-        m_fd = ::open(port.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+        m_fd = ::open(port.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
         if (m_fd < 0) {
             const int e = errno;   // EBUSY: another owner set TIOCEXCL (below)
             _postError(e == EBUSY ? port + " is in use by another program"
