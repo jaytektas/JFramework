@@ -819,6 +819,7 @@ public:
             JWidget::s_leftDown  = m_leftHeld || m_window->isLeftButtonDown();   // see JWidget::s_leftDown
             JWidget::s_ctrlDown  = m_window->isCtrlDown();    // publish modifier state for handleMousePress
             JWidget::s_shiftDown = m_window->isShiftDown();
+            JWidget::s_altDown   = m_window->isAltDown();
             // App-tracked button state: more reliable than querying the server's button mask
             // (which some compositors / synthetic-input paths don't report). Drives the
             // poll-the-global-cursor branch above so drags track even while the pointer is

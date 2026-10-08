@@ -93,6 +93,7 @@ public:
     inline static uint64_t s_pressCount = 0;
     inline static bool s_ctrlDown = false;
     inline static bool s_shiftDown = false;
+    inline static bool s_altDown = false;   // published with the others, for handleMousePress/Move/Release
     // True for the duration of a press dispatch that the runner classified as a DOUBLE click (a second
     // press inside JStyle::doubleClickMs and within doubleClickSlop of the first). Detected once, in the
     // runner, and published the same way the modifiers are — so no widget keeps a private clock, and a

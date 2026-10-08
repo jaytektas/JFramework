@@ -147,6 +147,7 @@ public:
         // Ctrl-click from a click).
         JWidget::s_ctrlDown  = m_window->isCtrlDown();
         JWidget::s_shiftDown = m_window->isShiftDown();
+        JWidget::s_altDown   = m_window->isAltDown();
         JWidget::s_leftDown  = held;
         if (pressed) {
             const JStyle& st = JStyle::current();
