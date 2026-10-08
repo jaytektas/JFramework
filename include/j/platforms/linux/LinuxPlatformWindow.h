@@ -442,8 +442,16 @@ public:
                                                        << (moved ? "— correcting)" : ")");
                             if (moved && m_placementRequested) setPosition(m_requestedX, m_requestedY);
                         }
-                        bool wChanged = cfg->width  > 0 && cfg->width  != m_width;
-                        bool hChanged = cfg->height > 0 && cfg->height != m_height;
+                        // A resize is a size the X server has not reported before. Compared with what it
+                        // reported last, not with m_width/m_height: those are set ahead of the server by
+                        // _applyWorkArea (maximize), and a redraw that ran in between was made at the old
+                        // size, so the server's own report of the new size must still count as a change.
+                        // Compared with m_width alone, it did not, and the window stayed drawn at its old
+                        // size in a corner of the maximized frame (a start straight after an update).
+                        bool wChanged = cfg->width  > 0 && (cfg->width  != m_width  || cfg->width  != m_serverWidth);
+                        bool hChanged = cfg->height > 0 && (cfg->height != m_height || cfg->height != m_serverHeight);
+                        if (cfg->width  > 0) m_serverWidth  = cfg->width;
+                        if (cfg->height > 0) m_serverHeight = cfg->height;
                         if (wChanged || hChanged) {
                             m_wasResized = true;
                         }
@@ -1532,6 +1540,7 @@ private:
     int      m_screenX{0};
     int      m_screenY{0};
     uint32_t m_width{0};
+    uint32_t m_serverWidth{0}, m_serverHeight{0};   // the size the X server last reported (ConfigureNotify)
     uint32_t m_height{0};
     bool  m_resizable{false};        // opt-in framework edge-resize
     float m_resizeTopInset{0.0f};    // title-bar strip kept free from side-edge resize
