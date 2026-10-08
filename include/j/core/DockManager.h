@@ -750,61 +750,44 @@ public:
                 int a = m_handleDrag.handleIdx;
                 int b = a + 1;
                 if (b < static_cast<int>(sp->weights.size())) {
-                    bool horizD  = (sp->splitDir == JSplitDir::Horizontal);
-                    float cursor = horizD ? mx : my;
-
-                    // If either side is a fixed-size (preferred-px) leaf, the handle drag
-                    // must resize that leaf's PIXEL size — its weight is ignored by layout,
-                    // so adjusting weights would silently push the flexible siblings around.
-                    if (m_handleDrag.startPrefA > 0.f || m_handleDrag.startPrefB > 0.f) {
-                        float pxDelta = cursor - m_handleDrag.startCursor;
-                        JDockNode* ca = node(sp->children[a]);
-                        JDockNode* cb = node(sp->children[b]);
-                        if (m_handleDrag.startPrefA > 0.f && ca) {
-                            float np = std::max(48.f, m_handleDrag.startPrefA + pxDelta);
-                            if (horizD) ca->constraints.preferredW = np; else ca->constraints.preferredH = np;
+                    const bool horiz = (sp->splitDir == JSplitDir::Horizontal);
+                    const float cursor = horiz ? mx : my;
+                    const JHandleDrag& hd = m_handleDrag;
+                    // The handle moves the edge between its two neighbours and nothing else: `a` takes
+                    // what `b` gives, each kept at its least. Every other child keeps its size: a fixed
+                    // one its pixels, a flexible one its share of a flexible space that, when one side
+                    // is fixed and the other not, grows or shrinks by what that side gives or takes, so
+                    // the flexible weights are rescaled to hold the others' sizes.
+                    float minA = 48.f, minB = 48.f;
+                    if (enforceMinSizes()) {
+                        minA = std::max(minA, horiz ? _minWidthOfNode(sp->children[a]) : _minHeightOfNode(sp->children[a]));
+                        minB = std::max(minB, horiz ? _minWidthOfNode(sp->children[b]) : _minHeightOfNode(sp->children[b]));
+                    }
+                    float d = cursor - hd.startCursor;
+                    d = std::max(d, std::min(0.f, minA - hd.startSizeA));
+                    d = std::min(d, std::max(0.f, hd.startSizeB - minB));
+                    JDockNode* ca = node(sp->children[a]);
+                    JDockNode* cb = node(sp->children[b]);
+                    auto setPref = [horiz](JDockNode* c, float px) {
+                        if (horiz) c->constraints.preferredW = px; else c->constraints.preferredH = px;
+                    };
+                    const bool fixedA = hd.startPrefA > 0.f, fixedB = hd.startPrefB > 0.f;
+                    const float F = hd.startFlexSpace, W = hd.startFlexWeight;
+                    if (ca && cb) {
+                        if (fixedA) setPref(ca, hd.startSizeA + d);
+                        if (fixedB) setPref(cb, hd.startSizeB - d);
+                        if (!fixedA && !fixedB && F > 0.f) {
+                            sp->weights[a] = hd.startWeightA + d * W / F;
+                            sp->weights[b] = hd.startWeightB - d * W / F;
+                        } else if (fixedA != fixedB && F > 0.f) {
+                            const float F2 = fixedA ? F - d : F + d;   // the flexible space after
+                            if (F2 > 0.f) {
+                                const float W2 = W * F2 / F;           // the others' shares kept
+                                if (fixedA) sp->weights[b] = W2 - (W - hd.startWeightB);
+                                else        sp->weights[a] = W2 - (W - hd.startWeightA);
+                            }
                         }
-                        if (m_handleDrag.startPrefB > 0.f && cb) {
-                            float np = std::max(48.f, m_handleDrag.startPrefB - pxDelta);
-                            if (horizD) cb->constraints.preferredW = np; else cb->constraints.preferredH = np;
-                        }
-                        computeLayout(m_hostRect);
-                        if (released) m_handleDrag = {};
-                        return std::nullopt;
                     }
-
-                    float total  = horizD ? sp->rect.width : sp->rect.height;
-                    float delta  = (total > 1.f)
-                                       ? (cursor - m_handleDrag.startCursor) / total : 0.f;
-                    float wa = m_handleDrag.startWeightA + delta;
-                    float wb = m_handleDrag.startWeightB - delta;
-                    // Keep both children above their minimum sizes.
-                    float sum = wa + wb;
-                    float minFrac_a = 0.05f;
-                    float minFrac_b = 0.05f;
-                    if (!enforceMinSizes()) {
-                        minFrac_a = 0.0f;
-                        minFrac_b = 0.0f;
-                    }
-                    bool horiz = (sp->splitDir == JSplitDir::Horizontal);
-                    float totalDim = horiz ? sp->rect.width : sp->rect.height;
-                    float handleSpace = HANDLE_HALF * 2.0f;
-                    float usable = std::max(0.f, totalDim - handleSpace * static_cast<float>(sp->children.size() - 1));
-                    if (usable > 0.f && enforceMinSizes()) {
-                        float minVal_a = horiz ? _minWidthOfNode(sp->children[a]) : _minHeightOfNode(sp->children[a]);
-                        float minVal_b = horiz ? _minWidthOfNode(sp->children[b]) : _minHeightOfNode(sp->children[b]);
-                        minFrac_a = minVal_a / usable;
-                        minFrac_b = minVal_b / usable;
-                    }
-                    if (minFrac_a + minFrac_b > sum) {
-                        float totalMin = minFrac_a + minFrac_b;
-                        minFrac_a = (minFrac_a / totalMin) * sum;
-                        minFrac_b = (minFrac_b / totalMin) * sum;
-                    }
-                    wa = std::clamp(wa, minFrac_a, sum - minFrac_b);
-                    wb = sum - wa;
-                    sp->weights[a] = wa;
-                    sp->weights[b] = wb;
                     computeLayout(m_hostRect);
                 }
             }
@@ -837,13 +820,28 @@ public:
                             (n.splitDir == JSplitDir::Horizontal) ? mx : my;
                         m_handleDrag.startWeightA = n.weights[i];
                         m_handleDrag.startWeightB = n.weights[i + 1];
-                        bool h = (n.splitDir == JSplitDir::Horizontal);
+                        const bool h = (n.splitDir == JSplitDir::Horizontal);
+                        // Sizes as laid out, and which are fixed, as the layout takes them: a preferred
+                        // size on a leaf or a split.
+                        auto pref = [h](const JDockNode* c) {
+                            return c ? (h ? c->constraints.preferredW : c->constraints.preferredH) : 0.f;
+                        };
+                        auto size = [h](const JDockNode* c) { return c ? (h ? c->rect.width : c->rect.height) : 0.f; };
                         const JDockNode* ca = node(n.children[i]);
                         const JDockNode* cb = node(n.children[i + 1]);
-                        m_handleDrag.startPrefA = (ca && ca->type == JDockNode::JType::Leaf)
-                                                      ? (h ? ca->constraints.preferredW : ca->constraints.preferredH) : 0.f;
-                        m_handleDrag.startPrefB = (cb && cb->type == JDockNode::JType::Leaf)
-                                                      ? (h ? cb->constraints.preferredW : cb->constraints.preferredH) : 0.f;
+                        m_handleDrag.startPrefA = pref(ca);
+                        m_handleDrag.startPrefB = pref(cb);
+                        m_handleDrag.startSizeA = size(ca);
+                        m_handleDrag.startSizeB = size(cb);
+                        float flexSpace = 0.f, flexWeight = 0.f;
+                        for (size_t k = 0; k < n.children.size() && k < n.weights.size(); ++k) {
+                            const JDockNode* c = node(n.children[k]);
+                            if (pref(c) > 0.f) continue;
+                            flexSpace += size(c);
+                            flexWeight += n.weights[k];
+                        }
+                        m_handleDrag.startFlexSpace = flexSpace;
+                        m_handleDrag.startFlexWeight = flexWeight;
                         return std::nullopt;
                     }
                 }
@@ -2222,7 +2220,9 @@ private:
         int        handleIdx{0};
         float      startCursor{0.f};
         float      startWeightA{0.f}, startWeightB{0.f};
-        float      startPrefA{0.f},   startPrefB{0.f};   // fixed-size leaves on each side
+        float      startPrefA{0.f},   startPrefB{0.f};   // each side's fixed size (0: flexible)
+        float      startSizeA{0.f},   startSizeB{0.f};   // each side's size as laid out
+        float      startFlexSpace{0.f}, startFlexWeight{0.f};   // the flexible children's, all of them
         bool       active{false};
     } m_handleDrag{};
 
