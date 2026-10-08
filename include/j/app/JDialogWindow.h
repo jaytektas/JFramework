@@ -39,6 +39,7 @@
 // house style nobody asked for.
 // ============================================================================
 
+#include <j/core/JWindowControls.h>   // JWidget::renderTooltips
 #include <j/core/JWidget.h>
 #include <j/core/JStyle.h>
 #include <j/core/JTitleBar.h>
@@ -187,6 +188,10 @@ public:
         paint(buf, W, H);                                  // the dialog's own drawing, behind its widgets
         for (JWidget* w : m_widgets) if (w) w->populateRenderPrimitives(buf);
         paintOver(buf, W, H);                              // …and anything that must sit on top
+        // Hover tips, over everything the dialog drew, as the main window and a floating dock draw theirs.
+        // Without this a dialog's widgets were given tooltips that nothing ever drew: no dialog showed one.
+        // The roots are this dialog's widgets, and the dwell is its own (JTooltipHover).
+        JWidget::renderTooltips(buf, m_tooltipHover, m_widgets, mx, my, W, H);
 
         auto frame = hal.beginFrame(m_surface);
         hal.drawPrimitives(buf);
@@ -244,6 +249,7 @@ private:
     JSceneGraph  m_graph;                 // before the widgets so it outlives them
     std::vector<JWidget*> m_widgets;
     JFocusManager m_focus;
+    JTooltipHover m_tooltipHover;         // this dialog's own hover dwell
     bool  m_focusSeeded{false}, m_done{false}, m_drag{false};
     float m_ax{0}, m_ay{0};
     std::chrono::steady_clock::time_point m_lastPressAt{};   // the press before, for a double-click
