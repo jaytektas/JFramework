@@ -26,6 +26,8 @@
 // cancel) because that is JControl's contract.
 
 #include "JWidget.h"
+
+#include <algorithm>
 #include "JButton.h"
 #include "Dialog.h"        // JDialogOptions / JDialogKeyBindings
 
@@ -55,7 +57,9 @@ public:
         onGeometryChanged.connect([this] { _layout(); });
     }
 
+    // `w` the least it is: a label wider than that widens it (a fixed width cut "Use This Part" to "Use This Pa").
     JButton* addButton(const std::string& label, Role role, float w = 84.f) {
+        w = std::max(w, JButton::labelWidth(label));
         auto* b = adopt(std::make_unique<JButton>(m_graph, label, w, JStyle::current().buttonHeight));
         b->onClicked.connect([this, role] { _fire(role); });
         m_buttons.push_back({ b, role });
