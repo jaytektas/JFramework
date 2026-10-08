@@ -170,6 +170,13 @@ public:
         }
     }
 
+    // Is this one of our area hosts that render() draws (its area active)?
+    bool rendered(const JDockHost* h) const {
+        for (int a = 0; a < AreaCount; ++a)
+            if (&m_host[a] == h) return isHost(Area(a)) && active(Area(a));
+        return false;
+    }
+
     // Is this one of our area hosts (as opposed to a floating window's)?
     bool ownsHost(const JDockHost* h) const {
         for (int a = 0; a < AreaCount; ++a) if (&m_host[a] == h) return true;
@@ -182,7 +189,7 @@ public:
         // (JWidget::s_activeWidgets) with isVisible()==true and a stale bounding box — so it keeps
         // intercepting hit-tests and FocusManager::focusAt (the tree focus-ring bug: an orphaned
         // dictionary tree at (0,0) stealing clicks from the navigation tree). Hide every non-floating
-        // dock's content here; each host's _renderLeaf re-shows its ACTIVE tab below, so only live,
+        // dock's content here but those a host shows (its _renderLeaf shows its ACTIVE tab below), so only live,
         // visible tabs stay focusable. Floating (torn) docks self-heal in their own float host.
         // Only for docks THIS space is responsible for: one of our hosts (whose _renderLeaf re-shows the
         // active tab below), or no host at all (orphaned — nothing of it may stay visible). A dock living
@@ -191,10 +198,14 @@ public:
         // inside it could take focus — you could not type into a floating panel's search field at all.
         // The old test was hasTornState(), which is true only for framework-created tear-offs and never
         // for an app's own panel borrowed into a float.
+        // A dock a host is about to show again is left shown: hidden and shown again every frame, its
+        // content told so twice a frame, it read as hidden to anything drawn in between (a panel that puts
+        // something on another dock's picture while it shows took it off again before that dock drew).
         for (JDockWidget* d : JDockWidget::s_activeDocks) {
             if (!d || !d->content()) continue;
             JDockHost* h = d->placedIn();
             if (h && !ownsHost(h)) continue;
+            if (h && rendered(h) && h->shows(d)) continue;
             d->content()->setVisible(false);
         }
         for (int a = 0; a < AreaCount; ++a) if (isHost(Area(a)) && active(Area(a))) m_host[a].populateRenderPrimitives(buf);

@@ -959,6 +959,12 @@ public:
         _renderNode(rootId(), buf);
     }
 
+    // Does rendering show `dock`'s content: the active tab of one of this host's leaves, the leaf not
+    // collapsed to nothing (as _renderLeaf shows it)?
+    bool shows(const JDockWidget* dock) const {
+        return !m_nodes.empty() && _shows(rootId(), dock);
+    }
+
     void populateOverlay(JPrimitiveBuffer& buf) const {
         for (auto& dt : m_dropTargets) _renderDropTarget(dt, buf);
 
@@ -1435,6 +1441,18 @@ private:
             for (JDockNodeId c : n->children) _renderNode(c, buf);
             _renderSplitHandles(*n, buf);
         }
+    }
+
+    bool _shows(JDockNodeId id, const JDockWidget* dock) const {
+        const JDockNode* n = node(id);
+        if (!n) return false;
+        if (n->type != JDockNode::JType::Leaf) {
+            for (JDockNodeId c : n->children)
+                if (_shows(c, dock)) return true;
+            return false;
+        }
+        if (n->rect.width < 1.f || n->rect.height < 1.f) return false;
+        return n->activeTab >= 0 && n->activeTab < static_cast<int>(n->tabs.size()) && n->tabs[n->activeTab] == dock;
     }
 
     void _renderLeaf(const JDockNode& leaf, JPrimitiveBuffer& buf) const {
