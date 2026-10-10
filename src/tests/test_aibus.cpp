@@ -46,6 +46,7 @@ int main() {
     auto* bus = static_cast<JAiBusShared*>(mmap(nullptr, sizeof(JAiBusShared), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0));
     assert(bus != MAP_FAILED);
     assert(bus->magic == kAiBusMagic && bus->version == kAiBusVersion && "ABI header");
+    assert(bus->ownerPid == static_cast<int32_t>(getpid()) && "the publishing process is named, so a stale bus is told");
 
     // The button must appear in the snapshot with its role + name.
     bool found = false; uint32_t btnId = 0;

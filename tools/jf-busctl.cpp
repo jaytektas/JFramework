@@ -22,7 +22,9 @@
 
 #include <j/core/JAiBusAbi.h>
 
+#include <cerrno>
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <cstdio>
@@ -48,6 +50,15 @@ int main(int argc, char** argv) {
     auto* bus = static_cast<JAiBusShared*>(mem);
     if (bus->magic != kAiBusMagic)       { std::fprintf(stderr, "bad magic 0x%08x\n", bus->magic); return 1; }
     if (bus->version != kAiBusVersion)   { std::fprintf(stderr, "ABI mismatch: bus v%u, client v%u\n", bus->version, kAiBusVersion); return 1; }
+
+    // A segment whose app has gone (it died without removing it) still holds that app's last frame: read
+    // as live, it shows widgets and dialogs that are no longer there, and every action waits for an ack
+    // that never comes.
+    if (bus->ownerPid > 0 && kill(bus->ownerPid, 0) != 0 && errno == ESRCH) {
+        std::fprintf(stderr, "stale bus (%s): the app that published it (pid %d) is no longer running — "
+                             "is the app running with JF_AI_BUS=1?\n", kAiBusDefaultName, bus->ownerPid);
+        return 1;
+    }
 
     const std::string cmd = argv[1];
 

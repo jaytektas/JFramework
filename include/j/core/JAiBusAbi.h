@@ -15,7 +15,7 @@
 inline namespace jf {
 
 inline constexpr uint32_t kAiBusMagic     = 0x4A414942;   // "JAIB"
-inline constexpr uint32_t kAiBusVersion   = 6;            // ABI version (bump on layout change)
+inline constexpr uint32_t kAiBusVersion   = 7;            // ABI version (bump on layout change)
 inline constexpr uint32_t kAiBusMaxNodes  = 2048;
 inline constexpr char     kAiBusDefaultName[] = "/jframework_ai_bus";
 
@@ -55,7 +55,9 @@ struct JAiBusShared {
     uint32_t              version{kAiBusVersion};
     std::atomic<uint64_t> seq{0};
     uint32_t              nodeCount{0};
-    uint32_t              _pad{0};
+    // The process publishing it. A segment outlives the app that made it when that app dies without
+    // removing it, and its last frame then reads as live: a client checks this process still runs.
+    int32_t               ownerPid{0};
     JAiBusAction          action;
     JAiBusNode            nodes[kAiBusMaxNodes];
 };

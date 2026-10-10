@@ -58,12 +58,25 @@ public:
         ::close(fd);   // the mapping keeps the segment alive; the fd isn't needed after mmap
         if (mem == MAP_FAILED) return;
         m_shm = new (mem) JAiBusShared();   // placement-new: sets magic/version, zeroes atomics + nodes
+        m_shm->ownerPid = static_cast<int32_t>(getpid());
+        m_name = name;
 #else
         (void)name;
 #endif
     }
 
     bool enabled() const { return m_shm != nullptr; }
+
+    // At exit the segment goes with the app, so no client reads its last frame as if it were still there
+    // (a crash leaves it behind; the client's ownerPid check covers that). Another app that has since made
+    // the same segment its own keeps it.
+    ~JAiBus() {
+#if defined(__linux__) || defined(__APPLE__)
+        if (!m_shm) return;
+        if (m_shm->ownerPid == static_cast<int32_t>(getpid())) shm_unlink(m_name.c_str());
+        munmap(m_shm, sizeof(JAiBusShared));
+#endif
+    }
 
     // Optional richer-action handler (set_value:X, select:foo, …) the generic dispatch can't do without
     // per-widget knowledge. Return 1 handled / 0 not handled / -1 bad id. Runs on the MAIN thread.
@@ -241,6 +254,7 @@ private:
     }
 
     JAiBusShared* m_shm = nullptr;
+    std::string   m_name;                                 // the segment's name, to remove it at exit
     uint32_t      m_lastHandled = 0;
     std::unordered_map<const JWidget*, uint32_t> m_ids;   // widget -> its bus id, for as long as it lives
     std::unordered_set<const JWidget*>           m_seen;  // published this frame (scratch, reused)
