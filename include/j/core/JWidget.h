@@ -64,6 +64,13 @@ struct JTooltipHover {
     // JWidget::s_pressCount last seen; `pressedOn` (compared only, as `last`) the widget it found pressed.
     uint64_t                              presses = 0;
     JWidget*                              pressedOn = nullptr;
+    // DUE: a tip waiting out its dwell, and when it comes up. The dwell is measured while painting, so a
+    // window that paints only when something happens (the main window does) never saw it end: the pointer
+    // stopped, nothing changed, no frame came, and the tip waited for the next mouse movement — a one-pixel
+    // nudge brought it up. A window that paints on demand asks for one frame at `dueAt` (isDue).
+    bool                                  pending = false;
+    std::chrono::steady_clock::time_point dueAt{};
+    bool isDue() const { return pending && std::chrono::steady_clock::now() >= dueAt; }
 };
 
 class JWidget : public jf::JSlotTracker {

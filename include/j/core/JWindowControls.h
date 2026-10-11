@@ -67,6 +67,7 @@ inline void JWidget::renderTooltips(JPrimitiveBuffer& buf, JTooltipHover& hover,
         hover.pressedOn = hovered;
     }
     if (hovered != hover.pressedOn) hover.pressedOn = nullptr;
+    hover.pending = false;
     if (hovered && hovered == hover.pressedOn) return;
 
     if (hovered) {
@@ -74,7 +75,10 @@ inline void JWidget::renderTooltips(JPrimitiveBuffer& buf, JTooltipHover& hover,
             std::chrono::steady_clock::now() - hover.since).count();
         const JStyle& st = JStyle::current();
         if (static_cast<float>(elapsed) < st.tooltipDelayMs) {
-            return; // hover dwell not yet served
+            // Hover dwell not yet served: a frame is owed when it is (JTooltipHover::isDue).
+            hover.pending = true;
+            hover.dueAt   = hover.since + std::chrono::milliseconds(static_cast<long long>(st.tooltipDelayMs));
+            return;
         }
 
         const auto [tooltipW, tooltipH] = tooltipSize(hovered->tooltip(), viewW);

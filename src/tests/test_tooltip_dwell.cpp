@@ -96,6 +96,24 @@ int main() {
     check("fits the narrow window", narrowW <= narrow);
     check("taller instead", narrowH > wideH);
 
+    // 8. A FRAME IS OWED when the dwell ends. The dwell is measured while painting, and a window that
+    //    paints only when something happens got no frame after the pointer stopped: the tip waited for the
+    //    next mouse movement. Waiting, the hover says when it is due; due, the window paints; shown, nothing
+    //    more is owed (the window goes idle again).
+    {
+        JTooltipHover h;
+        h.presses = JWidget::s_pressCount;   // the press of (6) is not this hover's
+        check("nothing on arrival (8)", !drewTip(&b, h, 150.f, 120.f));
+        check("a frame owed after the dwell", h.pending && !h.isDue());
+        const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(h.dueAt - h.since).count();
+        check("owed when the dwell ends", static_cast<float>(waited) == delayMs);
+        dwell();
+        check("due once the dwell is served", h.isDue());
+        check("that frame shows it", drewTip(&b, h, 150.f, 120.f));
+        check("nothing owed once shown", !h.pending && !h.isDue());
+        check("nothing owed off any widget", !drewTip(&b, h, 900.f, 600.f) && !h.pending);
+    }
+
     std::printf("\n%s\n", g_fail ? "FAILURES" : "all passed");
     return g_fail ? 1 : 0;
 }

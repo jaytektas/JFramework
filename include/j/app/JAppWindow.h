@@ -1122,6 +1122,7 @@ public:
             m_wasDragging = JDragDrop::isDragging();
 
             if (m_needRedraw) { activity = true; m_needRedraw = false; }
+            if (m_tooltipHover.isDue()) activity = true;   // a hover tip's dwell is up: the frame that shows it
             if (activity) redraw = 4;
 
             // Event-driven: present only while armed, idle otherwise. Continuously
