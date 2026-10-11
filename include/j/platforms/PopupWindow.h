@@ -318,6 +318,10 @@ public:
             for (auto& w : m_widgets)
                 if (w->isVisible() && w->handleScroll(mx, my, wheel)) break;
 
+        // THE POINTER THE WIDGET UNDER IT ASKS FOR (a table's column edge: resize), as the main window shows
+        // it. The ask is the same shared slot the main window reads, so it is put back as it was after.
+        const JPlatformCursor wantedBefore = JWidget::s_hoverCursor;
+        JWidget::s_hoverCursor = JPlatformCursor::Default;
         for (auto& w : m_widgets) {
             if (!w->isVisible()) continue;
             w->handleMouseMove(mx, my);
@@ -334,6 +338,8 @@ public:
                 w->handleMouseRelease(mx, my);
             }
         }
+        m_window->setCursor(JWidget::s_hoverCursor);
+        JWidget::s_hoverCursor = wantedBefore;
 
         if (clickedId != 0) {
             out.activatedNodeId = clickedId;
