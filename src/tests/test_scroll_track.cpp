@@ -154,6 +154,75 @@ static void test_a_short_list_has_no_dead_strip() {
     CHECK(hits == 1);
 }
 
+// SIDEWAYS, ONLY WHEN ASKED. A child wider than the view (its measured minimum) is cut off at the right
+// unless the area scrolls sideways; asked to, the child keeps its width, a bar along the bottom scrolls it,
+// the wheel goes across when there is nothing to go down, and a press on the bottom track pages, picking
+// nothing behind it.
+struct Wide {
+    static constexpr float kWideW = 500.f;
+    JSceneGraph graph;
+    JScrollArea area{graph, kW, kH};
+    JPopupItem* row = nullptr;
+    int activations = 0;
+
+    explicit Wide(bool across) {
+        area.setBounds({ 0.f, 0.f, kW, kH });
+        area.setContentPadding(0.f, 0.f, 0.f);
+        area.setHorizontalScroll(across);
+        row = area.addChildWidget(std::make_unique<JPopupItem>(graph, "wide row", kWideW, kItemH));
+        row->onActivated.connect([this] { ++activations; });
+        graph.getLayout(row->getNodeId()).minWidth = kWideW;   // what its own children need
+        layout();
+    }
+    void layout() { JPrimitiveBuffer buf; area.populateRenderPrimitives(buf); }
+    float rowX() const { return graph.getLayoutConst(row->getNodeId()).boundingBox.x; }
+    float rowW() const { return graph.getLayoutConst(row->getNodeId()).boundingBox.width; }
+};
+
+static void test_off_a_child_is_the_area_wide() {
+    Wide w(false);
+    std::printf("  not sideways: row %.0f wide in %.0f\n", w.rowW(), kW);
+    CHECK(w.rowW() == kW && !w.area.horizontalScroll());
+    CHECK(!w.area.pointInScrollbar(kW * 0.5f, kH - 4.f));    // no bottom bar
+    w.area.handleScroll(kW * 0.5f, kItemH * 0.5f, -1.f);
+    CHECK(w.area.scrollX() == 0.f);
+}
+
+static void test_on_a_wide_child_scrolls_across() {
+    Wide w(true);
+    std::printf("  sideways: row %.0f wide in %.0f\n", w.rowW(), kW);
+    CHECK(w.rowW() == Wide::kWideW);
+    CHECK(w.area.pointInScrollbar(kW * 0.5f, kH - 4.f));     // the bottom bar
+    CHECK(!w.area.pointInScrollbar(kW * 0.5f, kItemH * 0.5f));
+    // The wheel: nothing to go down, so across; to the end and no further.
+    for (int i = 0; i < 100; ++i) w.area.handleScroll(kW * 0.5f, kItemH * 0.5f, -1.f);
+    w.layout();
+    std::printf("  wheeled across -> scrollX %.0f (want %.0f), row at x %.0f\n", w.area.scrollX(), Wide::kWideW - kW, w.rowX());
+    CHECK(w.area.scrollX() == Wide::kWideW - kW);
+    CHECK(w.rowX() == -(Wide::kWideW - kW));                 // the row moved left with it
+    // The bottom track, left of the thumb: pages back, and the row behind the bar is not picked.
+    w.area.handleMousePress(4.f, kH - 4.f);
+    w.area.handleMouseRelease(4.f, kH - 4.f);
+    std::printf("  click left of the thumb -> scrollX %.0f, %d activation(s)\n", w.area.scrollX(), w.activations);
+    CHECK(w.area.scrollX() < Wide::kWideW - kW);
+    CHECK(w.activations == 0);
+}
+
+static void test_the_bottom_thumb_drags() {
+    Wide w(true);
+    JWidget::s_leftDown = true;
+    struct Restore { ~Restore() { JWidget::s_leftDown = false; } } restore;
+    // The thumb, as drawn: track kW - 4 from x 2, thumb track * (view / content).
+    const float trackLen = kW - 4.f, len = trackLen * (kW / Wide::kWideW), range = trackLen - len;
+    w.area.handleMousePress(2.f + len * 0.5f, kH - 6.f);
+    CHECK(w.area.isDraggingScroll() && w.area.scrollX() == 0.f);   // grabbed, not paged
+    w.area.handleMouseMove(2.f + len * 0.5f + range * 0.5f, kH - 6.f);
+    std::printf("  bottom thumb dragged to mid-track -> scrollX %.0f (want %.0f)\n", w.area.scrollX(), (Wide::kWideW - kW) * 0.5f);
+    CHECK(std::abs(w.area.scrollX() - (Wide::kWideW - kW) * 0.5f) < 1.0f);
+    w.area.handleMouseRelease(2.f + len * 0.5f + range * 0.5f, kH - 6.f);
+    CHECK(w.activations == 0);
+}
+
 int main() {
     std::cout << "JScrollArea scrollbar-track tests\n";
     test_the_bar_is_where_the_host_thinks_it_is();
@@ -162,6 +231,9 @@ int main() {
     test_a_short_list_has_no_dead_strip();
     test_the_painted_thumb_is_the_one_you_can_grab();
     test_the_wheel_stops_at_the_last_row();
+    test_off_a_child_is_the_area_wide();
+    test_on_a_wide_child_scrolls_across();
+    test_the_bottom_thumb_drags();
     std::printf(g_fails ? "scroll track: FAILED (%d)\n" : "scroll track: OK\n", g_fails);
     return g_fails ? 1 : 0;
 }
