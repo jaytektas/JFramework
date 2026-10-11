@@ -597,6 +597,10 @@ public:
             JPopupWindow::s_ownWindow = [this](uintptr_t id) {
                 for (const auto& f : m_floating)
                     if (f.rawWindowId() == id) return true;
+                // A combo's dropdown, and the list of a choice in it: a menu opened from one (its table's
+                // Columns…) finds the focus there, which is not the application being left.
+                if (m_comboPopup && m_comboPopup->window().rawWindowId() == id) return true;
+                if (m_comboChild && m_comboChild->window().rawWindowId() == id) return true;
                 return false;
             };
             m_menuH = JStyle::current().menuItemHeight + 4.f;   // menu bar scales with the scheme row height
@@ -1894,28 +1898,48 @@ private:
             barW += st.spacing + w;
         }
 
-        // The table: every entry first, for its columns' widths.
-        auto* grid = popup->add<JDataGrid>(table ? search.columns : std::vector<std::string>{ "" }, bb.width, 100.f);
-        if (!table) grid->setHeaderHeight(0.f);
-        std::vector<std::vector<std::string>> all;
-        for (int i = 0; i < static_cast<int>(cb->items().size()); ++i) all.push_back(cb->searchCells(i));
-        grid->setRows(all);
-        // Each column as wide as its widest cell, to three quarters of the combo's width (a long
-        // description is cut, not left to push the table off the screen).
-        grid->autoFitAllColumns();
-        float gridW = st.scrollBarWidth + 2.f;
-        for (int c = 0; c < static_cast<int>(grid->columnWidths().size()); ++c) {
-            grid->setColumnWidth(c, std::min(grid->columnWidths()[size_t(c)], bb.width * 0.75f));
-            gridW += grid->columnWidths()[size_t(c)];
+        // The app's table, with its control at the end of the filter's row; else a plain one of the
+        // entries' cells, every entry first for its columns' widths (each as wide as its widest cell, to
+        // three quarters of the combo's width: a long description is cut, not left to push the table off
+        // the screen).
+        std::shared_ptr<JComboBox::Search::Table> own;
+        if (search.table) own = search.table(g);
+        JWidget* list = nullptr;
+        JDataGrid* grid = nullptr;
+        float listW = st.scrollBarWidth + 2.f, rowH = 0.f, headH = 0.f;
+        if (own) {
+            if (std::unique_ptr<JWidget> control = own->barControl(g)) {
+                const float cw = std::max(g.getLayoutConst(control->getNodeId()).minWidth, control->getBoundingBox().width);
+                bar->add(std::move(control));
+                barW += st.spacing + cw;
+            }
+            list = popup->adopt(own->takeWidget());
+            listW = own->width();
+            rowH = st.gridRowHeight;
+            headH = st.gridHeaderHeight;
+        } else {
+            grid = popup->add<JDataGrid>(table ? search.columns : std::vector<std::string>{ "" }, bb.width, 100.f);
+            if (!table) grid->setHeaderHeight(0.f);
+            std::vector<std::vector<std::string>> all;
+            for (int i = 0; i < static_cast<int>(cb->items().size()); ++i) all.push_back(cb->searchCells(i));
+            grid->setRows(all);
+            grid->autoFitAllColumns();
+            for (int c = 0; c < static_cast<int>(grid->columnWidths().size()); ++c) {
+                grid->setColumnWidth(c, std::min(grid->columnWidths()[size_t(c)], bb.width * 0.75f));
+                listW += grid->columnWidths()[size_t(c)];
+            }
+            list = grid;
+            rowH = grid->rowHeight();
+            headH = grid->headerHeight();
         }
         // Over the combo, as far right as the screen allows (the table scrolls across for the rest); moved
         // left only when even the filter's row would not fit.
         const float room = static_cast<float>(scrW - kEdgePad - sx);
-        const float w = std::min(static_cast<float>(scrW - 2 * kEdgePad), std::max(barW, std::min(gridW, room)));
-        const float listH = grid->headerHeight()
-                            + grid->rowHeight() * static_cast<float>(std::clamp(static_cast<int>(all.size()), 3, kMostRows));
+        const float w = std::min(static_cast<float>(scrW - 2 * kEdgePad), std::max(barW, std::min(listW, room)));
+        const float listH = headH + rowH * static_cast<float>(std::clamp(static_cast<int>(cb->items().size()), 3, kMostRows))
+                            + (own ? st.scrollBarWidth : 0.f);
         bar->setFixedSize(w, bb.height);
-        grid->setFixedSize(w, listH);
+        list->setFixedSize(w, listH);
         const float h = bb.height + st.spacing + listH;
         popup->setSize(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
         popup->setTypesText(true);
@@ -1924,20 +1948,24 @@ private:
         if (py + static_cast<int>(h) > scrH - kEdgePad) py = std::max(kEdgePad, scrH - kEdgePad - static_cast<int>(h));
         if (px + static_cast<int>(w) > scrW - kEdgePad) px = std::max(kEdgePad, scrW - kEdgePad - static_cast<int>(w));
         if (px != sx || py != top) popup->window().setPosition(px, py);
-        g.setHostWindow(px, py, popup->window().rawWindowId());   // where a choice in it opens its own list
+        g.setHostWindow(px, py, popup->window().rawWindowId());   // where a choice or a menu in it opens
 
         // What the table shows: the entries answering the filter, in the scope.
         auto shown = std::make_shared<std::vector<int>>();
-        auto fill = [cb, grid, field, shown](bool opening) {
+        auto fill = [cb, grid, own, field, shown](bool opening) {
             *shown = cb->searchMatches(field->text());
+            int current = shown->empty() ? -1 : 0;
+            for (size_t k = 0; k < shown->size(); ++k)
+                if (opening && field->text().empty() && (*shown)[k] == cb->currentIndex()) current = static_cast<int>(k);
+            if (own) {
+                own->show(*shown, current < 0 ? -1 : (*shown)[size_t(current)]);
+                return;
+            }
             std::vector<std::vector<std::string>> rows;
             std::vector<uint8_t> enabled;
-            int current = shown->empty() ? -1 : 0;
-            for (size_t k = 0; k < shown->size(); ++k) {
-                const int i = (*shown)[k];
+            for (const int i : *shown) {
                 rows.push_back(cb->searchCells(i));
                 enabled.push_back(cb->itemEnabled(i) ? 1 : 0);
-                if (opening && field->text().empty() && i == cb->currentIndex()) current = static_cast<int>(k);
             }
             grid->setRows(rows);
             grid->setEnabledFlags(enabled);
@@ -1945,24 +1973,40 @@ private:
             grid->setSelectedIndex(current);
             grid->revealRow(current);
         };
-        auto choose = [this, cb, self, shown](int row) {
-            if (row < 0 || row >= static_cast<int>(shown->size()) || !cb->itemEnabled((*shown)[size_t(row)])) return;
-            cb->setCurrentIndex((*shown)[size_t(row)]);
+        // An entry taken: the combo's, and the list closed.
+        auto choose = [this, cb, self](int entry) {
+            if (entry < 0 || entry >= static_cast<int>(cb->items().size()) || !cb->itemEnabled(entry)) return;
+            cb->setCurrentIndex(entry);
             m_comboCloseReq = self;
             m_comboOwner = nullptr;
         };
         field->onTextChanged.connect([fill](const std::string&) { fill(false); });
-        grid->onRowActivated.connect([choose](int row) { choose(row); });
+        if (own) {
+            own->onPicked = choose;
+        } else {
+            grid->onRowActivated.connect([choose, shown](int row) {
+                if (row >= 0 && row < static_cast<int>(shown->size())) choose((*shown)[size_t(row)]);
+            });
+        }
         if (scopes)
             scopes->onIndexChanged.connect([cb, fill](int i) {
                 cb->setSearchScope(i);
                 fill(false);
             });
         // The table walks itself; everything else typed goes to the filter line.
-        popup->setKeysFirst([grid, field, choose](const JKeyEvent& ke) {
+        popup->setKeysFirst([grid, own, field, choose, shown](const JKeyEvent& ke) {
             using K = JKeyEvent::JKey;
-            if (ke.key == K::Up || ke.key == K::Down) return grid->handleKeyEvent(ke);
-            if (ke.key == K::Return) { choose(grid->selectedIndex()); return true; }
+            if (ke.key == K::Return) {
+                if (own) choose(own->chosen());
+                else if (const int row = grid->selectedIndex(); row >= 0 && row < static_cast<int>(shown->size()))
+                    choose((*shown)[size_t(row)]);
+                return true;
+            }
+            if (own) {
+                if (ke.key == K::Up || ke.key == K::Down || ke.key == K::PageUp || ke.key == K::PageDown) return own->key(ke);
+            } else if (ke.key == K::Up || ke.key == K::Down) {
+                return grid->handleKeyEvent(ke);
+            }
             return field->handleKeyEvent(ke);
         });
 
@@ -2061,7 +2105,16 @@ private:
                 if (m_comboPopup && m_comboPopup->isViewable()) m_comboPopup->render(*m_hal, scratch);
                 if (m_comboChild->isViewable()) m_comboChild->render(*m_hal, scratch);
             }
+        } else if (m_comboPopup && m_menuRuntime.hasOpenMenus()) {
+            // A MENU OPENED FROM THE DROPDOWN (its table's Columns…) has the pointer meanwhile: the dropdown
+            // lets it go, is drawn waiting, and takes it back once the menus have gone.
+            if (!m_comboMenuHeld) {
+                m_comboPopup->releasePointer();
+                m_comboMenuHeld = true;
+            }
+            if (m_comboPopup->isViewable()) m_comboPopup->render(*m_hal, scratch);
         } else if (m_comboPopup) {
+            if (std::exchange(m_comboMenuHeld, false)) m_comboPopup->reclaimPointer();
             auto res = m_comboPopup->pollEvents(*m_hal);
             const bool close = res.type == JPopupWindow::JPollResult::JType::Dismissed
                                || m_comboCloseReq == m_comboPopup.get();
@@ -2399,6 +2452,7 @@ private:
     JPopupWindow*                    m_comboCloseReq{nullptr};
     std::unique_ptr<JPopupWindow>    m_comboChild;        // the list of a choice in a searchable combo's dropdown
     JComboBox*                       m_comboChildOwner{nullptr};
+    bool                             m_comboMenuHeld{false};   // the dropdown let the pointer go to a menu it opened
     std::vector<JNativeDialogWindow> m_dialogs;
     std::vector<std::unique_ptr<JFileDialogWindow>> m_fileDialogs;   // each its own window (not movable)
     std::unique_ptr<JToolBar> m_toolBar;     // lazily created on toolBar()

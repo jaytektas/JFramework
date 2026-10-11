@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cctype>
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -155,6 +156,24 @@ public:
         int                                   scope = 0;
         std::function<bool(int scope, int i)> inScope;
         std::string placeholder;   // what the empty filter line says
+        // THE APP'S OWN TABLE in place of the plain one (its columns, its sorting, its layout kept as it
+        // keeps it): made in the dropdown's scene graph each time the list opens. None: the plain table.
+        struct Table {
+            virtual ~Table() = default;
+            // Its widget, handed to the dropdown (which owns it from then on, and lays it under the filter's row).
+            virtual std::unique_ptr<JWidget> takeWidget() = 0;
+            virtual float width() const = 0;   // the room its columns want
+            // The entries to show, in this order, and the one to show chosen (-1: none).
+            virtual void show(const std::vector<int>& entries, int current) = 0;
+            virtual int  chosen() const = 0;   // the entry chosen now, or -1
+            // Up, Down, Page Up and Down, Home, End walked through it; true: the key was its.
+            virtual bool key(const JKeyEvent& ke) = 0;
+            // A control at the end of the filter's row (the table's Columns…), or none.
+            virtual std::unique_ptr<JWidget> barControl(JSceneGraph&) { return nullptr; }
+            // Set by the dropdown: a click on an entry takes it.
+            std::function<void(int entry)> onPicked;
+        };
+        std::function<std::unique_ptr<Table>(JSceneGraph&)> table;
     };
     void setSearch(Search s) {
         m_search = std::move(s);

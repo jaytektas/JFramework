@@ -106,6 +106,14 @@ public:
         return ptr;
     }
 
+    // A widget made elsewhere (an app's, in this popup's graph) taken in, as add() makes one.
+    JWidget* adopt(std::unique_ptr<JWidget> w) {
+        JWidget* ptr = w.get();
+        m_graph.addChild(m_root, ptr->getNodeId());
+        m_widgets.push_back(std::move(w));
+        return ptr;
+    }
+
     void computeNaturalHeight() {
         m_graph.computeMinSize(m_root);
         float h = m_graph.getLayoutConst(m_root).minHeight;
