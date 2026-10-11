@@ -83,6 +83,15 @@ public:
         m_root = m_graph.createNode("PopupRoot");
         auto& l = m_graph.getLayout(m_root);
         l.boundingBox = { 0.f, 0.f, static_cast<float>(width), static_cast<float>(height) };
+        // ITS OWN FOCUS. A field clicked in it went to the main window's focus manager, which does not have
+        // it among its widgets and took the focus off it again the next frame (a combo's filter line lost
+        // its focus ring for good after one click).
+        m_graph.setFocusHere([this](JWidget* w) {
+            if (w == m_focused) return;
+            if (m_focused) m_focused->setFocused(false);
+            m_focused = w;
+            if (w) w->setFocused(true);
+        });
     }
 
     ~JPopupWindow() {
@@ -349,7 +358,9 @@ public:
         // Keyboard navigation — arrow keys, Enter, Escape. Non-nav keys (text, backspace) are
         // forwarded to widgets' handleKeyEvent so editable popup content (e.g. a colour picker's
         // hex field) works; the first widget that consumes the key wins.
-        for (const auto& ke : m_window->consumeAllKeys()) {
+        std::vector<JKeyEvent> keys = std::exchange(m_offeredKeys, {});
+        for (const auto& ke : m_window->consumeAllKeys()) keys.push_back(ke);
+        for (const auto& ke : keys) {
             if (!ke.pressed) continue;
             using K = JKeyEvent::JKey;
             if (m_keysFirst && ke.key != K::Escape && m_keysFirst(ke)) continue;
@@ -505,6 +516,9 @@ public:
 #endif
         m_hasPointerGrab = false;
     }
+    // Keys that reached another of the application's windows while this one is up (a window manager handing
+    // the keyboard back to the main window when a list over this one closed): taken as its own, on the next poll.
+    void offerKeys(const std::vector<JKeyEvent>& keys) { m_offeredKeys.insert(m_offeredKeys.end(), keys.begin(), keys.end()); }
     // The pointer taken back, on the next poll: the popup it opened is gone.
     void reclaimPointer() { m_hasPointerGrab = false; m_focusSet = false; }
 
@@ -770,6 +784,8 @@ private:
     std::function<void(JPrimitiveBuffer&)> m_painter;
     bool                           m_typesText{false};
     std::function<bool(const JKeyEvent&)> m_keysFirst;
+    std::vector<JKeyEvent>         m_offeredKeys;   // offerKeys, for the next poll
+    JWidget*                       m_focused{nullptr};   // its own focus (JSceneGraph::setFocusHere)
     std::vector<JWidget*>          m_navItems;    // explicit keyboard list (combo entries), else m_widgets
     std::function<void(JWidget*)>  m_navReveal;   // scroll an entry into view as the keyboard reaches it
     float m_lastPollMx{-1.f}, m_lastPollMy{-1.f};

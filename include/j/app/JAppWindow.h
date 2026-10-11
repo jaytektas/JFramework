@@ -858,6 +858,13 @@ public:
             // Consume the frame's key events once — shared by drag-abort (Escape) and the
             // keyboard-focus routing below. Consuming twice would starve one of the two.
             auto frameKeys = m_window->consumeAllKeys();
+            // A COMBO'S DROPDOWN IS UP: the keys are its, wherever they arrived. A window manager may hand the
+            // keyboard back to this window when a list over the dropdown closes (its Show), and typing then
+            // reached neither the dropdown's filter nor anything else.
+            if (m_comboPopup && !m_comboChild && !m_menuRuntime.hasOpenMenus() && !frameKeys.empty()) {
+                m_comboPopup->offerKeys(frameKeys);
+                frameKeys.clear();
+            }
             const float wheel = m_window->consumeWheel();
             if (wheel != 0.f) activity = true;
 
@@ -1883,7 +1890,7 @@ private:
         auto* field = bar->add(std::make_unique<JLineEdit>(g, search.placeholder, bb.width, bb.height));
         field->setFixedSize(bb.width, bb.height);
         field->setClearButtonEnabled(true);
-        field->setFocused(true);           // its own window's: typing goes here, not to the window underneath
+        field->requestFocus();             // its own window's (JPopupWindow keeps it): typing goes here
         float barW = bb.width;
         JComboBox* scopes = nullptr;
         if (!search.scopes.empty()) {

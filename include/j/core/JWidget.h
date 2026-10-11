@@ -118,7 +118,11 @@ public:
     // hit-test (focusAt) can be fooled by an occluded/tabbed-behind widget still flagged visible.
     // Focusing a clicked control is the framework's job — an app never wires this.
     inline static std::function<void(JWidget*)> s_focusHook;
-    void requestFocus() { if (s_focusHook) s_focusHook(this); }
+    // A window that keeps its own focus (a popup's: JSceneGraph::setFocusHere) gives it; else the manager's hook.
+    void requestFocus() {
+        if (const auto& here = m_graph.focusHere()) here(this);
+        else if (s_focusHook) s_focusHook(this);
+    }
 
     // Destruction hook — installed by JFocusManager. A focus manager holds RAW pointers (its focused widget,
     // its order, its roots); a widget that dies without saying so leaves them dangling, and the manager then

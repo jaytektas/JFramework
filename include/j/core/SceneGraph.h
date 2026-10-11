@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <functional>
 #include <vector>
 #include <memory>
 #include <string>
@@ -15,6 +16,8 @@
 namespace { inline constexpr auto& LogLayoutEngine = jf::Log::Layout; }
 
 inline namespace jf {
+
+class JWidget;
 
 using NodeId = uint32_t;
 constexpr NodeId InvalidNodeId = 0xFFFFFFFF;
@@ -224,6 +227,11 @@ public:
     struct JHostWindow { int screenX = 0, screenY = 0; std::uintptr_t nativeHandle = 0; bool set = false; };
     void setHostWindow(int sx, int sy, std::uintptr_t handle) { m_host = { sx, sy, handle, true }; }
     const JHostWindow& hostWindow() const { return m_host; }
+    // A window whose widgets keep their own focus (a popup's: JPopupWindow), not the main window's focus
+    // manager's: a widget here asking for focus (JWidget::requestFocus) is given it by this. None: the
+    // manager's, as always.
+    void setFocusHere(std::function<void(JWidget*)> here) { m_focusHere = std::move(here); }
+    const std::function<void(JWidget*)>& focusHere() const { return m_focusHere; }
 
     NodeId createNode(const std::string& debugName = "") {
         NodeId id = static_cast<NodeId>(m_layouts.size());
@@ -918,6 +926,7 @@ private:
     };
 
     JHostWindow                   m_host{};            // host window for popups anchored in this graph's space
+    std::function<void(JWidget*)> m_focusHere;         // its own focus, when its window keeps one (setFocusHere)
     JLayoutComponent              m_defaultLayout{};   // global defaults for new nodes
     std::vector<JLayoutComponent> m_layouts;
     uint32_t                      m_layoutPass{0};     // counts layout passes (JLayoutComponent::naturalPass)
