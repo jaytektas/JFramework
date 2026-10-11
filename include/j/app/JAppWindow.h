@@ -27,6 +27,9 @@
 #include <j/core/GenesisComponents.h>    // JGuiApplication
 #include <j/core/JComboBox.h>
 #include <j/core/JScrollArea.h>            // JComboBox (managed combo-dropdown popup)
+#include <j/core/JContainer.h>             // a searchable combo's dropdown: its scopes' row
+#include <j/core/JLineEdit.h>              // …its search line
+#include <j/core/JToggleButton.h>          // …its scopes
 #include <j/core/JColorButton.h>         // JColorButton (opens the colour picker dialog)
 #include <j/core/JFontButton.h>          // JFontButton (opens the font picker dialog)
 #include <j/core/JTitleBar.h>            // JTitleBar::draw (window title bar)
@@ -1713,6 +1716,7 @@ private:
             : (JPopupWindow::NativeWinHandleType)(m_window->rawWindowId());
         const int sx = wsx + static_cast<int>(bb.x);
         const int sy = wsy + static_cast<int>(bb.y + bb.height);
+        if (cb->isSearchable()) { _openSearchDropdown(cb, sx, sy, wsy, bb, parent); return; }
         const auto popupW = static_cast<uint32_t>(bb.width);
         auto popup = std::make_unique<JPopupWindow>(sx, sy, popupW, 8, *m_hal,
                         JPopupWindow::JStyle::Borderless, parent);
@@ -1813,6 +1817,126 @@ private:
         m_comboOwner = cb;
     }
 
+    // A SEARCHABLE combo's dropdown (JComboBox::Search): the search line on top, typing going there; the
+    // scopes' toggles under it when there are any; the entries that answer what is typed, best first, in a
+    // list of a steady height (it does not jump about as it narrows); the "More…" row last. The list is
+    // made again each time the search or the scope changes, and opens on the best answer, or on the
+    // current entry while nothing is typed. Wider than the combo when the entries and their details need
+    // it, never wider than the screen.
+    void _openSearchDropdown(JComboBox* cb, int sx, int sy, int wsy, const JWidget::JBBox& bb,
+                             JPopupWindow::NativeWinHandleType parent) {
+        const JStyle& st = JStyle::current();
+        const JComboBox::Search& search = cb->search();
+        const auto& items = cb->items();
+        static constexpr float kItemH = 28.f;   // as the plain list's rows
+        constexpr int   kEdgePad = 8;
+        constexpr int   kMaxVisibleItems = 12;
+
+        float natural = 0.f;
+        for (size_t i = 0; i < items.size(); ++i) {
+            const std::string detail = i < search.details.size() ? search.details[i] : std::string();
+            natural = std::max(natural, JTextHelper::measureWidth(tr(items[i]))
+                                        + (detail.empty() ? 0.f : JTextHelper::measureWidth(detail) + 32.f) + 24.f
+                                        + st.scrollBarWidth + st.spacing);
+        }
+        auto popup = std::make_unique<JPopupWindow>(sx, sy, static_cast<uint32_t>(bb.width), 8, *m_hal,
+                                                    JPopupWindow::JStyle::Borderless, parent);
+        const auto [scrW, scrH] = popup->window().screenSize();
+        // As wide as the entries need, to half as wide again as the combo (the rest of a long one is cut).
+        const float w = std::min(static_cast<float>(scrW - 2 * kEdgePad), std::max(bb.width, std::min(natural, bb.width * 1.5f)));
+
+        // Its parts' heights, and the list's: a normal dropdown's worth of rows, less where the room is short.
+        const float fieldH  = st.controlHeight;
+        const float scopesH = search.scopes.empty() ? 0.f : st.buttonHeight + st.spacing;
+        const float moreH   = search.more.empty() ? 0.f : kItemH;
+        const float chrome  = fieldH + st.spacing + scopesH + moreH;
+        const int roomBelow = scrH - sy - kEdgePad;
+        const int roomAbove = (wsy + static_cast<int>(bb.y)) - kEdgePad;
+        const float wanted  = chrome + std::min<float>(static_cast<float>(std::max<size_t>(items.size(), 3)), kMaxVisibleItems) * kItemH;
+        const bool upward   = roomBelow < roomAbove && roomBelow < static_cast<int>(wanted);
+        const float room    = static_cast<float>(upward ? roomAbove : roomBelow);
+        const float listH   = std::max(kItemH * 3.f, std::min(wanted, room) - chrome);
+
+        auto* field = popup->add<JLineEdit>(search.placeholder, w, fieldH);
+        field->setFixedSize(w, fieldH);
+        field->setClearButtonEnabled(true);
+        field->setFocused(true);           // its own window's: typing goes here, not to the window underneath
+        JContainer* scopes = nullptr;
+        std::vector<JToggleButton*> toggles;
+        if (!search.scopes.empty()) {
+            scopes = popup->add<JContainer>(w, st.buttonHeight);
+            scopes->setDirection(JFlexDirection::JRow)->setGap(st.spacing);
+            scopes->setFixedSize(w, st.buttonHeight);
+            for (size_t k = 0; k < search.scopes.size(); ++k) {
+                auto t = std::make_unique<JToggleButton>(popup->graph(), search.scopes[k], 0.f, st.buttonHeight);
+                t->setToggled(static_cast<int>(k) == search.scope);
+                toggles.push_back(scopes->add(std::move(t)));
+            }
+        }
+        auto* area = popup->add<JScrollArea>(w, listH);
+        area->setContentPadding(0.f, 0.f, 0.f);
+        area->setFixedSize(w, listH);
+        JPopupItem* more = nullptr;
+        if (!search.more.empty()) {
+            more = popup->add<JPopupItem>(search.more, w, kItemH);
+            more->onActivated.connect([this, cb] {
+                m_comboAfterClose = cb->search().onMore;
+                m_comboCloseReq = m_comboPopup.get();
+                m_comboOwner = nullptr;
+            });
+        }
+
+        JPopupWindow* pw = popup.get();
+        const float rowW = w - st.scrollBarWidth - st.spacing;   // clear of the list's bar
+        auto fill = [this, cb, pw, area, field, rowW, listH](bool opening) {
+            area->clearChildren();
+            const std::vector<int> shown = cb->searchMatches(field->text());
+            std::vector<JWidget*> nav;
+            int current = shown.empty() ? -1 : 0;
+            for (size_t k = 0; k < shown.size(); ++k) {
+                const int i = shown[k];
+                auto* pi = area->addChildWidget(std::make_unique<JPopupItem>(pw->graph(), cb->items()[size_t(i)], rowW, kItemH));
+                if (size_t(i) < cb->search().details.size()) pi->setDetail(cb->search().details[size_t(i)]);
+                pi->setEnabled(cb->itemEnabled(i));
+                pi->onActivated.connect([this, cb, i] {
+                    cb->setCurrentIndex(i);
+                    m_comboCloseReq = m_comboPopup.get();
+                    m_comboOwner = nullptr;
+                });
+                nav.push_back(pi);
+                if (opening && field->text().empty() && i == cb->currentIndex()) current = static_cast<int>(k);
+            }
+            area->setScrollY(current < 0 ? 0.f : (current + 0.5f) * kItemH - listH * 0.5f);
+            pw->setKeyNavList(nav, current, [area](JWidget* x) { area->revealChild(x); });
+        };
+        field->onTextChanged.connect([fill](const std::string&) { fill(false); });
+        for (size_t k = 0; k < toggles.size(); ++k)
+            toggles[k]->onToggled.connect([cb, toggles, k, fill](bool on) {
+                // One at a time: the one in force stays on when clicked again.
+                if (!on) {
+                    if (cb->search().scope == static_cast<int>(k)) toggles[k]->setToggled(true);
+                    return;
+                }
+                cb->setSearchScope(static_cast<int>(k));
+                for (size_t j = 0; j < toggles.size(); ++j) toggles[j]->setToggled(j == k);
+                fill(false);
+            });
+
+        popup->setSize(static_cast<uint32_t>(w), static_cast<uint32_t>(fieldH + st.spacing + scopesH + listH + moreH));
+        popup->setTypesText(true);
+        if (upward)
+            popup->window().setPosition(sx, std::max(kEdgePad, (wsy + static_cast<int>(bb.y)) - static_cast<int>(popup->height())));
+        else if (sy + static_cast<int>(popup->height()) > scrH - kEdgePad)
+            popup->window().setPosition(sx, std::max(kEdgePad, scrH - kEdgePad - static_cast<int>(popup->height())));
+        if (sx + static_cast<int>(w) > scrW - kEdgePad)
+            popup->window().setPosition(std::max(kEdgePad, scrW - kEdgePad - static_cast<int>(w)), popup->window().screenY());
+        m_comboPopup = std::move(popup);
+        m_comboOwner = cb;
+        const std::string seed = cb->takeSearchSeed();
+        if (!seed.empty()) field->setText(seed);   // what was typed on the closed combo (fills, through onTextChanged)
+        fill(seed.empty());
+    }
+
     // JColorButton picker: open a JColorPickerDialog — a proper modal dialog window (title bar,
     // OK/Cancel, draggable), seeded with the button's current colour. The colour is applied to the
     // button only on OK; Cancel/close/Escape discard the edit. Installed as JColorButton::onOpenPickerHook.
@@ -1890,7 +2014,9 @@ private:
                 // A DISMISSAL MAY BE HALF OF A TOGGLE. If the click that dismissed this also lands on the
                 // combo later in this same pass, it must not reopen what it just closed.
                 if (dismissed) m_comboDismissed = m_comboOwner;
-                m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); m_comboOwner = nullptr; }
+                m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); m_comboOwner = nullptr;
+                // What its "More…" row leads to, once it has gone (it may open a window of its own).
+                if (auto after = std::exchange(m_comboAfterClose, nullptr)) after(); }
             else if (m_comboPopup->isViewable()) m_comboPopup->render(*m_hal, scratch);
         }
 
@@ -2215,6 +2341,7 @@ private:
     std::vector<JModalEntry> m_modalStack;
     std::vector<std::function<void()>> m_whenNoDialog;   // see whenNoDialog()
     JPopupWindow*                    m_comboCloseReq{nullptr};
+    std::function<void()>            m_comboAfterClose;   // a searchable list's "More…", run once it has closed
     std::vector<JNativeDialogWindow> m_dialogs;
     std::vector<std::unique_ptr<JFileDialogWindow>> m_fileDialogs;   // each its own window (not movable)
     std::unique_ptr<JToolBar> m_toolBar;     // lazily created on toolBar()

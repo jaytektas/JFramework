@@ -344,7 +344,8 @@ public:
             }
             if (ke.key == K::Up)   { _navStep(-1); continue; }
             if (ke.key == K::Down) { _navStep(1);  continue; }
-            if (ke.key != K::Return && ke.key != K::Space) {
+            // A popup that types (a searchable list's search line) takes Space as a character.
+            if (ke.key != K::Return && (ke.key != K::Space || m_typesText)) {
                 for (auto& w : m_widgets) { if (w->isVisible() && w->handleKeyEvent(ke)) break; }
                 continue;
             }
@@ -471,6 +472,8 @@ public:
     }
 
     int keyNavIdx() const { return m_keyNavIdx; }
+    // Whether it has a line to type in, so Space is a character there and not a choice (Return chooses).
+    void setTypesText(bool on) { m_typesText = on; }
 
     // THE LIST THE KEYBOARD WALKS, when it is not simply this popup's top-level widgets — a combo box's
     // entries live inside a scroll area, so stepping over the popup's children would step over exactly one
@@ -732,6 +735,7 @@ private:
     JTooltipHover                  m_tooltipHover; // this popup's own hover dwell
     bool                           m_drawsTooltips = true;
     std::function<void(JPrimitiveBuffer&)> m_painter;
+    bool                           m_typesText{false};
     std::vector<JWidget*>          m_navItems;    // explicit keyboard list (combo entries), else m_widgets
     std::function<void(JWidget*)>  m_navReveal;   // scroll an entry into view as the keyboard reaches it
     float m_lastPollMx{-1.f}, m_lastPollMy{-1.f};
