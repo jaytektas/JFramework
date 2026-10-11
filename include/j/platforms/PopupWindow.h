@@ -338,6 +338,7 @@ public:
         for (const auto& ke : m_window->consumeAllKeys()) {
             if (!ke.pressed) continue;
             using K = JKeyEvent::JKey;
+            if (m_keysFirst && ke.key != K::Escape && m_keysFirst(ke)) continue;
             if (ke.key == K::Escape) {
                 out.type = JPollResult::JType::Dismissed;
                 return out;
@@ -474,6 +475,24 @@ public:
     int keyNavIdx() const { return m_keyNavIdx; }
     // Whether it has a line to type in, so Space is a character there and not a choice (Return chooses).
     void setTypesText(bool on) { m_typesText = on; }
+    // Keys offered to `first` before anything else (Escape excepted): true, it took the key. A popup whose
+    // content walks itself (a table under a filter line) answers Up, Down and Return there.
+    void setKeysFirst(std::function<bool(const JKeyEvent&)> first) { m_keysFirst = std::move(first); }
+    // The pointer let go while a popup this one opens (a choice in it) is up: that one is a client of its
+    // own to the X server, and cannot grab what this one holds. Still drawn meanwhile.
+    void releasePointer() {
+        if (!m_hasPointerGrab) return;
+#if defined(_WIN32)
+        m_window->setPointerGrab(false);
+#else
+        xcb_connection_t* conn = m_window->nativeConnection();
+        xcb_ungrab_pointer(conn, XCB_CURRENT_TIME);
+        xcb_flush(conn);
+#endif
+        m_hasPointerGrab = false;
+    }
+    // The pointer taken back, on the next poll: the popup it opened is gone.
+    void reclaimPointer() { m_hasPointerGrab = false; m_focusSet = false; }
 
     // THE LIST THE KEYBOARD WALKS, when it is not simply this popup's top-level widgets — a combo box's
     // entries live inside a scroll area, so stepping over the popup's children would step over exactly one
@@ -736,6 +755,7 @@ private:
     bool                           m_drawsTooltips = true;
     std::function<void(JPrimitiveBuffer&)> m_painter;
     bool                           m_typesText{false};
+    std::function<bool(const JKeyEvent&)> m_keysFirst;
     std::vector<JWidget*>          m_navItems;    // explicit keyboard list (combo entries), else m_widgets
     std::function<void(JWidget*)>  m_navReveal;   // scroll an entry into view as the keyboard reaches it
     float m_lastPollMx{-1.f}, m_lastPollMy{-1.f};

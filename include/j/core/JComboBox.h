@@ -132,26 +132,29 @@ public:
     void setMode(JComboBoxMode mode) { m_mode = mode; }
 
     // ---- Searchable list (opt-in) -----------------------------------------------------------------------
-    // A list too long to read down, to FIND something in: the dropdown opens with a search line at its top,
-    // and what is typed there narrows the list to the entries that match it, best first. Typing on the
-    // closed combo opens it with that typed in. Up/Down walk what is left, Return takes the highlighted
-    // entry, Escape leaves the value as it was. Off (the default), a combo is the plain list it always was.
+    // A list too long to read down, to FIND something in, shown as a table to choose from. Opened, the combo
+    // becomes a filter line (its ✕ empties it) with a coarse filter (Search::scopes) to its right, and the
+    // table drops below them; what is typed narrows the table to the entries that answer it, best first.
+    // Typing on the closed combo opens it with that typed in. Up/Down walk the table, Return or a click
+    // takes an entry, Escape leaves the value as it was. Off (the default), a combo is the plain list it
+    // always was.
     struct Search {
-        // Per entry, dimmer words at its right: what tells two entries apart, or where one comes from.
-        // Searched as the entry is.
-        std::vector<std::string> details;
+        // The table's columns' titles, and each entry's cells, column by column (searched as the entry
+        // is). No columns: one, the entries themselves.
+        std::vector<std::string>              columns;
+        std::vector<std::vector<std::string>> cells;
         // How well entry `i` answers what is typed: below zero leaves it out, lower comes first, a tie keeps
-        // the list's order. None: every word typed (any case) in the entry or its details, an entry one of
+        // the list's order. None: every word typed (any case) in the entry or its cells, an entry one of
         // them starts first.
         std::function<int(int i, const std::string& typed)> rank;
-        // Which part of the list to look in, as a row of toggles under the search line (none: no row).
+        // The coarse filter, a choice beside the filter line ("Show": All, …): its choices, the one in
+        // force (kept between openings), and whether entry `i` is in one. None: no choice. The list opens on
+        // the first choice (meant to be all of them) when the one in force hides the current entry.
+        std::string                           scopesLabel;
         std::vector<std::string>              scopes;
-        int                                   scope = 0;   // the one in force, kept between openings
+        int                                   scope = 0;
         std::function<bool(int scope, int i)> inScope;
-        std::string placeholder;                            // what the empty search line says
-        // A last row that leads elsewhere ("More…"): it closes the list and calls onMore.
-        std::string           more;
-        std::function<void()> onMore;
+        std::string placeholder;   // what the empty filter line says
     };
     void setSearch(Search s) {
         m_search = std::move(s);
@@ -162,14 +165,22 @@ public:
     void          setSearchScope(int s) { m_search.scope = s; }
     // What was typed on the closed combo to open it, taken by the list as it opens.
     std::string takeSearchSeed() { return std::exchange(m_searchSeed, std::string()); }
+    // Entry `i`'s cells as the table shows them (its own text alone, without columns).
+    std::vector<std::string> searchCells(int i) const {
+        if (m_search.columns.empty() || i < 0 || i >= static_cast<int>(m_search.cells.size()))
+            return { i >= 0 && i < static_cast<int>(m_items.size()) ? m_items[i] : std::string() };
+        return m_search.cells[i];
+    }
 
     // The entries that answer `typed` in the scope in force, best first (Search::rank, else defaultRank).
     std::vector<int> searchMatches(const std::string& typed) const {
         std::vector<std::pair<int, int>> ranked;   // (rank, entry)
         for (int i = 0; i < static_cast<int>(m_items.size()); ++i) {
             if (!m_search.scopes.empty() && m_search.inScope && !m_search.inScope(m_search.scope, i)) continue;
-            const std::string& detail = i < static_cast<int>(m_search.details.size()) ? m_search.details[i] : std::string();
-            const int r = m_search.rank ? m_search.rank(i, typed) : defaultRank(m_items[i], detail, typed);
+            std::string all;
+            if (i < static_cast<int>(m_search.cells.size()))
+                for (const std::string& c : m_search.cells[i]) all += c + " ";
+            const int r = m_search.rank ? m_search.rank(i, typed) : defaultRank(m_items[i], all, typed);
             if (r >= 0) ranked.emplace_back(r, i);
         }
         std::stable_sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
@@ -178,14 +189,14 @@ public:
         for (const auto& [r, i] : ranked) out.push_back(i);
         return out;
     }
-    // Every word of `typed` (any case) in `item` or `detail`: 0 when the item starts with one, 1 otherwise;
+    // Every word of `typed` (any case) in `item` or `cells`: 0 when the item starts with one, 1 otherwise;
     // -1 when a word is missing. Nothing typed: 0.
-    static int defaultRank(const std::string& item, const std::string& detail, const std::string& typed) {
+    static int defaultRank(const std::string& item, const std::string& cells, const std::string& typed) {
         auto lower = [](std::string t) {
             for (char& c : t) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
             return t;
         };
-        const std::string name = lower(item), all = name + " " + lower(detail);
+        const std::string name = lower(item), all = name + " " + lower(cells);
         bool starts = false, any = false;
         size_t at = 0;
         const std::string t = lower(typed);

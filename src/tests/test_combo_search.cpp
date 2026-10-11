@@ -4,7 +4,7 @@
 // test_combo_search.cpp — a searchable combo finds what is typed.
 //
 // JComboBox::Search narrows a long list to the entries that answer what is typed: every word, in any case,
-// in the entry or its details; an entry one of them starts before one that only holds it; in the scope
+// in the entry or its cells; an entry one of them starts before one that only holds it; in the scope
 // chosen; ranked by the app's own measure when it gives one.
 
 #include <j/core/JComboBox.h>
@@ -18,16 +18,18 @@ using namespace jf;
 static int g_fails = 0;
 #define CHECK(cond) do { if (!(cond)) { std::printf("  FAIL (line %d): %s\n", __LINE__, #cond); ++g_fails; } } while (0)
 
-static void test_every_word_in_the_entry_or_its_details() {
+static void test_every_word_in_the_entry_or_its_cells() {
     JSceneGraph g;
     JComboBox cb(g, { "R_0603_10k", "C_0603_100n", "LQFP-48", "C_0805_10u" });
     JComboBox::Search s;
-    s.details = { "Resistor", "Capacitor", "MCU", "Capacitor" };
+    s.columns = { "Part", "Kind" };
+    s.cells = { { "R_0603_10k", "Resistor" }, { "C_0603_100n", "Capacitor" }, { "LQFP-48", "MCU" }, { "C_0805_10u", "Capacitor" } };
     cb.setSearch(s);
+    CHECK((cb.searchCells(2) == std::vector<std::string>{ "LQFP-48", "MCU" }));
     CHECK(cb.isSearchable());
     CHECK((cb.searchMatches("") == std::vector<int>{ 0, 1, 2, 3 }));       // nothing typed: all, in order
     CHECK((cb.searchMatches("lq") == std::vector<int>{ 2 }));              // any case
-    CHECK((cb.searchMatches("0603 cap") == std::vector<int>{ 1 }));        // every word, details too
+    CHECK((cb.searchMatches("0603 cap") == std::vector<int>{ 1 }));        // every word, its cells too
     CHECK((cb.searchMatches("capacitor") == std::vector<int>{ 1, 3 }));
     CHECK(cb.searchMatches("zzz").empty());
 }
@@ -36,6 +38,7 @@ static void test_a_start_comes_first() {
     JSceneGraph g;
     JComboBox cb(g, { "Crystal", "R_0603_10k", "C_0603_100n" });
     cb.setSearch({});
+    CHECK((cb.searchCells(1) == std::vector<std::string>{ "R_0603_10k" }));   // no columns: the entry itself
     // "r" is in the first two; the one it starts comes first.
     CHECK((cb.searchMatches("r") == std::vector<int>{ 1, 0 }));
 }
@@ -54,7 +57,7 @@ static void test_the_scope_and_the_apps_rank() {
 }
 
 int main() {
-    test_every_word_in_the_entry_or_its_details();
+    test_every_word_in_the_entry_or_its_cells();
     test_a_start_comes_first();
     test_the_scope_and_the_apps_rank();
     if (g_fails) { std::printf("test_combo_search: %d failure(s)\n", g_fails); return 1; }

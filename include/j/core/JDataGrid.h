@@ -63,6 +63,8 @@ public:
     }
 
     // Back to the first row — for a caller genuinely replacing the contents rather than refreshing.
+    // Scrolled as little as it takes for row `index` (the rows' own order) to be in view.
+    void revealRow(int index) { _ensureRowVisible(index); }
     void scrollToTop() {
         m_scrollY = 0.0f;
         m_scrollX = 0.0f;
@@ -525,6 +527,10 @@ public:
             endIdx   = std::clamp(static_cast<int>((m_scrollY + visibleH - headerH) / rowH) + 1, 0, lastView);
         }
 
+        // THE ROWS BELOW THE HEADER, clipped there. Clipped with it, a row scrolled part way up was drawn
+        // over the header's titles.
+        buf.popClip();
+        buf.pushClip(b.x + 1.0f, b.y + headerH, visibleW, std::max(0.0f, visibleH + 1.0f - headerH));
         for (int v = startIdx; v <= endIdx; ++v) {
             const int r = sourceRowAt(v);            // v = position on screen, r = caller's row index
             if (r < 0) continue;

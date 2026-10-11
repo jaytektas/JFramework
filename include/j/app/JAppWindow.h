@@ -27,9 +27,10 @@
 #include <j/core/GenesisComponents.h>    // JGuiApplication
 #include <j/core/JComboBox.h>
 #include <j/core/JScrollArea.h>            // JComboBox (managed combo-dropdown popup)
-#include <j/core/JContainer.h>             // a searchable combo's dropdown: its scopes' row
-#include <j/core/JLineEdit.h>              // …its search line
-#include <j/core/JToggleButton.h>          // …its scopes
+#include <j/core/JContainer.h>             // a searchable combo's dropdown: its filter's row
+#include <j/core/JDataGrid.h>              // …its table
+#include <j/core/JLabel.h>                 // …its coarse filter's name
+#include <j/core/JLineEdit.h>              // …its filter line
 #include <j/core/JColorButton.h>         // JColorButton (opens the colour picker dialog)
 #include <j/core/JFontButton.h>          // JFontButton (opens the font picker dialog)
 #include <j/core/JTitleBar.h>            // JTitleBar::draw (window title bar)
@@ -148,6 +149,7 @@ public:
         JPopupWindow::s_ownWindow = nullptr;   // it asks this window, which is going
         if (!m_hal) return;
         for (auto& fd : m_floating) fd.destroySurface(*m_hal);
+        if (m_comboChild) m_comboChild->destroySurface(*m_hal);
         if (m_comboPopup) m_comboPopup->destroySurface(*m_hal);
         m_menuRuntime.closeAll();       // open menu popups own surfaces too
     }
@@ -1186,6 +1188,7 @@ public:
         // The same applies to the OTHER popup windows the runner owns — a combo box's dropdown and the
         // colour picker are equally real windows with their own swapchains. Quitting with a dropdown open
         // aborted exactly as a menu did.
+        _closeComboChild();
         if (m_comboPopup)  { m_comboPopup->destroySurface(*m_hal);  m_comboPopup.reset();  m_comboOwner = nullptr; }
         if (m_colorDialog) { m_colorDialog->destroySurface(*m_hal); m_colorDialog.reset(); }
         m_hal->waitIdle();
@@ -1697,18 +1700,28 @@ private:
     // Open (or toggle/replace) a Popup-mode combo's dropdown below the combo. Installed as
     // JComboBox::onOpenPopupHook so any combo just works — the app wires nothing.
     void openComboDropdown(JComboBox* cb) {
-        if (cb && cb == m_comboDismissed) {         // this click already closed it — do not reopen
-            JLOGC("popup", jf::JLogLevel::Debug) << "TOGGLE-CLOSE: the dropdown was dismissed by the same "
-                                                    "click that is now pressing its combo";
-            m_comboDismissed = nullptr;
-            return;
+        // A CHOICE IN THE OPEN DROPDOWN (a searchable list's coarse filter): its list opens over the
+        // dropdown, which stays; a click on it again closes it.
+        const bool nested = m_comboPopup && &cb->sceneGraph() == &m_comboPopup->graph();
+        if (nested) {
+            const bool again = m_comboChildOwner == cb;
+            _closeComboChild();
+            if (again) return;
+        } else {
+            if (cb && cb == m_comboDismissed) {         // this click already closed it — do not reopen
+                JLOGC("popup", jf::JLogLevel::Debug) << "TOGGLE-CLOSE: the dropdown was dismissed by the same "
+                                                        "click that is now pressing its combo";
+                m_comboDismissed = nullptr;
+                return;
+            }
+            _closeComboChild();
+            if (m_comboPopup && m_comboOwner == cb) {   // click same combo again → close
+                JLOGC("popup", jf::JLogLevel::Debug) << "TOGGLE-CLOSE: the click reached the COMBO, "
+                                                        "not the open dropdown";
+                m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); m_comboOwner = nullptr; return;
+            }
+            if (m_comboPopup) { m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); }
         }
-        if (m_comboPopup && m_comboOwner == cb) {   // click same combo again → close
-            JLOGC("popup", jf::JLogLevel::Debug) << "TOGGLE-CLOSE: the click reached the COMBO, "
-                                                    "not the open dropdown";
-            m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); m_comboOwner = nullptr; return;
-        }
-        if (m_comboPopup) { m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); }
 
         const auto bb = cb->getBoundingBox();
         // WHICH WINDOW IS THIS COMBO IN? Three answers, most specific first:
@@ -1727,10 +1740,11 @@ private:
             : (JPopupWindow::NativeWinHandleType)(m_window->rawWindowId());
         const int sx = wsx + static_cast<int>(bb.x);
         const int sy = wsy + static_cast<int>(bb.y + bb.height);
-        if (cb->isSearchable()) { _openSearchDropdown(cb, sx, sy, wsy, bb, parent); return; }
+        if (cb->isSearchable() && !nested) { _openSearchDropdown(cb, sx, sy, bb, parent); return; }
         const auto popupW = static_cast<uint32_t>(bb.width);
         auto popup = std::make_unique<JPopupWindow>(sx, sy, popupW, 8, *m_hal,
                         JPopupWindow::JStyle::Borderless, parent);
+        JPopupWindow* self = popup.get();
         const auto& items = cb->items();
         constexpr float kItemH = 28.f;
         constexpr int   kEdgePad = 8;      // never touch the screen edge
@@ -1764,14 +1778,14 @@ private:
             << " roomBelow=" << roomBelow << " roomAbove=" << roomAbove;
 
         // A row the combo says cannot be chosen is built greyed and inert (JComboBox::setItemsEnabled).
-        auto wire = [this, cb](JPopupItem* pi, int i) {
+        auto wire = [this, cb, self, nested](JPopupItem* pi, int i) {
             pi->setEnabled(cb->itemEnabled(i));
-            pi->onActivated.connect([this, cb, i]() {
+            pi->onActivated.connect([this, cb, i, self, nested]() {
                 JLOGC("popup", jf::JLogLevel::Debug) << "PICK index=" << i
                     << " (was " << cb->currentIndex() << ")";
                 cb->setCurrentIndex(i);
-                m_comboCloseReq = m_comboPopup.get();   // defer close until after pollEvents returns
-                m_comboOwner = nullptr;
+                m_comboCloseReq = self;   // defer close until after pollEvents returns
+                (nested ? m_comboChildOwner : m_comboOwner) = nullptr;
             });
         };
 
@@ -1824,128 +1838,147 @@ private:
         popup->setKeyNavList(nav, cb->currentIndex(),
                              scroller ? std::function<void(JWidget*)>([scroller](JWidget* w) { scroller->revealChild(w); })
                                       : std::function<void(JWidget*)>{});
+        if (nested) {
+            m_comboPopup->releasePointer();
+            m_comboChild = std::move(popup);
+            m_comboChildOwner = cb;
+            return;
+        }
         m_comboPopup = std::move(popup);
         m_comboOwner = cb;
     }
 
-    // A SEARCHABLE combo's dropdown (JComboBox::Search): the search line on top, typing going there; the
-    // scopes' toggles under it when there are any; the entries that answer what is typed, best first, in a
-    // list of a steady height (it does not jump about as it narrows); the "More…" row last. The list is
-    // made again each time the search or the scope changes, and opens on the best answer, or on the
-    // current entry while nothing is typed. Wider than the combo when the entries and their details need
-    // it, never wider than the screen.
-    void _openSearchDropdown(JComboBox* cb, int sx, int sy, int wsy, const JWidget::JBBox& bb,
+    // A SEARCHABLE combo's dropdown (JComboBox::Search): laid over the combo, its filter line (its ✕ empties
+    // it) where the combo was, the coarse filter's choice to its right, and under them the table of the
+    // entries that answer the filter, best first, in the coarse filter's scope. The table keeps its height
+    // as it narrows (it does not jump about), opens on the current entry while nothing is typed, else on the
+    // best answer; Up/Down walk it, Return or a click takes an entry. As wide as its columns need, never
+    // narrower than the combo and its choice, nor wider than the screen.
+    void _openSearchDropdown(JComboBox* cb, int sx, int sy, const JWidget::JBBox& bb,
                              JPopupWindow::NativeWinHandleType parent) {
         const JStyle& st = JStyle::current();
         const JComboBox::Search& search = cb->search();
-        const auto& items = cb->items();
-        static constexpr float kItemH = 28.f;   // as the plain list's rows
-        constexpr int   kEdgePad = 8;
-        constexpr int   kMaxVisibleItems = 12;
+        constexpr int kEdgePad = 8;
+        constexpr int kMostRows = 12;
+        const bool table = !search.columns.empty();
+        // It opens on a scope its current entry is in: the first (all of them) when the one in force hides it.
+        if (!search.scopes.empty() && search.inScope && cb->currentIndex() >= 0
+            && !search.inScope(search.scope, cb->currentIndex()))
+            cb->setSearchScope(0);
 
-        float natural = 0.f;
-        for (size_t i = 0; i < items.size(); ++i) {
-            const std::string detail = i < search.details.size() ? search.details[i] : std::string();
-            natural = std::max(natural, JTextHelper::measureWidth(tr(items[i]))
-                                        + (detail.empty() ? 0.f : JTextHelper::measureWidth(detail) + 32.f) + 24.f
-                                        + st.scrollBarWidth + st.spacing);
-        }
-        auto popup = std::make_unique<JPopupWindow>(sx, sy, static_cast<uint32_t>(bb.width), 8, *m_hal,
+        const int top = sy - static_cast<int>(bb.height);   // over the combo, not under it
+        auto popup = std::make_unique<JPopupWindow>(sx, top, static_cast<uint32_t>(bb.width), 8, *m_hal,
                                                     JPopupWindow::JStyle::Borderless, parent);
+        JPopupWindow* self = popup.get();
+        JSceneGraph& g = popup->graph();
         const auto [scrW, scrH] = popup->window().screenSize();
-        // As wide as the entries need, to half as wide again as the combo (the rest of a long one is cut).
-        const float w = std::min(static_cast<float>(scrW - 2 * kEdgePad), std::max(bb.width, std::min(natural, bb.width * 1.5f)));
 
-        // Its parts' heights, and the list's: a normal dropdown's worth of rows, less where the room is short.
-        const float fieldH  = st.controlHeight;
-        const float scopesH = search.scopes.empty() ? 0.f : st.buttonHeight + st.spacing;
-        const float moreH   = search.more.empty() ? 0.f : kItemH;
-        const float chrome  = fieldH + st.spacing + scopesH + moreH;
-        const int roomBelow = scrH - sy - kEdgePad;
-        const int roomAbove = (wsy + static_cast<int>(bb.y)) - kEdgePad;
-        const float wanted  = chrome + std::min<float>(static_cast<float>(std::max<size_t>(items.size(), 3)), kMaxVisibleItems) * kItemH;
-        const bool upward   = roomBelow < roomAbove && roomBelow < static_cast<int>(wanted);
-        const float room    = static_cast<float>(upward ? roomAbove : roomBelow);
-        const float listH   = std::max(kItemH * 3.f, std::min(wanted, room) - chrome);
-
-        auto* field = popup->add<JLineEdit>(search.placeholder, w, fieldH);
-        field->setFixedSize(w, fieldH);
+        // The filter line and the coarse filter, a row.
+        auto* bar = popup->add<JContainer>(bb.width, bb.height);
+        bar->setDirection(JFlexDirection::JRow)->setGap(st.spacing)->setAlignItems(JAlignItems::Center);
+        auto* field = bar->add(std::make_unique<JLineEdit>(g, search.placeholder, bb.width, bb.height));
+        field->setFixedSize(bb.width, bb.height);
         field->setClearButtonEnabled(true);
         field->setFocused(true);           // its own window's: typing goes here, not to the window underneath
-        JContainer* scopes = nullptr;
-        std::vector<JToggleButton*> toggles;
+        float barW = bb.width;
+        JComboBox* scopes = nullptr;
         if (!search.scopes.empty()) {
-            scopes = popup->add<JContainer>(w, st.buttonHeight);
-            scopes->setDirection(JFlexDirection::JRow)->setGap(st.spacing);
-            scopes->setFixedSize(w, st.buttonHeight);
-            for (size_t k = 0; k < search.scopes.size(); ++k) {
-                auto t = std::make_unique<JToggleButton>(popup->graph(), search.scopes[k], 0.f, st.buttonHeight);
-                t->setToggled(static_cast<int>(k) == search.scope);
-                toggles.push_back(scopes->add(std::move(t)));
+            if (!search.scopesLabel.empty()) {
+                bar->add(std::make_unique<JLabel>(g, search.scopesLabel, 0.f));
+                barW += st.spacing + JTextHelper::measureWidth(tr(search.scopesLabel));
             }
-        }
-        auto* area = popup->add<JScrollArea>(w, listH);
-        area->setContentPadding(0.f, 0.f, 0.f);
-        area->setFixedSize(w, listH);
-        JPopupItem* more = nullptr;
-        if (!search.more.empty()) {
-            more = popup->add<JPopupItem>(search.more, w, kItemH);
-            more->onActivated.connect([this, cb] {
-                m_comboAfterClose = cb->search().onMore;
-                m_comboCloseReq = m_comboPopup.get();
-                m_comboOwner = nullptr;
-            });
+            scopes = bar->add(std::make_unique<JComboBox>(g, search.scopes, 0.f));
+            scopes->setCurrentIndex(search.scope);
+            const float w = g.getLayoutConst(scopes->getNodeId()).minWidth + 2 * st.spacing;   // its longest, uncut
+            scopes->setFixedSize(w, bb.height);
+            barW += st.spacing + w;
         }
 
-        JPopupWindow* pw = popup.get();
-        const float rowW = w - st.scrollBarWidth - st.spacing;   // clear of the list's bar
-        auto fill = [this, cb, pw, area, field, rowW, listH](bool opening) {
-            area->clearChildren();
-            const std::vector<int> shown = cb->searchMatches(field->text());
-            std::vector<JWidget*> nav;
-            int current = shown.empty() ? -1 : 0;
-            for (size_t k = 0; k < shown.size(); ++k) {
-                const int i = shown[k];
-                auto* pi = area->addChildWidget(std::make_unique<JPopupItem>(pw->graph(), cb->items()[size_t(i)], rowW, kItemH));
-                if (size_t(i) < cb->search().details.size()) pi->setDetail(cb->search().details[size_t(i)]);
-                pi->setEnabled(cb->itemEnabled(i));
-                pi->onActivated.connect([this, cb, i] {
-                    cb->setCurrentIndex(i);
-                    m_comboCloseReq = m_comboPopup.get();
-                    m_comboOwner = nullptr;
-                });
-                nav.push_back(pi);
+        // The table: every entry first, for its columns' widths.
+        auto* grid = popup->add<JDataGrid>(table ? search.columns : std::vector<std::string>{ "" }, bb.width, 100.f);
+        if (!table) grid->setHeaderHeight(0.f);
+        std::vector<std::vector<std::string>> all;
+        for (int i = 0; i < static_cast<int>(cb->items().size()); ++i) all.push_back(cb->searchCells(i));
+        grid->setRows(all);
+        // Each column as wide as its widest cell, to three quarters of the combo's width (a long
+        // description is cut, not left to push the table off the screen).
+        grid->autoFitAllColumns();
+        float gridW = st.scrollBarWidth + 2.f;
+        for (int c = 0; c < static_cast<int>(grid->columnWidths().size()); ++c) {
+            grid->setColumnWidth(c, std::min(grid->columnWidths()[size_t(c)], bb.width * 0.75f));
+            gridW += grid->columnWidths()[size_t(c)];
+        }
+        // Over the combo, as far right as the screen allows (the table scrolls across for the rest); moved
+        // left only when even the filter's row would not fit.
+        const float room = static_cast<float>(scrW - kEdgePad - sx);
+        const float w = std::min(static_cast<float>(scrW - 2 * kEdgePad), std::max(barW, std::min(gridW, room)));
+        const float listH = grid->headerHeight()
+                            + grid->rowHeight() * static_cast<float>(std::clamp(static_cast<int>(all.size()), 3, kMostRows));
+        bar->setFixedSize(w, bb.height);
+        grid->setFixedSize(w, listH);
+        const float h = bb.height + st.spacing + listH;
+        popup->setSize(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+        popup->setTypesText(true);
+        // On the screen: moved up, or left, as far as it must be to fit.
+        int px = sx, py = top;
+        if (py + static_cast<int>(h) > scrH - kEdgePad) py = std::max(kEdgePad, scrH - kEdgePad - static_cast<int>(h));
+        if (px + static_cast<int>(w) > scrW - kEdgePad) px = std::max(kEdgePad, scrW - kEdgePad - static_cast<int>(w));
+        if (px != sx || py != top) popup->window().setPosition(px, py);
+        g.setHostWindow(px, py, popup->window().rawWindowId());   // where a choice in it opens its own list
+
+        // What the table shows: the entries answering the filter, in the scope.
+        auto shown = std::make_shared<std::vector<int>>();
+        auto fill = [cb, grid, field, shown](bool opening) {
+            *shown = cb->searchMatches(field->text());
+            std::vector<std::vector<std::string>> rows;
+            std::vector<uint8_t> enabled;
+            int current = shown->empty() ? -1 : 0;
+            for (size_t k = 0; k < shown->size(); ++k) {
+                const int i = (*shown)[k];
+                rows.push_back(cb->searchCells(i));
+                enabled.push_back(cb->itemEnabled(i) ? 1 : 0);
                 if (opening && field->text().empty() && i == cb->currentIndex()) current = static_cast<int>(k);
             }
-            area->setScrollY(current < 0 ? 0.f : (current + 0.5f) * kItemH - listH * 0.5f);
-            pw->setKeyNavList(nav, current, [area](JWidget* x) { area->revealChild(x); });
+            grid->setRows(rows);
+            grid->setEnabledFlags(enabled);
+            grid->scrollToTop();
+            grid->setSelectedIndex(current);
+            grid->revealRow(current);
+        };
+        auto choose = [this, cb, self, shown](int row) {
+            if (row < 0 || row >= static_cast<int>(shown->size()) || !cb->itemEnabled((*shown)[size_t(row)])) return;
+            cb->setCurrentIndex((*shown)[size_t(row)]);
+            m_comboCloseReq = self;
+            m_comboOwner = nullptr;
         };
         field->onTextChanged.connect([fill](const std::string&) { fill(false); });
-        for (size_t k = 0; k < toggles.size(); ++k)
-            toggles[k]->onToggled.connect([cb, toggles, k, fill](bool on) {
-                // One at a time: the one in force stays on when clicked again.
-                if (!on) {
-                    if (cb->search().scope == static_cast<int>(k)) toggles[k]->setToggled(true);
-                    return;
-                }
-                cb->setSearchScope(static_cast<int>(k));
-                for (size_t j = 0; j < toggles.size(); ++j) toggles[j]->setToggled(j == k);
+        grid->onRowActivated.connect([choose](int row) { choose(row); });
+        if (scopes)
+            scopes->onIndexChanged.connect([cb, fill](int i) {
+                cb->setSearchScope(i);
                 fill(false);
             });
+        // The table walks itself; everything else typed goes to the filter line.
+        popup->setKeysFirst([grid, field, choose](const JKeyEvent& ke) {
+            using K = JKeyEvent::JKey;
+            if (ke.key == K::Up || ke.key == K::Down) return grid->handleKeyEvent(ke);
+            if (ke.key == K::Return) { choose(grid->selectedIndex()); return true; }
+            return field->handleKeyEvent(ke);
+        });
 
-        popup->setSize(static_cast<uint32_t>(w), static_cast<uint32_t>(fieldH + st.spacing + scopesH + listH + moreH));
-        popup->setTypesText(true);
-        if (upward)
-            popup->window().setPosition(sx, std::max(kEdgePad, (wsy + static_cast<int>(bb.y)) - static_cast<int>(popup->height())));
-        else if (sy + static_cast<int>(popup->height()) > scrH - kEdgePad)
-            popup->window().setPosition(sx, std::max(kEdgePad, scrH - kEdgePad - static_cast<int>(popup->height())));
-        if (sx + static_cast<int>(w) > scrW - kEdgePad)
-            popup->window().setPosition(std::max(kEdgePad, scrW - kEdgePad - static_cast<int>(w)), popup->window().screenY());
         m_comboPopup = std::move(popup);
         m_comboOwner = cb;
         const std::string seed = cb->takeSearchSeed();
         if (!seed.empty()) field->setText(seed);   // what was typed on the closed combo (fills, through onTextChanged)
         fill(seed.empty());
+    }
+
+    // Closes the list a choice in a searchable combo's dropdown opened, if one is open.
+    void _closeComboChild() {
+        if (!m_comboChild) return;
+        m_comboChild->destroySurface(*m_hal);
+        m_comboChild.reset();
+        m_comboChildOwner = nullptr;
     }
 
     // JColorButton picker: open a JColorPickerDialog — a proper modal dialog window (title bar,
@@ -2014,7 +2047,21 @@ private:
     // so this runs OUTSIDE the main window's frame. Returns true while any overlay is active.
     bool serviceComboAndDialogs() {
         JPrimitiveBuffer scratch;   // overlays render to their OWN surfaces; this is scratch
-        if (m_comboPopup) {
+        // A choice's list over the dropdown it is in: it alone is asked (it has the pointer), the dropdown
+        // drawn under it, and given the pointer back once it has gone.
+        if (m_comboChild) {
+            auto res = m_comboChild->pollEvents(*m_hal);
+            const bool close = res.type == JPopupWindow::JPollResult::JType::Dismissed
+                               || m_comboCloseReq == m_comboChild.get();
+            if (close) {
+                m_comboCloseReq = nullptr;
+                _closeComboChild();
+                if (m_comboPopup) m_comboPopup->reclaimPointer();
+            } else {
+                if (m_comboPopup && m_comboPopup->isViewable()) m_comboPopup->render(*m_hal, scratch);
+                if (m_comboChild->isViewable()) m_comboChild->render(*m_hal, scratch);
+            }
+        } else if (m_comboPopup) {
             auto res = m_comboPopup->pollEvents(*m_hal);
             const bool close = res.type == JPopupWindow::JPollResult::JType::Dismissed
                                || m_comboCloseReq == m_comboPopup.get();
@@ -2025,9 +2072,7 @@ private:
                 // A DISMISSAL MAY BE HALF OF A TOGGLE. If the click that dismissed this also lands on the
                 // combo later in this same pass, it must not reopen what it just closed.
                 if (dismissed) m_comboDismissed = m_comboOwner;
-                m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); m_comboOwner = nullptr;
-                // What its "More…" row leads to, once it has gone (it may open a window of its own).
-                if (auto after = std::exchange(m_comboAfterClose, nullptr)) after(); }
+                m_comboPopup->destroySurface(*m_hal); m_comboPopup.reset(); m_comboOwner = nullptr; }
             else if (m_comboPopup->isViewable()) m_comboPopup->render(*m_hal, scratch);
         }
 
@@ -2352,7 +2397,8 @@ private:
     std::vector<JModalEntry> m_modalStack;
     std::vector<std::function<void()>> m_whenNoDialog;   // see whenNoDialog()
     JPopupWindow*                    m_comboCloseReq{nullptr};
-    std::function<void()>            m_comboAfterClose;   // a searchable list's "More…", run once it has closed
+    std::unique_ptr<JPopupWindow>    m_comboChild;        // the list of a choice in a searchable combo's dropdown
+    JComboBox*                       m_comboChildOwner{nullptr};
     std::vector<JNativeDialogWindow> m_dialogs;
     std::vector<std::unique_ptr<JFileDialogWindow>> m_fileDialogs;   // each its own window (not movable)
     std::unique_ptr<JToolBar> m_toolBar;     // lazily created on toolBar()

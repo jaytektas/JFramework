@@ -8,8 +8,6 @@
 #include "JControl.h"
 #include "JTextHelper.h"
 
-#include <algorithm>
-
 inline namespace jf {
 
 // ============================================================================
@@ -49,14 +47,6 @@ public:
         m_graph.invalidateNode(m_nodeId, DirtySelf);
     }
     const std::string& label() const { return m_label; }
-    // Dimmer words at the row's right (a searchable list's details); the label gives way to them.
-    void setDetail(const std::string& s) {
-        m_detail = s;
-        auto& l = m_graph.getLayout(m_nodeId);
-        if (JTextHelper::hasAtlas() && !s.empty()) l.minWidth += JTextHelper::measureWidth(s) + 16.f;
-        m_graph.invalidateNode(m_nodeId, DirtySelf);
-    }
-    const std::string& detail() const { return m_detail; }
 
     // The KEYBOARD's current item, which is not the same as the mouse's hover: a list opened on its current
     // selection has to show which entry that is before the pointer has been anywhere near it.
@@ -95,17 +85,8 @@ public:
             const uint8_t* base = isEnabled() ? Colors::ControlText : Colors::MutedText;
             uint8_t tc[4] = {base[0], base[1], base[2], static_cast<uint8_t>(isEnabled() ? 230 : 140)};
             float ty = b.y + (b.height - JTextHelper::lineHeight()) * 0.5f;
-            float labelW = b.width - 16.f;
-            if (!m_detail.empty()) {
-                // The label first; the detail has what is left, and never less than a third.
-                const float dw = std::min(JTextHelper::measureWidth(m_detail),
-                                          std::max(b.width / 3.f, b.width - JTextHelper::measureWidth(tr(m_label)) - 42.f));
-                uint8_t dc[4] = {Colors::MutedText[0], Colors::MutedText[1], Colors::MutedText[2],
-                                 static_cast<uint8_t>(isEnabled() ? 200 : 120)};
-                JTextHelper::pushText(buf, b.x + b.width - 10.f - dw, ty, m_detail, dc, dw);
-                labelW = std::max(0.f, b.width - dw - 32.f);
-            }
-            JTextHelper::pushText(buf, b.x + 10.f, ty, tr(m_label), tc, labelW);
+            JTextHelper::pushText(buf, b.x + 10.f, ty, tr(m_label), tc,
+                                 b.width - 16.f);
         } else {
             // Fallback: coloured bar representing the text
             uint8_t tc[4] = {Colors::LabelText[0], Colors::LabelText[1], Colors::LabelText[2], 180};
@@ -121,7 +102,6 @@ public:
 private:
     bool m_highlighted{false};
     std::string m_label;
-    std::string m_detail;
 };
 
 } // inline namespace jf
