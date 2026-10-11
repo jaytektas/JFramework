@@ -446,8 +446,19 @@ public:
             m_space.host(static_cast<JDockSpace::Area>(a)).restore(sized.second, unplaced);
             if (a != JDockSpace::Center) _setAreaSize(a, sized.first);
         }
+        // …WITHOUT TAKING THE FRONT. Adding a tab makes it the front one, so putting back a panel the text
+        // does not name (one the app made since, or keeps closed and takes out again next) showed it in
+        // place of the tab the text left in front. Each area's front tabs as restored are put in front again.
+        std::vector<std::pair<int, JDockWidget*>> fronts;
+        for (int a = 0; a < JDockSpace::AreaCount; ++a)
+            m_space.host(static_cast<JDockSpace::Area>(a)).forEachDockPanel(
+                [&fronts, a](JDockWidget* d, const JRect&, bool active, int) { if (active) fronts.push_back({ a, d }); });
         for (const auto& [a, d] : kept)
             if (!d->placedIn()) m_space.host(static_cast<JDockSpace::Area>(a)).addDock(d);
+        for (const auto& [a, d] : fronts) {
+            JDockHost& host = m_space.host(static_cast<JDockSpace::Area>(a));
+            if (d->placedIn() == &host) host.insertDock(d, host.findDock(d));   // where it is: brought to the front
+        }
         for (const Float& f : floats) {
             std::vector<std::string> titles;
             std::function<void(const JDockLayoutNode&)> titlesOf = [&](const JDockLayoutNode& node) {

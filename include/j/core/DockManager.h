@@ -531,8 +531,13 @@ public:
             const JDockNodeId leafId = n.id;
             JLOGC("dock.heal", JLogLevel::Debug) << "removeDock '" << (dock ? dock->title() : "?")
                 << "' from L#" << leafId.v << "  BEFORE: " << _treeStr(rootId());
+            // The front tab stays the front tab: one taken from before it moves it down a place. (Not moved,
+            // the index went on pointing one past it, and taking a closed panel out of a restored layout
+            // brought the next tab to the front instead of the one left in front.)
+            const int removed = static_cast<int>(it - n.tabs.begin());
             n.tabs.erase(it);
             if (dock->m_placedIn == this) dock->m_placedIn = nullptr;   // paired with insertDock's write
+            if (removed < n.activeTab) --n.activeTab;
             if (n.activeTab >= static_cast<int>(n.tabs.size()))
                 n.activeTab = std::max(0, static_cast<int>(n.tabs.size()) - 1);
             if (n.tabs.empty())
