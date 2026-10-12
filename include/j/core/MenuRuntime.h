@@ -163,9 +163,17 @@ public:
                     m_moved = true;
                 const bool deliver_release = released && (m_sawPress || m_moved);
 
-                bool insideAny = false;
-                for (auto& p : m_active) {
-                    if (p->containsGlobal(gx, gy)) insideAny = true;
+                // The pointer is the TOPMOST popup's where popups overlap (a submenu over its menu's next
+                // column, a menu wrapped into columns): one under another there is not driven, so it keeps
+                // its own hover (the item whose submenu is open) instead of hovering its item beneath the
+                // pointer, which closed the submenu on the way into it. The later in the stack, the higher.
+                int topmost = -1;
+                for (size_t i = 0; i < m_active.size(); ++i)
+                    if (m_active[i]->containsGlobal(gx, gy)) topmost = static_cast<int>(i);
+                const bool insideAny = topmost >= 0;
+                for (size_t i = 0; i < m_active.size(); ++i) {
+                    auto& p = m_active[i];
+                    if (static_cast<int>(i) < topmost && p->containsGlobal(gx, gy)) continue;   // covered there
                     p->driveInput(static_cast<float>(gx - p->window().screenX()),
                                   static_cast<float>(gy - p->window().screenY()),
                                   pressed, deliver_release);
@@ -273,10 +281,7 @@ private:
     // "This axis has nothing to flip about" — the popup may only slide back inside the work area.
     static constexpr int kNoFlip = std::numeric_limits<int>::min();
 
-    // `leftFirst`: open on the flipX side when it fits there, else at sx (a submenu of a menu's first column, of
-    // several: the other columns lie to its right).
-    void openMenu(JMenu* menu, int sx, int sy, bool parentTorn, int flipX = kNoFlip, int flipY = kNoFlip,
-                  bool leftFirst = false) {
+    void openMenu(JMenu* menu, int sx, int sy, bool parentTorn, int flipX = kNoFlip, int flipY = kNoFlip) {
         if (!menu) { closeAll(); return; }
         if (m_active.empty()) {
             m_sawAppFocus = false;   // a new cascade re-arms the leave-the-app check
@@ -291,14 +296,14 @@ private:
             if (m_hal) for (auto& p : m_active) p->destroySurface(*m_hal);
             m_active.clear();
         }
-        m_active.push_back(buildMenuPopup(menu, sx, sy, /*tearOffHandle=*/true, flipX, flipY, leftFirst));
+        m_active.push_back(buildMenuPopup(menu, sx, sy, /*tearOffHandle=*/true, flipX, flipY));
     }
 
     // Build a popup window for a menu: its items (with hover-cascade + trigger wiring) and, when asked, the
     // tear-off grab-strip. Shared by the modal dropdown stack (openMenu) and torn-off submenu cascades
     // (hoverFloating), so both behave identically — the only difference is which list owns the popup.
     std::unique_ptr<JPopupWindow> buildMenuPopup(JMenu* menu, int sx, int sy, bool tearOffHandle,
-                                                 int flipX = kNoFlip, int flipY = kNoFlip, bool leftFirst = false) {
+                                                 int flipX = kNoFlip, int flipY = kNoFlip) {
         auto popup = std::make_unique<JPopupWindow>(
             sx, sy, 180, 8, *m_hal, JPopupWindow::JStyle::Bordered, m_parent, nullptr);
         popup->setDrawsTooltips(false);   // an entry's tip goes in a window of its own (_updateTip)
@@ -378,8 +383,7 @@ private:
             const auto wa = popup->window().workAreaAt(sx, sy);
             const int w = static_cast<int>(popup->width()), h = static_cast<int>(popup->height());
             int x = sx, y = sy;
-            if (leftFirst && flipX != kNoFlip && flipX - w >= wa.x) x = flipX - w;   // its side away from the columns
-            else if (x + w > wa.x + wa.w) {
+            if (x + w > wa.x + wa.w) {
                 if (flipX != kNoFlip && flipX - w >= wa.x) x = flipX - w;      // flip: right edge on the anchor
                 else                                      x = wa.x + wa.w - w; // slide back inside
             }
@@ -437,26 +441,16 @@ private:
     // leaving the item. flipX is the parent popup's LEFT edge (+overlap), so a submenu with no room on the
     // right opens leftward instead of sliding back over the parent menu; flipY is the item's BOTTOM, so one
     // near the screen bottom rises with its bottom edge on the item rather than covering the whole column.
-    // A menu wrapped into COLUMNS (too tall for the screen): a submenu at its item's right edge would lie over
-    // the next column, and the pointer on its way there would hover that column's items and close it. So it
-    // opens on a side with no column: a last column's item to its right, as any; a first column's to the
-    // menu's left (leftFirst), else to the right of the whole menu; a middle column's to the right of the whole
-    // menu.
-    struct SubAnchor { int x, y, flipX, flipY; bool leftFirst; };
+    struct SubAnchor { int x, y, flipX, flipY; };
     SubAnchor _submenuAnchor(JPopupWindow* parent, JMenuItem* a) const {
         constexpr int kSubOverlap = 2;
         const auto& l = parent->graph().getLayoutConst(a->getNodeId());
         const int px = parent->window().screenX(), py = parent->window().screenY();
-        const float popupW = static_cast<float>(parent->width());
-        const float left = l.boundingBox.x, right = l.boundingBox.x + l.boundingBox.width, half = l.boundingBox.width * 0.5f;
-        const bool columnRight = popupW - right > half, columnLeft = left > half;
-        const int x = px + static_cast<int>(columnRight ? popupW : right) - kSubOverlap;
         return SubAnchor{
-            x,
+            px + static_cast<int>(l.boundingBox.x + l.boundingBox.width) - kSubOverlap,
             py + static_cast<int>(l.boundingBox.y),
-            px + static_cast<int>(left) + kSubOverlap,
+            px + static_cast<int>(l.boundingBox.x) + kSubOverlap,
             py + static_cast<int>(l.boundingBox.y + l.boundingBox.height),
-            columnRight && !columnLeft,
         };
     }
 
@@ -474,8 +468,8 @@ private:
             if (m_hal) for (size_t i = pi + 1; i < m_active.size(); ++i) m_active[i]->destroySurface(*m_hal);
             m_active.erase(m_active.begin() + pi + 1, m_active.end());
             if (sub) {
-                const auto [ssx, ssy, fx, fy, leftFirst] = _submenuAnchor(parent, a);
-                openMenu(sub, ssx, ssy, true, fx, fy, leftFirst);
+                const auto [ssx, ssy, fx, fy] = _submenuAnchor(parent, a);
+                openMenu(sub, ssx, ssy, true, fx, fy);
             }
             return;
         }
@@ -494,8 +488,8 @@ private:
     void hoverFloating(JPopupWindow* parent, JMenuItem* a, JMenu* sub) {
         closeFloatingSubtree(parent, /*includeRoot=*/false);   // drop parent's currently-open submenu chain
         if (!sub) return;
-        const auto [ssx, ssy, fx, fy, leftFirst] = _submenuAnchor(parent, a);
-        m_floating.push_back({ buildMenuPopup(sub, ssx, ssy, /*tearOffHandle=*/false, fx, fy, leftFirst), parent, a });
+        const auto [ssx, ssy, fx, fy] = _submenuAnchor(parent, a);
+        m_floating.push_back({ buildMenuPopup(sub, ssx, ssy, /*tearOffHandle=*/false, fx, fy), parent, a });
     }
 
     // Destroy `root`'s floating submenu descendants (owner chain), optionally `root` itself. Used to collapse a
