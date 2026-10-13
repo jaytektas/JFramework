@@ -530,6 +530,14 @@ public:
     uintptr_t _parentForChildModal() const {
         return m_modalStack.empty() ? m_window->rawWindowId() : m_modalStack.back().handle;
     }
+    // Hand the modal window `child` to `owner` (its opener closing under it). Platform-dispatched.
+    static void _setOwner(uintptr_t child, uintptr_t owner) {
+#if defined(__linux__)
+        JLinuxPlatformWindow::setTransientFor(child, owner);
+#elif defined(_WIN32)
+        SetWindowLongPtrW(reinterpret_cast<HWND>(child), GWLP_HWNDPARENT, static_cast<LONG_PTR>(owner));
+#endif
+    }
     // Native id of the window just constructed (a dialog creates its window in its ctor), so the modal
     // stack can remember each modal's own window for the parenting above. Platform-dispatched.
     static uintptr_t _lastCreatedNativeId() {
@@ -2150,12 +2158,8 @@ private:
         // children above passed to its own parent first, as below).
         for (size_t i = 0; i + 1 < m_modalStack.size();) {
             if (!(m_modalStack[i].closing && m_modalStack[i].closing())) { ++i; continue; }
-#if defined(_WIN32)
-            const uintptr_t newOwner = i > 0 ? m_modalStack[i - 1].handle : m_window->rawWindowId();
             if (m_modalStack[i + 1].handle)
-                SetWindowLongPtrW(reinterpret_cast<HWND>(m_modalStack[i + 1].handle), GWLP_HWNDPARENT,
-                                  static_cast<LONG_PTR>(newOwner));
-#endif
+                _setOwner(m_modalStack[i + 1].handle, i > 0 ? m_modalStack[i - 1].handle : m_window->rawWindowId());
             if (m_modalStack[i].destroy) m_modalStack[i].destroy(*m_hal);
             m_modalStack.erase(m_modalStack.begin() + static_cast<long>(i));
         }
@@ -2174,14 +2178,11 @@ private:
                     // windows with it, so the child vanished the moment it appeared, while the code driving
                     // it carried on: a dialog's accept that opened a progress window ran a whole firmware
                     // flash behind a window that no longer existed. Hand the child to this modal's own
-                    // parent first. (X11 keeps a transient whose parent went, so there is nothing to do.)
-#if defined(_WIN32)
+                    // parent first. X11 keeps the child, but transient for a window that is gone, which is
+                    // no link: the window manager let the main window cover it (an import's next question).
                     const uintptr_t newOwner = idx > 0 ? m_modalStack[idx - 1].handle : m_window->rawWindowId();
                     for (size_t c = idx + 1; c < m_modalStack.size(); ++c)
-                        if (m_modalStack[c].handle)
-                            SetWindowLongPtrW(reinterpret_cast<HWND>(m_modalStack[c].handle), GWLP_HWNDPARENT,
-                                              static_cast<LONG_PTR>(newOwner));
-#endif
+                        if (m_modalStack[c].handle) _setOwner(m_modalStack[c].handle, newOwner);
                     if (m_modalStack[idx].destroy) m_modalStack[idx].destroy(*m_hal);
                     m_modalStack.erase(m_modalStack.begin() + idx);
                 }

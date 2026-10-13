@@ -284,6 +284,7 @@ public:
         xcb_flush(m_connection);
 
         s_lastCreatedRaw = static_cast<uintptr_t>(m_windowId);   // so a caller can parent the NEXT modal to this one
+        s_windows.push_back(this);
 
         qCInfo(jf::Log::Platform) << "XCB window created (" << width << "x" << height
                                        << " @ " << screenX << "," << screenY
@@ -293,6 +294,7 @@ public:
 
     ~JLinuxPlatformWindow() override {
         if (s_grabHolder == this) s_grabHolder = nullptr;   // never leave a dangling grab-holder pointer
+        s_windows.erase(std::remove(s_windows.begin(), s_windows.end(), this), s_windows.end());
         if (m_syms) { xcb_key_symbols_free(m_syms); m_syms = nullptr; }
         if (m_connection) {
             xcb_free_cursor(m_connection, m_cursorDefault);
@@ -1176,6 +1178,26 @@ public:
     // The modal-stack push calls this so the superseded window's grab is dropped. No-op if none.
     static void releaseActivePointerGrab() { if (s_grabHolder) s_grabHolder->_ungrabPointer(); }
 
+    // Make the window `child` (a raw id, as lastCreatedRawWindowId gave it) transient for `parent`
+    // instead of whatever it was. A dialog opened by another dialog's last act is transient for a
+    // window that is then destroyed, and a WM_TRANSIENT_FOR naming a window that no longer exists is
+    // no link at all: the window manager treats the dialog as an ordinary window of its own, and the
+    // main window, clicked or raised, goes over it, out of sight. Its type stays DIALOG.
+    static void setTransientFor(uintptr_t child, uintptr_t parent) {
+        for (JLinuxPlatformWindow* w : s_windows) {
+            if (static_cast<uintptr_t>(w->m_windowId) != child) continue;
+            const auto p = static_cast<xcb_window_t>(parent);
+            xcb_change_property(w->m_connection, XCB_PROP_MODE_REPLACE, w->m_windowId,
+                                XCB_ATOM_WM_TRANSIENT_FOR, XCB_ATOM_WINDOW, 32, 1, &p);
+            const xcb_atom_t leaderAtom = w->_internAtom("WM_CLIENT_LEADER");
+            if (leaderAtom != XCB_ATOM_NONE)
+                xcb_change_property(w->m_connection, XCB_PROP_MODE_REPLACE, w->m_windowId,
+                                    leaderAtom, XCB_ATOM_WINDOW, 32, 1, &p);
+            xcb_flush(w->m_connection);
+            return;
+        }
+    }
+
     // ---- Native text clipboard (CLIPBOARD selection) -----------------------
     // We own the selection and serve it from pollNativeEvents (XCB_SELECTION_REQUEST).
     // No xclip/xsel shell-out — this is the framework talking X11 directly.
@@ -1234,6 +1256,8 @@ private:
     inline static JLinuxPlatformWindow* s_grabHolder = nullptr;
     // Raw window id of the most recently constructed window (see lastCreatedRawWindowId()).
     inline static uintptr_t s_lastCreatedRaw = 0;
+    // Every window alive, for setTransientFor to find one by its id (each has its own connection).
+    inline static std::vector<JLinuxPlatformWindow*> s_windows;
 
     // Deferred-then-live event source, so a clipboard paste's blocking wait can stash
     // unrelated events for the next pollNativeEvents pass instead of discarding them.
