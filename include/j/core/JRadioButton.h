@@ -6,6 +6,7 @@
 // JRadioButton.
 
 #include "JControl.h"
+#include <algorithm>
 #include "JTextHelper.h"
 
 inline namespace jf {
@@ -48,14 +49,17 @@ public:
     }
 
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
-        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        float r = b.height;
+        // The ring is a radio's size, whatever the row — the same rule as JCheckBox::indicatorSize.
+        const auto& row = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const float want = JStyle::current().checkHeight;
+        const float r = row.height > 0.f ? std::min(row.height, want) : want;
+        const JRect b{ row.x, row.y + (row.height - r) * 0.5f, row.width, r };
         // Ring fill by role: selected=Highlight, else Base (old Accent / Surface1) — the
         // exact controlFill decision the checkbox uses.
         JStyleOption o = jstyle::option(m_state, isFocused(), m_selected, m_selected);
         const JColor ring = JStyle::controlFill(o, jstyle::pal());
         drawCircle(buf, b, r, ring.data(), isFocused());
-        drawLabel(buf, b, r);
+        drawLabel(buf, row, r);
     }
 
 

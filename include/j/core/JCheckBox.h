@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 
 // JCheckBox.
@@ -70,7 +71,7 @@ protected:
     void _refreshMinWidth() {
         if (!JTextHelper::hasAtlas() || m_label.empty()) return;
         auto& l = m_graph.getLayout(m_nodeId);
-        const float boxSz = l.boundingBox.height > 0.f ? l.boundingBox.height : JStyle::current().checkHeight;
+        const float boxSz = indicatorSize(l.boundingBox.height);
         const float want = std::ceil(boxSz + JStyle::current().itemPadding + JTextHelper::measureWidth(tr(m_label))) + 1.f;
         if (want > l.minWidth + 0.5f) {
             l.minWidth = want;
@@ -92,10 +93,20 @@ public:
         if (isEnabled() && isPointInside(mx, my)) _cycle();   // a disabled box keeps its state
     }
 
+    // THE BOX IS A TICK BOX'S SIZE, whatever the row. It was as tall as the rect it was given, so a check
+    // box laid in a 30 px control row drew a 30 px box beside the 22 px ones everywhere else — the same
+    // control at three sizes across one app. The style says how big a tick box is; a taller row centres
+    // it, and a row shorter than that still gets a box that fits it.
+    static float indicatorSize(float rowH) {
+        const float want = JStyle::current().checkHeight;
+        return rowH > 0.f ? std::min(rowH, want) : want;
+    }
+
     void populateRenderPrimitives(JPrimitiveBuffer& buf) override {
         _refreshMinWidth();
-        const auto& b = m_graph.getLayoutConst(m_nodeId).boundingBox;
-        float boxSz = b.height;
+        const auto& row = m_graph.getLayoutConst(m_nodeId).boundingBox;
+        const float boxSz = indicatorSize(row.height);
+        const JRect b{ row.x, row.y + (row.height - boxSz) * 0.5f, row.width, boxSz };   // the box's own line
         // MIGRATED to the role/state styler: resolve the indicator fill by semantic ROLE
         // from the live palette instead of naming a raw shade. checked/partial -> Highlight,
         // unchecked -> Base — which map onto the old Accent / Surface1 exactly.
@@ -107,7 +118,7 @@ public:
         opt.set(State_Enabled, isEnabled());   // a disabled box drawn from the Disabled colour group
         const JColor fill = JStyle::controlFill(opt, JStyle::current().palette());
         drawBox(buf, b, boxSz, fill.data(), isFocused());
-        drawLabel(buf, b, boxSz);
+        drawLabel(buf, row, boxSz);   // the label centres on the ROW, as it always did
     }
 
 
