@@ -90,8 +90,14 @@ public:
         m_window->setMinSize(200, 150);   // declare a sane minimum -> WM treats it resizable
         m_hal = JGpuHal::create(JGpuApiType::Vulkan, m_window->nativeHandle());
         if (m_hal) m_hal->resizeSwapchain(width, height);
+        // THE SCREEN'S DPI IS THE DEFAULT INTERFACE SCALE, set here so every app gets it without asking.
+        // It used to reach only the font atlas, which also multiplied the interface scale in — so an app
+        // that set the scale to the screen's DPI (as it is meant to) drew text at dpi^2 in boxes at dpi:
+        // 4 % too wide at 100 dpi, 25 % at a 125 % Windows display, and the tail of every caption cut off.
+        // One number now sizes both. An app's own preference still overrides it through setUiScale().
+        JStyle::setUiScale(m_window->dpiScale());
         if (m_font.loadSystemFont() && m_hal) {
-            auto atlas = m_font.buildAtlas(14.0f * m_window->dpiScale() * JStyle::uiScale());
+            auto atlas = m_font.buildAtlas(_atlasPx(14.0f));
             JTextHelper::setAtlas(atlas);
             m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
         }
@@ -231,7 +237,7 @@ public:
     std::function<bool()> onCloseRequest;
 
     // Change the whole-UI (application) font at runtime: reload the font file, rebuild the glyph atlas at the
-    // given base size (scaled by DPI), repoint the text helper's metrics, and re-upload the atlas to the GPU.
+    // given base size (scaled by the interface scale), repoint the text helper's metrics, and re-upload the atlas to the GPU.
     // A single global font (not simultaneous mixed fonts), so the one atlas is simply rebuilt. false on failure.
     // THE INTERFACE SCALE, applied. Sets the style's metrics and rebuilds the font atlas against the same
     // number, because the two must move together: bigger text in the same-sized boxes clips, and bigger
@@ -239,16 +245,20 @@ public:
     void setUiScale(float s) {
         if (!(s > 0.f) || s == JStyle::uiScale()) return;
         JStyle::setUiScale(s);
-        setAppFontSize(m_appFontPx);   // rebuilds the atlas at px * dpi * uiScale
+        setAppFontSize(m_appFontPx);   // rebuilds the atlas at px * uiScale
         m_needRedraw = true;
     }
     float uiScale() const { return JStyle::uiScale(); }
+    // The size the font atlas is built at: the app's font size times the INTERFACE scale, and nothing else.
+    // Not times the screen's DPI as well — the interface scale already is the DPI unless a preference says
+    // otherwise (see the constructor), and multiplying both in is what made text outgrow its boxes.
+    float _atlasPx(float px) const { return px * JStyle::uiScale(); }
     // What the SCREEN asks for, before any preference: dpi/96, the automatic default.
     float screenScale() const { return m_window ? m_window->dpiScale() : 1.f; }
 
     bool setAppFont(const std::string& fontPath, float px = 14.0f) {
         if (!m_hal || fontPath.empty() || !m_font.loadFromFile(fontPath)) return false;
-        auto atlas = m_font.buildAtlas(px * m_window->dpiScale() * JStyle::uiScale());
+        auto atlas = m_font.buildAtlas(_atlasPx(px));
         JTextHelper::setAtlas(atlas);
         m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
         JTextHelper::invalidateSized();   // new face → stale size-specific glyph atlases
@@ -259,19 +269,19 @@ public:
     // font picker. Same atlas-rebuild path as setAppFont, just from loadSystemFont() rather than a chosen file.
     bool setAppFontDefault(float px) {
         if (!m_hal || !m_font.loadSystemFont()) return false;
-        auto atlas = m_font.buildAtlas(px * m_window->dpiScale() * JStyle::uiScale());
+        auto atlas = m_font.buildAtlas(_atlasPx(px));
         JTextHelper::setAtlas(atlas);
         m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
         JTextHelper::invalidateSized();   // new size → stale size-specific glyph atlases
         m_appFontPx = px;
         return true;
     }
-    // Rebuild the atlas from the ALREADY-loaded font at a new base size (px, DPI-scaled) — set the global
+    // Rebuild the atlas from the ALREADY-loaded font at a new base size (px, at the interface scale) — set the global
     // text scale without swapping the font file (the ctor's loadSystemFont() font stays). Avoids reloading
     // a file the loader might choke on; use when only the size should change. false if the HAL isn't ready.
     bool setAppFontSize(float px) {
         if (!m_hal) return false;
-        auto atlas = m_font.buildAtlas(px * m_window->dpiScale() * JStyle::uiScale());
+        auto atlas = m_font.buildAtlas(_atlasPx(px));
         JTextHelper::setAtlas(atlas);
         m_hal->uploadFontAtlas(atlas.bitmap.data(), atlas.width, atlas.height);
         JTextHelper::invalidateSized();   // base font changed → drop stale size-specific glyph atlases
