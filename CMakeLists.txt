@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
-project(JFramework VERSION 0.1.0 LANGUAGES CXX)
+# THE VERSION IS WHAT AN APP CAN ASK FOR. find_package(JFramework 0.2) refuses an older SDK outright, which is
+# the only thing that stops an app being built against a framework it has outgrown and shipping what that
+# framework had. 0.2: the file chooser rebuilt (1f54e20 — typed path, New Folder, places, file types,
+# overwrite asked) — an app built against 0.1 shows the old hand-drawn picker. Raise the minor when an app
+# must not be built against what came before.
+project(JFramework VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
