@@ -132,6 +132,27 @@ int main() {
     assert(appAsked && "what the window does not answer goes on to the app");
     std::printf("  [OK] window nodes published, window actions before the app's\n");
 
+    // THE REPLY: an app command answers with data, and the next action starts with none.
+    {
+        std::string longAction = "echo ";
+        longAction.append(5000, 'x');                        // past the old 256-byte buffer
+        JAiBus::instance().onAction = [&](uint32_t, const std::string& action) {
+            if (action.rfind("echo ", 0) != 0) return 0;
+            JAiBus::instance().reply("{\"len\":" + std::to_string(action.size()) + "}");
+            return 1;
+        };
+        std::memcpy(bus->action.action, longAction.c_str(), longAction.size() + 1);
+        bus->action.requestSeq.store(req + 7);
+        JAiBus::instance().tick(JWidget::s_activeWidgets, &focus);
+        const std::string got(bus->action.reply, bus->action.replyLen);
+        assert(bus->action.resultCode == 1 && got == "{\"len\":5005}" && "a long action arrives whole, and is answered");
+        aiBusCopy(bus->action.action, sizeof(bus->action.action), "dock:Jog");
+        bus->action.requestSeq.store(req + 8);
+        JAiBus::instance().tick(JWidget::s_activeWidgets, &focus);
+        assert(bus->action.replyLen == 0 && "an action with no reply does not show the last one's");
+        std::printf("  [OK] a 5 KB action is answered through the reply buffer\n");
+    }
+
     munmap(bus, sizeof(JAiBusShared)); ::close(fd); shm_unlink(kName);
     std::printf("All JAiBus tests passed.\n");
     return 0;

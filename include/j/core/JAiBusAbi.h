@@ -15,9 +15,18 @@
 inline namespace jf {
 
 inline constexpr uint32_t kAiBusMagic     = 0x4A414942;   // "JAIB"
-inline constexpr uint32_t kAiBusVersion   = 7;            // ABI version (bump on layout change)
+inline constexpr uint32_t kAiBusVersion   = 8;            // ABI version (bump on layout change)
 inline constexpr uint32_t kAiBusMaxNodes  = 2048;
-inline constexpr char     kAiBusDefaultName[] = "/jframework_ai_bus";
+// A request can carry data (a whole table's cells to write), and a reply can carry a lot more (every
+// setting an app has, with its units and range). The segment is mapped, not copied, so room that a
+// request does not use costs nothing but address space.
+inline constexpr uint32_t kAiBusActionMax = 64 * 1024;
+inline constexpr uint32_t kAiBusReplyMax  = 8 * 1024 * 1024;
+#if defined(_WIN32)
+inline constexpr char     kAiBusDefaultName[] = "Local\\jframework_ai_bus";   // a named file mapping
+#else
+inline constexpr char     kAiBusDefaultName[] = "/jframework_ai_bus";          // a POSIX shm segment
+#endif
 
 // One widget, mirrored from its JA11yNode (role/name/value/state) + geometry. Blit-safe POD.
 struct alignas(16) JAiBusNode {
@@ -27,8 +36,8 @@ struct alignas(16) JAiBusNode {
     uint32_t hasRange{0};        // curValue/minValue/maxValue meaningful?
     float    curValue{0}, minValue{0}, maxValue{0};
     char     role[24]{0};        // "JButton", "JSlider", …
-    char     name[32]{0};        // label / accessible name
-    char     value[24]{0};       // "0.50", "checked", text, …
+    char     name[64]{0};        // label / accessible name
+    char     value[48]{0};       // "0.50", "checked", text, …
 };
 
 // Single-slot request/ack RPC (client -> server), addressed by node id, never pixels. The client writes
@@ -38,13 +47,17 @@ struct alignas(16) JAiBusAction {
     std::atomic<uint32_t> requestSeq{0};   // client bumps to submit
     std::atomic<uint32_t> ackSeq{0};       // server sets = requestSeq when handled
     uint32_t targetId{0xFFFFFFFFu};
-    int32_t  resultCode{0};                // 1 handled, 0 not handled, -1 bad target
-    // Long enough for an action that carries a PATH. 64 bytes fit "click" and "set_value:0.5" and looked
-    // generous until an app grew an action addressed at a place rather than a widget: "select_node:" plus
-    // a navigation-tree path is routinely 60-80 characters, and the overflow was silently truncated — the
-    // action arrived, was handled, and went somewhere that did not exist. Nothing reported it, because
-    // truncation is not an error anywhere along the way.
-    char     action[256]{0};               // "click", "focus", "set_value:0.5", "select_node:A/B/C", …
+    int32_t  resultCode{0};                // 1 handled, 2 handled but refused (the reply says why), 0 not handled, -1 bad target
+    // Long enough for an action that carries DATA, not just a verb: "click", "set_value:0.5",
+    // "select_node:A/B/C" — and an app's own commands, which can carry a whole table to write. (It was 64
+    // bytes, then 256; each time the overflow was silently truncated and the action went somewhere that
+    // did not exist.) A client refuses an action that does not fit rather than truncating it.
+    char     action[kAiBusActionMax]{0};
+    // THE ANSWER. A result code says whether an action was handled; it cannot say what a setting IS. The
+    // server writes replyLen bytes of text here (JSON, by the app's convention) before it acks, and clears
+    // it before it handles the next action, so a reply always belongs to the action just acked.
+    uint32_t replyLen{0};
+    char     reply[kAiBusReplyMax]{0};
 };
 
 // The whole segment. `seq` is a seqlock: the server makes it ODD while writing the node array and EVEN

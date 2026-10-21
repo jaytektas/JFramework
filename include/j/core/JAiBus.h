@@ -38,6 +38,11 @@
 #  include <sys/mman.h>
 #  include <fcntl.h>
 #  include <unistd.h>
+#elif defined(_WIN32)
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
 #endif
 
 inline namespace jf {
@@ -60,6 +65,19 @@ public:
         m_shm = new (mem) JAiBusShared();   // placement-new: sets magic/version, zeroes atomics + nodes
         m_shm->ownerPid = static_cast<int32_t>(getpid());
         m_name = name;
+#elif defined(_WIN32)
+        // A named mapping backed by the page file: the same bytes, by the same name, to any process of
+        // this session. It goes when the last handle does, so a crashed app leaves nothing behind.
+        if (m_shm) return;
+        const unsigned long long sz = sizeof(JAiBusShared);
+        m_map = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
+                                   static_cast<DWORD>(sz >> 32), static_cast<DWORD>(sz & 0xFFFFFFFFu), name);
+        if (!m_map) return;
+        void* mem = MapViewOfFile(m_map, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(JAiBusShared));
+        if (!mem) { CloseHandle(m_map); m_map = nullptr; return; }
+        m_shm = new (mem) JAiBusShared();
+        m_shm->ownerPid = static_cast<int32_t>(GetCurrentProcessId());
+        m_name = name;
 #else
         (void)name;
 #endif
@@ -75,11 +93,32 @@ public:
         if (!m_shm) return;
         if (m_shm->ownerPid == static_cast<int32_t>(getpid())) shm_unlink(m_name.c_str());
         munmap(m_shm, sizeof(JAiBusShared));
+#elif defined(_WIN32)
+        if (!m_shm) return;
+        UnmapViewOfFile(m_shm);
+        CloseHandle(m_map);
 #endif
     }
 
+    // THE ANSWER to the action being handled: text (an app's commands reply in JSON) the client prints.
+    // Only meaningful inside onAction / onWindowAction; each action starts with an empty reply. Returns
+    // false, and leaves a note saying so, when the text does not fit — a cut-off answer reads as a whole one.
+    bool reply(std::string_view text) {
+        if (!m_shm) return false;
+        if (text.size() > kAiBusReplyMax) {
+            constexpr std::string_view kTooBig = "{\"error\":\"reply too large for the bus\"}";
+            std::memcpy(m_shm->action.reply, kTooBig.data(), kTooBig.size());
+            m_shm->action.replyLen = static_cast<uint32_t>(kTooBig.size());
+            return false;
+        }
+        std::memcpy(m_shm->action.reply, text.data(), text.size());
+        m_shm->action.replyLen = static_cast<uint32_t>(text.size());
+        return true;
+    }
+
     // Optional richer-action handler (set_value:X, select:foo, …) the generic dispatch can't do without
-    // per-widget knowledge. Return 1 handled / 0 not handled / -1 bad id. Runs on the MAIN thread.
+    // per-widget knowledge. Return 1 handled / 2 handled but refused (reply() says why) / 0 not handled /
+    // -1 bad id. Runs on the MAIN thread.
     std::function<int(uint32_t id, const std::string& action)> onAction;
     // The WINDOW's own, for what it draws without widgets (a native dialog draws primitives, so it is in no
     // widget list): nodes it publishes after the widgets (ids from kWindowNodeIds up, in order), and the
@@ -102,9 +141,13 @@ private:
     bool serviceAction(const std::vector<JWidget*>& widgets, JFocusManager* focus) {
         const uint32_t req = m_shm->action.requestSeq.load(std::memory_order_acquire);
         if (req == m_lastHandled) return false;
-        int rc = dispatchDefault(widgets, focus, m_shm->action.targetId, m_shm->action.action);
+        m_shm->action.replyLen = 0;          // a reply belongs to the action it answers, never the last one
+        // Read to the terminator OR the end of the buffer: a client that wrote no NUL is not a reason to
+        // read past the action into the reply.
+        const std::string action(m_shm->action.action, strnlen(m_shm->action.action, kAiBusActionMax));
+        int rc = dispatchDefault(widgets, focus, m_shm->action.targetId, action);
         if (rc != 1 && onWindowAction) {
-            const int winRc = onWindowAction(m_shm->action.targetId, m_shm->action.action);
+            const int winRc = onWindowAction(m_shm->action.targetId, action);
             if (winRc != 0) rc = winRc;
         }
         // The app gets a shot at anything the generic dispatch did not HANDLE — including actions with no
@@ -112,7 +155,7 @@ private:
         // back to the client: an action addressed at the application rather than at a widget ("go to this
         // page") could never be written, because there was no id to give it.
         if (rc != 1 && onAction) {
-            const int appRc = onAction(m_shm->action.targetId, m_shm->action.action);
+            const int appRc = onAction(m_shm->action.targetId, action);
             if (appRc != 0) rc = appRc;
         }
         m_shm->action.resultCode = rc;
@@ -254,6 +297,9 @@ private:
     }
 
     JAiBusShared* m_shm = nullptr;
+#if defined(_WIN32)
+    HANDLE        m_map = nullptr;                        // the file mapping behind m_shm
+#endif
     std::string   m_name;                                 // the segment's name, to remove it at exit
     uint32_t      m_lastHandled = 0;
     std::unordered_map<const JWidget*, uint32_t> m_ids;   // widget -> its bus id, for as long as it lives

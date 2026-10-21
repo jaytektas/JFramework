@@ -2,9 +2,10 @@ cmake_minimum_required(VERSION 3.16)
 # THE VERSION IS WHAT AN APP CAN ASK FOR. find_package(JFramework 0.2) refuses an older SDK outright, which is
 # the only thing that stops an app being built against a framework it has outgrown and shipping what that
 # framework had. 0.2: the file chooser rebuilt (1f54e20 — typed path, New Folder, places, file types,
-# overwrite asked) — an app built against 0.1 shows the old hand-drawn picker. Raise the minor when an app
+# overwrite asked) — an app built against 0.1 shows the old hand-drawn picker. 0.3: the AI bus carries a
+# reply and a 64 KB request (ABI 8), and runs on Windows. Raise the minor when an app
 # must not be built against what came before.
-project(JFramework VERSION 0.2.0 LANGUAGES CXX)
+project(JFramework VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -323,14 +324,12 @@ if(GENESIS_BUILD_TESTS)
     add_genesis_test(test_dialog           src/tests/test_dialog.cpp)
     add_genesis_test(test_aibus            src/tests/test_aibus.cpp)
 
-    # jf-busctl — external client for the AI bus (POD ABI only; needs the include dir + rt for shm).
-    # POSIX shared memory: mmap/shm_open have no Windows equivalent, so the tool is UNIX-only.
-    if(UNIX)
-        add_executable(jf-busctl tools/jf-busctl.cpp)
-        target_include_directories(jf-busctl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-        if(NOT APPLE)
-            target_link_libraries(jf-busctl PRIVATE rt)
-        endif()
+    # jf-busctl — external client for the AI bus (POD ABI only; needs the include dir, and rt for POSIX
+    # shm on Linux). A POSIX segment on Linux/macOS, a named file mapping on Windows.
+    add_executable(jf-busctl tools/jf-busctl.cpp)
+    target_include_directories(jf-busctl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(jf-busctl PRIVATE rt)
     endif()
     add_genesis_test(test_models           src/tests/test_models.cpp)
     add_genesis_test(test_new_features     src/tests/test_new_features.cpp)
@@ -355,6 +354,9 @@ include(CMakePackageConfigHelpers)
 
 # Public headers: the genesis/** tree + the bundled stb header FontEngine.h needs.
 install(DIRECTORY include/j DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+# The AI bus client's SOURCE travels with the SDK: an app builds it beside itself and ships it, so the tool
+# that drives an app always speaks that app's bus ABI (JAiBusAbi.h) — share/jframework/tools/jf-busctl.cpp.
+install(FILES tools/jf-busctl.cpp DESTINATION ${CMAKE_INSTALL_DATADIR}/jframework/tools)
 install(DIRECTORY ${STB_INCLUDE_DIR}/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
         FILES_MATCHING PATTERN "stb_*.h")
 

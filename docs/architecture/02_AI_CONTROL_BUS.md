@@ -1,172 +1,69 @@
-# 02. AI Control Bus ("Inside-Out" Integration)
+# 02. The AI bus
 
-Modern applications must be as native to AI agents as they are to humans. Standard GUI
-toolkits bolt on accessibility APIs (like UIAutomation or AT-SPI) which are slow,
-string-heavy, and prone to state desync.
+An app built on JFramework can be driven by a script or an AI agent through the **AI bus**: a block of
+shared memory where the app publishes its live widget tree and services one action at a time. It is off
+unless asked for, and costs one null check per frame when off.
 
-This toolkit features the **AI Control Bus (AICB)**, designed from day one — a
-bidirectional, zero-copy, lock-free shared-memory channel between the running application
-and any external AI agent.
+Source: `include/j/core/JAiBusAbi.h` (the byte layout, ABI **8**), `include/j/core/JAiBus.h` (the server
+inside the app), `tools/jf-busctl.cpp` (the client).
 
----
+## Turning it on
 
-## Core Concepts
+- Start the app with `JF_AI_BUS=1` in its environment (`JAppWindow` calls `JAiBus::enable()`), or call
+  `JAiBus::instance().enable()` yourself — an app with no window does this and calls `tick()` from its own
+  loop.
+- Linux / macOS: a POSIX shared-memory segment, `/jframework_ai_bus`. Windows: a named file mapping,
+  `Local\jframework_ai_bus`. One app per session has the bus; a second one replaces it.
 
-### 1. The Synchronized State Tree (SST)
-Every widget exists in a contiguous scene-graph array.  The AI bus mirrors that array as
-a flat `AiNodeDescriptor[]` snapshot — structured schema, no IPC strings, no round-trips.
-An agent can parse a complex UI (thousands of controls) in microseconds.
+## What is in it
 
-### 2. Semantic Typing
-Every control exposes a strongly typed semantic interface:
-- Human sees a custom toggle switch.
-- AI sees `role="ToggleButton" name="Dark Mode" value="true" flags=EVIF`.
-- No pixel access. No screenshots. Identity + meaning, always.
-
-### 3. Bidirectional, Lock-Free Channels
-
-| Channel | Direction | Purpose |
+| Part | Direction | What |
 |---|---|---|
-| `nodes[AiNodeDescriptor]` | App → Agent | Live semantic tree (READ) |
-| `inboundAction` | Agent → App | Semantic act-by-id (WRITE) |
-| `outboundSignal` | App → Agent | User-interaction events (LISTEN) |
+| `nodes[2048]` | app → client | every visible widget: id, role, name (64), value (48), state flags, rect, range |
+| `action` | client → app | a target id and an action string of up to 64 KB |
+| `reply` | app → client | up to 8 MB of text answering the action (JSON by convention) |
 
-All cross-process fields are lock-free atomics; reads are wait-free via the seqlock.
+The node array is under a **seqlock** (`seq` odd while writing), so a reader never takes a half-written
+frame. The action is a single-slot RPC: the client writes `targetId` and `action`, bumps `requestSeq`; the
+app handles it **on its main thread**, writes `resultCode` (1 handled, 0 not, −1 bad target) and the reply,
+then sets `ackSeq = requestSeq`. An app handler may also answer 2, *handled but refused*, with the reason
+in the reply. Each field has one writer, so nothing is locked. `ownerPid` lets a client
+tell a segment left behind by a crashed app from a live one.
 
-### 4. Runtime Co-Development (Live Injection)
-An AI agent can **inject** new widgets into a running application with no recompile:
-- `inject:button:Console:Run Analysis` — adds a button to the Console panel live.
-- `inject:lineedit:Properties:API key` — adds an input field.
-- `remove_widget:<nodeId>` — removes any previously-injected control.
+## Actions every app answers
 
-When satisfied with the live layout, a developer can compile it in as a permanent feature.
+Addressed at a widget id from a dump:
 
----
+- `click`, `click:X,Y` (a point of the widget, window coordinates), `focus`
+- `type:<text>` (one key press per character, through the widget's own keyboard path), `key:Return`
+  (`Escape`, `Tab`, `Backspace`, `Delete`, `Left`, `Right`, `Up`, `Down`, `Home`, `End`, `Space`)
+- `dialog:ok` / `dialog:cancel` — the frontmost native dialog (published as `Dialog` nodes after the widgets)
 
-## Implementation — authoritative reference
+Anything else goes to the app's own handler, `JAiBus::onAction`, which may answer with
+`JAiBus::reply(text)`. An app's commands are usually addressed at no widget at all (id 0).
 
-> Source: `include/genesis/core/AiControlBus.h`, version **4**.
+## jf-busctl
 
-### Transport
-- **POSIX shared-memory segment** named **`/genesis_ai_bus`** (`shm_open` + `mmap`).
-- Created by `GApplication` at startup; unlinked on exit; defensively re-unlinked on relaunch.
-- Any language that can `mmap` and read packed atomics can connect (C, C++, Rust, Python ctypes).
-- Read-only mapping → observe. Read-write mapping → drive.
-
-### Memory layout (`SharedBusMemory`)
-| field | purpose |
-|---|---|
-| `magicCookie` = `0x47454E53` ("GENS") | readers validate before trusting the segment |
-| `version` = **4** | ABI gate — readers must match |
-| `generation` (atomic u64) | **seqlock**: odd while publishing, even when stable |
-| `telemetryFrameCounter` (atomic u64) | monotonic publish id |
-| `nodeCount`, `nodes[AiNodeDescriptor]` | semantic tree (READ channel) |
-| `inboundCommand` (`AiVirtualInput`) | legacy pixel/key channel |
-| `inboundAction` (`AiActionRequest`) | semantic act-by-id channel (Agent→App) |
-| `outboundSignal` (`AiSignalNotification`) | user-event channel (App→Agent) |
-
-### READ — the semantic tree
-Each `AiNodeDescriptor` is POD/blittable: `id`, `role`, `name`, `value`, `stateFlags`,
-geometry.  Read a **consistent, lock-free snapshot** with the seqlock:
-
-```c
-do {
-    g1 = atomic_load(bus->generation);      // retry while odd (write in progress)
-    if (g1 & 1) continue;
-    copy nodeCount and nodes[];
-    g2 = atomic_load(bus->generation);
-} while (g1 != g2);
+```
+jf-busctl dump [--json]           every visible node
+jf-busctl find <text> [--json]    the nodes whose line contains it
+jf-busctl get <name>              one node's value
+jf-busctl wait <text> [secs]      until a node matches (exit 4 on timeout)
+jf-busctl act <id|name> <action>  act on a widget (a name must match exactly one node)
+jf-busctl call <action>           an app command; prints the reply
 ```
 
-`AiControlBus::snapshot()` implements this for C++ callers.
+An action of `-` is read from stdin. Exit codes: 0 handled, 1 no bus, 2 usage, 3 no ack, 4 not found /
+not handled / refused, 5 ambiguous name, 6 bad target. `JF_BUSCTL_TIMEOUT` (seconds, default 10) bounds the wait.
 
-### ACT — semantic action, by identity not pixels
-Single-slot request/ack RPC via `inboundAction`:
-1. Agent: write `targetId` + `action`, bump `requestSeq` (release).
-2. App (UI thread): `pollAction()`, dispatch, write `resultCode`, set `ackSeq = requestSeq`.
-3. Agent: wait for `ackSeq`, check `resultCode` (`1`=OK, `0`=not-understood, `-1`=no-target),
-   re-read tree to verify.
+The SDK installs the client's source as `share/jframework/tools/jf-busctl.cpp`, so an app can build it
+beside itself and ship it — the client then always speaks that app's ABI.
 
-`AiControlBus::submitActionBlocking()` implements steps 1-3 for agent-side C++.
+## Rules it keeps
 
-### LISTEN — outbound signal channel (new in v4)
-When a **user** interacts with a widget (click, toggle, text-change…) the app automatically
-publishes a non-blocking signal via `outboundSignal`:
-
-```c
-// App side (automatic — wired in GApplication ctor via AiBusHook):
-bus.publishSignal(nodeId, "click", "Primary Action");
-
-// Agent side — poll for new signals:
-uint32_t lastSeq = 0;
-while (true) {
-    uint32_t seq = atomic_load(bus->outboundSignal.signalSeq);
-    if (seq != lastSeq) {
-        lastSeq = seq;
-        // read targetId, signalName, signalValue
-    }
-    sleep_ms(5);
-}
-```
-
-Agents can use `genesis_ai_agent --watch-signals` to stream events to stdout.
-
-### SYSTEM — broadcast / inject actions (targetId = `0xFFFFFFFF`)
-
-Addressed to the magic broadcast id `0xFFFFFFFF`, these bypass the widget tree entirely:
-
-| action | effect |
-|---|---|
-| `inject:<type>:<panel>:<label>` | Dynamically create a widget in the named panel |
-| `remove_widget:<nodeId>` | Remove a widget by scene-graph node id |
-
-`<type>` is one of: `button`, `label`, `checkbox`, `lineedit`.  
-Panel name must match an existing dock panel title (e.g. `Console`, `Properties`).
-
-### Widget action vocabulary
-| role | actions |
-|---|---|
-| Button | `click` |
-| ToggleButton | `toggle` |
-| CheckBox | `check`, `uncheck` |
-| RadioButton | `select` |
-| Slider / ScrollBar | `set_value:<float>` |
-| SpinBox | `increment`, `decrement` |
-| LineEdit | `set_text:<string>` |
-| ComboBox | `select:<item-label>` |
-| TabBar | `select_tab:<index>` |
-| DockPanel (id ≥ `0x40000000`) | `activate`, `float`, `set_width:<px>`, `set_height:<px>`, `move_to:<pos>[:<target>]` |
-| **(system broadcast)** | `inject:<type>:<panel>:<label>`, `remove_widget:<id>` |
-
-### Concurrency & stability
-- Reads are wait-free; writes/dispatch happen on the UI thread — widget mutation is always
-  thread-correct.
-- Versioned ABI, bounds-checked dispatch, fixed-size string fields, result codes — a
-  malformed or stale agent cannot corrupt the app.
-
-### Tools (`tools/`)
-| binary | purpose |
-|---|---|
-| `genesis_ai_probe` | Dump live semantic tree |
-| `genesis_ai_agent` | Full featured agent: find→act→verify, inject, watch signals |
-
-```sh
-build/genesis_ai_probe                                      # snapshot
-build/genesis_ai_agent                                      # scripted demo
-build/genesis_ai_agent --tree                               # dump semantic tree
-build/genesis_ai_agent --role Button --find "Primary" --do click
-build/genesis_ai_agent --inject "button:Console:Run Analysis"
-build/genesis_ai_agent --remove 42
-build/genesis_ai_agent --watch-signals                      # live event stream
-```
-
-### Extending
-A widget joins the AI surface by implementing:
-- `IAIState::getSemanticNode()` — role/label/value/interactable.
-- `executeSemanticAction(action)` — dispatch vocab.
-
-Automatic signal emission is provided by `AiBusHook` (set once in `GApplication`'s ctor)
-— no widget needs to know about the bus directly.  The app bridges descriptors in
-`ControlsCatalog::collectAiNodes()` / dispatches in `dispatchAiAction()`.
-
-See **`AGENTS.md`** at the repo root for the agent quick-start loop.
+- **Opt-in.** Off, it is a null check.
+- **One hook.** `JAppWindow` calls `tick()` once per frame; no widget has AI code of its own. The data is
+  the accessibility layer every widget already has (`a11yNode()`).
+- **Main thread only.** Actions run in the render loop, never from another thread.
+- **Never truncated.** A client refuses an action that does not fit; a reply too large says so instead of
+  arriving cut off.
