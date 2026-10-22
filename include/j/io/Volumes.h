@@ -29,8 +29,6 @@ struct JVolumeInfo {
     std::string device;        // "/dev/sdb1" on Linux; empty on Windows
     std::string filesystem;    // "vfat", "exfat", "FAT32", …
     bool        removable{false};
-    uint64_t    totalBytes{0};
-    uint64_t    freeBytes{0};
 };
 
 class JVolumes {
@@ -43,6 +41,11 @@ public:
     // …narrowed to the removable ones. The usual question: which of these is the card the user just
     // plugged in.
     static std::vector<JVolumeInfo> removableVolumes();
+    // HOW BIG, AND HOW FULL — asked separately, of one volume, because it is not free. On FAT the free
+    // count can mean reading the whole allocation table, and behind a slow USB mass-storage bridge (an
+    // ECU's own SD card) that took over ten seconds; listing the volumes to find the card paid it for
+    // every drive, every time. False when the volume cannot answer.
+    static bool spaceOf(const std::string& mountPoint, uint64_t& totalBytes, uint64_t& freeBytes);
 };
 
 } // namespace jf

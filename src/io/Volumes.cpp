@@ -47,11 +47,6 @@ static std::vector<JVolumeInfo> _enumerate(bool removableOnly) {
         v.label      = label;
         v.filesystem = fs;
         v.removable  = removable;
-        ULARGE_INTEGER freeAvail{}, total{}, freeTotal{};
-        if (GetDiskFreeSpaceExA(root, &freeAvail, &total, &freeTotal)) {
-            v.totalBytes = total.QuadPart;
-            v.freeBytes  = freeAvail.QuadPart;
-        }
         out.push_back(std::move(v));
     }
     return out;
@@ -159,12 +154,6 @@ static std::vector<JVolumeInfo> _enumerate(bool removableOnly) {
         if (removableOnly && !v.removable) continue;
         const auto it = labels.find(v.device);
         if (it != labels.end()) v.label = it->second;
-
-        struct statvfs st {};
-        if (statvfs(v.mountPoint.c_str(), &st) == 0) {
-            v.totalBytes = static_cast<uint64_t>(st.f_blocks) * st.f_frsize;
-            v.freeBytes  = static_cast<uint64_t>(st.f_bavail) * st.f_frsize;
-        }
         out.push_back(std::move(v));
     }
     std::fclose(mounts);
@@ -174,6 +163,21 @@ static std::vector<JVolumeInfo> _enumerate(bool removableOnly) {
 #endif
 
 std::vector<JVolumeInfo> JVolumes::mountedVolumes()   { return _enumerate(false); }
+
+bool JVolumes::spaceOf(const std::string& mountPoint, uint64_t& totalBytes, uint64_t& freeBytes) {
+#if defined(_WIN32)
+    ULARGE_INTEGER freeAvail{}, total{}, freeTotal{};
+    if (!GetDiskFreeSpaceExA(mountPoint.c_str(), &freeAvail, &total, &freeTotal)) return false;
+    totalBytes = total.QuadPart;
+    freeBytes  = freeAvail.QuadPart;
+#else
+    struct statvfs st {};
+    if (statvfs(mountPoint.c_str(), &st) != 0) return false;
+    totalBytes = static_cast<uint64_t>(st.f_blocks) * st.f_frsize;
+    freeBytes  = static_cast<uint64_t>(st.f_bavail) * st.f_frsize;
+#endif
+    return true;
+}
 std::vector<JVolumeInfo> JVolumes::removableVolumes() { return _enumerate(true);  }
 
 } // namespace jf
