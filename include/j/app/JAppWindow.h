@@ -135,6 +135,17 @@ public:
                 }
                 return out;
             };
+            // ONLY WHAT IS IN FRONT takes input over the bus, as for a person: a native dialog blocks every
+            // widget, and a modal blocks every widget outside its own scene graph. A modal whose type does
+            // not expose its graph cannot be told apart, so it blocks nothing — never a wrong refusal.
+            JAiBus::instance().blockedBy = [this](const JWidget* w) -> std::string {
+                for (auto it = m_dialogs.rbegin(); it != m_dialogs.rend(); ++it)
+                    if (!it->isDone()) return std::string("a dialog is open (\"") + it->request().title +
+                                              "\"): answer it first (dialog:ok / dialog:cancel)";
+                if (m_modalStack.empty() || !m_modalStack.back().graph) return {};
+                if (&w->sceneGraph() == m_modalStack.back().graph) return {};
+                return "a modal dialog is open: act on its controls first";
+            };
             JAiBus::instance().onWindowAction = [this](uint32_t, const std::string& action) {
                 if (action != "dialog:ok" && action != "dialog:cancel") return 0;
                 for (auto it = m_dialogs.rbegin(); it != m_dialogs.rend(); ++it)
@@ -517,7 +528,7 @@ public:
     // The app owns the dialog object/lifetime; this only drives it. Used for Preferences, etc.
     void setModalDialog(std::function<bool(JGpuHal&, JPrimitiveBuffer&)> poll, std::function<void(JGpuHal&)> destroy,
                         uintptr_t nativeHandle = 0, const char* kind = nullptr,
-                        std::function<bool()> closing = {}) {
+                        std::function<bool()> closing = {}, const JSceneGraph* graph = nullptr) {
         // The opener (main window, or a modal already on the stack) grabbed the pointer on the very
         // button-press that is opening this dialog, and — because it is about to be frozen out of the
         // pump (only the TOP of the stack polls) — will never see its own release to drop that grab.
@@ -531,7 +542,7 @@ public:
 #endif
         // nativeHandle = this modal's OWN window id; a nested child pushed later parents to it (see
         // _parentForChildModal) so the WM stacks the child above its opener rather than the root window.
-        m_modalStack.push_back({ std::move(poll), std::move(destroy), nativeHandle, kind, std::move(closing) });   // push: modals STACK, so a modal can open another (e.g. Axis Setup -> channel picker) without destroying its parent
+        m_modalStack.push_back({ std::move(poll), std::move(destroy), nativeHandle, kind, std::move(closing), graph });   // push: modals STACK, so a modal can open another (e.g. Axis Setup -> channel picker) without destroying its parent
     }
 
     // The parent window for a NEW modal: the modal currently on top of the stack (its opener) so the WM
@@ -592,8 +603,11 @@ public:
         std::function<bool()> closing;
         if constexpr (requires { dlg->closing(); }) closing = [w = std::weak_ptr<T>(dlg)] {
             const auto d = w.lock(); return !d || d->closing(); };
+        const JSceneGraph* graph = nullptr;
+        if constexpr (requires { dlg->graph(); }) graph = &dlg->graph();
         setModalDialog([dlg](JGpuHal& h, JPrimitiveBuffer& b) { return dlg->pollAndRender(h, b); },
-                       [dlg](JGpuHal& h) { dlg->destroySurface(h); }, handle, typeid(T).name(), std::move(closing));
+                       [dlg](JGpuHal& h) { dlg->destroySurface(h); }, handle, typeid(T).name(), std::move(closing),
+                       graph);
     }
 
     // The window's menu bar — built lazily on first call (reserves a 28px strip below the
@@ -2464,6 +2478,7 @@ private:
         uintptr_t                                        handle{0};   // this modal's own native window id
         const char*                                      kind{nullptr};   // typeid name — see openModal's guard
         std::function<bool()>                            closing;         // closed, waiting to be popped (openModal's guard)
+        const JSceneGraph*                               graph{nullptr};  // its widgets' graph, when known (the bus's input gate)
     };
     std::vector<JModalEntry> m_modalStack;
     std::vector<std::function<void()>> m_whenNoDialog;   // see whenNoDialog()

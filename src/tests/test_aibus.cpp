@@ -108,6 +108,24 @@ int main() {
     assert(act("key:NoSuchKey", req + 4) == 0 && "an unknown key is not handled");
     std::printf("  [OK] type: and key: drive a field through its keyboard path\n");
 
+    // WHAT A PERSON COULD NOT CLICK, THE BUS DOES NOT CLICK. With something in front (a modal, a native
+    // dialog) the gate names it, the action is refused with resultCode 2 and the reason as the reply, and
+    // the widget never hears it.
+    clicked = false;
+    JAiBus::instance().blockedBy = [&](const JWidget* w) -> std::string {
+        return w == &btn ? std::string("a modal dialog is open: act on its controls first") : std::string();
+    };
+    bus->action.targetId = btnId;
+    aiBusCopy(bus->action.action, sizeof(bus->action.action), "click");
+    bus->action.requestSeq.store(req + 5);
+    JAiBus::instance().tick(JWidget::s_activeWidgets, &focus);
+    assert(bus->action.resultCode == 2 && !clicked && "a blocked widget is refused, not clicked");
+    assert(std::string(bus->action.reply, bus->action.replyLen).find("modal dialog is open") != std::string::npos
+           && "and the reply says why");
+    assert(act("type:42", req + 6) == 1 && "a widget the gate allows still takes input");
+    JAiBus::instance().blockedBy = nullptr;
+    std::printf("  [OK] a widget behind a dialog is refused with the reason\n");
+
     // The window's own nodes and actions: a native dialog draws no widgets, so the window publishes it and
     // answers it ("dialog:ok") before the app's handler is asked.
     bool answered = false, appAsked = false;

@@ -126,6 +126,13 @@ public:
     // Same return convention as onAction. Installed by JAppWindow.
     std::function<std::vector<JA11yNode>()>                    windowNodes;
     std::function<int(uint32_t id, const std::string& action)> onWindowAction;
+    // WHAT A PERSON COULD CLICK, and what they could not. A modal dialog blocks the window behind it, and
+    // the bus used to act there anyway — so a script could open a second tune while the question "push
+    // tune A?" was still on screen, and then answer that question about the wrong tune. Asked of every
+    // action addressed at a widget, before anything else: empty means the widget takes input now; any text
+    // is why not, and the action is refused with it. Installed by JAppWindow. Actions addressed at the app
+    // (no widget) are not widget input and are not asked.
+    std::function<std::string(const JWidget*)> blockedBy;
     static constexpr uint32_t kWindowNodeIds = 0x40000000u;
 
     // Once per frame, MAIN thread: service a pending action then publish the snapshot. Returns true if an
@@ -145,6 +152,20 @@ private:
         // Read to the terminator OR the end of the buffer: a client that wrote no NUL is not a reason to
         // read past the action into the reply.
         const std::string action(m_shm->action.action, strnlen(m_shm->action.action, kAiBusActionMax));
+        if (blockedBy) {
+            if (const JWidget* target = widgetFor(m_shm->action.targetId)) {
+                const std::string why = blockedBy(target);
+                if (!why.empty()) {
+                    std::string esc;
+                    for (char c : why) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+                    reply("{\"ok\":false,\"error\":\"" + esc + "\"}");
+                    m_shm->action.resultCode = 2;
+                    m_shm->action.ackSeq.store(req, std::memory_order_release);
+                    m_lastHandled = req;
+                    return true;
+                }
+            }
+        }
         int rc = dispatchDefault(widgets, focus, m_shm->action.targetId, action);
         if (rc != 1 && onWindowAction) {
             const int winRc = onWindowAction(m_shm->action.targetId, action);
