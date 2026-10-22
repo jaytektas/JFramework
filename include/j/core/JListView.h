@@ -80,7 +80,10 @@ public:
     }
 
     void setSelectedIndex(int index) {
-        int nextIdx = (m_items.empty()) ? -1 : std::clamp(index, 0, (int)m_items.size()-1);
+        // A NEGATIVE INDEX IS "NOTHING SELECTED", not row 0: a list whose wrong answer is costly (which
+        // board is in the bootloader) must be able to start with no answer at all, so accept stays dead
+        // until someone picks one.
+        int nextIdx = (m_items.empty() || index < 0) ? -1 : std::clamp(index, 0, (int)m_items.size()-1);
         // Land on an ENABLED row. Keep going the way the caller was going — an arrow key into a run
         // of disabled rows steps over the whole run rather than sticking against the first one — and
         // fall back the other way at the end of the list, so Down at the bottom does not deselect.

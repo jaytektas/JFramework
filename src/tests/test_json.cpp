@@ -97,7 +97,21 @@ void test_pretty_print() {
     std::cout << "test_pretty_print passed\n";
 }
 
+// THE OUTPUT IS ALWAYS VALID UTF-8. One stray byte in one string (a record decoded from a corrupt store)
+// made a strict reader refuse the whole document; it is written as U+FFFD and nothing else is touched.
+void test_invalid_utf8_is_replaced() {
+    JJson o = JJson::object();
+    o["good"] = JJson(std::string("50 \xC2\xB0" "C \xE2\x86\x94 ok"));          // degree sign, arrow: kept as-is
+    o["bad"]  = JJson(std::string("a\xC2" "b\xFF" "c\xE2\x86"));                 // truncated, invalid, truncated at end
+    const std::string d = o.dump();
+    assert(d.find("50 \xC2\xB0" "C \xE2\x86\x94 ok") != std::string::npos);
+    auto back = JJson::parse(d);
+    assert(back["bad"].str() == "a\xEF\xBF\xBD" "b\xEF\xBF\xBD" "c\xEF\xBF\xBD\xEF\xBF\xBD");
+    std::cout << "test_invalid_utf8_is_replaced passed\n";
+}
+
 int main() {
+    test_invalid_utf8_is_replaced();
     test_parse_primitives();
     test_parse_object();
     test_parse_array();

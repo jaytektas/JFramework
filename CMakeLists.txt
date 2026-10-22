@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.16)
 # overwrite asked) — an app built against 0.1 shows the old hand-drawn picker. 0.3: the AI bus carries a
 # reply and a 64 KB request (ABI 8), and runs on Windows. Raise the minor when an app
 # must not be built against what came before.
-project(JFramework VERSION 0.3.1 LANGUAGES CXX)
+project(JFramework VERSION 0.3.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

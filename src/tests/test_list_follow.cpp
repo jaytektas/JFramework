@@ -35,6 +35,11 @@ int main() {
     list.setItems(rows);
     list.setScrollY(back);
     check(list.scrollY() == back, "its place put back after new rows");
+    // NOTHING SELECTED is a state a list can be put in, not row 0 by another name: a question whose wrong
+    // answer is costly starts with no answer at all.
+    list.setSelectedIndex(5);
+    list.setSelectedIndex(-1);
+    check(list.selectedIndex() == -1, "setSelectedIndex(-1): nothing selected");
     std::printf(fails ? "=== %d FAILED ===\n" : "=== lists follow ===\n", fails);
     return fails ? 1 : 0;
 }

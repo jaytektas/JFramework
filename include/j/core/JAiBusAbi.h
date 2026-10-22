@@ -82,9 +82,21 @@ struct JAiBusShared {
 };
 
 // Copy a std::string-ish into a fixed NUL-terminated buffer.
+// Cut on a CHARACTER boundary, never inside one. A 64-byte name field cut mid-sequence left half an
+// "…" or "↔" at the end, and a client then could not find the widget by the name it was showing ("Check
+// for ECU Firmware Update" + a stray lead byte), and a strict decoder refused the whole dump. When the
+// first byte left out is a UTF-8 continuation byte, the character it belongs to goes with it.
 inline void aiBusCopy(char* dst, size_t cap, const char* src) {
     if (!cap) return;
-    size_t n = 0; if (src) { n = std::strlen(src); if (n > cap - 1) n = cap - 1; std::memcpy(dst, src, n); }
+    size_t n = 0;
+    if (src) {
+        n = std::strlen(src);
+        if (n > cap - 1) {
+            n = cap - 1;
+            while (n > 0 && (static_cast<unsigned char>(src[n]) & 0xC0u) == 0x80u) --n;
+        }
+        std::memcpy(dst, src, n);
+    }
     dst[n] = '\0';
 }
 

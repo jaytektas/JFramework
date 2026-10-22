@@ -195,9 +195,37 @@ private:
 
     // ---- Serialisation ------------------------------------------------------
 
+    // The length of the well-formed UTF-8 sequence starting at s[i], or 0 if it is not one (a stray
+    // continuation byte, a truncated sequence, an overlong form, a surrogate, or past U+10FFFF).
+    static size_t _utf8Len(const std::string& s, size_t i) {
+        const auto b = [&](size_t k) { return static_cast<unsigned char>(s[k]); };
+        const unsigned char c = b(i);
+        size_t n = 0; unsigned char lo = 0x80, hi = 0xBF;
+        if      (c >= 0xC2 && c <= 0xDF) n = 2;
+        else if (c >= 0xE0 && c <= 0xEF) { n = 3; if (c == 0xE0) lo = 0xA0; if (c == 0xED) hi = 0x9F; }
+        else if (c >= 0xF0 && c <= 0xF4) { n = 4; if (c == 0xF0) lo = 0x90; if (c == 0xF4) hi = 0x8F; }
+        else return 0;
+        if (i + n > s.size()) return 0;
+        if (b(i + 1) < lo || b(i + 1) > hi) return 0;
+        for (size_t k = 2; k < n; ++k) if ((b(i + k) & 0xC0) != 0x80) return 0;
+        return n;
+    }
+
+    // ALWAYS VALID UTF-8 OUT, whatever came in. JSON text is UTF-8 by definition, and one bad byte makes a
+    // strict reader refuse the whole document — a trouble-code list built from a corrupt store did exactly
+    // that, and the client lost every code because of one. A byte that does not start a well-formed
+    // sequence is written as U+FFFD, the replacement character, and the rest goes through untouched.
     static void _escapeString(std::ostringstream& out, const std::string& s) {
         out << '"';
-        for (unsigned char c : s) {
+        for (size_t i = 0; i < s.size(); ++i) {
+            const unsigned char c = static_cast<unsigned char>(s[i]);
+            if (c >= 0x80) {
+                const size_t n = _utf8Len(s, i);
+                if (n == 0) { out << "\\ufffd"; continue; }
+                out.write(s.data() + i, static_cast<std::streamsize>(n));
+                i += n - 1;
+                continue;
+            }
             switch (c) {
                 case '"':  out << "\\\""; break;
                 case '\\': out << "\\\\"; break;

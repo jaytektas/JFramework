@@ -21,6 +21,15 @@
 using namespace jf;
 
 int main() {
+    // A NAME CUT TO FIT IS CUT BETWEEN CHARACTERS. "…" is three bytes; a 64-byte field that ended inside it
+    // published half a character, which matched nothing and broke a strict decoder.
+    {
+        char dst[8];
+        aiBusCopy(dst, sizeof dst, "Update\xE2\x80\xA6");   // 6 ASCII + 3-byte ellipsis = 9 bytes into 7
+        assert(std::strcmp(dst, "Update") == 0 && "the partial ellipsis goes, the word stays");
+        aiBusCopy(dst, sizeof dst, "abc");
+        assert(std::strcmp(dst, "abc") == 0);
+    }
     const char* kName = "/jf_aibus_test";
     shm_unlink(kName);   // fresh
 
