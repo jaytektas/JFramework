@@ -15,8 +15,11 @@
 inline namespace jf {
 
 inline constexpr uint32_t kAiBusMagic     = 0x4A414942;   // "JAIB"
-inline constexpr uint32_t kAiBusVersion   = 8;            // ABI version (bump on layout change)
-inline constexpr uint32_t kAiBusMaxNodes  = 2048;
+inline constexpr uint32_t kAiBusVersion   = 9;            // ABI version (bump on layout change)
+// Room for every visible widget of a real application. 2048 was not: a tuning studio with its docks,
+// menus and a page open publishes more than that, and the rest — the dialogs, which are added last —
+// silently did not exist for a client. ~176 bytes a node, so 16384 is under 3 MB of address space.
+inline constexpr uint32_t kAiBusMaxNodes  = 16384;
 // A request can carry data (a whole table's cells to write), and a reply can carry a lot more (every
 // setting an app has, with its units and range). The segment is mapped, not copied, so room that a
 // request does not use costs nothing but address space.
@@ -68,6 +71,9 @@ struct JAiBusShared {
     uint32_t              version{kAiBusVersion};
     std::atomic<uint64_t> seq{0};
     uint32_t              nodeCount{0};
+    // Widgets that were visible but did not fit in nodes[] this frame. Never silently: a client that
+    // sees this non-zero knows the tree it is reading is not the whole window.
+    uint32_t              droppedNodes{0};
     // The process publishing it. A segment outlives the app that made it when that app dies without
     // removing it, and its last frame then reads as live: a client checks this process still runs.
     int32_t               ownerPid{0};

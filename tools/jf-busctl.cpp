@@ -208,7 +208,8 @@ int main(int argc, char** argv) {
                                  ? argv[2] : "";
         uint32_t count = 0; snapshot(count);
         if (asJson) std::printf("[");
-        else std::printf("nodeCount=%u seq=%llu\n", count, (unsigned long long)bus->seq.load());
+        else std::printf("nodeCount=%u dropped=%u seq=%llu\n", count, bus->droppedNodes,
+                         (unsigned long long)bus->seq.load());
         bool first = true;
         for (uint32_t i = 0; i < count; ++i) {
             const std::string line = lineOf(local[i]);

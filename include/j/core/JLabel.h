@@ -38,6 +38,7 @@ public:
         notifyAccessibility();
     }
     void setMinWidthFollowsText(bool on) { m_minFollowsText = on; }
+    [[nodiscard]] const std::string& text() const { return m_text; }
 
     // WORD WRAP. Without it a label is one line that CLIPS at its width, so any sentence longer than
     // its box ends mid-word — and every consumer that needed a paragraph wrote its own wrapper (the

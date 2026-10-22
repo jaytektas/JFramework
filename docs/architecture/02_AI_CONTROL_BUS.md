@@ -19,7 +19,8 @@ inside the app), `tools/jf-busctl.cpp` (the client).
 
 | Part | Direction | What |
 |---|---|---|
-| `nodes[2048]` | app → client | every visible widget: id, role, name (64), value (48), state flags, rect, range |
+| `nodes[16384]` | app → client | every visible widget: id, role, name (64), value (48), state flags, rect, range |
+| `droppedNodes` | app → client | visible widgets that did not fit this frame (0 = the dump is the whole window; `jf-busctl dump` prints it) |
 | `action` | client → app | a target id and an action string of up to 64 KB |
 | `reply` | app → client | up to 8 MB of text answering the action (JSON by convention) |
 

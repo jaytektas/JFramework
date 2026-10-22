@@ -258,10 +258,11 @@ private:
 
     void publish(const std::vector<JWidget*>& widgets) {
         m_shm->seq.fetch_add(1, std::memory_order_release);   // odd → write in progress
-        uint32_t n = 0;
+        uint32_t n = 0, dropped = 0;
         m_seen.clear();
         for (JWidget* w : widgets) {
-            if (!w || !w->isVisible() || n >= kAiBusMaxNodes) continue;
+            if (!w || !w->isVisible()) continue;
+            if (n >= kAiBusMaxNodes) { ++dropped; continue; }
             const JA11yNode a = w->a11yNode();   // fully populated: role/name/value/state/geometry/range
             JAiBusNode& node = m_shm->nodes[n++];
             node.id = idFor(w);
@@ -277,7 +278,7 @@ private:
         if (windowNodes) {
             uint32_t k = 0;
             for (const JA11yNode& a : windowNodes()) {
-                if (n >= kAiBusMaxNodes) break;
+                if (n >= kAiBusMaxNodes) { ++dropped; continue; }
                 JAiBusNode& node = m_shm->nodes[n++];
                 node.id = kWindowNodeIds + k++;
                 node.stateFlags = a.stateFlags;
@@ -289,6 +290,7 @@ private:
             }
         }
         m_shm->nodeCount = n;
+        m_shm->droppedNodes = dropped;
         // Forget widgets that were not published this frame. Done here rather than on destruction because
         // the bus has no hook into a widget's life; the cost is one pass over a small map per frame.
         for (auto it = m_ids.begin(); it != m_ids.end();)
