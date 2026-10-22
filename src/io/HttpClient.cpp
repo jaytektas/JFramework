@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cerrno>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -221,12 +222,23 @@ public:
     int read(char* buf, int cap) {
 #if JF_HAVE_OPENSSL && !defined(_WIN32)
         if (m_ssl) {
+            // A stale entry in the thread's error queue makes SSL_get_error misreport this call.
+            ERR_clear_error();
+            errno = 0;
             const int n = SSL_read(m_ssl, buf, cap);
             if (n > 0) return n;
             const int e = SSL_get_error(m_ssl, n);
-            // The receive timeout surfaces as a SYSCALL error with EAGAIN — which used to read as EOF, so a
-            // stalled download came back as a SHORT one.
-            if (e == SSL_ERROR_SYSCALL && (errno == EAGAIN || errno == EWOULDBLOCK)) return kStalled;
+            const bool again = errno == EAGAIN || errno == EWOULDBLOCK;
+            // The receive timeout. OpenSSL 1.1 surfaced it as a SYSCALL error with EAGAIN; OpenSSL 3 says
+            // WANT_READ — which fell through to -1, and a stalled download was reported as "read failed".
+            if (again && (e == SSL_ERROR_WANT_READ || e == SSL_ERROR_WANT_WRITE || e == SSL_ERROR_SYSCALL))
+                return kStalled;
+#ifdef SSL_R_UNEXPECTED_EOF_WHILE_READING
+            // OpenSSL 3: the peer closed without a TLS close_notify. That is an EOF; the caller's length
+            // check decides whether it came early.
+            if (e == SSL_ERROR_SSL && ERR_GET_REASON(ERR_peek_last_error()) == SSL_R_UNEXPECTED_EOF_WHILE_READING)
+                return 0;
+#endif
             return (e == SSL_ERROR_ZERO_RETURN || e == SSL_ERROR_SYSCALL) ? 0 : -1;
         }
 #endif
@@ -438,18 +450,25 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
     int64_t  declared    = 0;
     bool     chunked     = false;
     char     buf[16384];
+    // A body CUT OFF part-way is still handed back in r.body, beside the error, so the client can ask for
+    // the rest (fetchResuming). ok() is false; nobody takes it as the file.
+    auto keepPartial = [&] {
+        if (bodyAt != std::string::npos && !chunked) r.body.assign(raw.begin() + static_cast<long>(bodyAt), raw.end());
+    };
 
     for (;;) {
         if (std::chrono::steady_clock::now() > deadline) {
             r.error = "timed out after " + std::to_string(timeoutMs) + " ms";
+            keepPartial();
             return r;
         }
         const int n = conn.read(buf, static_cast<int>(sizeof(buf)));
         if (n == Connection::kStalled) {
             r.error = "the connection stalled (no data for " + std::to_string(std::min(timeoutMs, kStallMs) / 1000) + " s)";
+            keepPartial();
             return r;
         }
-        if (n < 0) { r.error = "read failed"; return r; }
+        if (n < 0) { r.error = "read failed"; keepPartial(); return r; }
         if (n == 0) break;                                        // server closed: everything we get
         raw.append(buf, static_cast<size_t>(n));
 
@@ -485,6 +504,7 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
     if (declared > 0 && static_cast<int64_t>(raw.size() - bodyAt) < declared) {
         auto size = [](int64_t b) { return b < 10240 ? std::to_string(b) + " bytes" : std::to_string(b / 1024) + " KB"; };
         r.error = "the connection closed after " + size(static_cast<int64_t>(raw.size() - bodyAt)) + " of " + size(declared);
+        keepPartial();
         return r;
     }
     r.body.assign(raw.begin() + static_cast<long>(bodyAt), raw.end());
@@ -505,6 +525,97 @@ std::string resolveRedirect(const std::string& base, const std::string& loc) {
     if (!loc.empty() && loc[0] == '/') return root + loc;
     const size_t slash = b.path.rfind('/');
     return root + (slash == std::string::npos ? "/" : b.path.substr(0, slash + 1)) + loc;
+}
+
+// One GET with its redirects followed. `base`/`total` offset the progress of a resumed piece, so a
+// progress bar carries on from where the file had got to rather than starting again at zero.
+JHttpResponse follow(const std::string& url, int timeoutMs, const std::vector<JHttpHeader>& headers,
+                     int maxRedirects, const std::function<void(int64_t, int64_t)>& onProgress,
+                     int64_t base = 0, int64_t total = 0) {
+    std::string  target = url;
+    JHttpResponse r;
+    std::function<void(int64_t, int64_t)> prog;
+    if (onProgress) prog = [&](int64_t got, int64_t t) { onProgress(base + got, total > 0 ? total : t); };
+    for (int hop = 0; ; ++hop) {
+        r = exchange(target, timeoutMs, headers, prog);
+        const bool redirect = r.error.empty() && (r.status == 301 || r.status == 302 ||
+                                                  r.status == 303 || r.status == 307 || r.status == 308);
+        if (!redirect || hop >= maxRedirects) break;
+        const std::string loc = r.header("Location");
+        if (loc.empty()) break;
+        target = resolveRedirect(target, loc);
+        JLOGC("http", jf::JLogLevel::Info) << "  -> " << r.status << " redirect to " << target;
+    }
+    return r;
+}
+
+// "bytes 100-199/1000" -> 100, 1000. False for anything else.
+bool contentRange(const std::string& v, int64_t& from, int64_t& total) {
+    long long a = 0, b = 0, t = 0;
+    if (std::sscanf(v.c_str(), "bytes %lld-%lld/%lld", &a, &b, &t) != 3 || a < 0 || b < a || t <= b) return false;
+    from = a; total = t;
+    return true;
+}
+
+// A GET that SURVIVES A CUT-OFF. A CDN does now and then stop sending on a connection part-way through a
+// large file and never start again (GitHub's release assets: seen at 24 MB and 25.7 MB of 27 MB), while a
+// NEW connection asking for the rest is answered at once. So a 200 that stopped short of its declared
+// length keeps what it got and asks for "Range: bytes=<got>-" — from the ORIGINAL url, so a signed
+// redirect is issued fresh — and takes a 206 only if it starts exactly there and agrees on the total.
+// A server that does not advertise "Accept-Ranges: bytes", or will not resume when asked (answers 200,
+// or something else), leaves the original error standing.
+// The caller's checksum still has the last word on the bytes.
+JHttpResponse fetchResuming(const std::string& url, int timeoutMs, const std::vector<JHttpHeader>& headers,
+                            int maxRedirects, const std::function<void(int64_t, int64_t)>& onProgress) {
+    JHttpResponse r = follow(url, timeoutMs, headers, maxRedirects, onProgress);
+    if (r.error.empty() || r.status != 200 || r.body.empty()) { if (!r.error.empty()) r.body.clear(); return r; }
+    const std::string cl = r.header("Content-Length");
+    const int64_t total = cl.empty() ? 0 : std::strtoll(cl.c_str(), nullptr, 10);
+    // Only a server that SAID it serves ranges is asked to; any other answers the original error.
+    const bool ranges = r.header("Accept-Ranges").find("bytes") != std::string::npos;
+    if (!ranges || total <= 0 || static_cast<int64_t>(r.body.size()) >= total) { r.body.clear(); return r; }
+
+    std::vector<uint8_t> body = std::move(r.body);
+    const std::string first = r.error;
+    int fruitless = 0, resumes = 0;
+    while (static_cast<int64_t>(body.size()) < total && fruitless < 5 && resumes < 64) {
+        ++resumes;
+        if (fruitless) std::this_thread::sleep_for(std::chrono::seconds(fruitless));
+        std::vector<JHttpHeader> hs = headers;
+        hs.push_back({ "Range", "bytes=" + std::to_string(body.size()) + "-" });
+        JLOGC("http", jf::JLogLevel::Info) << "  resuming at " << body.size() << " of " << total
+                                           << " (" << (r.error.empty() ? first : r.error) << ")";
+        r = follow(url, timeoutMs, hs, maxRedirects, onProgress, static_cast<int64_t>(body.size()), total);
+        if (r.status != 206) {
+            if (r.error.empty() || r.status != 0) {          // answered, but not with the rest: stop
+                r.error = first + "; the server would not resume it";
+                r.body.clear();
+                return r;
+            }
+            ++fruitless;                                       // no answer at all: the connection again
+            continue;
+        }
+        int64_t from = -1, t = 0;
+        if (!contentRange(r.header("Content-Range"), from, t) || from != static_cast<int64_t>(body.size()) || t != total) {
+            r.error = first + "; the resumed part did not match";
+            r.body.clear();
+            return r;
+        }
+        if (r.body.empty()) { ++fruitless; continue; }
+        fruitless = 0;
+        body.insert(body.end(), r.body.begin(), r.body.end());
+    }
+    if (static_cast<int64_t>(body.size()) != total) {
+        r.error = (r.error.empty() ? first : r.error) + " (resumed " + std::to_string(resumes) + " time"
+                + (resumes == 1 ? "" : "s") + ", " + std::to_string(body.size()) + " of " + std::to_string(total) + " bytes)";
+        r.body.clear();
+        return r;
+    }
+    JLOGC("http", jf::JLogLevel::Info) << "  complete after " << resumes << " resume(s)";
+    r.status = 200;
+    r.error.clear();
+    r.body = std::move(body);
+    return r;
 }
 
 } // namespace
@@ -555,24 +666,13 @@ void JHttpClient::get(const std::string& url, std::function<void(const JHttpResp
 
     std::thread([url, timeoutMs, maxRedirects, headers, alive, progress, done = std::move(done)] {
         JLOGC("http", jf::JLogLevel::Info) << "GET " << url;
-        std::string  target = url;
-        JHttpResponse r;
-        for (int hop = 0; ; ++hop) {
-            r = exchange(target, timeoutMs, headers,
+        JHttpResponse r = fetchResuming(url, timeoutMs, headers, maxRedirects,
                          [alive, progress](int64_t got, int64_t total) {
                              if (!alive->load()) return;
                              jf::JMainThreadDispatcher::instance().post([alive, progress, got, total] {
                                  if (alive->load()) progress->emit(got, total);
                              });
                          });
-            const bool redirect = r.error.empty() && (r.status == 301 || r.status == 302 ||
-                                                      r.status == 303 || r.status == 307 || r.status == 308);
-            if (!redirect || hop >= maxRedirects) break;
-            const std::string loc = r.header("Location");
-            if (loc.empty()) break;
-            target = resolveRedirect(target, loc);
-            JLOGC("http", jf::JLogLevel::Info) << "  -> " << r.status << " redirect to " << target;
-        }
         JLOGC("http", jf::JLogLevel::Info) << "  <- status " << r.status << ", " << r.body.size()
                                            << " byte(s)" << (r.error.empty() ? "" : ", error: " + r.error);
         if (!alive->load()) return;                      // client gone: the callback's captures may be too
@@ -584,18 +684,7 @@ void JHttpClient::get(const std::string& url, std::function<void(const JHttpResp
 
 JHttpResponse JHttpClient::getSync(const std::string& url, int timeoutMs,
                                    const std::vector<JHttpHeader>& headers) {
-    std::string  target = url;
-    JHttpResponse r;
-    for (int hop = 0; ; ++hop) {
-        r = exchange(target, timeoutMs, headers, {});
-        const bool redirect = r.error.empty() && (r.status == 301 || r.status == 302 ||
-                                                  r.status == 303 || r.status == 307 || r.status == 308);
-        if (!redirect || hop >= 5) break;
-        const std::string loc = r.header("Location");
-        if (loc.empty()) break;
-        target = resolveRedirect(target, loc);
-    }
-    return r;
+    return fetchResuming(url, timeoutMs, headers, 5, {});
 }
 
 JHttpResponse JHttpClient::postSync(const std::string& url, const std::string& body, const std::string& contentType,

@@ -13,6 +13,7 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #if !defined(_WIN32)
 #include <netinet/in.h>
@@ -146,6 +147,75 @@ static void test_a_download_cut_off_is_an_error_not_a_short_file() {
     std::cout << "  [OK] a download cut off part-way is an error (" << r.error << ")\n";
 }
 
+// A local server for a resumed download: a 100-byte file, one connection per entry in `plan`. Each entry
+// is how many bytes that connection sends before hanging up; `misbehave` answers the second request
+// with something other than the rest (0 = behave, 1 = a whole-file 200, 2 = a 206 starting elsewhere).
+// The Range header each request carried is recorded.
+static int serveResumable(std::vector<int> plan, int misbehave, std::vector<std::string>& ranges, std::thread& t) {
+    const int ls = ::socket(AF_INET, SOCK_STREAM, 0);
+    int one = 1; ::setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    sockaddr_in a{}; a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_LOOPBACK); a.sin_port = 0;
+    ::bind(ls, reinterpret_cast<sockaddr*>(&a), sizeof(a)); ::listen(ls, 4);
+    socklen_t len = sizeof(a); ::getsockname(ls, reinterpret_cast<sockaddr*>(&a), &len);
+    t = std::thread([ls, plan, misbehave, &ranges] {
+        std::string file;
+        for (int i = 0; i < 100; ++i) file += char('A' + i % 26);
+        for (size_t k = 0; k < plan.size(); ++k) {
+            const int c = ::accept(ls, nullptr, nullptr);
+            char buf[2048]; const ssize_t n = ::recv(c, buf, sizeof(buf), 0);
+            const std::string req(buf, n > 0 ? size_t(n) : 0);
+            const size_t rp = req.find("Range: bytes=");
+            const long from = rp == std::string::npos ? 0 : std::atol(req.c_str() + rp + 13);
+            ranges.push_back(rp == std::string::npos ? "" : req.substr(rp + 7, req.find("\r\n", rp) - rp - 7));
+            std::string head;
+            long start = from;
+            if (k == 0 || (k == 1 && misbehave == 1)) {
+                start = 0;
+                head = "HTTP/1.1 200 OK\r\nAccept-Ranges: bytes\r\nContent-Length: 100\r\n\r\n";
+            } else {
+                if (k == 1 && misbehave == 2) start = from + 5;
+                head = "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes " + std::to_string(start) + "-99/100\r\n"
+                       "Content-Length: " + std::to_string(100 - start) + "\r\n\r\n";
+            }
+            const std::string out = head + file.substr(size_t(start), size_t(std::min<long>(plan[k], 100 - start)));
+            (void)::send(c, out.data(), out.size(), 0);
+            ::close(c);
+        }
+        ::close(ls);
+    });
+    return ntohs(a.sin_port);
+}
+
+static void test_a_cut_off_download_resumes_where_it_stopped() {
+    // GitHub's asset CDN stops sending part-way through a large file now and then and never starts again;
+    // a new connection asking for the rest is answered at once. Cut off twice, the file still arrives whole.
+    std::vector<std::string> ranges;
+    std::thread t;
+    const int port = serveResumable({ 30, 40, 100 }, 0, ranges, t);
+    const JHttpResponse r = JHttpClient::getSync("http://127.0.0.1:" + std::to_string(port) + "/f", 5000);
+    t.join();
+    std::string want;
+    for (int i = 0; i < 100; ++i) want += char('A' + i % 26);
+    assert(r.ok() && r.status == 200 && r.text() == want);
+    assert(ranges.size() == 3 && ranges[0].empty() && ranges[1] == "bytes=30-" && ranges[2] == "bytes=70-");
+    std::cout << "  [OK] a download cut off twice resumes and arrives whole\n";
+}
+
+static void test_a_resume_the_server_will_not_honour_fails() {
+    for (int how : { 1, 2 }) {
+        std::vector<std::string> ranges;
+        std::thread t;
+        const int port = serveResumable({ 30, 100 }, how, ranges, t);
+        const JHttpResponse r = JHttpClient::getSync("http://127.0.0.1:" + std::to_string(port) + "/f", 5000);
+        t.join();
+        assert(!r.ok() && r.body.empty());
+        assert(r.error.find("closed after") != std::string::npos);
+        assert(r.error.find(how == 1 ? "would not resume" : "did not match") != std::string::npos);
+        std::cout << "  [OK] " << (how == 1 ? "a whole-file answer" : "a misplaced range")
+                  << " to a resume is an error (" << r.error << ")\n";
+    }
+}
+
 static void test_a_post_sends_its_body() {
     // A one-shot local server that answers with what it was sent.
     const int ls = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -195,6 +265,8 @@ int main() {
 #if !defined(_WIN32)
     test_a_stalled_download_fails_at_the_stall_not_the_deadline();
     test_a_download_cut_off_is_an_error_not_a_short_file();
+    test_a_cut_off_download_resumes_where_it_stopped();
+    test_a_resume_the_server_will_not_honour_fails();
     test_a_post_sends_its_body();
 #endif
     std::cout << "all JHttpClient tests passed\n";
