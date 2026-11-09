@@ -5,36 +5,23 @@
 
 #include <j/core/Log.h>
 #include <j/core/MainThreadDispatcher.h>
+#include <j/io/JHttpHead.h>
+#include <j/io/JUrl.h>
 
 #include <algorithm>
 #include <atomic>
 #include <cctype>
-#include <cerrno>
 #include <chrono>
-#include <cstring>
+#include <cstdlib>
 #include <memory>
-#include <mutex>
 #include <thread>
 
 #if defined(_WIN32)
-#include <winsock2.h>
-#include <ws2tcpip.h>
 #include <windows.h>
 #include <winhttp.h>
 #pragma comment(lib, "winhttp.lib")
 #else
-#include <netdb.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include <poll.h>
-#if JF_HAVE_OPENSSL
-#include <openssl/err.h>
-#include <openssl/ssl.h>
-#include <openssl/x509v3.h>
-#endif
+#include <j/io/JTcpSocket.h>
 #endif
 
 inline namespace jf {
@@ -42,88 +29,11 @@ inline namespace jf {
 namespace {
 
 // ---- URL ------------------------------------------------------------------
-struct JUrl {
-    std::string scheme, host, path;
-    uint16_t    port{0};
-    bool        secure{false};
-    bool        valid{false};
-};
-
-JUrl parseUrl(const std::string& url) {
-    JUrl u;
-    const size_t s = url.find("://");
-    if (s == std::string::npos) return u;
-    u.scheme = url.substr(0, s);
-    for (char& c : u.scheme) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    if (u.scheme != "http" && u.scheme != "https") return u;
-    u.secure = (u.scheme == "https");
-    u.port   = u.secure ? 443 : 80;
-
-    const size_t hostStart = s + 3;
-    const size_t pathStart = url.find('/', hostStart);
-    std::string  authority = url.substr(hostStart, pathStart == std::string::npos ? std::string::npos
-                                                                                 : pathStart - hostStart);
-    u.path = (pathStart == std::string::npos) ? "/" : url.substr(pathStart);
-    if (authority.empty()) return u;
-
-    // Userinfo is not supported: credentials in a URL are a security foot-gun and
-    // nothing here needs them. Reject rather than silently ignore them.
-    if (authority.find('@') != std::string::npos) return u;
-
-    const size_t colon = authority.rfind(':');
-    if (colon != std::string::npos && authority.find(']') == std::string::npos) {
-        const std::string p = authority.substr(colon + 1);
-        if (!p.empty() && p.find_first_not_of("0123456789") == std::string::npos) {
-            const long v = std::stol(p);
-            if (v <= 0 || v > 65535) return u;
-            u.port    = static_cast<uint16_t>(v);
-            authority = authority.substr(0, colon);
-        }
-    }
-    u.host  = authority;
-    u.valid = !u.host.empty();
+// A url this client fetches: http or https. ws:// and the rest parse, but are not ours.
+JUrl httpUrl(const std::string& url) {
+    JUrl u = JUrl::parse(url);
+    if (u.scheme != "http" && u.scheme != "https") u.valid = false;
     return u;
-}
-
-std::string lower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
-// ---- Response head --------------------------------------------------------
-// Splits "HTTP/1.1 200 OK\r\nHeader: v\r\n\r\n" into status + headers. Returns
-// the offset of the body, or npos while the head is still incomplete.
-size_t parseHead(const std::string& buf, int& status, std::vector<JHttpHeader>& headers) {
-    const size_t end = buf.find("\r\n\r\n");
-    if (end == std::string::npos) return std::string::npos;
-
-    size_t line = buf.find("\r\n");
-    const std::string statusLine = buf.substr(0, line);
-    const size_t sp1 = statusLine.find(' ');
-    if (sp1 == std::string::npos) return std::string::npos;
-    status = std::atoi(statusLine.c_str() + sp1 + 1);
-
-    headers.clear();
-    for (size_t p = line + 2; p < end; ) {
-        const size_t e = buf.find("\r\n", p);
-        const size_t stop = (e == std::string::npos || e > end) ? end : e;
-        const std::string h = buf.substr(p, stop - p);
-        const size_t colon = h.find(':');
-        if (colon != std::string::npos) {
-            std::string v = h.substr(colon + 1);
-            const size_t b = v.find_first_not_of(" \t");
-            headers.push_back({ h.substr(0, colon), b == std::string::npos ? std::string() : v.substr(b) });
-        }
-        if (stop == end) break;
-        p = stop + 2;
-    }
-    return end + 4;
-}
-
-std::string headerOf(const std::vector<JHttpHeader>& hs, const std::string& name) {
-    const std::string want = lower(name);
-    for (const auto& h : hs) if (lower(h.name) == want) return h.value;
-    return {};
 }
 
 // ---- Chunked transfer decoding --------------------------------------------
@@ -150,158 +60,11 @@ bool dechunk(const std::string& in, std::vector<uint8_t>& out, bool& done) {
     return true;
 }
 
-// ---- Socket ---------------------------------------------------------------
-// Everything below is one transfer's worth of connection state. It owns its fd
-// and TLS session and closes both on the way out, so every early return in the
-// transfer path is leak-free without a single explicit cleanup call.
-//
 // A STALL IS NOT A SLOW DOWNLOAD. The socket's receive timeout was the whole transfer's timeout — ten
 // minutes for an update download — so a connection that simply stopped sending (flaky wifi, a dropped
 // route) sat behind a progress window that never moved for ten minutes. The whole transfer still gets
 // its time; any one wait for data gets at most this.
 constexpr int kStallMs = 30000;
-
-class Connection {
-public:
-    ~Connection() { close(); }
-
-    bool connect(const JUrl& url, int timeoutMs, std::string& err) {
-#if defined(_WIN32)
-        WSADATA wsa; static std::once_flag once;
-        std::call_once(once, [&] { WSAStartup(MAKEWORD(2, 2), &wsa); });
-#endif
-        addrinfo hints{};
-        hints.ai_family   = AF_UNSPEC;
-        hints.ai_socktype = SOCK_STREAM;
-        addrinfo* res = nullptr;
-        const std::string port = std::to_string(url.port);
-        const int rc = ::getaddrinfo(url.host.c_str(), port.c_str(), &hints, &res);
-        if (rc != 0 || !res) { err = "cannot resolve " + url.host; return false; }
-
-        for (addrinfo* a = res; a; a = a->ai_next) {
-            m_fd = ::socket(a->ai_family, a->ai_socktype, a->ai_protocol);
-            if (m_fd < 0) continue;
-            if (::connect(m_fd, a->ai_addr, static_cast<socklen_t>(a->ai_addrlen)) == 0) break;
-            closeFd();
-        }
-        ::freeaddrinfo(res);
-        if (m_fd < 0) { err = "cannot connect to " + url.host + ":" + port; return false; }
-
-        int one = 1;
-        ::setsockopt(m_fd, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&one), sizeof(one));
-        setSocketTimeout(std::min(timeoutMs, kStallMs));
-
-        if (!url.secure) return true;
-        return startTls(url.host, err);
-    }
-
-    bool write(const std::string& data, std::string& err) {
-#if JF_HAVE_OPENSSL && !defined(_WIN32)
-        if (m_ssl) {
-            size_t sent = 0;
-            while (sent < data.size()) {
-                const int n = SSL_write(m_ssl, data.data() + sent, static_cast<int>(data.size() - sent));
-                if (n <= 0) { err = "TLS write failed"; return false; }
-                sent += static_cast<size_t>(n);
-            }
-            return true;
-        }
-#endif
-        size_t sent = 0;
-        while (sent < data.size()) {
-            const auto n = ::send(m_fd, data.data() + sent, data.size() - sent, 0);
-            if (n <= 0) { err = "send failed"; return false; }
-            sent += static_cast<size_t>(n);
-        }
-        return true;
-    }
-
-    // >0 bytes read, 0 clean EOF, kStalled nothing arrived within the stall limit, <0 error.
-    static constexpr int kStalled = -2;
-    int read(char* buf, int cap) {
-#if JF_HAVE_OPENSSL && !defined(_WIN32)
-        if (m_ssl) {
-            const int n = SSL_read(m_ssl, buf, cap);
-            if (n > 0) return n;
-            const int e = SSL_get_error(m_ssl, n);
-            // The receive timeout surfaces as a SYSCALL error with EAGAIN — which used to read as EOF, so a
-            // stalled download came back as a SHORT one.
-            if (e == SSL_ERROR_SYSCALL && (errno == EAGAIN || errno == EWOULDBLOCK)) return kStalled;
-            return (e == SSL_ERROR_ZERO_RETURN || e == SSL_ERROR_SYSCALL) ? 0 : -1;
-        }
-#endif
-        const auto n = ::recv(m_fd, buf, static_cast<size_t>(cap), 0);
-        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return kStalled;
-        return n < 0 ? -1 : static_cast<int>(n);
-    }
-
-    void close() {
-#if JF_HAVE_OPENSSL && !defined(_WIN32)
-        if (m_ssl) { SSL_shutdown(m_ssl); SSL_free(m_ssl); m_ssl = nullptr; }
-        if (m_ctx) { SSL_CTX_free(m_ctx); m_ctx = nullptr; }
-#endif
-        closeFd();
-    }
-
-private:
-    void closeFd() {
-        if (m_fd < 0) return;
-#if defined(_WIN32)
-        ::closesocket(m_fd);
-#else
-        ::close(m_fd);
-#endif
-        m_fd = -1;
-    }
-
-    void setSocketTimeout(int ms) {
-#if defined(_WIN32)
-        DWORD tv = static_cast<DWORD>(ms);
-#else
-        timeval tv{ ms / 1000, (ms % 1000) * 1000 };
-#endif
-        ::setsockopt(m_fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
-        ::setsockopt(m_fd, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
-    }
-
-    bool startTls(const std::string& host, std::string& err) {
-#if JF_HAVE_OPENSSL && !defined(_WIN32)
-        static std::once_flag once;
-        std::call_once(once, [] { SSL_library_init(); SSL_load_error_strings(); });
-        m_ctx = SSL_CTX_new(TLS_client_method());
-        if (!m_ctx) { err = "cannot create TLS context"; return false; }
-        // Verify the chain AND the hostname. A client that skips either is not a
-        // secure client, it is a plaintext client with extra steps.
-        SSL_CTX_set_min_proto_version(m_ctx, TLS1_2_VERSION);
-        SSL_CTX_set_verify(m_ctx, SSL_VERIFY_PEER, nullptr);
-        if (!SSL_CTX_set_default_verify_paths(m_ctx)) { err = "no system CA store"; return false; }
-        m_ssl = SSL_new(m_ctx);
-        if (!m_ssl) { err = "cannot create TLS session"; return false; }
-        SSL_set_fd(m_ssl, m_fd);
-        SSL_set_tlsext_host_name(m_ssl, host.c_str());              // SNI
-        X509_VERIFY_PARAM* vp = SSL_get0_param(m_ssl);
-        X509_VERIFY_PARAM_set_hostflags(vp, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
-        if (!X509_VERIFY_PARAM_set1_host(vp, host.c_str(), 0)) { err = "cannot set verify host"; return false; }
-        if (SSL_connect(m_ssl) != 1) {
-            const long v = SSL_get_verify_result(m_ssl);
-            err = v != X509_V_OK ? std::string("TLS certificate rejected: ") + X509_verify_cert_error_string(v)
-                                 : "TLS handshake failed";
-            return false;
-        }
-        return true;
-#else
-        (void)host;
-        err = "this build has no TLS support (built without OpenSSL)";
-        return false;
-#endif
-    }
-
-    int m_fd{-1};
-#if JF_HAVE_OPENSSL && !defined(_WIN32)
-    SSL_CTX* m_ctx{nullptr};
-    SSL*     m_ssl{nullptr};
-#endif
-};
 
 #if defined(_WIN32)
 
@@ -329,7 +92,7 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
                        const std::string& method = "GET", const std::string& body = {}) {
     JHttpResponse r;
     r.finalUrl = url;
-    const JUrl u = parseUrl(url);
+    const JUrl u = httpUrl(url);
     if (!u.valid) { r.error = "malformed url: " + url; return r; }
 
     struct Handle {
@@ -376,11 +139,12 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
         std::wstring raw(hlen / sizeof(wchar_t), L'\0');
         if (::WinHttpQueryHeaders(request.h, WINHTTP_QUERY_RAW_HEADERS_CRLF, WINHTTP_HEADER_NAME_BY_INDEX,
                                   raw.data(), &hlen, WINHTTP_NO_HEADER_INDEX)) {
-            int ignored = 0;
-            parseHead(narrow(raw) + "\r\n", ignored, r.headers);   // reuse the shared header parser
+            JHttpHead head;
+            head.parse(narrow(raw) + "\r\n");                     // the shared header parser
+            r.headers = std::move(head.headers);
         }
     }
-    const std::string cl = headerOf(r.headers, "Content-Length");
+    const std::string cl = r.header("Content-Length");
     const int64_t declared = cl.empty() ? 0 : std::strtoll(cl.c_str(), nullptr, 10);
 
     for (;;) {
@@ -408,22 +172,22 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
     JHttpResponse r;
     r.finalUrl = url;
 
-    const JUrl u = parseUrl(url);
+    const JUrl u = httpUrl(url);
     if (!u.valid) { r.error = "malformed url: " + url; return r; }
     if (u.secure && !JHttpClient::tlsAvailable()) {
         r.error = "https requested but this build has no TLS support";
         return r;
     }
 
-    Connection conn;
-    if (!conn.connect(u, timeoutMs, r.error)) return r;
+    const int stallMs = std::min(timeoutMs, kStallMs);
+    JTcpSocket conn;
+    if (!conn.connect(u.host, u.port, u.secure, stallMs, r.error)) return r;
 
-    std::string req = method + " " + u.path + " HTTP/1.1\r\nHost: " + u.host;
-    if ((u.secure && u.port != 443) || (!u.secure && u.port != 80)) req += ":" + std::to_string(u.port);
+    std::string req = method + " " + u.path + " HTTP/1.1\r\nHost: " + u.authority();
     req += "\r\nConnection: close\r\nAccept-Encoding: identity\r\n";
     bool haveUA = false;
     for (const auto& h : headers) {
-        if (lower(h.name) == "user-agent") haveUA = true;
+        if (JHttpHeader::sameName(h.name, "User-Agent")) haveUA = true;
         req += h.name + ": " + h.value + "\r\n";
     }
     if (!haveUA) req += "User-Agent: JFramework/1.0\r\n";
@@ -434,6 +198,7 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
 
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
     std::string raw;
+    JHttpHead head;
     size_t   bodyAt      = std::string::npos;
     int64_t  declared    = 0;
     bool     chunked     = false;
@@ -444,21 +209,25 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
             r.error = "timed out after " + std::to_string(timeoutMs) + " ms";
             return r;
         }
-        const int n = conn.read(buf, static_cast<int>(sizeof(buf)));
-        if (n == Connection::kStalled) {
-            r.error = "the connection stalled (no data for " + std::to_string(std::min(timeoutMs, kStallMs) / 1000) + " s)";
+        const int n = conn.read(buf, sizeof(buf));
+        if (n == JTcpSocket::kStalled) {
+            r.error = "the connection stalled (no data for " + std::to_string(stallMs / 1000) + " s)";
             return r;
         }
-        if (n < 0) { r.error = "read failed"; return r; }
-        if (n == 0) break;                                        // server closed: everything we get
+        if (n == JTcpSocket::kFailed) { r.error = "read failed"; return r; }
+        if (n == JTcpSocket::kClosed) break;                      // server closed: everything we get
         raw.append(buf, static_cast<size_t>(n));
 
         if (bodyAt == std::string::npos) {
-            bodyAt = parseHead(raw, r.status, r.headers);
+            bodyAt = head.parse(raw);
             if (bodyAt != std::string::npos) {
-                chunked  = lower(headerOf(r.headers, "Transfer-Encoding")).find("chunked") != std::string::npos;
-                const std::string cl = headerOf(r.headers, "Content-Length");
-                declared = cl.empty() ? 0 : std::strtoll(cl.c_str(), nullptr, 10);
+                r.status  = head.status;
+                r.headers = head.headers;
+                std::string te = r.header("Transfer-Encoding");
+                for (char& c : te) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                chunked   = te.find("chunked") != std::string::npos;
+                const std::string cl = r.header("Content-Length");
+                declared  = cl.empty() ? 0 : std::strtoll(cl.c_str(), nullptr, 10);
             }
         }
         if (bodyAt == std::string::npos) continue;
@@ -497,11 +266,9 @@ JHttpResponse exchange(const std::string& url, int timeoutMs,
 // and relative forms, and a relative one against the wrong base fetches nothing.
 std::string resolveRedirect(const std::string& base, const std::string& loc) {
     if (loc.find("://") != std::string::npos) return loc;
-    const JUrl b = parseUrl(base);
+    const JUrl b = httpUrl(base);
     if (!b.valid) return loc;
-    const std::string root = b.scheme + "://" + b.host +
-                             ((b.secure && b.port != 443) || (!b.secure && b.port != 80)
-                                  ? ":" + std::to_string(b.port) : std::string());
+    const std::string root = b.origin();
     if (!loc.empty() && loc[0] == '/') return root + loc;
     const size_t slash = b.path.rfind('/');
     return root + (slash == std::string::npos ? "/" : b.path.substr(0, slash + 1)) + loc;
@@ -510,7 +277,7 @@ std::string resolveRedirect(const std::string& base, const std::string& loc) {
 } // namespace
 
 // ---- JHttpResponse ---------------------------------------------------------
-std::string JHttpResponse::header(const std::string& name) const { return headerOf(headers, name); }
+std::string JHttpResponse::header(const std::string& name) const { return JHttpHeader::find(headers, name); }
 
 // ---- JHttpClient -----------------------------------------------------------
 struct JHttpClient::Impl {
@@ -532,17 +299,15 @@ void JHttpClient::setMaxRedirects(int n)              { m_impl->maxRedirects = n
 
 void JHttpClient::setHeader(const std::string& name, const std::string& value) {
     for (auto& h : m_impl->headers)
-        if (lower(h.name) == lower(name)) { h.value = value; return; }
+        if (JHttpHeader::sameName(h.name, name)) { h.value = value; return; }
     m_impl->headers.push_back({ name, value });
 }
 
 bool JHttpClient::tlsAvailable() {
 #if defined(_WIN32)
     return true;              // WinHTTP; TLS is the OS's, always present
-#elif JF_HAVE_OPENSSL
-    return true;
 #else
-    return false;             // built without OpenSSL: http:// works, https:// is refused
+    return JTcpSocket::tlsAvailable();   // OpenSSL; without it http:// works and https:// is refused
 #endif
 }
 

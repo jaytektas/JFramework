@@ -4,6 +4,7 @@
 #pragma once
 
 #include <j/core/Signal.h>
+#include <j/io/JHttpHeader.h>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -11,19 +12,15 @@
 #include <vector>
 
 // Cross-platform HTTP/HTTPS client. The public interface carries no platform or
-// TLS types — the POSIX socket + OpenSSL / Win32 Schannel backend lives entirely
-// in HttpClient.cpp behind an opaque Impl (pimpl). get() runs the transfer on its
+// TLS types. On POSIX it speaks HTTP/1.1 itself over a JTcpSocket (TLS from
+// OpenSSL there); on Windows it hands the exchange to WinHTTP, the OS's own HTTP
+// stack, which brings the system certificate store and proxy settings with it.
+// Both live in HttpClient.cpp behind an opaque Impl (pimpl). get() runs the transfer on its
 // own thread and delivers the result on the main thread via JMainThreadDispatcher,
 // so a callback may touch widgets directly; getSync() is the same transfer for
 // callers that are already off the main thread.
 
 inline namespace jf {
-
-// ---- One header of a request or a response ---------------------------------
-struct JHttpHeader {
-    std::string name;
-    std::string value;
-};
 
 // ---- What a transfer produced ----------------------------------------------
 // A response with a status is a response, whatever the status: 404 is a server

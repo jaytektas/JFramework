@@ -11,6 +11,7 @@
 #include <j/core/JSpinBox.h>
 #include <j/core/JDoubleSpinBox.h>
 #include <j/core/JButton.h>
+#include <j/core/JProgressBar.h>
 #include <j/core/MenuSystem.h>
 #include <j/core/SceneGraph.h>
 #include <j/graphics/RenderPrimitive.h>
@@ -75,6 +76,32 @@ void test_widget_rendering() {
     assert(cmds[0].rect.rectBounds[2] == 100);
     
     std::cout << "test_widget_rendering passed" << std::endl;
+}
+
+void test_progress_tone() {
+    // A tone is a style variant: the fill takes that status colour from the theme, the track does not change.
+    JSceneGraph graph;
+    JProgressBar bar(graph, 100, 10);
+    graph.getLayout(bar.getNodeId()).boundingBox = {0, 0, 100, 10};
+    bar.setProgress(0.5f);
+    auto fill = [&bar] {
+        JPrimitiveBuffer buf;
+        bar.populateRenderPrimitives(buf);
+        const auto& cmds = buf.getCommands();
+        assert(cmds.size() == 2);                                // track, then fill
+        assert(cmds[1].rect.rectBounds[2] == 50);
+        return std::vector<uint8_t>(cmds[1].rect.color, cmds[1].rect.color + 4);
+    };
+    auto is = [](const std::vector<uint8_t>& c, const uint8_t* want) { return std::equal(c.begin(), c.end(), want); };
+    assert(bar.tone() == JProgressBar::Tone::Success);
+    assert(is(fill(), JStyle::current().Success));
+    bar.setTone(JProgressBar::Tone::Accent);
+    assert(is(fill(), JStyle::current().Accent));
+    bar.setTone(JProgressBar::Tone::Warning);
+    assert(is(fill(), JStyle::current().Warning));
+    bar.setTone(JProgressBar::Tone::Danger);
+    assert(is(fill(), JStyle::current().Danger));
+    std::cout << "test_progress_tone passed" << std::endl;
 }
 
 void test_slider_logic() {
@@ -840,6 +867,7 @@ void test_treeview_keeps_scroll_on_rebuild() {
 int main() {
     test_button_interaction();
     test_widget_rendering();
+    test_progress_tone();
     test_slider_logic();
     test_spinbox_text_editing();
     test_focus_proxy_and_edit_survival();

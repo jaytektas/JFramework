@@ -3,9 +3,11 @@ cmake_minimum_required(VERSION 3.16)
 # the only thing that stops an app being built against a framework it has outgrown and shipping what that
 # framework had. 0.2: the file chooser rebuilt (1f54e20 — typed path, New Folder, places, file types,
 # overwrite asked) — an app built against 0.1 shows the old hand-drawn picker. 0.3: the AI bus carries a
-# reply and a 64 KB request (ABI 8), and runs on Windows. Raise the minor when an app
+# reply and a 64 KB request (ABI 8), and runs on Windows. 0.4: JWebSocket (RFC 6455, over the new
+# JTcpSocket / JTcpServer that JHttpClient and JLocalWebServer now share) — an app that talks WebSocket
+# cannot be built against an SDK without it. Raise the minor when an app
 # must not be built against what came before.
-project(JFramework VERSION 0.3.1 LANGUAGES CXX)
+project(JFramework VERSION 0.4.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -136,11 +138,17 @@ target_sources(j_platform PRIVATE src/io/SerialPort.cpp)
 target_sources(j_platform PRIVATE src/io/Volumes.cpp)
 # Clipboard backend (JClipboard) — Win32/X11 impl behind the interface; header stays platform-free.
 target_sources(j_platform PRIVATE src/platform/Clipboard.cpp)
-# HTTP backend (JHttpClient) — POSIX sockets / Win32 impl behind the pimpl; header stays platform-free.
-# TLS comes from OpenSSL on POSIX and from WinHTTP (an OS component) on Windows. Without OpenSSL the
-# client still builds and still serves http://, and answers an https:// request with an error saying so —
-# it never silently downgrades a secure request to a plaintext one.
+# TCP (JTcpSocket, JTcpServer) — BSD sockets / Winsock behind the pimpl (src/io/JSocketPlatform.h, private);
+# headers stay platform-free. JTcpSocket's TLS is OpenSSL on POSIX; without OpenSSL, and on Windows, a TLS
+# connect is answered with an error saying so — never silently made in plaintext.
+target_sources(j_platform PRIVATE src/io/JTcpSocket.cpp src/io/JTcpServer.cpp)
+# HTTP backend (JHttpClient) — HTTP/1.1 over JTcpSocket on POSIX, WinHTTP (an OS component, bringing the
+# system certificate store and proxy settings) on Windows. Without OpenSSL the client still builds and
+# still serves http://, and answers an https:// request with an error saying so — it never silently
+# downgrades a secure request to a plaintext one.
 target_sources(j_platform PRIVATE src/io/HttpClient.cpp)
+# WebSocket client (JWebSocket) — RFC 6455 over JTcpSocket; wss:// wherever JTcpSocket has TLS.
+target_sources(j_platform PRIVATE src/io/JWebSocket.cpp)
 # Self-update (JSelfInstaller) — the AppImage swap on Linux, the silent installer run on Windows.
 target_sources(j_platform PRIVATE src/update/JSelfInstaller.cpp)
 # USB access on Linux (JUdevRule) — an application installing its own udev rule through pkexec.
@@ -157,10 +165,10 @@ else()
     if(OpenSSL_FOUND)
         target_link_libraries(j_platform PRIVATE OpenSSL::SSL OpenSSL::Crypto)
         target_compile_definitions(j_platform PRIVATE JF_HAVE_OPENSSL=1)
-        message(STATUS "JHttpClient: TLS via OpenSSL ${OPENSSL_VERSION}")
+        message(STATUS "JTcpSocket / JHttpClient: TLS via OpenSSL ${OPENSSL_VERSION}")
     else()
         target_compile_definitions(j_platform PRIVATE JF_HAVE_OPENSSL=0)
-        message(WARNING "JHttpClient: OpenSSL not found — https:// will be refused at runtime")
+        message(WARNING "JTcpSocket / JHttpClient: OpenSSL not found — https:// and wss:// will be refused at runtime")
     endif()
 endif()
 
@@ -302,6 +310,8 @@ if(GENESIS_BUILD_TESTS)
     target_link_libraries(test_database PRIVATE j_db)
     add_genesis_test(test_serial           src/tests/test_serial.cpp)
     add_genesis_test(test_http             src/tests/test_http.cpp)
+    add_genesis_test(test_tcp_socket       src/tests/test_tcp_socket.cpp)
+    add_genesis_test(test_websocket        src/tests/test_websocket.cpp)
     add_genesis_test(test_dock_split       src/tests/test_dock_split.cpp)
     add_genesis_test(test_dock_handle_drag src/tests/test_dock_handle_drag.cpp)
     add_genesis_test(test_dock_centre      src/tests/test_dock_centre.cpp)

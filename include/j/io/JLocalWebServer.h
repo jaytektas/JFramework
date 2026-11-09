@@ -22,6 +22,8 @@
 //     std::string why;
 //     if (web.start(why)) JDesktop::openUrl(web.url("manual/index.html"));
 
+#include <j/io/JTcpServer.h>
+
 #include <atomic>
 #include <memory>
 #include <string>
@@ -47,7 +49,7 @@ public:
     bool start(std::string& error);
     void stop();
     bool running() const { return m_running.load(); }
-    int  port() const { return m_port; }
+    int  port() const { return m_server.port(); }
 
     // "http://127.0.0.1:<port>/<path>".
     std::string url(const std::string& path) const;
@@ -64,8 +66,7 @@ private:
 
     std::vector<std::pair<std::string, std::string>> m_mounts;   // prefix, canonical folder
     std::atomic<bool> m_running{false};
-    long long         m_listen = -1;                              // the socket, as the platform's handle
-    int               m_port = 0;
+    JTcpServer        m_server;
     std::thread       m_thread;
 };
 
