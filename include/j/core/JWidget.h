@@ -366,6 +366,7 @@ public:
         return false;
     }
     JWidget*    parentWidget() const noexcept { return m_parent; }
+    const std::string& debugName() const noexcept { return m_debugName; }   // the class name, for logs
     bool        isEnabled()  const noexcept { return m_state != JWidgetState::Disabled; }
     bool        isFocused()  const noexcept { return m_focused; }
 

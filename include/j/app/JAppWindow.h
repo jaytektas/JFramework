@@ -1004,15 +1004,33 @@ public:
                             << "now — destroyed and rebuilt mid-scan; skipped instead of dereferenced";
                     return false;
                 };
+                // ON SCREEN THERE, NOT JUST "ITS RECT HOLDS THE POINT". The walk is newest-first, not top-
+                // most-first, so a widget's own rect was the only test — and a page surface whose content
+                // rect runs past the area it is drawn in (a page larger than its window, scrolled) claimed
+                // right-clicks over the tree dock beside it: the table menu over the tree. Every parent
+                // must hold the point too; a parent that has never been laid out (no size) clips nothing.
+                const auto shows = [](const JWidget* w, float x, float y) {
+                    if (!w->hitTest(x, y)) return false;
+                    for (const JWidget* p = w->parentWidget(); p; p = p->parentWidget()) {
+                        const JRect r = p->bounds();
+                        if (r.width > 0.f && r.height > 0.f && !p->hitTest(x, y)) return false;
+                    }
+                    return true;
+                };
                 for (auto it = scan.rbegin(); it != scan.rend(); ++it) {
                     JWidget* w = it->first;
                     const uint64_t uid = it->second;
                     if (!alive(w, uid)) continue;         // destroyed by an earlier prepareContextMenu()
                     // prepareContextMenu FIRST so a widget can pick its menu from the click position (a surface
                     // sets the table/curve menu for whatever control is under the cursor), THEN check contextMenu().
-                    if (w->isVisible() && w->hitTest(mx, my)) w->prepareContextMenu(mx, my);
+                    if (w->isVisible() && shows(w, mx, my)) w->prepareContextMenu(mx, my);
                     if (!alive(w, uid)) continue;         // ...or by its own
-                    if (w->isVisible() && w->contextMenu() && w->hitTest(mx, my)) {
+                    if (w->isVisible() && w->contextMenu() && shows(w, mx, my)) {
+                        const JRect b = w->bounds();
+                        qCInfo(LogLayoutEngine) << "context menu at" << mx << my << "from"
+                                                << w->debugName() << "#" << uid << "rect" << b.x << b.y
+                                                << b.width << b.height << "parent"
+                                                << (w->parentWidget() ? w->parentWidget()->debugName() : std::string("none"));
                         if (JMenuManager::instance().onOpenMenu)
                             JMenuManager::instance().onOpenMenu(
                                 w->contextMenu(),

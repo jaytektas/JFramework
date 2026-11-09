@@ -75,6 +75,7 @@ public:
     bool handleMouse(float mx, float my, bool pressed, bool released) {
         layout();
         for (auto& it : m_widgets) {
+            if (!it.w->isVisibleSelf()) continue;
             it.w->handleMouseMove(mx, my);
             if (pressed)  it.w->handleMousePress(mx, my);
             if (released) it.w->handleMouseRelease(mx, my);
@@ -104,6 +105,7 @@ public:
         }
         const float pad = 4.f;
         for (auto& it : m_widgets) {
+            if (!it.w->isVisibleSelf()) continue;   // hidden: no space, no drawing (a progress bar between runs)
             it.w->setBounds({ it.x, m_rect.y + pad, it.width, h - 2.f * pad });
             it.w->populateRenderPrimitives(buf);
         }
@@ -120,6 +122,7 @@ private:
             x -= kGap;
         }
         for (auto it = m_widgets.rbegin(); it != m_widgets.rend(); ++it) {
+            if (!it->w->isVisibleSelf()) continue;
             x -= it->width;
             it->x = x;
             x -= kGap;
