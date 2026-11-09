@@ -1,5 +1,6 @@
 # Build directories
 build/
+build-release/
 bin/
 
 # In-source CMake artifacts
@@ -46,5 +47,6 @@ docs/architecture/*.html
 /test_*
 build-native/
 build/
+build-release/
 genesis.log
 build-win/

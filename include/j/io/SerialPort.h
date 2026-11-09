@@ -120,6 +120,13 @@ public:
     // on DTR, or need RTS held to talk; the lines are left as the system opened them until asked.
     // With hardware flow control the driver drives RTS itself. False when the port is not open
     // or the system refused.
+    // Change the speed of an OPEN port to any rate, not just the JBaudRate list: devices that
+    // negotiate a faster link mid-session (or a UART whose clock cannot make 115 200) need rates
+    // like 153 600. The adapter picks its nearest real rate. Returns false (with lastError())
+    // if the system refuses. Windows takes any rate; Linux uses termios2; elsewhere only the
+    // JBaudRate rates are accepted.
+    bool setBaud(uint32_t baud);
+
     bool setDtr(bool on);
     bool setRts(bool on);
 

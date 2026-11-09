@@ -36,6 +36,10 @@
 
 inline namespace jf {
 
+#if defined(__linux__)
+namespace detail { bool setCustomBaud(int fd, uint32_t baud); }   // SerialBaudLinux.cpp
+#endif
+
 // ---- Opaque implementation -------------------------------------------------
 struct JSerialPort::Impl {
     explicit Impl(JSerialPort& o) : owner(o) {}
@@ -306,6 +310,38 @@ struct JSerialPort::Impl {
 #endif
     }
 
+    bool setBaud(uint32_t baud) {
+        if (!isOpen() || !baud) return false;
+#if defined(_WIN32)
+        DCB dcb{};
+        dcb.DCBlength = sizeof(DCB);
+        if (!GetCommState(m_handle, &dcb)) { _postError("GetCommState failed"); return false; }
+        dcb.BaudRate = baud;
+        if (!SetCommState(m_handle, &dcb)) { _postError("SetCommState failed for " + std::to_string(baud)); return false; }
+        return true;
+#elif defined(__linux__)
+        if (!detail::setCustomBaud(m_fd, baud)) {
+            _postError("cannot set " + std::to_string(baud) + " baud: " + std::strerror(errno));
+            return false;
+        }
+        return true;
+#else
+        speed_t sp;
+        switch (baud) {
+            case 1200: sp = B1200; break;   case 4800: sp = B4800; break;
+            case 9600: sp = B9600; break;   case 19200: sp = B19200; break;
+            case 38400: sp = B38400; break; case 57600: sp = B57600; break;
+            case 115200: sp = B115200; break; case 230400: sp = B230400; break;
+            default: _postError(std::to_string(baud) + " baud is not supported here"); return false;
+        }
+        struct termios tty{};
+        if (tcgetattr(m_fd, &tty) != 0) return false;
+        cfsetispeed(&tty, sp);
+        cfsetospeed(&tty, sp);
+        return tcsetattr(m_fd, TCSANOW, &tty) == 0;
+#endif
+    }
+
     // Raise (on) or drop the DTR line (dtr) or the RTS line.
     bool setLine(bool dtr, bool on) {
         if (!isOpen()) return false;
@@ -487,6 +523,7 @@ void JSerialPort::release()                          { m_impl->release(); }
 bool JSerialPort::isClaimed() const                  { return m_impl->isClaimed(); }
 std::vector<uint8_t> JSerialPort::readClaimed(int ms) { return m_impl->readClaimed(ms); }
 void JSerialPort::flush()             { m_impl->flush(); }
+bool JSerialPort::setBaud(uint32_t b)  { return m_impl->setBaud(b); }
 bool JSerialPort::setDtr(bool on)     { return m_impl->setLine(true, on); }
 bool JSerialPort::setRts(bool on)     { return m_impl->setLine(false, on); }
 

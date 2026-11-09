@@ -133,6 +133,10 @@ add_dependencies(j_platform j_shaders)
 target_sources(j_platform PRIVATE src/platforms/PlatformFactory.cpp)
 # Serial backend (JSerialPort) — POSIX/Win32 impl behind the pimpl; header stays platform-free.
 target_sources(j_platform PRIVATE src/io/SerialPort.cpp)
+# Arbitrary baud rates on Linux (termios2 / BOTHER), kept apart from <termios.h>.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(j_platform PRIVATE src/io/SerialBaudLinux.cpp)
+endif()
 target_sources(j_platform PRIVATE src/io/Volumes.cpp)
 # Clipboard backend (JClipboard) — Win32/X11 impl behind the interface; header stays platform-free.
 target_sources(j_platform PRIVATE src/platform/Clipboard.cpp)
