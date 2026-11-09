@@ -47,6 +47,5 @@ docs/architecture/*.html
 /test_*
 build-native/
 build/
-build-release/
 genesis.log
 build-win/
